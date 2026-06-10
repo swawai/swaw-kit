@@ -1,0 +1,10 @@
+*.exe
+*.local.cmd
+*.secret.cmd
+pathhere.backup.log
+
+.xvenv/
+
+.env
+xvenv.cmd
+.vscode/
