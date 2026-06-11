@@ -2,67 +2,40 @@
 
 一个很小的 Windows 工具箱入口：把当前目录加入当前用户 `PATH`，让 `Win + R`、终端和脚本都可以直接运行这里的 `.cmd`、`.bat`、`.exe`。
 
-只需要下载这两个文件即可使用：
 
 ```text
-pathhereadd.cmd
-pathhereremove.cmd
+pathhereadd.cmd       加入用户 PATH
+pathhereremove.cmd    从用户 PATH 移除
 ```
 
-## 用法
+默认作用于当前工作目录；在资源管理器里双击时，通常就是这两个脚本所在的目录。也可以传入参数，明确指定其他目录。
 
-进入你准备作为工具箱的目录：
+> 脚本已上传 GitHub，仓库地址见文末。
 
-```cmd
-cd /d C:\my_handy_tools
-pathhereadd
-```
+使用方法：
+1. 把两个脚本下载、放入某个目录，例如 `C:\win-run-toolbox`
+2. 双击 `pathhereadd.cmd`
 
-之后新开的终端，或重新调起的 `Win + R`，就可以直接运行这个目录里的命令。
+这时脚本会检查这个工具箱目录，是否已经在当前用户的 `PATH`，不存在就追加进去。
 
-移除当前目录：
+之后，打开新终端，或者重新调起 `Win + R`，就会生效了。
 
-```cmd
-cd /d C:\my_handy_tools
-pathhereremove
-```
+要撤销，只需双击同目录中的 `pathhereremove.cmd`，它会执行 `pathhereadd.cmd` 的反向操作。
 
-也可以传入指定目录：
 
-```cmd
-pathhereadd C:\my_handy_tools
-pathhereremove C:\my_handy_tools
-```
+## 二、会不会改坏 PATH？
 
-## 建议
-
-不要把很多目录都加入 `PATH`。更低心智负担的做法是：只把一个稳定的工具箱目录加入 `PATH`，以后把自定义命令、便携工具、包装脚本都放进这个目录。
-
-例如：
+`PATH` 是重要的环境变量，脚本在追加/移除其中目标项时，做了几层保护：
 
 ```text
-git1.cmd       使用 SSH Key 1 调 Git
-porttask.cmd   根据端口查进程
-taskport.cmd   根据进程查端口
-tcpview.exe    Sysinternals 连接查看工具
+1. 只修改当前用户 PATH，不碰系统 PATH
+2. 添加前检查是否已存在，避免重复加入
+3. 写入前备份原始用户 PATH
+4. 只改要追加/删除的目录项；其他仍按原样保留（例如 `%USERPROFILE%\bin` 这种，不会被展开成固定路径）
+5. 支持空格、中文、&、%、!、括号等路径字符
+6. 删除时把 `PATH` 按分号拆成一个个目录项，再做完整项匹配；所以删除如 `C:\Tools` 时，不会误伤 `C:\ToolsExtra`。
+7. 如果同一个目录重复出现，删除脚本会把所有匹配项都清掉。
+8. 脚本同目录的 `pathhere.backup.log`，里面有每次操作前备份的原始用户 `PATH`，可做最后保障。
 ```
 
-`PATH` 只负责指向入口；工具箱目录才是自定义命令的单一事实源。
-
-## 脚本做了什么
-
-- 读取当前用户 `PATH`
-- 添加或移除当前目录/指定目录
-- 写入前把旧值备份到 `pathhere.backup.log`
-- 使用 PowerShell 读写 `HKCU\Environment` 中的用户 `Path`
-- 保留已有 `Path` 注册表值名称和类型
-
-两个 `.cmd` 都是单文件脚本：文件开头是很薄的 batch wrapper，后半段是 PowerShell 主逻辑。
-
-## 边界
-
-已经打开的终端通常不会自动刷新环境变量；如果命令找不到，请重新打开终端或重新调起 `Win + R`。
-
-本仓库不分发 Sysinternals 等第三方二进制工具。需要这些工具时，请从 Microsoft 官方页面下载。
-
-维护脚本时，建议让 `.cmd` 文件本体保持 ASCII-only。中文说明可以放在 README 里；脚本输出保留英文，能减少 `cmd.exe`、Windows PowerShell 5.1 和 UTF-8 批处理文件之间的编码噪声。
+> `PATH` 本身用分号分隔目录项，所以工具箱目录名不要包含分号。
