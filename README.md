@@ -2,7 +2,7 @@
 
 一个有用的 Windows 工具箱入口
 
-克隆本项目到你本机，双击其中的
+克隆本项目到你本机，双击其中的：
 
 ```text
 pathhereadd.cmd
@@ -18,7 +18,7 @@ pathhereadd.cmd
 pathhereremove.cmd
 ```
 
-它会执行 `pathhereadd.cmd` 的反向操作。
+它会执行 `pathhereadd.cmd` 的反向操作（把所在目录从用户的 `PATH`中安全的移除）。
 
 
 ## 会不会改坏 PATH？
