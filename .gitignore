@@ -1,4 +1,4 @@
-*.exe
+
 *.local.cmd
 *.secret.cmd
 pathhere.backup.log

@@ -1,0 +1,38 @@
+
+# 基本用法:
+  {{COMMAND}}    运行 {{COMMAND}} (远程登录其文件中配置的 SSH 主机)
+
+
+# 远程命令:
+  {{COMMAND}}  -- ls -la /tmp             # 执行ls，普通非交互式命令
+  {{COMMAND}}  tty -- top                 # 执行top，交互式命令(分配TTY)
+  {{COMMAND}}  script local.sh arg1 arg2  # 上传本机的local.sh脚本到远端机临时目录, 执行，然后清理
+
+
+# SCP 传输, 冒号开头表示远程路径:
+  {{COMMAND}}  copy :/remote/src D:\local
+  {{COMMAND}}  copy D:\local     :/remote/dst
+  {{COMMAND}}  copy :/remote/src :/remote/dst   # 远程目录互拷, 使用 scp -3.
+
+
+# SFTP 同步开发, 需编辑器中安装 SFTP by Natizyskunk 插件(冒号开头表示远程路径):
+  {{COMMAND}}  code :/var/www D:\work\workspace  # 目录的先后顺序没有影响
+  {{COMMAND}}  code D:\work\workspace :app/
+  {{COMMAND}}  cursor :app/   D:\work\workspace
+
+
+# 远程编辑（编辑器会通过 Remote-SSH 在远程服务器上安装对应 server）:
+  {{COMMAND}}  code /var/www     # 用 VS Code 打开远程绝对路径.
+  {{COMMAND}}  code app/         # 用 VS Code 打开远程 $HOME/app/.
+  {{COMMAND}}  cursor /var/www   # 用 Cursor 打开远程绝对路径.
+  {{COMMAND}}  cursor app/       # 用 Cursor 打开远程 $HOME/app/.
+
+
+# 密钥管理（会修改远端 ~/.ssh/authorized_keys；key.fix/key.add.fix 还可能修改 sshd 配置）:
+  {{COMMAND}}  key.add       将配置的私钥对应的 .pub 公钥添加到远端的 ~/.ssh/authorized_keys（幂等，不会重复添加）
+  {{COMMAND}}  key.remove    从远端的 ~/.ssh/authorized_keys 移除该公钥（幂等,若有重复项会一并移除）。
+  {{COMMAND}}  key.fix       检查/修复远端 sshd 配置中的 PubkeyAuthentication 为yes (否则会拒绝key方式登录)
+  {{COMMAND}}  key.add.fix   添加公钥，并检查/修复 PubkeyAuthentication
+  # 若配置的私钥和同名 .pub 都不存在，key.add/key.fix 会用 ssh-keygen 默认参数就地生成一对key
+  # 若远端机 /etc/ssh/sshd_config.d/*.conf 为空, key.fix 会优先改 /etc/ssh/sshd_config；改前会先就地备份既有文件.
+

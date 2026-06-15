@@ -1,0 +1,37 @@
+
+# Basic usage:
+  {{COMMAND}}    Open SSH using the host settings in this entry file.
+
+
+# Remote commands:
+  {{COMMAND}}  -- ls -la /tmp             # Run a normal non-interactive command.
+  {{COMMAND}}  tty -- top                 # Run an interactive command with TTY.
+  {{COMMAND}}  script local.sh arg1 arg2  # Upload local.sh to a remote temp dir, run it, then clean up.
+
+
+# SCP transfer, a leading colon means a remote path:
+  {{COMMAND}}  copy :/remote/src D:\local
+  {{COMMAND}}  copy D:\local     :/remote/dst
+  {{COMMAND}}  copy :/remote/src :/remote/dst   # Remote-to-remote copy via scp -3.
+
+
+# SFTP workspace setup, requires the SFTP by Natizyskunk editor extension (a leading colon means a remote path):
+  {{COMMAND}}  code :/var/www D:\work\workspace
+  {{COMMAND}}  code D:\work\workspace :app/      # Local/remote argument order does not matter.
+  {{COMMAND}}  cursor :app/   D:\work\workspace
+
+
+# Remote editing (the editor installs its Remote-SSH server on the remote host):
+  {{COMMAND}}  code /var/www     # Open a remote absolute path with VS Code.
+  {{COMMAND}}  code app/         # Open remote $HOME/app/ with VS Code.
+  {{COMMAND}}  cursor /var/www   # Open a remote absolute path with Cursor.
+  {{COMMAND}}  cursor app/       # Open remote $HOME/app/ with Cursor.
+
+
+# Key management (modifies remote ~/.ssh/authorized_keys; key.fix/key.add.fix may also modify sshd config):
+  {{COMMAND}}  key.add       Add the configured .pub key to remote ~/.ssh/authorized_keys (idempotent; no duplicate entries).
+  {{COMMAND}}  key.remove    Remove that public key from remote ~/.ssh/authorized_keys (idempotent; duplicate entries are removed together).
+  {{COMMAND}}  key.fix       Check/fix remote sshd PubkeyAuthentication yes (otherwise key login may be refused).
+  {{COMMAND}}  key.add.fix   Add the public key and check/fix PubkeyAuthentication.
+  # If the configured private key and same-name .pub are both missing, key.add/key.fix generates a key pair in place with ssh-keygen defaults.
+  # If remote /etc/ssh/sshd_config.d/*.conf is empty, key.fix updates /etc/ssh/sshd_config first; existing files are backed up before editing.

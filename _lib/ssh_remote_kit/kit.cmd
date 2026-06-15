@@ -1,0 +1,338 @@
+@echo off
+chcp 65001 >nul
+setlocal
+
+if "%~1"=="-h" goto :ShowHelp
+if "%~1"=="--help" goto :ShowHelp
+if "%~1"=="/?" goto :ShowHelp
+goto :Main
+
+:ShowHelp
+set "commandName=%~2"
+if not defined commandName set "commandName=remote_kit"
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0help.ps1" -CommandName "%commandName%"
+exit /b %ERRORLEVEL%
+
+:Main
+rem -----------------------------------------------------------------------------
+rem Remote entry config:
+rem   %1 = SSH port
+rem   %2 = remote host IP/domain
+rem   %3 = fixed SSH user
+rem   %4 = SSH private key path
+rem   %5 = command: -- / tty / script / code / cursor / copy / key.add / key.remove / key.fix / key.add.fix
+rem   %6/%7 = command arguments
+rem -----------------------------------------------------------------------------
+set "port=%~1"
+set "host=%~2"
+set "remoteUser=%~3"
+set "sshKeyPath=%~4"
+set "verb=%~5"
+set "arg1=%~6"
+set "arg2=%~7"
+set "arg3=%~8"
+
+if not defined port goto :InvalidArgs
+if not defined host goto :InvalidArgs
+if not defined remoteUser goto :InvalidArgs
+if not defined sshKeyPath set "sshKeyPath=%USERPROFILE%\.ssh\id_rsa"
+for /f "delims=0123456789" %%a in ("%port%") do goto :InvalidArgs
+
+rem Use only the identity from the entry file, avoiding ssh-agent identity noise.
+if not defined REMOTE_KIT_SSH_ID_OPTS set "REMOTE_KIT_SSH_ID_OPTS=-o IdentityAgent=none -o IdentitiesOnly=yes"
+if not defined REMOTE_KIT_SSH_HOSTKEY_OPTS set "REMOTE_KIT_SSH_HOSTKEY_OPTS=-o StrictHostKeyChecking=accept-new"
+
+set "SSH_COMMON_OPTS=%REMOTE_KIT_SSH_ID_OPTS% %REMOTE_KIT_SSH_HOSTKEY_OPTS%"
+if defined REMOTE_KIT_SSH_LOG_OPTS set "SSH_COMMON_OPTS=%SSH_COMMON_OPTS% %REMOTE_KIT_SSH_LOG_OPTS%"
+if not defined REMOTE_KIT_SSH_COMMAND_OPTS set "REMOTE_KIT_SSH_COMMAND_OPTS=-n -T -o BatchMode=yes -o ServerAliveInterval=60 -o ServerAliveCountMax=3"
+if not defined REMOTE_KIT_SSH_TTY_OPTS set "REMOTE_KIT_SSH_TTY_OPTS=-tt -o BatchMode=yes -o ServerAliveInterval=60 -o ServerAliveCountMax=3"
+set "REMOTE_KIT_VERBOSE_FLAG="
+if /i "%REMOTE_KIT_VERBOSE%"=="1" set "REMOTE_KIT_VERBOSE_FLAG=1"
+if /i "%REMOTE_KIT_VERBOSE%"=="true" set "REMOTE_KIT_VERBOSE_FLAG=1"
+if /i "%REMOTE_KIT_VERBOSE%"=="yes" set "REMOTE_KIT_VERBOSE_FLAG=1"
+if /i "%REMOTE_KIT_VERBOSE%"=="on" set "REMOTE_KIT_VERBOSE_FLAG=1"
+if /i "%REMOTE_KIT_VERBOSE%"=="debug" set "REMOTE_KIT_VERBOSE_FLAG=1"
+set "REMOTE_TARGET=%remoteUser%@%host%"
+set "VSCODE_REMOTE=ssh-remote+%remoteUser%@%host%:%port%"
+set "remoteHome="
+
+if "%verb%"=="--" goto :RemoteCommand
+if /i "%verb%"=="tty" goto :TtyRemoteCommand
+if /i "%verb%"=="script" goto :ScriptCommand
+if defined arg3 goto :InvalidArgs
+
+if not defined verb if not defined arg1 if not defined arg2 goto :OpenSsh
+
+if /i "%verb%"=="code" goto :CodeCommand
+if /i "%verb%"=="cursor" goto :CursorCommand
+if /i "%verb%"=="copy" goto :CopyCommand
+if /i "%verb%"=="key.add" goto :AddKey
+if /i "%verb%"=="key.remove" goto :RemoveKey
+if /i "%verb%"=="key.fix" goto :FixKey
+if /i "%verb%"=="key.add.fix" goto :AddKeyFix
+
+goto :InvalidArgs
+
+:CodeCommand
+if not defined arg1 goto :InvalidArgs
+if defined arg2 goto :WriteSftpConfigCode
+call :OpenRemotePath "code" "%arg1%"
+exit /b %ERRORLEVEL%
+
+:CursorCommand
+if not defined arg1 goto :InvalidArgs
+if defined arg2 goto :WriteSftpConfigCursor
+call :OpenRemotePath "cursor" "%arg1%"
+exit /b %ERRORLEVEL%
+
+:WriteSftpConfigCode
+call :WriteSftpConfig "code" "%arg1%" "%arg2%"
+exit /b %ERRORLEVEL%
+
+:WriteSftpConfigCursor
+call :WriteSftpConfig "cursor" "%arg1%" "%arg2%"
+exit /b %ERRORLEVEL%
+
+:CopyCommand
+if not defined arg1 goto :InvalidArgs
+if not defined arg2 goto :InvalidArgs
+set "copySrc=%arg1%"
+set "copyDst=%arg2%"
+set "copySrcFirst=%copySrc:~0,1%"
+set "copyDstFirst=%copyDst:~0,1%"
+
+if "%copySrcFirst%"==":" if "%copyDstFirst%"==":" goto :ScpRemoteToRemote
+if "%copySrcFirst%"==":" if not "%copyDstFirst%"==":" goto :ScpRemoteToLocal
+if not "%copySrcFirst%"==":" if "%copyDstFirst%"==":" goto :ScpLocalToRemote
+
+echo copy requires at least one remote path. Remote paths must start with a colon.
+exit /b 1
+
+:AddKey
+if defined arg1 goto :InvalidArgs
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0key_manager.ps1" -Port "%port%" -RemoteHost "%host%" -RemoteUser "%remoteUser%" -SshKeyPath "%sshKeyPath%" -Action "add"
+exit /b %ERRORLEVEL%
+
+:AddKeyFix
+if defined arg1 goto :InvalidArgs
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0key_manager.ps1" -Port "%port%" -RemoteHost "%host%" -RemoteUser "%remoteUser%" -SshKeyPath "%sshKeyPath%" -Action "add" -FixSshdConfig
+exit /b %ERRORLEVEL%
+
+:RemoveKey
+if defined arg1 goto :InvalidArgs
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0key_manager.ps1" -Port "%port%" -RemoteHost "%host%" -RemoteUser "%remoteUser%" -SshKeyPath "%sshKeyPath%" -Action "remove"
+exit /b %ERRORLEVEL%
+
+:FixKey
+if defined arg1 goto :InvalidArgs
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0key_manager.ps1" -Port "%port%" -RemoteHost "%host%" -RemoteUser "%remoteUser%" -SshKeyPath "%sshKeyPath%" -Action "fix"
+exit /b %ERRORLEVEL%
+
+:OpenSsh
+if defined REMOTE_KIT_VERBOSE_FLAG echo ssh %SSH_COMMON_OPTS% -i "%sshKeyPath%" -p %port% "%REMOTE_TARGET%"
+ssh %SSH_COMMON_OPTS% -i "%sshKeyPath%" -p %port% "%REMOTE_TARGET%"
+exit /b %ERRORLEVEL%
+
+:RemoteCommand
+set "remoteCommandSshOpts=%REMOTE_KIT_SSH_COMMAND_OPTS%"
+set "remoteCommand="
+shift /5
+goto :RemoteCommandArgLoop
+
+:TtyRemoteCommand
+if not "%arg1%"=="--" goto :InvalidArgs
+set "remoteCommandSshOpts=%REMOTE_KIT_SSH_TTY_OPTS%"
+set "remoteCommand="
+shift /5
+shift /5
+
+:RemoteCommandArgLoop
+if "%~5"=="" goto :RunRemoteCommand
+if defined remoteCommand (
+    set "remoteCommand=%remoteCommand% %~5"
+) else (
+    set "remoteCommand=%~5"
+)
+shift /5
+goto :RemoteCommandArgLoop
+
+:RunRemoteCommand
+if not defined remoteCommand goto :InvalidArgs
+if defined REMOTE_KIT_VERBOSE_FLAG echo ssh %SSH_COMMON_OPTS% %remoteCommandSshOpts% -i "%sshKeyPath%" -p %port% "%REMOTE_TARGET%" "%remoteCommand%"
+ssh %SSH_COMMON_OPTS% %remoteCommandSshOpts% -i "%sshKeyPath%" -p %port% "%REMOTE_TARGET%" "%remoteCommand%"
+exit /b %ERRORLEVEL%
+
+:ScriptCommand
+if not defined arg1 goto :InvalidArgs
+set "REMOTE_KIT_SCRIPT_ARG_COUNT=0"
+shift /6
+
+:ScriptCommandArgLoop
+if "%~6"=="" goto :RunScriptCommand
+set /a REMOTE_KIT_SCRIPT_ARG_COUNT+=1
+set "REMOTE_KIT_SCRIPT_ARG_%REMOTE_KIT_SCRIPT_ARG_COUNT%=%~6"
+shift /6
+goto :ScriptCommandArgLoop
+
+:RunScriptCommand
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0script_runner.ps1" -Port "%port%" -RemoteHost "%host%" -RemoteUser "%remoteUser%" -SshKeyPath "%sshKeyPath%" -ScriptPath "%arg1%"
+exit /b %ERRORLEVEL%
+
+:OpenRemotePath
+set "editorExe=%~1"
+set "remoteArg=%~2"
+call :ResolveRemotePath "%remoteArg%"
+if errorlevel 1 exit /b 1
+
+echo %editorExe% --remote=%VSCODE_REMOTE% "%remotePath%"
+call %editorExe% --remote=%VSCODE_REMOTE% "%remotePath%"
+exit /b %ERRORLEVEL%
+
+:WriteSftpConfig
+set "editorExe=%~1"
+set "path1=%~2"
+set "path2=%~3"
+set "firstChar1=%path1:~0,1%"
+set "firstChar2=%path2:~0,1%"
+
+if "%firstChar1%"==":" if not "%firstChar2%"==":" goto :WriteSftpRemoteFirst
+if not "%firstChar1%"==":" if "%firstChar2%"==":" goto :WriteSftpLocalFirst
+
+echo SFTP setup requires exactly one remote path and one local path.
+exit /b 1
+
+:WriteSftpRemoteFirst
+set "remoteArg=%path1%"
+set "localPath=%path2%"
+goto :WriteSftpResolved
+
+:WriteSftpLocalFirst
+set "localPath=%path1%"
+set "remoteArg=%path2%"
+goto :WriteSftpResolved
+
+:WriteSftpResolved
+call :ResolveRemotePath "%remoteArg%"
+if errorlevel 1 exit /b 1
+
+if not defined localPath (
+    echo Local sync directory must not be empty.
+    exit /b 1
+)
+
+if exist "%localPath%" if not exist "%localPath%\" (
+    echo Local sync path exists but is not a directory: "%localPath%"
+    exit /b 1
+)
+
+if not exist "%localPath%\.vscode\" mkdir "%localPath%\.vscode"
+if errorlevel 1 (
+    echo Failed to create local VS Code config directory: "%localPath%\.vscode"
+    exit /b 1
+)
+
+set "sftpFile=%localPath%\.vscode\SFTP.json"
+if not exist "%sftpFile%" goto :WriteSftpFile
+for /f "delims=" %%a in ('PowerShell -NoProfile -ExecutionPolicy Bypass -Command "Get-Date -Format yyyyMMddHHmmss"') do set "sftpBackupStamp=%%a"
+set "sftpBackupFile=%sftpFile%.remote-kit-bak-%sftpBackupStamp%"
+copy /Y "%sftpFile%" "%sftpBackupFile%" >nul
+if errorlevel 1 (
+    echo Failed to back up existing SFTP config: "%sftpFile%"
+    exit /b 1
+)
+echo Existing SFTP config backed up: "%sftpBackupFile%"
+
+:WriteSftpFile
+set "sftpName=%localPath:\=/%"
+set "sftpKey=%sshKeyPath:\=/%"
+> "%sftpFile%" echo {
+>> "%sftpFile%" echo     "name": "%sftpName%.%remoteUser%",
+>> "%sftpFile%" echo     "host": "%host%",
+>> "%sftpFile%" echo     "protocol": "sftp",
+>> "%sftpFile%" echo     "port": %port%,
+>> "%sftpFile%" echo     "username": "%remoteUser%",
+>> "%sftpFile%" echo     "privateKeyPath": "%sftpKey%",
+>> "%sftpFile%" echo     "remotePath": "%remotePath%",
+>> "%sftpFile%" echo     "uploadOnSave": true,
+>> "%sftpFile%" echo     "useTempFile": false,
+>> "%sftpFile%" echo     "openSsh": false
+>> "%sftpFile%" echo }
+if errorlevel 1 (
+    echo Failed to write SFTP config: "%sftpFile%"
+    exit /b 1
+)
+echo SFTP config written: "%sftpFile%"
+
+:OpenSftpWorkspace
+echo SFTP config is ready. Required extension: SFTP by Natizyskunk
+call %editorExe% "%localPath%"
+exit /b %ERRORLEVEL%
+
+:ScpRemoteToRemote
+set "src=%copySrc:~1%"
+set "dst=%copyDst:~1%"
+if not defined src goto :InvalidArgs
+if not defined dst goto :InvalidArgs
+echo scp -3: "%REMOTE_TARGET%:%src%"  to  "%REMOTE_TARGET%:%dst%"
+scp -3 %SSH_COMMON_OPTS% -i "%sshKeyPath%" -P %port% -r %REMOTE_TARGET%:"%src%" %REMOTE_TARGET%:"%dst%"
+exit /b %ERRORLEVEL%
+
+:ScpRemoteToLocal
+set "src=%copySrc:~1%"
+set "dst=%copyDst%"
+if not defined src goto :InvalidArgs
+echo scp: "%REMOTE_TARGET%:%src%"  to  "%dst%"
+scp %SSH_COMMON_OPTS% -i "%sshKeyPath%" -P %port% -r %REMOTE_TARGET%:"%src%" "%dst%"
+exit /b %ERRORLEVEL%
+
+:ScpLocalToRemote
+set "src=%copySrc%"
+set "dst=%copyDst:~1%"
+if not defined dst goto :InvalidArgs
+echo scp: "%src%"  to  "%REMOTE_TARGET%:%dst%"
+scp %SSH_COMMON_OPTS% -i "%sshKeyPath%" -P %port% -r "%src%" %REMOTE_TARGET%:"%dst%"
+exit /b %ERRORLEVEL%
+
+:ResolveRemotePath
+set "remoteInput=%~1"
+if not defined remoteInput (
+    echo Remote path must not be empty.
+    exit /b 1
+)
+
+if "%remoteInput:~0,1%"==":" set "remoteInput=%remoteInput:~1%"
+if not defined remoteInput (
+    echo Remote path must not be empty.
+    exit /b 1
+)
+
+if "%remoteInput:~0,1%"=="/" (
+    set "remotePath=%remoteInput%"
+    exit /b 0
+)
+
+call :GetRemoteHome
+if errorlevel 1 exit /b 1
+set "remotePath=%remoteHome%/%remoteInput%"
+exit /b 0
+
+:GetRemoteHome
+if defined remoteHome exit /b 0
+
+for /f "delims=" %%a in ('PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0home_reader.ps1" -Port "%port%" -RemoteHost "%host%" -RemoteUser "%remoteUser%" -SshKeyPath "%sshKeyPath%"') do set "remoteHome=%%a"
+
+if not defined remoteHome (
+    echo Failed to read remote $HOME. Check that the host is online and Unix-like.
+    exit /b 1
+)
+
+if "%remoteHome%"=="$HOME" (
+    echo Failed to read remote $HOME. Check that the host is online and Unix-like.
+    exit /b 1
+)
+
+exit /b 0
+
+:InvalidArgs
+echo Unrecognized argument combination. Run -h to view usage.
+exit /b 1

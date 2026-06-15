@@ -1,31 +1,29 @@
 # win-run-toolbox
 
-一个很小的 Windows 工具箱入口：把当前目录加入当前用户 `PATH`，让 `Win + R`、终端和脚本都可以直接运行这里的 `.cmd`、`.bat`、`.exe`。
+一个有用的 Windows 工具箱入口
 
+克隆本项目到你本机，双击其中的
 
 ```text
-pathhereadd.cmd       加入用户 PATH
-pathhereremove.cmd    从用户 PATH 移除
+pathhereadd.cmd
 ```
-
-默认作用于当前工作目录；在资源管理器里双击时，通常就是这两个脚本所在的目录。也可以传入参数，明确指定其他目录。
-
-> 脚本已上传 GitHub，仓库地址见文末。
-
-使用方法：
-1. 把两个脚本下载、放入某个目录，例如 `C:\win-run-toolbox`
-2. 双击 `pathhereadd.cmd`
 
 这时脚本会检查这个工具箱目录，是否已经在当前用户的 `PATH`，不存在就追加进去。
 
-之后，打开新终端，或者重新调起 `Win + R`，就会生效了。
+之后，打开新终端，或者重新调起 `Win + R`，就可以直接调用本仓库里精心准备的 `.cmd`、`.bat`、`.exe`等命令工具。
 
-要撤销，只需双击同目录中的 `pathhereremove.cmd`，它会执行 `pathhereadd.cmd` 的反向操作。
+要撤销，只需双击同目录中的:
+
+```text
+pathhereremove.cmd
+```
+
+它会执行 `pathhereadd.cmd` 的反向操作。
 
 
 ## 会不会改坏 PATH？
 
-`PATH` 是重要的环境变量，脚本在追加/移除其中目标项时，做了几层保护：
+脚本在追加/移除其中目标项时，做了几层保护：
 
 ```text
 1. 只修改当前用户 PATH，不碰系统 PATH
@@ -46,3 +44,22 @@ pathhereremove.cmd    从用户 PATH 移除
 1. 修改环境变量后，已经打开的终端通常不会自动刷新。新开的终端、新启动的程序，才会读取新的用户环境变量。
 
 2. 不建议把很多目录都加入 `PATH`。最好只加一个稳定的工具箱目录，用作自己的命令空间；目录多了，反而容易出现命令名冲突。
+
+
+## 仓库中部分快捷命令使用示例
+
+```bat
+porttask.cmd 80*
+taskport.cmd chrome
+portrule.cmd 8080
+copy vps1.cmd vps2.cmd
+copy git1.cmd git2.cmd
+```
+
+复制 `vps1.cmd` / `git1.cmd` 后，按需修改其中的主机或授权信息。
+
+## 微软 sysinternals
+
+含有许多高级命令，可以自行下载，按需加入：
+
+https://learn.microsoft.com/en-us/sysinternals/
