@@ -8,3 +8,5 @@ pathhere.backup.log
 .env
 xvenv.cmd
 .vscode/
+
+wsl.automng/
