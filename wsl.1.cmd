@@ -29,6 +29,8 @@ set "WSL_backup_dir=%~dp0\data\wsl.backup\%WSL_name%"
 set "WSL_default_workdir=~"
 :: WSL 版本。通常使用 2；留空时可由系统默认值决定。
 set "WSL_version=2"
+rem ctl backup/export fixed format: tar / tar.gz / tar.xz / vhd; empty means no --format.
+set "WSL_export_format=tar"
 :: 调试开关，设置为 1 / true / yes / on / debug 时，后续 kit 可输出调试信息。
 set "WSL_KIT_verbose="
 :: 可选：指定 help 语言 zh-CN / en；留空自动检测。
@@ -80,7 +82,7 @@ set "WSL_KIT_ARGS_READY=1"
 set "WSL_KIT_ARG_COUNT=0"
 
 :ArgLoop
-if "%~1"=="" goto :RunWslKit
+if "%~1"=="" if not [%1]==[""] goto :RunWslKit
 set /a WSL_KIT_ARG_COUNT+=1
 set "WSL_KIT_ARG_%WSL_KIT_ARG_COUNT%=%~1"
 shift /1

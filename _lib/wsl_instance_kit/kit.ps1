@@ -24,6 +24,7 @@ $libDir = Join-Path $PSScriptRoot "lib"
 . (Join-Path $libDir "control.ps1")
 
 Initialize-ConsoleEncoding
+Import-WslEntryFileEnvironment
 
 $script:Config = New-WslKitConfig
 if (-not (Test-WslKitConfig $script:Config)) {
@@ -37,8 +38,6 @@ if ($null -eq $Arguments) {
 if ($Arguments.Count -eq 0) {
     $Arguments = Get-KitArgumentsFromEnvironment
 }
-
-$Arguments = Trim-TrailingEmptyArguments $Arguments
 
 if ($Arguments.Count -eq 0) {
     exit (Invoke-WslShell)

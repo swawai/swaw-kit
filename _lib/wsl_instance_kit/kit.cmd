@@ -4,6 +4,7 @@ setlocal
 
 if /i "%~1"=="--entry-file" (
     set "WSL_ENTRY_FILE=%~2"
+    set "WSL_KIT_PARSE_ENTRY_FILE=1"
     shift /1
     shift /1
 )
@@ -30,7 +31,7 @@ if "%~1"=="" (
 set "WSL_KIT_ARG_COUNT=0"
 
 :ArgLoop
-if "%~1"=="" goto :RunKit
+if "%~1"=="" if not [%1]==[""] goto :RunKit
 set /a WSL_KIT_ARG_COUNT+=1
 set "WSL_KIT_ARG_%WSL_KIT_ARG_COUNT%=%~1"
 shift /1

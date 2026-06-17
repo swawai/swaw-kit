@@ -1,3 +1,98 @@
+function Expand-WslEntryBatchValue {
+    param(
+        [string]$Value,
+        [string]$EntryFile,
+        [System.Collections.IDictionary]$Values
+    )
+
+    $entryDir = Split-Path -Parent $EntryFile
+    if (-not $entryDir.EndsWith("\")) {
+        $entryDir = "$entryDir\"
+    }
+
+    $expanded = [regex]::Replace($Value, '(?i)%~dp0', {
+        param($Match)
+        return $entryDir
+    })
+    $expanded = [regex]::Replace($expanded, '(?i)%~f0', {
+        param($Match)
+        return $EntryFile
+    })
+
+    return [regex]::Replace($expanded, '%([^%]+)%', {
+        param($Match)
+
+        $name = $Match.Groups[1].Value
+        if ($Values.Contains($name)) {
+            return [string]$Values[$name]
+        }
+
+        $envValue = [Environment]::GetEnvironmentVariable($name, "Process")
+        if ($null -ne $envValue) {
+            return $envValue
+        }
+
+        return ""
+    })
+}
+
+function Import-WslEntryFileEnvironment {
+    if (-not (Test-Truthy (Get-EnvOrEmpty "WSL_KIT_PARSE_ENTRY_FILE"))) {
+        return
+    }
+
+    $entryFile = (Get-EnvOrEmpty "WSL_ENTRY_FILE").Trim()
+    if ([string]::IsNullOrWhiteSpace($entryFile)) {
+        return
+    }
+
+    $entryFile = [System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($entryFile))
+    if (-not (Test-Path -LiteralPath $entryFile -PathType Leaf)) {
+        Write-Fail "Entry file not found: $entryFile"
+        return
+    }
+
+    $values = New-Object System.Collections.Hashtable ([System.StringComparer]::OrdinalIgnoreCase)
+    $runtimeNames = @(
+        "WSL_ENTRY_FILE",
+        "WSL_KIT",
+        "WSL_KIT_ARGS_READY",
+        "WSL_KIT_ARG_COUNT",
+        "WSL_KIT_PARSE_ENTRY_FILE"
+    )
+
+    foreach ($line in [System.IO.File]::ReadAllLines($entryFile)) {
+        if ($line -match '不要修改下面|DO NOT MODIFY|Do not modify below') {
+            break
+        }
+
+        $name = ""
+        $rawValue = ""
+        if ($line -match '(?i)^\s*set\s+"([^=]+)=(.*)"\s*$') {
+            $name = $Matches[1]
+            $rawValue = $Matches[2]
+        } elseif ($line -match '(?i)^\s*set\s+([^=\s]+)=(.*)$') {
+            $name = $Matches[1]
+            $rawValue = $Matches[2]
+        } else {
+            continue
+        }
+
+        if (-not $name.StartsWith("WSL_", [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+        if ($runtimeNames -contains $name -or $name -like "WSL_KIT_ARG_*") {
+            continue
+        }
+
+        $values[$name] = Expand-WslEntryBatchValue $rawValue $entryFile $values
+    }
+
+    foreach ($key in $values.Keys) {
+        [Environment]::SetEnvironmentVariable([string]$key, [string]$values[$key], "Process")
+    }
+}
+
 function New-WslKitConfig {
     $entryFile = (Get-EnvOrEmpty "WSL_ENTRY_FILE").Trim()
     if (-not [string]::IsNullOrWhiteSpace($entryFile)) {
@@ -26,6 +121,7 @@ function New-WslKitConfig {
         BackupDir      = (Get-EnvOrEmpty "WSL_backup_dir").Trim()
         DefaultWorkdir = (Get-EnvOrEmpty "WSL_default_workdir").Trim()
         Version        = (Get-EnvOrEmpty "WSL_version").Trim()
+        ExportFormat   = (Get-EnvOrEmpty "WSL_export_format").Trim()
         Systemd        = (Get-EnvOrEmpty "WSL_systemd").Trim()
         SshPort        = (Get-EnvOrEmpty "WSL_SSH_port").Trim()
         SshKey         = (Get-EnvOrEmpty "WSL_SSH_key").Trim()

@@ -70,6 +70,7 @@ wsl.1.cmd code ~
 ```
 
 WSL 入口文件使用 `WSL_KIT_PROTOCOL` 声明与 `_lib\wsl_instance_kit` 的协议版本；当前模板使用 `1`。
+`ctl backup` 和 `ctl export` 的导出格式由入口文件中的 `WSL_export_format` 固定控制，默认是 `tar`。
 
 
 ## 微软 sysinternals

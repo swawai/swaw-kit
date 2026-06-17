@@ -33,21 +33,6 @@ function Get-KitArgumentsFromEnvironment {
     return @($items)
 }
 
-function Trim-TrailingEmptyArguments {
-    param([string[]]$Items)
-
-    $result = @($Items)
-    while ($result.Count -gt 0 -and $result[$result.Count - 1] -eq "") {
-        if ($result.Count -eq 1) {
-            return @()
-        }
-
-        $result = @($result[0..($result.Count - 2)])
-    }
-
-    return @($result)
-}
-
 function Test-Truthy {
     param([AllowNull()] [string]$Value)
 
@@ -152,17 +137,31 @@ function Invoke-External {
         Write-Host (Format-CommandLine $File $CommandArgs) -ForegroundColor DarkGray
     }
 
-    if ($null -eq $CommandArgs -or $CommandArgs.Count -eq 0) {
-        & $File | ForEach-Object { [Console]::Out.WriteLine($_) }
-    } else {
-        & $File @CommandArgs | ForEach-Object { [Console]::Out.WriteLine($_) }
+    $startParams = @{
+        FilePath    = $File
+        Wait        = $true
+        NoNewWindow = $true
+        PassThru    = $true
     }
 
-    if ($null -eq $LASTEXITCODE) {
+    $argumentLine = Get-ProcessArgumentLine $CommandArgs
+    if (-not [string]::IsNullOrWhiteSpace($argumentLine)) {
+        $startParams.ArgumentList = $argumentLine
+    }
+
+    try {
+        $process = Start-Process @startParams
+    } catch {
+        Write-Fail "Failed to start native command: $File"
+        Write-Fail $_.Exception.Message
+        return 1
+    }
+
+    if ($null -eq $process -or $null -eq $process.ExitCode) {
         return 0
     }
 
-    return [int]$LASTEXITCODE
+    return [int]$process.ExitCode
 }
 
 function Start-ExternalDetached {

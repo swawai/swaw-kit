@@ -16,6 +16,7 @@ function Show-WslResourceStatus {
     Write-Host "  WSL_backup_dir:      $backupDir"
     Write-Host "  WSL_default_workdir: $(if ([string]::IsNullOrWhiteSpace($script:Config.DefaultWorkdir)) { '(home)' } else { $script:Config.DefaultWorkdir })"
     Write-Host "  WSL_version:         $(if ([string]::IsNullOrWhiteSpace($script:Config.Version)) { '(system default)' } else { $script:Config.Version })"
+    Write-Host "  WSL_export_format:   $(if ([string]::IsNullOrWhiteSpace($script:Config.ExportFormat)) { '(native default)' } else { $script:Config.ExportFormat })"
 
     if ($null -eq $record) {
         Write-Host "  Installed:           no" -ForegroundColor Yellow
@@ -96,29 +97,79 @@ function Install-WslResource {
     return (Ensure-WslConfiguredUser -AllowEmpty)
 }
 
-function Export-WslResource {
+function Resolve-WslExportFormat {
+    $rawFormat = $script:Config.ExportFormat
+    if ([string]::IsNullOrWhiteSpace($rawFormat)) {
+        return [pscustomobject]@{
+            Format = ""
+            Extension = "tar"
+        }
+    }
+
+    $format = $rawFormat.Trim().ToLowerInvariant()
+    while ($format.StartsWith(".")) {
+        $format = $format.Substring(1)
+    }
+
+    switch ($format) {
+        "tar" {
+            return [pscustomobject]@{ Format = "tar"; Extension = "tar" }
+        }
+        "tar.gz" {
+            return [pscustomobject]@{ Format = "tar.gz"; Extension = "tar.gz" }
+        }
+        "tgz" {
+            return [pscustomobject]@{ Format = "tar.gz"; Extension = "tar.gz" }
+        }
+        "tar.xz" {
+            return [pscustomobject]@{ Format = "tar.xz"; Extension = "tar.xz" }
+        }
+        "vhd" {
+            return [pscustomobject]@{ Format = "vhd"; Extension = "vhdx" }
+        }
+        "vhdx" {
+            return [pscustomobject]@{ Format = "vhd"; Extension = "vhdx" }
+        }
+        default {
+            Write-Fail "WSL_export_format must be tar, tar.gz, tar.xz, vhd, or empty."
+            return $null
+        }
+    }
+}
+
+function Test-NoInlineExportFormat {
     param([string[]]$Rest)
 
-    $target = ""
-    $targetIndex = -1
-    $nativeExtra = New-Object System.Collections.ArrayList
-    for ($i = 0; $i -lt $Rest.Count; $i++) {
-        if (-not $Rest[$i].StartsWith("-")) {
-            $target = $Rest[$i]
-            $targetIndex = $i
-            break
+    foreach ($item in @($Rest)) {
+        if ($item -ieq "--format") {
+            Write-Fail "Do not pass --format to ctl export/backup. Set WSL_export_format in the entry file instead."
+            return $false
         }
     }
 
-    for ($i = 0; $i -lt $Rest.Count; $i++) {
-        if ($i -eq $targetIndex) {
-            continue
-        }
+    return $true
+}
 
-        [void]$nativeExtra.Add($Rest[$i])
+function Export-WslResource {
+    param(
+        [string[]]$Rest,
+        [switch]$UseDefaultTarget
+    )
+
+    if (-not (Test-NoInlineExportFormat $Rest)) {
+        return 1
     }
 
-    if ([string]::IsNullOrWhiteSpace($target)) {
+    $format = Resolve-WslExportFormat
+    if ($null -eq $format) {
+        return 1
+    }
+
+    if ($UseDefaultTarget) {
+        if ($Rest.Count -gt 0) {
+            Write-Fail "ctl backup does not accept extra arguments. Set WSL_export_format in the entry file to change backup format."
+            return 1
+        }
         $backupDir = Resolve-EntryPath $script:Config.BackupDir
         if ([string]::IsNullOrWhiteSpace($backupDir)) {
             Write-Fail "No export path provided and WSL_backup_dir is empty."
@@ -127,14 +178,23 @@ function Export-WslResource {
 
         Ensure-Directory $backupDir
         $stamp = Get-Date -Format "yyyyMMddHHmmss"
-        $target = Join-Path $backupDir ("Backup_{0}_{1}.tar" -f $script:Config.Name, $stamp)
+        $target = Join-Path $backupDir ("Backup_{0}_{1}.{2}" -f $script:Config.Name, $stamp, $format.Extension)
     } else {
+        if ($Rest.Count -ne 1 -or [string]::IsNullOrWhiteSpace($Rest[0])) {
+            Write-Fail "ctl export requires exactly one target path. Set WSL_export_format in the entry file to change format."
+            return 1
+        }
+
+        $target = $Rest[0]
         $target = Resolve-OutputPath $target
         Ensure-Directory (Split-Path -Parent $target)
     }
 
     $nativeArgs = @("--export", $script:Config.Name, $target)
-    $nativeArgs += @($nativeExtra)
+    if (-not [string]::IsNullOrWhiteSpace($format.Format)) {
+        $nativeArgs += @("--format", $format.Format)
+    }
+
     return (Invoke-ControlNativeCommand $nativeArgs)
 }
 
@@ -181,7 +241,7 @@ function Show-ControlUsage {
     Write-Host "  $($script:Config.CommandName) $Verb status"
     Write-Host "  $($script:Config.CommandName) $Verb install [--dry-run] [native wsl options...]"
     Write-Host "  $($script:Config.CommandName) $Verb backup"
-    Write-Host "  $($script:Config.CommandName) $Verb export <path.tar>"
+    Write-Host "  $($script:Config.CommandName) $Verb export <path>"
     Write-Host "  $($script:Config.CommandName) $Verb config"
     Write-Host "  $($script:Config.CommandName) $Verb global config"
     Write-Host "  $($script:Config.CommandName) $Verb user ensure [username]"
@@ -220,7 +280,7 @@ function Invoke-Control {
             return Install-WslResource $tail
         }
         "backup" {
-            return Export-WslResource $tail
+            return Export-WslResource $tail -UseDefaultTarget
         }
         "export" {
             return Export-WslResource $tail

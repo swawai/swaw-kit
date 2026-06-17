@@ -9,8 +9,8 @@ version 1.0
 # 管理命令:
   {{COMMAND}} ctl install           使用 {WSL_source} 安装该实例          (wsl --import 或 wsl --install)
   {{COMMAND}} ctl install --dry-run 预览安装命令，不实际执行
-  {{COMMAND}} ctl backup            在 {WSL_backup_dir} 下生成 .tar 备份  (wsl --export)
-  {{COMMAND}} ctl export D:\x.tar   导出 .tar 备份包到指定路径            (wsl --export)
+  {{COMMAND}} ctl backup            按 {WSL_export_format} 在备份目录导出 (wsl --export)
+  {{COMMAND}} ctl export D:\x.tar   按 {WSL_export_format} 导出到指定路径 (wsl --export)
   {{COMMAND}} ctl config            打开此实例 /etc 目录                  (explorer \\wsl...)
   {{COMMAND}} ctl user ensure       创建/确认 {WSL_user} 用户已存在       (wsl .. -- sh -lc useradd/adduser)
   {{COMMAND}} ctl user default      将 {WSL_user} 设置为默认用户          (wsl --manage set-default-user)
