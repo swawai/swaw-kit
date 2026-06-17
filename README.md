@@ -77,7 +77,7 @@ fallback 下载的发行版镜像会复用 `data\wsl.downloads`，下载时先�
 fallback 安装成功后会为使用的源镜像写入同名 `.sha256` 文件；后续复用缓存前会校验该 hash，并在 DistributionInfo 提供 SHA256 时同步校验上游 hash，不匹配会清理后重新下载。
 `ctl ssh enable` 只支持 systemd 托管启用，需要入口文件配置 `WSL_systemd=enable`，并配置 `WSL_SSH_port` 或在命令行显式传入端口；执行前会检查 Windows/WSL 侧端口占用。
 SSH 自动安装 `openssh-server` 目前支持 apt-get、dnf、yum、microdnf 系发行版；服务启停仍统一走 systemd。
-测试脚本分两层：`_lib\wsl_instance_kit\test\smoke.ps1` 默认不改环境；`_lib\wsl_instance_kit\test\live.ps1 -Yes` 会真实安装、shutdown、SSH 连接并删除 `wslkit-live-*` 测试实例。
+测试脚本分两层：`_lib\wsl_instance_kit\test\smoke.ps1` 默认不改环境；`_lib\wsl_instance_kit\test\live.ps1 -Yes` 会真实安装、shutdown、SSH 连接、backup/export、从导出包恢复并删除 `wslkit-live-*` 测试实例。
 
 
 ## 微软 sysinternals
