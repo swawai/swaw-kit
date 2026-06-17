@@ -609,19 +609,38 @@ detect_systemd_ssh_unit() {
     printf '%s\n' ssh
 }
 
-ensure_openssh_server() {
-    if ! command -v apt-get >/dev/null 2>&1; then
-        if command -v sshd >/dev/null 2>&1 || [ -x /usr/sbin/sshd ]; then
-            return 0
-        fi
-        echo "openssh-server auto-install currently supports Debian/Ubuntu apt-get only." >&2
-        exit 1
+find_sshd_bin() {
+    if command -v sshd >/dev/null 2>&1; then
+        command -v sshd
+        return
+    fi
+    if [ -x /usr/sbin/sshd ]; then
+        printf '%s\n' /usr/sbin/sshd
+        return
     fi
 
+    printf '\n'
+}
+
+openssh_server_package_installed() {
     if dpkg-query -W -f='`${db:Status-Abbrev}' openssh-server 2>/dev/null | grep -q '^ii '; then
         return 0
     fi
 
+    if command -v rpm >/dev/null 2>&1 && rpm -q openssh-server >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
+ensure_ssh_host_keys() {
+    if command -v ssh-keygen >/dev/null 2>&1; then
+        ssh-keygen -A
+    fi
+}
+
+install_openssh_server_with_apt() {
     policy_created=0
     if [ ! -e /usr/sbin/policy-rc.d ]; then
         printf '%s\n' '#!/bin/sh' 'exit 101' > /usr/sbin/policy-rc.d
@@ -648,6 +667,53 @@ ensure_openssh_server() {
     }
 
     cleanup_policy_rcd
+}
+
+install_openssh_server_with_rpm_manager() {
+    if command -v dnf >/dev/null 2>&1; then
+        dnf install -y openssh-server
+        return
+    fi
+
+    if command -v yum >/dev/null 2>&1; then
+        yum install -y openssh-server
+        return
+    fi
+
+    if command -v microdnf >/dev/null 2>&1; then
+        microdnf install -y openssh-server
+        return
+    fi
+
+    return 127
+}
+
+ensure_openssh_server() {
+    if [ -n "`$(find_sshd_bin)" ]; then
+        ensure_ssh_host_keys
+        return 0
+    fi
+
+    if openssh_server_package_installed; then
+        echo "openssh-server package is installed but sshd was not found." >&2
+        exit 1
+    fi
+
+    if command -v apt-get >/dev/null 2>&1; then
+        install_openssh_server_with_apt
+    elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1 || command -v microdnf >/dev/null 2>&1; then
+        install_openssh_server_with_rpm_manager
+    else
+        echo "openssh-server auto-install currently supports apt-get, dnf, yum, or microdnf." >&2
+        exit 1
+    fi
+
+    if [ -z "`$(find_sshd_bin)" ]; then
+        echo "openssh-server install finished but sshd was not found." >&2
+        exit 1
+    fi
+
+    ensure_ssh_host_keys
 }
 
 configure_sshd_port() {

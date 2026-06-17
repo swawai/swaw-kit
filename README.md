@@ -76,6 +76,7 @@ WSL 入口文件使用 `WSL_KIT_PROTOCOL` 声明与 `_lib\wsl_instance_kit` 的�
 fallback 下载的发行版镜像会复用 `data\wsl.downloads`，下载时先写入临时目录，校验成功后再移入镜像库。
 fallback 安装成功后会为使用的源镜像写入同名 `.sha256` 文件；后续复用缓存前会校验该 hash，并在 DistributionInfo 提供 SHA256 时同步校验上游 hash，不匹配会清理后重新下载。
 `ctl ssh enable` 只支持 systemd 托管启用，需要入口文件配置 `WSL_systemd=enable`，并配置 `WSL_SSH_port` 或在命令行显式传入端口；执行前会检查 Windows/WSL 侧端口占用。
+SSH 自动安装 `openssh-server` 目前支持 apt-get、dnf、yum、microdnf 系发行版；服务启停仍统一走 systemd。
 
 
 ## 微软 sysinternals

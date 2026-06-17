@@ -127,6 +127,44 @@ function Read-MockWslArgs {
     })
 }
 
+function Get-FreeTcpPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    try {
+        $listener.Start()
+        return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        $listener.Stop()
+    }
+}
+
+function New-SshEnableTestEntryFile {
+    param([string]$TempRoot)
+
+    $publicKeyPath = Join-Path $TempRoot "id_wslkit_smoke.pub"
+    $publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEZha2VLZXlGb3JTbW9rZVRlc3RPbmx5 wsl-kit-smoke"
+    [System.IO.File]::WriteAllText($publicKeyPath, "$publicKey`r`n", [System.Text.UTF8Encoding]::new($false))
+
+    $entryPath = Join-Path $repoRoot ("wsl.smoke-" + [guid]::NewGuid().ToString("N") + ".cmd")
+    $content = [System.IO.File]::ReadAllText($entryFile)
+    $content = [regex]::Replace($content, '(?m)^set "WSL_systemd=.*"\r?$', 'set "WSL_systemd=enable"')
+    $content = [regex]::Replace($content, '(?m)^set "WSL_SSH_port=.*"\r?$', ('set "WSL_SSH_port={0}"' -f (Get-FreeTcpPort)))
+    $sshKeyLine = 'set "WSL_SSH_key=' + $publicKeyPath + '"'
+    $content = [regex]::Replace($content, '(?m)^set "WSL_SSH_key=.*"\r?$', [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $sshKeyLine })
+    $content = $content -replace "`r?`n", "`r`n"
+    [System.IO.File]::WriteAllText($entryPath, $content, [System.Text.UTF8Encoding]::new($false))
+    return $entryPath
+}
+
+function Decode-Base64ShRunner {
+    param([string]$Runner)
+
+    if ($Runner -notmatch "^printf '%s' '([^']+)' \| base64 -d \| sh$") {
+        throw "Unexpected shell runner: $Runner"
+    }
+
+    return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Matches[1]))
+}
+
 function Test-WslDistributionExists {
     param([string]$Name)
 
@@ -161,6 +199,7 @@ try {
     $oldPath = $env:PATH
     $oldArgsPath = $env:MOCK_WSL_ARGS_PATH
     $oldExitCode = $env:MOCK_WSL_EXIT_CODE
+    $sshEnableEntryFile = $null
 
     try {
         $shimDir = New-MockWsl $tempRoot
@@ -190,6 +229,17 @@ try {
         Invoke-Checked $entryFile @("ctl", "ssh", "enable") 1 "reject ssh enable without systemd entry config"
         Invoke-Checked $entryFile @("ctl", "ssh", "enable", "2222") 1 "reject ssh enable without systemd entry config"
 
+        $sshEnableEntryFile = New-SshEnableTestEntryFile $tempRoot
+        Invoke-Checked $sshEnableEntryFile @("ctl", "ssh", "enable") 0 "ssh enable script generation"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "ssh enable root script prefix"
+        Assert-True ($actual.Count -eq 8) "ssh enable should pass a single shell runner."
+        $enableScript = Decode-Base64ShRunner $actual[7]
+        Assert-True ($enableScript.Contains("dnf install -y openssh-server")) "ssh enable script should support dnf."
+        Assert-True ($enableScript.Contains("yum install -y openssh-server")) "ssh enable script should support yum."
+        Assert-True ($enableScript.Contains("microdnf install -y openssh-server")) "ssh enable script should support microdnf."
+        Assert-True ($enableScript.Contains("ssh-keygen -A")) "ssh enable script should generate host keys."
+
         if (Test-WslDistributionExists "wsl.1") {
             Invoke-Checked $entryFile @("ctl", "ssh", "status") 0 "ssh status"
             $actual = Read-MockWslArgs $argsFile
@@ -202,6 +252,9 @@ try {
         $env:PATH = $oldPath
         $env:MOCK_WSL_ARGS_PATH = $oldArgsPath
         $env:MOCK_WSL_EXIT_CODE = $oldExitCode
+        if ($sshEnableEntryFile -and (Test-Path -LiteralPath $sshEnableEntryFile)) {
+            Remove-Item -LiteralPath $sshEnableEntryFile -Force
+        }
         if (Test-Path -LiteralPath $tempRoot) {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force
         }
