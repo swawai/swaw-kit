@@ -90,6 +90,16 @@ function Test-PowerShellSyntax {
     Assert-True (-not $failed) "PowerShell syntax check failed."
 }
 
+function Test-HelpTemplateShape {
+    $zhLines = [System.IO.File]::ReadAllLines((Join-Path $kitRoot "help\zh-CN.txt"))
+    $enLines = [System.IO.File]::ReadAllLines((Join-Path $kitRoot "help\en.txt"))
+    $zhBlankCount = @($zhLines | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count
+    $enBlankCount = @($enLines | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count
+
+    Assert-True ($zhLines.Count -eq $enLines.Count) "help templates should keep the same line count. zh-CN=$($zhLines.Count), en=$($enLines.Count)."
+    Assert-True ($zhBlankCount -eq $enBlankCount) "help templates should keep the same blank-line count. zh-CN=$zhBlankCount, en=$enBlankCount."
+}
+
 function New-MockWsl {
     param([string]$TempRoot)
 
@@ -195,6 +205,7 @@ Push-Location $repoRoot
 try {
     Write-Host "syntax"
     Test-PowerShellSyntax
+    Test-HelpTemplateShape
 
     Write-Host "basic commands"
     $entryTemplate = [System.IO.File]::ReadAllText($entryFile)

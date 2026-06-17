@@ -49,3 +49,7 @@ version 1.0
   {{COMMAND}} -- pwd                等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir -- pwd
   {{COMMAND}} --cd /tmp -- pwd      同上，但追加 --cd 参数覆盖
   {{COMMAND}} -u root -- whoami     同上，但追加 -u 参数覆盖
+
+# 参考资料:
+  WSL 实用指南 https://swaw.com/zh/p/wsl-guide/
+  WSL 配置详解 https://learn.microsoft.com/zh-cn/windows/wsl/wsl-config#main-wsl-settings

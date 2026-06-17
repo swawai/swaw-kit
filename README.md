@@ -65,15 +65,18 @@ copy wsl.1.cmd wsl.dev.cmd
 wsl.1.cmd status
 wsl.1.cmd uname -a
 wsl.1.cmd --cd /tmp -- pwd
+wsl.1.cmd ctl config
 wsl.1.cmd ctl install --dry-run
 wsl.1.cmd ctl ssh status
 wsl.1.cmd ctl port status
 wsl.1.cmd ctl port expose 8080 80
 wsl.1.cmd vm settings
+wsl.1.cmd vm shutdown
 wsl.1.cmd code ~
 ```
 
 WSL 入口文件使用 `WSL_KIT_PROTOCOL` 声明与 `_lib\wsl_instance_kit` 的协议版本；当前模板使用 `1`。
+`ctl` 是此入口绑定实例的管理命名空间；`vm` 是当前 Windows 用户下 WSL 底层虚拟机/用户级设置的管理命名空间，会影响该用户下的所有 WSL 实例。
 `ctl backup` 和 `ctl export` 的导出格式由入口文件中的 `WSL_export_format` 固定控制，默认是 `tar`。
 `ctl backup dir` 可打开当前实例备份目录；`ctl downloads dir` 可打开 fallback 镜像缓存目录；`status` 会显示当前实例备份、备份根目录和下载缓存占用。
 在线发行版安装默认仍优先使用原生 `wsl --install`；如果失败，会提示显式尝试 `ctl install --fallback`，fallback 会使用 `_lib\wsl_instance_kit\DistributionInfo.json`。
@@ -88,6 +91,13 @@ SSH 自动安装 `openssh-server` 目前支持 apt-get、dnf、yum、microdnf �
 `ctl port remove <listen-port>` 会删除对应的托管 portproxy / firewall 规则；`ctl port sync` 用于 NAT 下 WSL IP 变化后刷新已管理映射。
 端口修改需要管理员终端；可先加 `--dry-run` 查看将执行的命令。
 测试脚本分两层：`_lib\wsl_instance_kit\test\smoke.ps1` 默认不改环境；`_lib\wsl_instance_kit\test\live.ps1 -Yes` 会真实安装、shutdown、SSH 连接、backup/export、从导出包恢复并删除 `wslkit-live-*` 测试实例。
+
+参考资料：
+
+```text
+WSL 实用指南 https://swaw.com/zh/p/wsl-guide/
+WSL 配置详解 https://learn.microsoft.com/zh-cn/windows/wsl/wsl-config#main-wsl-settings
+```
 
 
 ## 微软 sysinternals

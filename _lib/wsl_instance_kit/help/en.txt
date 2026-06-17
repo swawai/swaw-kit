@@ -49,3 +49,7 @@ version 1.0
   {{COMMAND}} -- pwd                Equivalent to wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir -- pwd
   {{COMMAND}} --cd /tmp -- pwd      Same as above, but append --cd to override
   {{COMMAND}} -u root -- whoami     Same as above, but append -u to override
+
+# References:
+  WSL practical guide https://swaw.com/zh/p/wsl-guide/
+  WSL configuration reference https://learn.microsoft.com/en-us/windows/wsl/wsl-config#main-wsl-settings

@@ -1,0 +1,21 @@
+next
+
+不必所有命令都启动 powershell
+
+
+
+这个确实可以！help 中可以默认显示 wsl.1 doctor
+ctl doctor 虽然也可用但help不显示
+
+除了你说的这些：
+1 wsl.exe 是否可用、版本/状态是否能读取
+2 入口协议和关键配置是否完整
+3 WSL_source 是 tar 路径还是发行版名（tar 是否存在、发行版名称是否合法），fallback 是否能在 DistributionInfo.json 找到
+4 实例是否已安装/存在、是否运行、IP 是否可读，
+5 WSL_SSH_port、Windows/WSL 端口占用、公钥文件是否存在
+6 backup/download 目录是否可访问，空间占用是否能统计
+7 CPU 虚拟化 是否已开启
+8 wsl --install 是否可能失败、需要手动启用hyper_v、wsl 系统功能
+
+实现：
+wsl.1 vm status
