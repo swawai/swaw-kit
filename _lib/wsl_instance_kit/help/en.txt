@@ -1,0 +1,47 @@
+
+# Basic usage:
+  {{COMMAND}}                       Open the WSL instance configured in this entry file.
+  {{COMMAND}} status                Show this resource config and instance status.
+  {{COMMAND}} -h                    Show help.
+  # The entry file declares WSL_KIT_PROTOCOL; this kit currently supports v1.
+
+
+# Management:
+  {{COMMAND}} ctl status            Same as status.
+  {{COMMAND}} ctl install           Install this instance from WSL_source; .tar uses wsl --import, distro names use wsl --install.
+  {{COMMAND}} ctl install --dry-run Preview native WSL install/init commands; no dirs are created and nothing is installed.
+  {{COMMAND}} ctl backup            Export to a timestamped tar under WSL_backup_dir.
+  {{COMMAND}} ctl export D:\x.tar   Export to a specific tar path.
+  {{COMMAND}} ctl user ensure       Create/check WSL_user.
+  {{COMMAND}} ctl user default      Set WSL_user as this instance's default user.
+  {{COMMAND}} ctl default           Set this instance as the default WSL distribution.
+  {{COMMAND}} ctl terminate         Terminate this instance.
+  {{COMMAND}} ctl global config     Open the current user's profile folder for .wslconfig.
+  {{COMMAND}} ctl global shutdown   Shut down the current user's WSL2 VM and instances.
+  {{COMMAND}} ctl systemd enable    Enable systemd in this instance.
+  {{COMMAND}} ctl systemd disable   Disable systemd in this instance.
+  {{COMMAND}} ctl ssh enable        Enable SSH in this instance.
+  {{COMMAND}} ctl ssh enable 2222   Enable SSH with an explicit port.
+  {{COMMAND}} ctl ssh disable       Stop SSH and remove the configured public key.
+  {{COMMAND}} ctl global network    Apply WSL_network_* settings to .wslconfig.
+  {{COMMAND}} ctl remove --yes      Unregister and delete this instance.
+  # ctl is resource-oriented sugar; use wsl.exe directly for bare global WSL management commands.
+
+
+# Remote editing:
+  {{COMMAND}} code ~                Open the WSL user's home directory with VS Code.
+  {{COMMAND}} code app/             Open app/ under WSL_default_workdir.
+  {{COMMAND}} cursor /etc           Open an absolute WSL path with Cursor.
+  # Relative paths are based on WSL_default_workdir; if empty or ~, they are based on the user's home directory.
+
+# Instance passthrough policy:
+  The kit only intercepts first args: -h / --help / /? / status / code / cursor / ctl.
+  Every other command is appended after the fixed resource prefix:
+    wsl.exe -d <WSL_name> [-u <WSL_user>] [--cd <WSL_default_workdir>] <original args...>
+
+  {{COMMAND}} uname -a              Run uname -a inside this instance.
+  {{COMMAND}} -- pwd                Run pwd in the entry default workdir.
+  {{COMMAND}} --cd /tmp -- pwd      Append --cd /tmp -- pwd as-is; the kit does not inspect or reorder it.
+  {{COMMAND}} -u root -- whoami     Append -u root -- whoami as-is; the kit does not inspect or reorder it.
+  # If original args repeat -d / -u / --cd, the final behavior is whatever wsl.exe decides.
+  # This entry only promises to run commands inside this resource instance; global WSL commands are not part of the entry protocol.

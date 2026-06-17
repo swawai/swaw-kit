@@ -3,6 +3,9 @@
 :: WSL 实例命令模板
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 
+set "WSL_KIT_PROTOCOL=1"
+
+
 :: 实例基本信息(必填)
 set "WSL_name=wsl.1"
 set "WSL_user=john"
@@ -20,7 +23,7 @@ set "WSL_source=Ubuntu"
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: 此实例的最终 Windows 安装目录
 set "WSL_install_dir=%~dp0\data\wsl\%WSL_name%"
-:: 默认备份目录，后续 mng backup / mng export 可使用此目录
+:: 默认备份目录，后续 ctl backup / ctl export 可使用此目录
 set "WSL_backup_dir=%~dp0\data\wsl.backup\%WSL_name%"
 :: 默认 Linux 工作目录。留空或 ~ 表示用户家目录。
 set "WSL_default_workdir=~"
@@ -28,33 +31,34 @@ set "WSL_default_workdir=~"
 set "WSL_version=2"
 :: 调试开关，设置为 1 / true / yes / on / debug 时，后续 kit 可输出调试信息。
 set "WSL_KIT_verbose="
+:: 可选：指定 help 语言 zh-CN / en；留空自动检测。
+:: set "WSL_KIT_HELP_LANG=zh-CN"
 
 
 
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: /etc/wsl.conf 和内置服务定义
-:: 配置不表示立即生效，需执行如 wsl.1.cmd mng 来进行应用。
+:: /etc/wsl.conf 和内置服务定义，参考https://learn.microsoft.com/windows/wsl/wsl-config
+:: 配置不表示立即生效，需执行如 wsl.1.cmd ctl systemd enable 来进行应用。
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: 留空表示 mng 不主动修改；enable/disable 表示 mng 使用此默认动作
+:: 留空表示 ctl 不主动修改；enable/disable 表示 ctl 使用此默认动作
 set "WSL_systemd="
-:: SSH 配置不表示立即启用，仅作为 mng ssh.enable 的默认参数。
+:: SSH 配置不表示立即启用，仅作为 ctl ssh enable 的默认参数。
 set "WSL_SSH_port="
 set "WSL_SSH_key=%USERPROFILE%\.ssh\id_rsa"
 
 
 
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: %USERPROFILE%\.wslconfig 定义
-:: 配置不表示立即生效，需执行如 wsl.1.cmd mng.global 来进行应用
+:: %USERPROFILE%\.wslconfig 定义，参考https://learn.microsoft.com/windows/wsl/wsl-config
+:: 配置不表示立即生效，需执行如 wsl.1.cmd ctl global network 来进行应用
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: 留空表示 mng 不主动修改；mirrored/nat 表示 mng 使用此默认网络模式
+:: 留空表示 ctl 不主动修改；mirrored/nat 表示 ctl 使用此默认网络模式
 :: 注意：网络模式是用户级 WSL2 全局配置，不是单实例配置。
 set "WSL_network_mode="
 :: 以下网络附属项仅在 WSL_network_mode 非空并应用网络配置时生效。
 set "WSL_network_dns_tunneling="
 set "WSL_network_auto_proxy="
 set "WSL_network_host_loopback="
-
 
 
 
@@ -71,5 +75,17 @@ if not exist "%WSL_KIT%" (
     exit /b 1
 )
 
-call "%WSL_KIT%" %*
+set "WSL_ENTRY_FILE=%~f0"
+set "WSL_KIT_ARGS_READY=1"
+set "WSL_KIT_ARG_COUNT=0"
+
+:ArgLoop
+if "%~1"=="" goto :RunWslKit
+set /a WSL_KIT_ARG_COUNT+=1
+set "WSL_KIT_ARG_%WSL_KIT_ARG_COUNT%=%~1"
+shift /1
+goto :ArgLoop
+
+:RunWslKit
+call "%WSL_KIT%"
 exit /b %ERRORLEVEL%

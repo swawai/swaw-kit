@@ -54,9 +54,23 @@ taskport.cmd chrome
 portrule.cmd 8080
 copy vps1.cmd vps2.cmd
 copy git1.cmd git2.cmd
+copy wsl.1.cmd wsl.dev.cmd
 ```
 
-复制 `vps1.cmd` / `git1.cmd` 后，按需修改其中的主机或授权信息。
+复制 `vps1.cmd` / `git1.cmd` / `wsl.1.cmd` 后，按需修改其中的主机或授权信息。
+
+`wsl.1.cmd` 会优先透传原生 WSL 运行参数，并自动绑定入口配置中的实例：
+
+```bat
+wsl.1.cmd status
+wsl.1.cmd uname -a
+wsl.1.cmd --cd /tmp -- pwd
+wsl.1.cmd ctl install --dry-run
+wsl.1.cmd code ~
+```
+
+WSL 入口文件使用 `WSL_KIT_PROTOCOL` 声明与 `_lib\wsl_instance_kit` 的协议版本；当前模板使用 `1`。
+
 
 ## 微软 sysinternals
 

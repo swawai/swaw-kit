@@ -1,0 +1,47 @@
+version 1.0
+
+# 基本用法:
+  {{COMMAND}}                       打开入口文件中配置的 WSL 实例
+  {{COMMAND}} status                显示此实例状态
+  {{COMMAND}} -h                    显示帮助
+
+
+# 管理命令:
+  {{COMMAND}} ctl install           使用 {WSL_source} 安装该实例          (wsl --import 或 wsl --install)
+  {{COMMAND}} ctl install --dry-run 预览安装命令，不实际执行
+  {{COMMAND}} ctl backup            在 {WSL_backup_dir} 下生成 .tar 备份  (wsl --export)
+  {{COMMAND}} ctl export D:\x.tar   导出 .tar 备份包到指定路径            (wsl --export)
+  {{COMMAND}} ctl config            打开此实例 /etc 目录                  (explorer \\wsl...)
+  {{COMMAND}} ctl user ensure       创建/确认 {WSL_user} 用户已存在       (wsl .. -- sh -lc useradd/adduser)
+  {{COMMAND}} ctl user default      将 {WSL_user} 设置为默认用户          (wsl --manage set-default-user)
+  {{COMMAND}} ctl default           将此实例设置为默认实例                (wsl --set-default)
+  {{COMMAND}} ctl terminate         终止此实例                            (wsl --terminate)
+  {{COMMAND}} ctl -t                同上，终止此实例                      (wsl --terminate)
+  {{COMMAND}} ctl systemd enable    启用此实例 systemd                    (/etc/wsl.conf)
+  {{COMMAND}} ctl systemd disable   禁用此实例 systemd                    (/etc/wsl.conf)
+  {{COMMAND}} ctl ssh enable        启用此实例 SSH 服务                   (apt/systemctl)
+  {{COMMAND}} ctl ssh enable 2222   同上，但使用指定端口
+  {{COMMAND}} ctl ssh disable       停止 SSH 并移除配置公钥              (systemctl/service)
+  {{COMMAND}} ctl remove --yes      注销并删除此实例                      (wsl --unregister)
+
+# 全局管理命令:
+  {{COMMAND}} ctl global config     打开当前用户目录查看 .wslconfig       (explorer %USERPROFILE%)
+  {{COMMAND}} ctl global shutdown   关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
+  {{COMMAND}} ctl global -t         同 global shutdown
+  {{COMMAND}} ctl global network    按 WSL_network_* 更新 .wslconfig      (%USERPROFILE%)
+
+# 远程编辑:
+  {{COMMAND}} code                  用 VSCode 打开{WSL_default_workdir}   (code --remote=wsl+..)
+  {{COMMAND}} code ~                打开此实例用户家目录
+  {{COMMAND}} cursor /etc           用 Cursor 打开 WSL 绝对路径
+  {{COMMAND}} cursor app/           打开 {WSL_default_workdir}/app/
+
+
+# 实例透传策略:
+  上面未出现的命令，会这样透传给 wsl.exe ：
+  wsl.exe -d <WSL_name> [-u <WSL_user>] [--cd <WSL_default_workdir>] <原始参数...>
+  如：
+  {{COMMAND}} uname -a              在该实例中执行 uname -a
+  {{COMMAND}} -- pwd                -- 后的内容会原样传入该实例内执行
+  {{COMMAND}} --cd /tmp -- pwd      同上，但追加指定工作目录
+  {{COMMAND}} -u root -- whoami     同上，但追加指定执行用户
