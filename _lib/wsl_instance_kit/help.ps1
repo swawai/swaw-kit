@@ -4,7 +4,8 @@
 #>
 
 param(
-    [string]$CommandName = "wsl_instance_kit"
+    [string]$CommandName = "wsl_instance_kit",
+    [AllowNull()] [string]$Language
 )
 
 $ErrorActionPreference = "Stop"
@@ -36,6 +37,17 @@ function Convert-ToKnownHelpLanguage {
 }
 
 function Get-PreferredHelpLanguage {
+    param([AllowNull()] [string]$ExplicitLanguage)
+
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitLanguage)) {
+        $language = Convert-ToKnownHelpLanguage $ExplicitLanguage
+        if ($language) {
+            return $language
+        }
+
+        return "en"
+    }
+
     foreach ($override in @($env:WSL_KIT_HELP_LANG, $env:WSL_KIT_LANG)) {
         if (-not [string]::IsNullOrWhiteSpace($override)) {
             $language = Convert-ToKnownHelpLanguage $override
@@ -97,7 +109,7 @@ function Get-PreferredHelpLanguage {
 }
 
 $helpDir = Join-Path $PSScriptRoot "help"
-$language = Get-PreferredHelpLanguage
+$language = Get-PreferredHelpLanguage $Language
 $helpPath = Join-Path $helpDir "$language.txt"
 
 if (-not (Test-Path -LiteralPath $helpPath -PathType Leaf)) {

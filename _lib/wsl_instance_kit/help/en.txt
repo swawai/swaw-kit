@@ -3,6 +3,12 @@
   {{COMMAND}}                       Open the WSL instance configured in this entry file.
   {{COMMAND}} status                Show this resource config and instance status.
   {{COMMAND}} -h                    Show help.
+  {{COMMAND}} --help zh             Show Chinese help.
+  {{COMMAND}} --help en             Show English help.
+  {{COMMAND}} -h zh                 Show Chinese help.
+  {{COMMAND}} -h en                 Show English help.
+  {{COMMAND}} /? zh                 Show Chinese help.
+  {{COMMAND}} /? en                 Show English help.
   # The entry file declares WSL_KIT_PROTOCOL; this kit currently supports v1.
 
 

@@ -61,6 +61,19 @@ function Invoke-Checked {
     Assert-ExitCode $LASTEXITCODE $ExpectedExitCode $Label
 }
 
+function Invoke-Captured {
+    param(
+        [string]$File,
+        [string[]]$CommandArgs,
+        [int]$ExpectedExitCode = 0,
+        [string]$Label = $File
+    )
+
+    $output = (& $File @CommandArgs 2>&1 | Out-String)
+    Assert-ExitCode $LASTEXITCODE $ExpectedExitCode $Label
+    return $output
+}
+
 function Test-PowerShellSyntax {
     $failed = $false
     Get-ChildItem -Path $kitRoot -Recurse -Filter "*.ps1" | ForEach-Object {
@@ -183,6 +196,27 @@ try {
 
     Write-Host "basic commands"
     Invoke-Checked $entryFile @("-h") 0 "entry help"
+    $oldHelpLang = $env:WSL_KIT_HELP_LANG
+    try {
+        $helpCases = @(
+            @{ Args = @("--help", "zh"); Env = "en"; Expected = "version 1.0"; Unexpected = "# Basic usage:"; Label = "entry --help zh" },
+            @{ Args = @("--help", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "version 1.0"; Label = "entry --help en" },
+            @{ Args = @("-h", "zh"); Env = "en"; Expected = "version 1.0"; Unexpected = "# Basic usage:"; Label = "entry -h zh" },
+            @{ Args = @("-h", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "version 1.0"; Label = "entry -h en" },
+            @{ Args = @("/?", "zh"); Env = "en"; Expected = "version 1.0"; Unexpected = "# Basic usage:"; Label = "entry /? zh" },
+            @{ Args = @("/?", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "version 1.0"; Label = "entry /? en" }
+        )
+
+        foreach ($case in $helpCases) {
+            $env:WSL_KIT_HELP_LANG = $case["Env"]
+            $output = Invoke-Captured -File $entryFile -CommandArgs @($case["Args"]) -ExpectedExitCode 0 -Label $case["Label"]
+            $preview = $output.Substring(0, [Math]::Min(80, $output.Length)) -replace "\r?\n", " "
+            Assert-True ($output.Contains($case["Expected"])) "$($case["Label"]) should override WSL_KIT_HELP_LANG. Preview: $preview"
+            Assert-True (-not $output.Contains($case["Unexpected"])) "$($case["Label"]) should not use WSL_KIT_HELP_LANG. Preview: $preview"
+        }
+    } finally {
+        $env:WSL_KIT_HELP_LANG = $oldHelpLang
+    }
     Invoke-Checked $entryFile @("status") 0 "entry status"
     Invoke-Checked $entryFile @("ctl", "install", "--dry-run") 0 "install dry-run"
     Invoke-Checked $kitCmd @("--entry-file", $entryFile, "status") 0 "kit --entry-file status"

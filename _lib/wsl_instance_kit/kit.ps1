@@ -44,11 +44,36 @@ if ($Arguments.Count -eq 0) {
     exit (Invoke-WslShell)
 }
 
+function Get-HelpLanguageArgument {
+    param([string[]]$Items)
+
+    if ($null -eq $Items -or $Items.Count -lt 2) {
+        return $null
+    }
+
+    $candidate = $Items[1]
+    if ([string]::IsNullOrWhiteSpace($candidate)) {
+        return $null
+    }
+
+    if ($candidate.Trim() -match '^(zh($|[-_])|en($|[-_]))') {
+        return $candidate
+    }
+
+    return $null
+}
+
 $verb = $Arguments[0].ToLowerInvariant()
 
 switch ($verb) {
     { $_ -in @("-h", "--help", "/?") } {
-        & PowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "help.ps1") -CommandName $script:Config.CommandName
+        $helpArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "help.ps1"), "-CommandName", $script:Config.CommandName)
+        $helpLanguage = Get-HelpLanguageArgument $Arguments
+        if ($helpLanguage) {
+            $helpArgs += @("-Language", $helpLanguage)
+        }
+
+        & PowerShell @helpArgs
         exit $LASTEXITCODE
     }
     "status" {

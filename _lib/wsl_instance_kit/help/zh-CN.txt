@@ -5,6 +5,10 @@ version 1.0
   {{COMMAND}} status                显示此实例状态
   {{COMMAND}} --help zh             显示中文版帮助信息
   {{COMMAND}} --help en             Show English help information
+  {{COMMAND}} -h zh                 显示中文版帮助信息
+  {{COMMAND}} -h en                 Show English help information
+  {{COMMAND}} /? zh                 显示中文版帮助信息
+  {{COMMAND}} /? en                 Show English help information
 
 
 # 管理命令:

@@ -15,10 +15,23 @@ if "%~1"=="/?" goto :ShowHelp
 goto :Main
 
 :ShowHelp
+set "helpLanguage="
+set "helpLanguageCandidate=%~2"
+if /i "%helpLanguageCandidate%"=="zh" set "helpLanguage=%helpLanguageCandidate%"
+if /i "%helpLanguageCandidate%"=="en" set "helpLanguage=%helpLanguageCandidate%"
+if /i "%helpLanguageCandidate:~0,3%"=="zh-" set "helpLanguage=%helpLanguageCandidate%"
+if /i "%helpLanguageCandidate:~0,3%"=="zh_" set "helpLanguage=%helpLanguageCandidate%"
+if /i "%helpLanguageCandidate:~0,3%"=="en-" set "helpLanguage=%helpLanguageCandidate%"
+if /i "%helpLanguageCandidate:~0,3%"=="en_" set "helpLanguage=%helpLanguageCandidate%"
 set "commandName=%~2"
+if defined helpLanguage set "commandName="
 if not defined commandName if defined WSL_ENTRY_FILE for %%I in ("%WSL_ENTRY_FILE%") do set "commandName=%%~nI"
 if not defined commandName set "commandName=wsl_instance_kit"
-PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0help.ps1" -CommandName "%commandName%"
+if defined helpLanguage (
+    PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0help.ps1" -CommandName "%commandName%" -Language "%helpLanguage%"
+) else (
+    PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0help.ps1" -CommandName "%commandName%"
+)
 exit /b %ERRORLEVEL%
 
 :Main
