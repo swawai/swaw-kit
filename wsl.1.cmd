@@ -12,8 +12,6 @@ set "WSL_source=Ubuntu"
 
 
 
-
-
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: 可选配置
 :::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -32,32 +30,9 @@ set "WSL_KIT_verbose="
 :: 可选：指定 help 语言 zh-CN / en；留空自动检测。
 :: set "WSL_KIT_HELP_LANG=zh-CN"
 
+set "WSL_SSH_public_key=%USERPROFILE%\.ssh\id_rsa.pub"
 
 
-:::::::::::::::::::::::::::::::::::::::::::::::::::
-:: /etc/wsl.conf 和内置服务定义，参考https://learn.microsoft.com/windows/wsl/wsl-config
-:: 配置不表示立即生效，需执行如 wsl.1.cmd ctl systemd enable 来进行应用。
-:::::::::::::::::::::::::::::::::::::::::::::::::::
-:: 留空表示 ctl 不主动修改；enable/disable 表示 ctl 使用此默认动作
-:: ctl ssh enable 只支持 systemd 托管启用，因此需要此项设置为 enable。
-set "WSL_systemd="
-:: SSH 配置不表示立即启用；ctl ssh enable 需要此端口，或显式传入端口参数。
-set "WSL_SSH_port="
-set "WSL_SSH_key=%USERPROFILE%\.ssh\id_rsa"
-
-
-
-:::::::::::::::::::::::::::::::::::::::::::::::::::
-:: %USERPROFILE%\.wslconfig 定义，参考https://learn.microsoft.com/windows/wsl/wsl-config
-:: 配置不表示立即生效，需执行如 wsl.1.cmd ctl global network 来进行应用
-:::::::::::::::::::::::::::::::::::::::::::::::::::
-:: 留空表示 ctl 不主动修改；mirrored/nat 表示 ctl 使用此默认网络模式
-:: 注意：网络模式是用户级 WSL2 全局配置，不是单实例配置。
-set "WSL_network_mode="
-:: 以下网络附属项仅在 WSL_network_mode 非空并应用网络配置时生效。
-set "WSL_network_dns_tunneling="
-set "WSL_network_auto_proxy="
-set "WSL_network_host_loopback="
 
 
 

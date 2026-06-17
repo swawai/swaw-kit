@@ -114,3 +114,88 @@ fi
     $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--", "sh", "-lc", $runner)
     return (Invoke-ControlNativeCommand $nativeArgs)
 }
+
+function Show-WslSystemdStatus {
+    if ($null -eq (Get-WslDistributionRecord)) {
+        Write-Fail "WSL instance is not installed: $($script:Config.Name)"
+        return 1
+    }
+
+    Write-Host "WSL systemd status: $($script:Config.Name)"
+
+$scriptText = @'
+set -u
+conf=/etc/wsl.conf
+configured="(not set)"
+conf_status="missing"
+
+print_kv() {
+    label="$1"
+    value="$2"
+    printf '  %-23s %s\n' "$label:" "$value"
+}
+
+if [ -f "$conf" ]; then
+    conf_status="$conf"
+    in_boot=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        no_comment=${line%%#*}
+        no_comment=${no_comment%%;*}
+        compact=$(printf '%s' "$no_comment" | tr -d '[:space:]')
+        [ -n "$compact" ] || continue
+        case "$compact" in
+            "["*"]")
+                section=${compact#\[}
+                section=${section%%\]*}
+                section=$(printf '%s' "$section" | tr '[:upper:]' '[:lower:]')
+                if [ "$section" = boot ]; then
+                    in_boot=1
+                else
+                    in_boot=0
+                fi
+                ;;
+            [Ss][Yy][Ss][Tt][Ee][Mm][Dd]=*)
+                if [ "$in_boot" -eq 1 ]; then
+                    configured=${compact#*=}
+                fi
+                ;;
+        esac
+    done < "$conf"
+fi
+
+init=$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')
+[ -n "$init" ] || init=unknown
+
+systemd_active=no
+if [ "$init" = systemd ]; then
+    systemd_active=yes
+fi
+
+systemctl_usable=no
+if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --no-pager >/dev/null 2>&1; then
+    systemctl_usable=yes
+fi
+
+configured_lc=$(printf '%s' "$configured" | tr '[:upper:]' '[:lower:]')
+restart_needed=no
+case "$configured_lc:$systemd_active" in
+    true:no|1:no|yes:no)
+        restart_needed="yes (enable pending)"
+        ;;
+    false:yes|0:yes|no:yes)
+        restart_needed="yes (disable pending)"
+        ;;
+esac
+
+print_kv "wsl.conf" "$conf_status"
+print_kv "configured systemd" "$configured"
+print_kv "runtime init" "$init"
+print_kv "systemd active" "$systemd_active"
+print_kv "systemctl usable" "$systemctl_usable"
+print_kv "restart needed" "$restart_needed"
+'@
+
+    $runner = New-Base64ShRunner $scriptText
+    $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--", "sh", "-lc", $runner)
+    return (Invoke-ControlNativeCommand $nativeArgs)
+}

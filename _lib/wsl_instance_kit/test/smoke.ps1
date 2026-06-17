@@ -157,15 +157,17 @@ function New-SshEnableTestEntryFile {
     $publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEZha2VLZXlGb3JTbW9rZVRlc3RPbmx5 wsl-kit-smoke"
     [System.IO.File]::WriteAllText($publicKeyPath, "$publicKey`r`n", [System.Text.UTF8Encoding]::new($false))
 
+    $port = Get-FreeTcpPort
     $entryPath = Join-Path $repoRoot ("wsl.smoke-" + [guid]::NewGuid().ToString("N") + ".cmd")
     $content = [System.IO.File]::ReadAllText($entryFile)
-    $content = [regex]::Replace($content, '(?m)^set "WSL_systemd=.*"\r?$', 'set "WSL_systemd=enable"')
-    $content = [regex]::Replace($content, '(?m)^set "WSL_SSH_port=.*"\r?$', ('set "WSL_SSH_port={0}"' -f (Get-FreeTcpPort)))
-    $sshKeyLine = 'set "WSL_SSH_key=' + $publicKeyPath + '"'
-    $content = [regex]::Replace($content, '(?m)^set "WSL_SSH_key=.*"\r?$', [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $sshKeyLine })
+    $sshKeyLine = 'set "WSL_SSH_public_key=' + $publicKeyPath + '"'
+    $content = [regex]::Replace($content, '(?m)^set "WSL_SSH_public_key=.*"\r?$', [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $sshKeyLine })
     $content = $content -replace "`r?`n", "`r`n"
     [System.IO.File]::WriteAllText($entryPath, $content, [System.Text.UTF8Encoding]::new($false))
-    return $entryPath
+    return [pscustomobject]@{
+        EntryFile = $entryPath
+        Port      = $port
+    }
 }
 
 function Decode-Base64ShRunner {
@@ -195,6 +197,13 @@ try {
     Test-PowerShellSyntax
 
     Write-Host "basic commands"
+    $entryTemplate = [System.IO.File]::ReadAllText($entryFile)
+    Assert-True (-not $entryTemplate.Contains("WSL_systemd")) "entry template should not declare WSL_systemd."
+    Assert-True (-not $entryTemplate.Contains("WSL_network")) "entry template should not declare WSL_network settings."
+    Assert-True (-not $entryTemplate.Contains("WSL_SSH_port")) "entry template should not declare WSL_SSH_port."
+    Assert-True (-not $entryTemplate.Contains("WSL_SSH_key")) "entry template should not declare WSL_SSH_key."
+    Assert-True ($entryTemplate.Contains("WSL_SSH_public_key")) "entry template should declare WSL_SSH_public_key."
+
     Invoke-Checked $entryFile @("-h") 0 "entry help"
     $oldHelpLang = $env:WSL_KIT_HELP_LANG
     try {
@@ -217,7 +226,46 @@ try {
     } finally {
         $env:WSL_KIT_HELP_LANG = $oldHelpLang
     }
-    Invoke-Checked $entryFile @("status") 0 "entry status"
+    $statusOutput = Invoke-Captured $entryFile @("status") 0 "entry status"
+    Assert-True ($statusOutput.Contains("Backup size:")) "status should show instance backup size."
+    Assert-True ($statusOutput.Contains("Backup root size:")) "status should show backup root size."
+    Assert-True ($statusOutput.Contains("Download cache size:")) "status should show download cache size."
+    Assert-True ($statusOutput.Contains("More status:")) "status should show sub-status shortcuts."
+    Assert-True ($statusOutput.Contains("status ssh | port | systemd")) "status should mention status subcommands."
+    $directPortStatusOutput = Invoke-Captured $entryFile @("status", "port") 0 "status port"
+    Assert-True ($directPortStatusOutput.Contains("Networking mode:")) "status port should show networking mode."
+    Assert-True ($directPortStatusOutput.Contains("Strategy:")) "status port should show selected strategy."
+    $portStatusOutput = Invoke-Captured $entryFile @("ctl", "port", "status") 0 "port status"
+    Assert-True ($portStatusOutput.Contains("Networking mode:")) "port status should show networking mode."
+    Assert-True ($portStatusOutput.Contains("Strategy:")) "port status should show selected strategy."
+    $ctlHelpOutput = Invoke-Captured $entryFile @("ctl", "help") 1 "ctl help removed"
+    Assert-True ($ctlHelpOutput.Contains("Run: wsl.1 --help")) "ctl help should point to top-level help."
+    Assert-True (-not $ctlHelpOutput.Contains("Usage:")) "ctl help should not print a second usage document."
+    Invoke-Checked $entryFile @("ctl", "port") 0 "port usage"
+    Invoke-Checked $entryFile @("ctl", "port", "expose", "abc") 1 "reject non-numeric port expose"
+    Invoke-Checked $entryFile @("ctl", "port", "remove", "70000") 1 "reject out-of-range port remove"
+    Invoke-Checked $entryFile @("ctl", "port", "status", "70000") 1 "reject out-of-range port status"
+    Invoke-Checked $entryFile @("ctl", "port", "expose", "8080", "--listen-address", "127.0.0.1", "--dry-run") 1 "reject custom port listen address"
+    $oldUserProfile = $env:USERPROFILE
+    $tempUserProfile = Join-Path $env:TEMP ("wslkit-profile-" + [guid]::NewGuid().ToString("N"))
+    try {
+        New-Item -ItemType Directory -Path $tempUserProfile -Force | Out-Null
+
+        $env:USERPROFILE = $tempUserProfile
+        $natDryRunOutput = Invoke-Captured $entryFile @("ctl", "port", "expose", "8080", "80", "--dry-run") 0 "nat port expose dry-run"
+        Assert-True ($natDryRunOutput.Contains("listenaddress=0.0.0.0")) "nat dry-run should use the fixed 0.0.0.0 listen address."
+        Assert-True ($natDryRunOutput.Contains("connectaddress=<WSL-IP>")) "nat dry-run should not require a live WSL IP."
+        Assert-True ($natDryRunOutput.Contains("wsl_instance_kit-")) "nat dry-run should use the wsl_instance_kit rule prefix."
+
+        [System.IO.File]::WriteAllText((Join-Path $tempUserProfile ".wslconfig"), "[wsl2]`r`nnetworkingMode=mirrored # smoke note`r`n", [System.Text.UTF8Encoding]::new($false))
+        $mirroredStatusOutput = Invoke-Captured $entryFile @("ctl", "port", "status") 0 "port status inline comment mode"
+        Assert-True ($mirroredStatusOutput.Contains("Networking mode: mirrored")) "port status should ignore inline comments in networkingMode."
+    } finally {
+        $env:USERPROFILE = $oldUserProfile
+        if (Test-Path -LiteralPath $tempUserProfile) {
+            Remove-Item -LiteralPath $tempUserProfile -Recurse -Force
+        }
+    }
     Invoke-Checked $entryFile @("ctl", "install", "--dry-run") 0 "install dry-run"
     Invoke-Checked $kitCmd @("--entry-file", $entryFile, "status") 0 "kit --entry-file status"
 
@@ -253,6 +301,13 @@ try {
 
         Invoke-Checked $entryFile @("ctl", "export", "--format", "tar.gz", $target) 1 "reject inline export format"
         Invoke-Checked $entryFile @("ctl", "backup", "--format", "tar.gz") 1 "reject inline backup format"
+        Invoke-Checked $entryFile @("ctl", "backup", "dir", "extra") 1 "reject backup dir extra args"
+        Invoke-Checked $entryFile @("ctl", "downloads") 1 "reject downloads without dir"
+        Invoke-Checked $entryFile @("ctl", "downloads", "dir", "extra") 1 "reject downloads dir extra args"
+        Invoke-Checked $entryFile @("ctl", "download", "dir", "extra") 1 "reject download dir extra args"
+        Invoke-Checked $entryFile @("ctl", "settings", "extra") 1 "reject settings extra args"
+        Invoke-Checked $entryFile @("ctl", "global", "config") 1 "reject removed global config"
+        Invoke-Checked $entryFile @("ctl", "global", "network") 1 "reject removed global network"
 
         $env:MOCK_WSL_EXIT_CODE = "9"
         Invoke-Checked $entryFile @("ctl", "install") 9 "native install failure preserves exit code"
@@ -260,15 +315,22 @@ try {
 
         Invoke-Checked $entryFile @("ctl", "install", "--fallback", "--dry-run") 0 "fallback dry-run"
         Invoke-Checked $entryFile @("ctl", "install", "--fallback", "--refresh", "--dry-run") 1 "reject removed fallback refresh"
-        Invoke-Checked $entryFile @("ctl", "ssh", "enable") 1 "reject ssh enable without systemd entry config"
-        Invoke-Checked $entryFile @("ctl", "ssh", "enable", "2222") 1 "reject ssh enable without systemd entry config"
+        Invoke-Checked $entryFile @("ctl", "ssh", "enable") 1 "reject ssh enable without port"
+        Invoke-Checked $entryFile @("ctl", "ssh", "enable", "abc") 1 "reject non-numeric ssh port"
+        Invoke-Checked $entryFile @("ctl", "ssh", "enable", "2222", "extra") 1 "reject ssh enable extra args"
+        $env:MOCK_WSL_EXIT_CODE = "1"
+        Invoke-Checked $entryFile @("ctl", "ssh", "enable", "2222") 1 "reject ssh enable without active systemd"
+        $env:MOCK_WSL_EXIT_CODE = $null
 
-        $sshEnableEntryFile = New-SshEnableTestEntryFile $tempRoot
-        Invoke-Checked $sshEnableEntryFile @("ctl", "ssh", "enable") 0 "ssh enable script generation"
+        $sshEnableCase = New-SshEnableTestEntryFile $tempRoot
+        $sshEnableEntryFile = $sshEnableCase.EntryFile
+        $sshEnablePort = [string]$sshEnableCase.Port
+        Invoke-Checked $sshEnableEntryFile @("ctl", "ssh", "enable", $sshEnablePort) 0 "ssh enable script generation"
         $actual = Read-MockWslArgs $argsFile
         Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "ssh enable root script prefix"
         Assert-True ($actual.Count -eq 8) "ssh enable should pass a single shell runner."
         $enableScript = Decode-Base64ShRunner $actual[7]
+        Assert-True ($enableScript.Contains(('port_input="{0}"' -f $sshEnablePort))) "ssh enable script should use the explicit port argument."
         Assert-True ($enableScript.Contains("dnf install -y openssh-server")) "ssh enable script should support dnf."
         Assert-True ($enableScript.Contains("yum install -y openssh-server")) "ssh enable script should support yum."
         Assert-True ($enableScript.Contains("microdnf install -y openssh-server")) "ssh enable script should support microdnf."
@@ -279,8 +341,23 @@ try {
             $actual = Read-MockWslArgs $argsFile
             Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "ssh status root script prefix"
             Assert-True ($actual.Count -eq 8) "ssh status should pass a single shell runner."
+
+            Invoke-Checked $entryFile @("status", "ssh") 0 "status ssh"
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "status ssh root script prefix"
+            Assert-True ($actual.Count -eq 8) "status ssh should pass a single shell runner."
+
+            Invoke-Checked $entryFile @("status", "systemd") 0 "status systemd"
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "status systemd root script prefix"
+            Assert-True ($actual.Count -eq 8) "status systemd should pass a single shell runner."
+
+            Invoke-Checked $entryFile @("ctl", "systemd", "status") 0 "ctl systemd status"
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "ctl systemd status root script prefix"
+            Assert-True ($actual.Count -eq 8) "ctl systemd status should pass a single shell runner."
         } else {
-            Write-Host "ssh status skipped: wsl.1 is not installed" -ForegroundColor Yellow
+            Write-Host "ssh/systemd status skipped: wsl.1 is not installed" -ForegroundColor Yellow
         }
     } finally {
         $env:PATH = $oldPath

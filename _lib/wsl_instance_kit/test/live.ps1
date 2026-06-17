@@ -21,8 +21,7 @@ function New-ScenarioEntryFile {
     param(
         [string]$Name,
         [string]$Source,
-        [int]$Port,
-        [string]$SshKeyPath
+        [string]$SshPublicKeyPath
     )
 
     return New-LiveEntryFile `
@@ -30,8 +29,7 @@ function New-ScenarioEntryFile {
         -EntryTemplate $entryTemplate `
         -Name $Name `
         -Source $Source `
-        -Port $Port `
-        -SshKeyPath $SshKeyPath `
+        -SshPublicKeyPath $SshPublicKeyPath `
         -User $User
 }
 
@@ -153,7 +151,7 @@ function Test-ExportRoundTrip {
     Assert-True ((Get-Item -LiteralPath $exportPath).Length -gt 0) "Explicit export file is empty: $exportPath"
 
     $restoreName = "$Name-restore"
-    $restoreEntryFile = New-ScenarioEntryFile $restoreName $exportPath (Get-FreeTcpPort) $SshKey.PrivateKey
+    $restoreEntryFile = New-ScenarioEntryFile $restoreName $exportPath $SshKey.PublicKey
     $restoreInstallDir = Join-Path $liveRoot $restoreName
     $restoreBackupDir = Join-Path $liveBackupRoot $restoreName
 
@@ -195,7 +193,7 @@ function Test-LiveDistribution {
     $token = Get-SafeToken $Source
     $name = "$NamePrefix-$token"
     $port = Get-FreeTcpPort
-    $entryFile = New-ScenarioEntryFile $name $Source $port $SshKey.PrivateKey
+    $entryFile = New-ScenarioEntryFile $name $Source $SshKey.PublicKey
     $installDir = Join-Path $liveRoot $name
     $backupDir = Join-Path $liveBackupRoot $name
 
@@ -214,7 +212,7 @@ function Test-LiveDistribution {
         $packageFamily = Get-PackageFamily $name
         Write-Host "Package manager: $packageFamily" -ForegroundColor Green
 
-        Invoke-LiveCommand $entryFile @("ctl", "ssh", "enable") 0 "ssh enable $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @("ctl", "ssh", "enable", ([string]$port)) 0 "ssh enable $Source" | Out-Null
         $status = Invoke-LiveCommand $entryFile @("ctl", "ssh", "status") 0 "ssh status $Source"
         $statusText = $status.Output -join "`n"
         Assert-True ($statusText -match "service manager:\s+systemd") "Expected systemd service manager for $Source."

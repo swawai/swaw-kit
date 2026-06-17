@@ -137,11 +137,25 @@ function Open-WslInstanceConfig {
     return Open-WindowsFolder $candidates[0]
 }
 
-function Open-WslGlobalConfig {
-    $path = Join-Path $env:USERPROFILE ".wslconfig"
-    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        New-Item -ItemType File -Path $path -Force | Out-Null
+function Open-WslSettings {
+    $candidates = @()
+    foreach ($root in @($env:ProgramFiles, $env:ProgramW6432)) {
+        if (-not [string]::IsNullOrWhiteSpace($root)) {
+            $candidate = Join-Path $root "WSL\wslsettings\wslsettings.exe"
+            if ($candidate -notin $candidates) {
+                $candidates += $candidate
+            }
+        }
     }
 
-    return Open-WindowsFolder $env:USERPROFILE
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return Start-ExternalDetached $candidate @()
+        }
+    }
+
+    $expected = if ($candidates.Count -gt 0) { $candidates[0] } else { "%ProgramFiles%\WSL\wslsettings\wslsettings.exe" }
+    Write-Fail "WSL Settings app not found: $expected"
+    Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) ctl settings"
+    return 1
 }

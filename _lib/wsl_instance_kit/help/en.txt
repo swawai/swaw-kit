@@ -5,10 +5,6 @@
   {{COMMAND}} -h                    Show help.
   {{COMMAND}} --help zh             Show Chinese help.
   {{COMMAND}} --help en             Show English help.
-  {{COMMAND}} -h zh                 Show Chinese help.
-  {{COMMAND}} -h en                 Show English help.
-  {{COMMAND}} /? zh                 Show Chinese help.
-  {{COMMAND}} /? en                 Show English help.
   # The entry file declares WSL_KIT_PROTOCOL; this kit currently supports v1.
 
 
@@ -18,21 +14,26 @@
   {{COMMAND}} ctl install --dry-run Preview native WSL install/init commands; no dirs are created and nothing is installed.
   {{COMMAND}} ctl install --fallback Use bundled DistributionInfo to download an image and install with wsl --install --from-file.
   {{COMMAND}} ctl backup            Export with WSL_export_format to a timestamped file under WSL_backup_dir.
+  {{COMMAND}} ctl backup dir        Open this instance's backup directory.
   {{COMMAND}} ctl export D:\x.tar   Export with WSL_export_format to a specific path.
+  {{COMMAND}} ctl downloads dir     Open the fallback image cache directory.
   {{COMMAND}} ctl user ensure       Create/check WSL_user.
   {{COMMAND}} ctl user default      Set WSL_user as this instance's default user.
   {{COMMAND}} ctl default           Set this instance as the default WSL distribution.
   {{COMMAND}} ctl terminate         Terminate this instance.
-  {{COMMAND}} ctl global config     Open the current user's profile folder for .wslconfig.
   {{COMMAND}} ctl global shutdown   Shut down the current user's WSL2 VM and instances.
   {{COMMAND}} ctl systemd enable    Enable systemd in this instance.
   {{COMMAND}} ctl systemd disable   Disable systemd in this instance.
   {{COMMAND}} ctl ssh status        Show SSH service status for this instance.
   {{COMMAND}} ctl ssh config        Open this instance's /etc/ssh directory.
-  {{COMMAND}} ctl ssh enable        Enable SSH using WSL_SSH_port when WSL_systemd=enable.
-  {{COMMAND}} ctl ssh enable 2222   Enable SSH with an explicit port when WSL_systemd=enable.
+  {{COMMAND}} ctl ssh enable 2222   Enable SSH on port 2222 when systemd is active.
   {{COMMAND}} ctl ssh disable       Stop SSH and remove the configured public key.
-  {{COMMAND}} ctl global network    Apply WSL_network_* settings to .wslconfig.
+  {{COMMAND}} ctl port status       Show port mapping, firewall, and networking mode status.
+  {{COMMAND}} ctl port expose 8080  Allow/map TCP 8080.
+  {{COMMAND}} ctl port expose 8080 80 Map Windows:8080 to WSL:80 in NAT mode.
+  {{COMMAND}} ctl port remove 8080  Remove the managed TCP 8080 mapping/firewall rule.
+  {{COMMAND}} ctl port sync         Refresh managed NAT mappings after WSL IP changes.
+  {{COMMAND}} ctl settings          Open the WSL Settings app.
   {{COMMAND}} ctl remove --yes      Unregister and delete this instance.
   # ctl is resource-oriented sugar; use wsl.exe directly for bare global WSL management commands.
 

@@ -189,8 +189,7 @@ function New-LiveEntryFile {
         [string]$EntryTemplate,
         [string]$Name,
         [string]$Source,
-        [int]$Port,
-        [string]$SshKeyPath,
+        [string]$SshPublicKeyPath,
         [string]$User
     )
 
@@ -204,9 +203,7 @@ function New-LiveEntryFile {
     $content = Set-EntryLine $content "WSL_default_workdir" "~"
     $content = Set-EntryLine $content "WSL_version" "2"
     $content = Set-EntryLine $content "WSL_export_format" "tar"
-    $content = Set-EntryLine $content "WSL_systemd" "enable"
-    $content = Set-EntryLine $content "WSL_SSH_port" ([string]$Port)
-    $content = Set-EntryLine $content "WSL_SSH_key" $SshKeyPath
+    $content = Set-EntryLine $content "WSL_SSH_public_key" $SshPublicKeyPath
     $content = $content -replace "`r?`n", "`r`n"
     [System.IO.File]::WriteAllText($entryPath, $content, [System.Text.UTF8Encoding]::new($false))
     return $entryPath

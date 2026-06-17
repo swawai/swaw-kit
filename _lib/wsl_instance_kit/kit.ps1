@@ -13,14 +13,13 @@ $ErrorActionPreference = "Stop"
 
 $libDir = Join-Path $PSScriptRoot "lib"
 . (Join-Path $libDir "common.ps1")
-. (Join-Path $libDir "ini.ps1")
 . (Join-Path $libDir "config.ps1")
 . (Join-Path $libDir "wsl-native.ps1")
 . (Join-Path $libDir "user.ps1")
 . (Join-Path $libDir "install-fallback.ps1")
 . (Join-Path $libDir "editor.ps1")
 . (Join-Path $libDir "systemd.ps1")
-. (Join-Path $libDir "network.ps1")
+. (Join-Path $libDir "port.ps1")
 . (Join-Path $libDir "ssh.ps1")
 . (Join-Path $libDir "control.ps1")
 
@@ -77,7 +76,7 @@ switch ($verb) {
         exit $LASTEXITCODE
     }
     "status" {
-        exit (Show-WslResourceStatus)
+        exit (Invoke-Status (Get-Slice $Arguments 1))
     }
     "code" {
         exit (Open-Editor "code" (Get-Slice $Arguments 1))
