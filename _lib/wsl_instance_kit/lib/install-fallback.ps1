@@ -200,19 +200,11 @@ function Normalize-Sha256Text {
     return $result
 }
 
-function Test-FileSha256 {
-    param(
-        [string]$Path,
-        [string]$Expected
-    )
-
-    $expectedHash = Normalize-Sha256Text $Expected
-    if ([string]::IsNullOrWhiteSpace($expectedHash)) {
-        return $true
-    }
+function Get-FileSha256 {
+    param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        return $false
+        return ""
     }
 
     try {
@@ -229,26 +221,148 @@ function Test-FileSha256 {
             $stream.Dispose()
         }
     } catch {
+        return ""
+    }
+
+    return $actual
+}
+
+function Test-FileSha256 {
+    param(
+        [string]$Path,
+        [string]$Expected
+    )
+
+    $expectedHash = Normalize-Sha256Text $Expected
+    if ([string]::IsNullOrWhiteSpace($expectedHash)) {
+        return $true
+    }
+
+    $actual = Get-FileSha256 $Path
+    if ([string]::IsNullOrWhiteSpace($actual)) {
         return $false
     }
 
     return ($actual -eq $expectedHash)
 }
 
+function Get-WslImageHashPath {
+    param([string]$ImagePath)
+
+    return "$ImagePath.sha256"
+}
+
+function Read-WslImageHash {
+    param([string]$ImagePath)
+
+    $hashPath = Get-WslImageHashPath $ImagePath
+    if (-not (Test-Path -LiteralPath $hashPath -PathType Leaf)) {
+        return ""
+    }
+
+    try {
+        $text = [System.IO.File]::ReadAllText($hashPath, [System.Text.Encoding]::UTF8)
+    } catch {
+        return ""
+    }
+
+    if ($text -match "(?i)\b([0-9a-f]{64})\b") {
+        return $Matches[1].ToLowerInvariant()
+    }
+
+    return ""
+}
+
+function Write-WslImageHash {
+    param([string]$ImagePath)
+
+    $hash = Get-FileSha256 $ImagePath
+    if ([string]::IsNullOrWhiteSpace($hash)) {
+        Write-Warn "Unable to compute image SHA256 sidecar: $ImagePath"
+        return $false
+    }
+
+    $hashPath = Get-WslImageHashPath $ImagePath
+    $fileName = [System.IO.Path]::GetFileName($ImagePath)
+    try {
+        [System.IO.File]::WriteAllText($hashPath, "$hash  $fileName`r`n", [System.Text.UTF8Encoding]::new($false))
+        return $true
+    } catch {
+        Write-Warn "Failed to write image SHA256 sidecar: $hashPath"
+        Write-Warn $_.Exception.Message
+        return $false
+    }
+}
+
+function Remove-WslFallbackImageCache {
+    param([string]$ImagePath)
+
+    $hashPath = Get-WslImageHashPath $ImagePath
+    if (Test-Path -LiteralPath $ImagePath -PathType Leaf) {
+        Remove-Item -LiteralPath $ImagePath -Force -ErrorAction SilentlyContinue
+    }
+
+    if (Test-Path -LiteralPath $hashPath -PathType Leaf) {
+        Remove-Item -LiteralPath $hashPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-WslFallbackImageCache {
+    param(
+        [pscustomobject]$Download,
+        [string]$ImagePath
+    )
+
+    if (-not (Test-Path -LiteralPath $ImagePath -PathType Leaf)) {
+        return $false
+    }
+
+    $actual = Get-FileSha256 $ImagePath
+    if ([string]::IsNullOrWhiteSpace($actual)) {
+        Write-Warn "Unable to read cached fallback image; downloading again."
+        return $false
+    }
+
+    $hashPath = Get-WslImageHashPath $ImagePath
+    $hasSidecar = Test-Path -LiteralPath $hashPath -PathType Leaf
+    $stored = Read-WslImageHash $ImagePath
+    if ($hasSidecar -and [string]::IsNullOrWhiteSpace($stored)) {
+        Write-Warn "Cached image hash sidecar is invalid; downloading again."
+        return $false
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($stored) -and $actual -ne $stored) {
+        Write-Warn "Cached image hash sidecar does not match the image; downloading again."
+        return $false
+    }
+
+    $expected = Normalize-Sha256Text $Download.Sha256
+    if (-not [string]::IsNullOrWhiteSpace($expected) -and $actual -ne $expected) {
+        Write-Warn "Cached image hash does not match DistributionInfo; downloading again."
+        return $false
+    }
+
+    if ((-not $hasSidecar) -and [string]::IsNullOrWhiteSpace($expected)) {
+        Write-Warn "Cached image has no hash sidecar; downloading again."
+        return $false
+    }
+
+    return $true
+}
+
 function Save-WslFallbackImage {
     param(
         [pscustomobject]$Download,
-        [string]$Destination,
-        [switch]$Refresh
+        [string]$Destination
     )
 
-    if ((-not $Refresh) -and (Test-Path -LiteralPath $Destination -PathType Leaf)) {
-        if (Test-FileSha256 $Destination $Download.Sha256) {
+    if (Test-Path -LiteralPath $Destination -PathType Leaf) {
+        if (Test-WslFallbackImageCache $Download $Destination) {
             Write-Host "Using cached fallback image: $Destination"
             return $true
         }
 
-        Write-Warn "Cached image hash does not match; downloading again."
+        Remove-WslFallbackImageCache $Destination
     }
 
     Ensure-Directory (Split-Path -Parent $Destination)
@@ -294,8 +408,7 @@ function Save-WslFallbackImage {
 function Install-WslResourceFallback {
     param(
         [string[]]$NativeExtra,
-        [switch]$DryRun,
-        [switch]$Refresh
+        [switch]$DryRun
     )
 
     $source = Resolve-WslSource $script:Config.Source
@@ -331,7 +444,13 @@ function Install-WslResourceFallback {
             return $exitCode
         }
 
-        return (Ensure-WslConfiguredUser -AllowEmpty)
+        $userExit = Ensure-WslConfiguredUser -AllowEmpty
+        if ($userExit -ne 0) {
+            return $userExit
+        }
+
+        [void](Write-WslImageHash $source)
+        return 0
     }
 
     $download = Get-WslFallbackDownload $source
@@ -362,7 +481,7 @@ function Install-WslResourceFallback {
         return 0
     }
 
-    if (-not (Save-WslFallbackImage $download $imagePath -Refresh:$Refresh)) {
+    if (-not (Save-WslFallbackImage $download $imagePath)) {
         return 1
     }
 
@@ -372,5 +491,11 @@ function Install-WslResourceFallback {
         return $exit
     }
 
-    return (Ensure-WslConfiguredUser -AllowEmpty)
+    $userExit = Ensure-WslConfiguredUser -AllowEmpty
+    if ($userExit -ne 0) {
+        return $userExit
+    }
+
+    [void](Write-WslImageHash $imagePath)
+    return 0
 }

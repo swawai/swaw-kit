@@ -175,6 +175,7 @@ try {
         $env:MOCK_WSL_EXIT_CODE = $null
 
         Invoke-Checked $entryFile @("ctl", "install", "--fallback", "--dry-run") 0 "fallback dry-run"
+        Invoke-Checked $entryFile @("ctl", "install", "--fallback", "--refresh", "--dry-run") 1 "reject removed fallback refresh"
     } finally {
         $env:PATH = $oldPath
         $env:MOCK_WSL_ARGS_PATH = $oldArgsPath

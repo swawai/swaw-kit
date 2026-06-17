@@ -45,10 +45,14 @@ function Install-WslResource {
 
     $dryRun = $Rest -contains "--dry-run"
     $fallback = $Rest -contains "--fallback"
-    $refresh = $Rest -contains "--refresh"
+    if ($fallback -and ($Rest -contains "--refresh")) {
+        Write-Fail "ctl install --fallback --refresh has been removed. Cached fallback images are verified by SHA256 and re-downloaded automatically when invalid."
+        return 1
+    }
+
     $nativeExtra = New-Object System.Collections.ArrayList
     foreach ($item in @($Rest)) {
-        if ($null -eq $item -or $item -in @("--dry-run", "--fallback", "--refresh")) {
+        if ($null -eq $item -or $item -in @("--dry-run", "--fallback")) {
             continue
         }
 
@@ -56,7 +60,7 @@ function Install-WslResource {
     }
 
     if ($fallback) {
-        return (Install-WslResourceFallback @($nativeExtra) -DryRun:$dryRun -Refresh:$refresh)
+        return (Install-WslResourceFallback @($nativeExtra) -DryRun:$dryRun)
     }
 
     $source = Resolve-WslSource $script:Config.Source
@@ -251,7 +255,7 @@ function Show-ControlUsage {
     Write-Host "Usage:"
     Write-Host "  $($script:Config.CommandName) $Verb status"
     Write-Host "  $($script:Config.CommandName) $Verb install [--dry-run] [native wsl options...]"
-    Write-Host "  $($script:Config.CommandName) $Verb install --fallback [--dry-run] [--refresh]"
+    Write-Host "  $($script:Config.CommandName) $Verb install --fallback [--dry-run]"
     Write-Host "  $($script:Config.CommandName) $Verb backup"
     Write-Host "  $($script:Config.CommandName) $Verb export <path>"
     Write-Host "  $($script:Config.CommandName) $Verb config"

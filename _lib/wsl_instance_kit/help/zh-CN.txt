@@ -10,7 +10,6 @@ version 1.0
   {{COMMAND}} ctl install           使用 {WSL_source} 安装该实例          (wsl --import 或 wsl --install)
   {{COMMAND}} ctl install --dry-run 预览安装命令，不实际执行
   {{COMMAND}} ctl install --fallback 使用内置 DistributionInfo 下载镜像安装 (wsl --install --from-file)
-  {{COMMAND}} ctl install --fallback --refresh 重新下载 fallback 镜像
   {{COMMAND}} ctl backup            按 {WSL_export_format} 在备份目录导出 (wsl --export)
   {{COMMAND}} ctl export D:\x.tar   按 {WSL_export_format} 导出到指定路径 (wsl --export)
   {{COMMAND}} ctl config            打开此实例 /etc 目录                  (explorer \\wsl...)

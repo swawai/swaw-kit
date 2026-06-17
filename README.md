@@ -73,7 +73,7 @@ WSL 入口文件使用 `WSL_KIT_PROTOCOL` 声明与 `_lib\wsl_instance_kit` 的�
 `ctl backup` 和 `ctl export` 的导出格式由入口文件中的 `WSL_export_format` 固定控制，默认是 `tar`。
 在线发行版安装默认仍优先使用原生 `wsl --install`；如果失败，会提示显式尝试 `ctl install --fallback`，fallback 会使用 `_lib\wsl_instance_kit\DistributionInfo.json`。
 fallback 下载的发行版镜像会复用 `data\wsl.downloads`，下载时先写入临时目录，校验成功后再移入镜像库。
-如需忽略已有缓存并重新下载，可使用 `ctl install --fallback --refresh`。
+fallback 安装成功后会为使用的源镜像写入同名 `.sha256` 文件；后续复用缓存前会校验该 hash，并在 DistributionInfo 提供 SHA256 时同步校验上游 hash，不匹配会清理后重新下载。
 
 
 ## 微软 sysinternals
