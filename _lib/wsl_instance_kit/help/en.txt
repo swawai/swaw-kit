@@ -10,6 +10,8 @@
   {{COMMAND}} ctl status            Same as status.
   {{COMMAND}} ctl install           Install this instance from WSL_source; .tar uses wsl --import, distro names use wsl --install.
   {{COMMAND}} ctl install --dry-run Preview native WSL install/init commands; no dirs are created and nothing is installed.
+  {{COMMAND}} ctl install --fallback Use bundled DistributionInfo to download an image and install with wsl --install --from-file.
+  {{COMMAND}} ctl install --fallback --refresh Re-download the fallback image.
   {{COMMAND}} ctl backup            Export with WSL_export_format to a timestamped file under WSL_backup_dir.
   {{COMMAND}} ctl export D:\x.tar   Export with WSL_export_format to a specific path.
   {{COMMAND}} ctl user ensure       Create/check WSL_user.

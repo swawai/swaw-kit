@@ -17,6 +17,7 @@ $libDir = Join-Path $PSScriptRoot "lib"
 . (Join-Path $libDir "config.ps1")
 . (Join-Path $libDir "wsl-native.ps1")
 . (Join-Path $libDir "user.ps1")
+. (Join-Path $libDir "install-fallback.ps1")
 . (Join-Path $libDir "editor.ps1")
 . (Join-Path $libDir "systemd.ps1")
 . (Join-Path $libDir "network.ps1")

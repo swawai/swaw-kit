@@ -44,14 +44,21 @@ function Install-WslResource {
     param([string[]]$Rest)
 
     $dryRun = $Rest -contains "--dry-run"
+    $fallback = $Rest -contains "--fallback"
+    $refresh = $Rest -contains "--refresh"
     $nativeExtra = New-Object System.Collections.ArrayList
     foreach ($item in @($Rest)) {
-        if ($null -eq $item -or $item -eq "--dry-run") {
+        if ($null -eq $item -or $item -in @("--dry-run", "--fallback", "--refresh")) {
             continue
         }
 
         [void]$nativeExtra.Add($item)
     }
+
+    if ($fallback) {
+        return (Install-WslResourceFallback @($nativeExtra) -DryRun:$dryRun -Refresh:$refresh)
+    }
+
     $source = Resolve-WslSource $script:Config.Source
     $installDir = Resolve-EntryPath $script:Config.InstallDir
 
@@ -91,6 +98,10 @@ function Install-WslResource {
     Ensure-Directory $directoryToEnsure
     $exitCode = Invoke-External "wsl.exe" $nativeArgs
     if ($exitCode -ne 0) {
+        if (-not (Test-ArchiveSource $source)) {
+            Write-Warn "Native wsl --install failed. You can try the explicit fallback path:"
+            Write-Warn "  $($script:Config.CommandName) ctl install --fallback"
+        }
         return $exitCode
     }
 
@@ -240,6 +251,7 @@ function Show-ControlUsage {
     Write-Host "Usage:"
     Write-Host "  $($script:Config.CommandName) $Verb status"
     Write-Host "  $($script:Config.CommandName) $Verb install [--dry-run] [native wsl options...]"
+    Write-Host "  $($script:Config.CommandName) $Verb install --fallback [--dry-run] [--refresh]"
     Write-Host "  $($script:Config.CommandName) $Verb backup"
     Write-Host "  $($script:Config.CommandName) $Verb export <path>"
     Write-Host "  $($script:Config.CommandName) $Verb config"

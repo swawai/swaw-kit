@@ -104,7 +104,8 @@ internal class Program
             File.WriteAllLines(path, args.Select(a => Convert.ToBase64String(Encoding.UTF8.GetBytes(a))));
         }
 
-        return 0;
+        var exitCodeText = Environment.GetEnvironmentVariable("MOCK_WSL_EXIT_CODE");
+        return int.TryParse(exitCodeText, out var exitCode) ? exitCode : 0;
     }
 }
 '@
@@ -148,6 +149,7 @@ try {
     $argsFile = Join-Path $tempRoot "args.txt"
     $oldPath = $env:PATH
     $oldArgsPath = $env:MOCK_WSL_ARGS_PATH
+    $oldExitCode = $env:MOCK_WSL_EXIT_CODE
 
     try {
         $shimDir = New-MockWsl $tempRoot
@@ -167,9 +169,16 @@ try {
 
         Invoke-Checked $entryFile @("ctl", "export", "--format", "tar.gz", $target) 1 "reject inline export format"
         Invoke-Checked $entryFile @("ctl", "backup", "--format", "tar.gz") 1 "reject inline backup format"
+
+        $env:MOCK_WSL_EXIT_CODE = "9"
+        Invoke-Checked $entryFile @("ctl", "install") 9 "native install failure preserves exit code"
+        $env:MOCK_WSL_EXIT_CODE = $null
+
+        Invoke-Checked $entryFile @("ctl", "install", "--fallback", "--dry-run") 0 "fallback dry-run"
     } finally {
         $env:PATH = $oldPath
         $env:MOCK_WSL_ARGS_PATH = $oldArgsPath
+        $env:MOCK_WSL_EXIT_CODE = $oldExitCode
         if (Test-Path -LiteralPath $tempRoot) {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force
         }
