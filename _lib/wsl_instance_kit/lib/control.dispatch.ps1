@@ -12,6 +12,13 @@ function Invoke-VmControl {
     $tail = @(Get-Slice $Rest 1)
 
     switch ($action) {
+        "status" {
+            if ($tail.Count -ne 0) {
+                return Show-CommandHelpHint "$Verb status does not accept extra arguments."
+            }
+
+            return Show-WslVmStatus
+        }
         "-t" {
             if ($tail.Count -ne 0) {
                 return Show-CommandHelpHint "$Verb -t does not accept extra arguments."
@@ -33,6 +40,14 @@ function Invoke-VmControl {
             }
 
             return Open-WslSettings
+        }
+        "welcome" {
+            if ($tail.Count -ne 0) {
+                Write-Fail "$Verb welcome does not accept extra arguments."
+                return 1
+            }
+
+            return Open-WslWelcome
         }
         default {
             return Show-CommandHelpHint "Unknown VM command: $action"

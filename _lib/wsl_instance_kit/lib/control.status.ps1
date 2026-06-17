@@ -170,6 +170,148 @@ function Show-WslStorageStatus {
     Write-Host "  Download cache size: $(Format-WslDirectorySize $downloadDir) (global)"
 }
 
+function Convert-WslNativeBytesToLines {
+    param([AllowNull()] [byte[]]$Bytes)
+
+    if ($null -eq $Bytes -or $Bytes.Length -eq 0) {
+        return @()
+    }
+
+    $oddZeroCount = 0
+    for ($i = 1; $i -lt $Bytes.Length; $i += 2) {
+        if ($Bytes[$i] -eq 0) {
+            $oddZeroCount += 1
+        }
+    }
+
+    $pairCount = [Math]::Max(1, [int]($Bytes.Length / 2))
+    $text = if (($oddZeroCount / $pairCount) -gt 0.35) {
+        [System.Text.Encoding]::Unicode.GetString($Bytes)
+    } else {
+        [System.Text.Encoding]::UTF8.GetString($Bytes)
+    }
+
+    return @($text -replace "`0", "" -split "\r?\n" | ForEach-Object { $_.TrimEnd() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+
+function Invoke-WslNativeTextCommand {
+    param([string[]]$NativeArgs)
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = "wsl.exe"
+    $startInfo.Arguments = Get-ProcessArgumentLine $NativeArgs
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+
+    try {
+        [void]$process.Start()
+        $stdout = [System.IO.MemoryStream]::new()
+        $stderr = [System.IO.MemoryStream]::new()
+        $process.StandardOutput.BaseStream.CopyTo($stdout)
+        $process.StandardError.BaseStream.CopyTo($stderr)
+        $process.WaitForExit()
+
+        return [pscustomobject]@{
+            ExitCode = [int]$process.ExitCode
+            Output = @(Convert-WslNativeBytesToLines $stdout.ToArray())
+            Error = @(Convert-WslNativeBytesToLines $stderr.ToArray())
+        }
+    } catch {
+        return [pscustomobject]@{
+            ExitCode = 1
+            Output = @()
+            Error = @($_.Exception.Message)
+        }
+    } finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
+    }
+}
+
+
+function ConvertFrom-WslVerboseList {
+    param([string[]]$Lines)
+
+    $items = New-Object System.Collections.ArrayList
+    foreach ($line in @($Lines)) {
+        $trimmed = ($line -replace "`0", "").Trim()
+        if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed -match '^(?i)NAME\s+STATE\s+VERSION$') {
+            continue
+        }
+
+        if ($trimmed -match '^(?<default>[*])?\s*(?<name>.+?)\s{2,}(?<state>\S+)\s+(?<version>\d+)\s*$') {
+            [void]$items.Add([pscustomobject]@{
+                IsDefault = ($Matches["default"] -eq "*")
+                Name = $Matches["name"]
+                State = $Matches["state"]
+                Version = $Matches["version"]
+            })
+        }
+    }
+
+    return @($items)
+}
+
+
+function Show-WslVmStatus {
+    Write-Host "WSL VM: current Windows user"
+
+    $status = Invoke-WslNativeTextCommand @("--status")
+    if ($status.ExitCode -eq 0 -and $status.Output.Count -gt 0) {
+        Write-Host "  Native status:"
+        foreach ($line in $status.Output) {
+            Write-Host "    $line"
+        }
+    } else {
+        Write-Host "  Native status:      (unavailable)"
+    }
+
+    $version = Invoke-WslNativeTextCommand @("--version")
+    if ($version.ExitCode -eq 0 -and $version.Output.Count -gt 0) {
+        Write-Host "  Component versions:"
+        foreach ($line in $version.Output) {
+            Write-Host "    $line"
+        }
+    }
+
+    $list = Invoke-WslNativeTextCommand @("--list", "--verbose")
+    $distros = @(ConvertFrom-WslVerboseList $list.Output)
+    if ($list.ExitCode -eq 0 -and $distros.Count -gt 0) {
+        $default = @($distros | Where-Object { $_.IsDefault } | Select-Object -First 1)
+        if ($default.Count -gt 0) {
+            Write-Host "  Default instance:   $($default[0].Name)"
+        }
+
+        Write-Host "  Instances:"
+        foreach ($distro in $distros) {
+            $marker = if ($distro.IsDefault) { "*" } else { " " }
+            Write-Host ("    {0} {1,-24} {2,-10} WSL{3}" -f $marker, $distro.Name, $distro.State, $distro.Version)
+        }
+    } else {
+        Write-Host "  Instances:          (unavailable)"
+    }
+
+    $network = Get-WslConfiguredNetworkingMode
+    Write-Host "  Networking mode:    $($network.Mode) ($($network.Source))"
+    Write-Host "  .wslconfig:         $($network.Path)"
+
+    $settingsPath = Get-WslSettingsExecutablePath
+    if ([string]::IsNullOrWhiteSpace($settingsPath)) {
+        Write-Host "  WSL Settings app:   (not found)"
+        Write-Host "  Expected path:      $(Get-WslSettingsExpectedPath)"
+    } else {
+        Write-Host "  WSL Settings app:   $settingsPath"
+    }
+
+    return 0
+}
+
 
 function Show-WslResourceStatus {
     $source = Resolve-WslSource $script:Config.Source
@@ -279,4 +421,3 @@ function Invoke-Status {
         }
     }
 }
-

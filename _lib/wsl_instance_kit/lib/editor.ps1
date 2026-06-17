@@ -137,7 +137,7 @@ function Open-WslInstanceConfig {
     return Open-WindowsFolder $candidates[0]
 }
 
-function Open-WslSettings {
+function Get-WslSettingsExecutablePath {
     $candidates = @()
     foreach ($root in @($env:ProgramFiles, $env:ProgramW6432)) {
         if (-not [string]::IsNullOrWhiteSpace($root)) {
@@ -150,12 +150,41 @@ function Open-WslSettings {
 
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            return Start-ExternalDetached $candidate @()
+            return $candidate
         }
     }
 
-    $expected = if ($candidates.Count -gt 0) { $candidates[0] } else { "%ProgramFiles%\WSL\wslsettings\wslsettings.exe" }
+    return ""
+}
+
+function Get-WslSettingsExpectedPath {
+    if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
+        return (Join-Path $env:ProgramFiles "WSL\wslsettings\wslsettings.exe")
+    }
+
+    return "%ProgramFiles%\WSL\wslsettings\wslsettings.exe"
+}
+
+function Open-WslSettings {
+    $settingsPath = Get-WslSettingsExecutablePath
+    if (-not [string]::IsNullOrWhiteSpace($settingsPath)) {
+        return Start-ExternalDetached $settingsPath @()
+    }
+
+    $expected = Get-WslSettingsExpectedPath
     Write-Fail "WSL Settings app not found: $expected"
     Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) vm settings"
+    return 1
+}
+
+function Open-WslWelcome {
+    $settingsPath = Get-WslSettingsExecutablePath
+    if (-not [string]::IsNullOrWhiteSpace($settingsPath)) {
+        return Start-ExternalDetached $settingsPath @("----ms-protocol:wsl-settings://oobe")
+    }
+
+    $expected = Get-WslSettingsExpectedPath
+    Write-Fail "WSL Settings app not found: $expected"
+    Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) vm welcome"
     return 1
 }

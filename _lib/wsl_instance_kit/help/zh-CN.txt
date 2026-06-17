@@ -34,7 +34,9 @@ version 1.0
   {{COMMAND}} ctl remove --yes      注销并删除此实例                      (wsl --unregister)
 
 # WSL 底层虚拟机管理 (会影响当前 Windows 用户下的所有实例):
+  {{COMMAND}} vm status             显示当前用户 WSL VM/全部实例状态
   {{COMMAND}} vm settings           打开 WSL Settings 可视化配置程序
+  {{COMMAND}} vm welcome            打开 WSL 欢迎/功能介绍页面
   {{COMMAND}} vm shutdown           关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
   {{COMMAND}} vm -t                 同 vm shutdown
 

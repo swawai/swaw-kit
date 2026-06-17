@@ -316,13 +316,18 @@ try {
         Invoke-Checked $entryFile @("ctl", "downloads") 1 "reject downloads without dir"
         Invoke-Checked $entryFile @("ctl", "downloads", "dir", "extra") 1 "reject downloads dir extra args"
         Invoke-Checked $entryFile @("ctl", "download", "dir", "extra") 1 "reject download dir extra args"
+        $vmStatusOutput = Invoke-Captured $entryFile @("vm", "status") 0 "vm status"
+        Assert-True ($vmStatusOutput.Contains("WSL VM: current Windows user")) "vm status should show the VM status heading."
+        Assert-True ($vmStatusOutput.Contains("Networking mode:")) "vm status should show networking mode."
         Invoke-Checked $entryFile @("vm", "shutdown") 0 "vm shutdown"
         $actual = Read-MockWslArgs $argsFile
         Assert-ArrayEqual $actual @("--shutdown") "vm shutdown args"
         Invoke-Checked $entryFile @("vm", "-t") 0 "vm -t"
         $actual = Read-MockWslArgs $argsFile
         Assert-ArrayEqual $actual @("--shutdown") "vm -t args"
+        Invoke-Checked $entryFile @("vm", "status", "extra") 1 "reject vm status extra args"
         Invoke-Checked $entryFile @("vm", "settings", "extra") 1 "reject vm settings extra args"
+        Invoke-Checked $entryFile @("vm", "welcome", "extra") 1 "reject vm welcome extra args"
         Invoke-Checked $entryFile @("vm", "shutdown", "extra") 1 "reject vm shutdown extra args"
         Invoke-Checked $entryFile @("vm", "config") 1 "reject unknown vm command"
 

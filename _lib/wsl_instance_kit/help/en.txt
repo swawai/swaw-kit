@@ -34,7 +34,9 @@ version 1.0
   {{COMMAND}} ctl remove --yes      Unregister and delete this instance            (wsl --unregister)
 
 # WSL underlying VM management (affects all instances under the current Windows user):
+  {{COMMAND}} vm status             Show current user's WSL VM/all-instance status
   {{COMMAND}} vm settings           Open the WSL Settings visual configuration app
+  {{COMMAND}} vm welcome            Open the WSL welcome/feature introduction page
   {{COMMAND}} vm shutdown           Shut down the current user's WSL2 VM/all instances (wsl --shutdown)
   {{COMMAND}} vm -t                 Same as vm shutdown
 
