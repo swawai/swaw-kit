@@ -1,8 +1,78 @@
+function Get-WslDistributionRuntimeInfo {
+    param([AllowNull()] [pscustomobject]$Record)
+
+    $fallbackState = "unknown"
+    $fallbackVersion = ""
+    if ($null -ne $Record) {
+        if ($null -ne $Record.Version) {
+            $fallbackVersion = [string]$Record.Version
+        }
+
+        if ($null -ne $Record.State) {
+            switch ([int]$Record.State) {
+                1 { $fallbackState = "Stopped" }
+                2 { $fallbackState = "Running" }
+                default { $fallbackState = "unknown ($($Record.State))" }
+            }
+        }
+    }
+
+    try {
+        $lines = @(& wsl.exe --list --verbose 2>$null | ForEach-Object { ($_ -replace "`0", "").Trim() })
+        foreach ($line in $lines) {
+            if ([string]::IsNullOrWhiteSpace($line) -or $line -match '^(?i)NAME\s+STATE\s+VERSION$') {
+                continue
+            }
+
+            if ($line -match '^\*?\s*(?<name>.+?)\s{2,}(?<state>\S+)\s+(?<version>\d+)\s*$') {
+                if ($Matches["name"] -eq $script:Config.Name) {
+                    return [pscustomobject]@{
+                        State = $Matches["state"]
+                        Version = $Matches["version"]
+                    }
+                }
+            }
+        }
+    } catch {
+    }
+
+    return [pscustomobject]@{
+        State = $fallbackState
+        Version = $fallbackVersion
+    }
+}
+
+function Get-WslRunningIpAddresses {
+    param([string]$State)
+
+    if ($State -ine "Running") {
+        return ""
+    }
+
+    $scriptText = "hostname -I 2>/dev/null | tr ' ' '\n' | awk 'NF && `$0 !~ /^fe80:/ { print }' | paste -sd ' ' -"
+    $nativeArgs = @("-d", $script:Config.Name, "--", "sh", "-lc", $scriptText)
+    try {
+        $output = & wsl.exe @nativeArgs 2>$null
+        if ($LASTEXITCODE -eq 0 -and $null -ne $output) {
+            return (($output | ForEach-Object { ($_ -replace "`0", "").Trim() }) -join " ").Trim()
+        }
+    } catch {
+    }
+
+    return ""
+}
+
 function Show-WslResourceStatus {
     $source = Resolve-WslSource $script:Config.Source
     $installDir = Resolve-EntryPath $script:Config.InstallDir
     $backupDir = Resolve-EntryPath $script:Config.BackupDir
     $record = Get-WslDistributionRecord
+    $runtime = $null
+    $runtimeIp = ""
+    if ($null -ne $record) {
+        $runtime = Get-WslDistributionRuntimeInfo $record
+        $runtimeIp = Get-WslRunningIpAddresses $runtime.State
+    }
 
     Write-Host "WSL resource: $($script:Config.CommandName)"
     Write-Host "  WSL_KIT_PROTOCOL:    $($script:Config.Protocol)"
@@ -22,6 +92,25 @@ function Show-WslResourceStatus {
         Write-Host "  Installed:           no" -ForegroundColor Yellow
     } else {
         Write-Host "  Installed:           yes" -ForegroundColor Green
+        if ($null -ne $runtime) {
+            $runtimeState = if ([string]::IsNullOrWhiteSpace($runtime.State)) { "unknown" } else { $runtime.State }
+            if ($runtimeState -ieq "Running") {
+                Write-Host "  Runtime State:       $runtimeState" -ForegroundColor Green
+            } elseif ($runtimeState -ieq "Stopped") {
+                Write-Host "  Runtime State:       $runtimeState" -ForegroundColor Yellow
+            } else {
+                Write-Host "  Runtime State:       $runtimeState"
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($runtimeIp)) {
+                Write-Host "  Runtime IP:          $runtimeIp"
+            } elseif ($runtimeState -ieq "Running") {
+                Write-Host "  Runtime IP:          (unknown)"
+            } else {
+                Write-Host "  Runtime IP:          (not running)"
+            }
+        }
+
         $registryBasePath = if ($record.BasePath) { [System.IO.Path]::GetFullPath($record.BasePath).TrimEnd("\") } else { "" }
         $configuredInstallDir = if ($installDir) { [System.IO.Path]::GetFullPath($installDir).TrimEnd("\") } else { "" }
         if ($registryBasePath -and $registryBasePath -ne $configuredInstallDir) {
@@ -267,7 +356,8 @@ function Show-ControlUsage {
     Write-Host "  $($script:Config.CommandName) $Verb global shutdown | global -t"
     Write-Host "  $($script:Config.CommandName) $Verb global network"
     Write-Host "  $($script:Config.CommandName) $Verb systemd enable | disable"
-    Write-Host "  $($script:Config.CommandName) $Verb ssh enable [port] | disable"
+    Write-Host "  $($script:Config.CommandName) $Verb ssh status | config | enable [port] | disable"
+    Write-Host "    ssh enable requires WSL_systemd=enable and WSL_SSH_port or an explicit port argument."
     Write-Host "  $($script:Config.CommandName) $Verb remove --yes"
     return 0
 }
@@ -362,6 +452,12 @@ function Invoke-Control {
             $sshAction = $tail[0].ToLowerInvariant()
             $sshTail = @(Get-Slice $tail 1)
             switch ($sshAction) {
+                "status" {
+                    return Show-WslSshStatus
+                }
+                "config" {
+                    return Open-WslSshConfig
+                }
                 "enable" {
                     return Enable-WslSsh $sshTail
                 }

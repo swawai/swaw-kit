@@ -127,6 +127,17 @@ function Read-MockWslArgs {
     })
 }
 
+function Test-WslDistributionExists {
+    param([string]$Name)
+
+    try {
+        $items = Get-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\*" -ErrorAction SilentlyContinue
+        return ($null -ne (@($items | Where-Object { $_.DistributionName -eq $Name } | Select-Object -First 1)[0]))
+    } catch {
+        return $false
+    }
+}
+
 Push-Location $repoRoot
 try {
     Write-Host "syntax"
@@ -176,6 +187,17 @@ try {
 
         Invoke-Checked $entryFile @("ctl", "install", "--fallback", "--dry-run") 0 "fallback dry-run"
         Invoke-Checked $entryFile @("ctl", "install", "--fallback", "--refresh", "--dry-run") 1 "reject removed fallback refresh"
+        Invoke-Checked $entryFile @("ctl", "ssh", "enable") 1 "reject ssh enable without systemd entry config"
+        Invoke-Checked $entryFile @("ctl", "ssh", "enable", "2222") 1 "reject ssh enable without systemd entry config"
+
+        if (Test-WslDistributionExists "wsl.1") {
+            Invoke-Checked $entryFile @("ctl", "ssh", "status") 0 "ssh status"
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "ssh status root script prefix"
+            Assert-True ($actual.Count -eq 8) "ssh status should pass a single shell runner."
+        } else {
+            Write-Host "ssh status skipped: wsl.1 is not installed" -ForegroundColor Yellow
+        }
     } finally {
         $env:PATH = $oldPath
         $env:MOCK_WSL_ARGS_PATH = $oldArgsPath

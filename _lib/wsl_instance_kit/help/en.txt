@@ -21,8 +21,10 @@
   {{COMMAND}} ctl global shutdown   Shut down the current user's WSL2 VM and instances.
   {{COMMAND}} ctl systemd enable    Enable systemd in this instance.
   {{COMMAND}} ctl systemd disable   Disable systemd in this instance.
-  {{COMMAND}} ctl ssh enable        Enable SSH in this instance.
-  {{COMMAND}} ctl ssh enable 2222   Enable SSH with an explicit port.
+  {{COMMAND}} ctl ssh status        Show SSH service status for this instance.
+  {{COMMAND}} ctl ssh config        Open this instance's /etc/ssh directory.
+  {{COMMAND}} ctl ssh enable        Enable SSH using WSL_SSH_port when WSL_systemd=enable.
+  {{COMMAND}} ctl ssh enable 2222   Enable SSH with an explicit port when WSL_systemd=enable.
   {{COMMAND}} ctl ssh disable       Stop SSH and remove the configured public key.
   {{COMMAND}} ctl global network    Apply WSL_network_* settings to .wslconfig.
   {{COMMAND}} ctl remove --yes      Unregister and delete this instance.

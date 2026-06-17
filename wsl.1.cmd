@@ -43,8 +43,9 @@ set "WSL_KIT_verbose="
 :: 配置不表示立即生效，需执行如 wsl.1.cmd ctl systemd enable 来进行应用。
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: 留空表示 ctl 不主动修改；enable/disable 表示 ctl 使用此默认动作
+:: ctl ssh enable 只支持 systemd 托管启用，因此需要此项设置为 enable。
 set "WSL_systemd="
-:: SSH 配置不表示立即启用，仅作为 ctl ssh enable 的默认参数。
+:: SSH 配置不表示立即启用；ctl ssh enable 需要此端口，或显式传入端口参数。
 set "WSL_SSH_port="
 set "WSL_SSH_key=%USERPROFILE%\.ssh\id_rsa"
 
