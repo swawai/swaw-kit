@@ -49,8 +49,25 @@ function Get-WslRunningIpAddresses {
         return ""
     }
 
-    $scriptText = "hostname -I 2>/dev/null | tr ' ' '\n' | awk 'NF && `$0 !~ /^fe80:/ { print }' | paste -sd ' ' -"
-    $nativeArgs = @("-d", $script:Config.Name, "--", "sh", "-lc", $scriptText)
+    $scriptText = @'
+ips=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^fe80:' | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+if [ -n "$ips" ]; then
+    printf '%s\n' "$ips"
+    exit 0
+fi
+if command -v ip >/dev/null 2>&1; then
+    ip -o -4 addr show scope global 2>/dev/null |
+        while IFS= read -r line || [ -n "$line" ]; do
+            set -- $line
+            addr="$4"
+            printf '%s\n' "${addr%%/*}"
+        done |
+        tr '\n' ' ' |
+        sed 's/[[:space:]]*$//'
+fi
+'@
+    $runner = New-Base64ShRunner $scriptText
+    $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--", "sh", "-lc", $runner)
     try {
         $output = & wsl.exe @nativeArgs 2>$null
         if ($LASTEXITCODE -eq 0 -and $null -ne $output) {

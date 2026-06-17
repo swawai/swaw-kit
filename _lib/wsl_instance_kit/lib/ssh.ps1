@@ -113,9 +113,9 @@ function Test-WslTcpPortAvailable {
 set -u
 port="$Port"
 if command -v ss >/dev/null 2>&1; then
-    lines=`$(ss -ltnp 2>/dev/null | awk -v suffix=":`$port" 'NR > 1 && `$4 ~ suffix "$" { print }')
+    lines=`$(ss -ltnp 2>/dev/null | grep -E ":`$port[[:space:]]" || true)
 elif command -v netstat >/dev/null 2>&1; then
-    lines=`$(netstat -ltnp 2>/dev/null | awk -v suffix=":`$port" 'NR > 2 && `$4 ~ suffix "$" { print }')
+    lines=`$(netstat -ltnp 2>/dev/null | grep -E ":`$port[[:space:]]" || true)
 else
     lines=
 fi
@@ -157,25 +157,29 @@ function Test-WslSshSystemdEntryEnabled {
 
 function Test-WslSystemdConfigEnabled {
     $scriptText = @'
-awk '
-BEGIN { in_boot = 0; found = 0 }
-/^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
-    section = $0
-    sub(/^[[:space:]]*\[/, "", section)
-    sub(/\][[:space:]]*$/, "", section)
-    in_boot = (section == "boot")
-    next
-}
-in_boot && /^[[:space:]]*systemd[[:space:]]*=/ {
-    value = $0
-    sub(/^[^=]*=/, "", value)
-    gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-    if (tolower(value) == "true") {
-        found = 1
-    }
-}
-END { exit found ? 0 : 1 }
-' /etc/wsl.conf 2>/dev/null
+conf=/etc/wsl.conf
+[ -f "$conf" ] || exit 1
+in_boot=0
+while IFS= read -r line || [ -n "$line" ]; do
+    compact=$(printf '%s' "$line" | tr -d '[:space:]')
+    case "$compact" in
+        "["*"]")
+            section=${compact#\[}
+            section=${section%%\]*}
+            if [ "$section" = boot ]; then
+                in_boot=1
+            else
+                in_boot=0
+            fi
+            ;;
+        systemd=*)
+            if [ "$in_boot" -eq 1 ] && [ "${compact#systemd=}" = true ]; then
+                exit 0
+            fi
+            ;;
+    esac
+done < "$conf"
+exit 1
 '@
 
     $runner = New-Base64ShRunner $scriptText
@@ -184,7 +188,7 @@ END { exit found ? 0 : 1 }
 }
 
 function Test-WslSystemdRuntimeActive {
-    $scriptText = '[ "$(ps -p 1 -o comm= 2>/dev/null | tr -d '' '')" = systemd ] && command -v systemctl >/dev/null 2>&1'
+    $scriptText = '[ "$(ps -p 1 -o comm= 2>/dev/null | tr -d '' '')" = systemd ] && command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files --no-pager >/dev/null 2>&1'
     $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--", "sh", "-lc", $scriptText)
     return ((Invoke-External "wsl.exe" $nativeArgs) -eq 0)
 }
@@ -297,7 +301,9 @@ detect_package_status() {
 }
 
 has_systemd() {
-    [ "`$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" = "systemd" ] && command -v systemctl >/dev/null 2>&1
+    [ "`$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" = "systemd" ] &&
+        command -v systemctl >/dev/null 2>&1 &&
+        systemctl list-unit-files --no-pager >/dev/null 2>&1
 }
 
 detect_systemd_ssh_unit() {
@@ -344,7 +350,7 @@ detect_service_status() {
 detect_port() {
     bin=`$(find_sshd_bin)
     if [ -n "`$bin" ]; then
-        port=`$("`$bin" -T 2>/dev/null | awk 'tolower(`$1) == "port" { print `$2; exit }')
+        port=`$("`$bin" -T 2>/dev/null | sed -n 's/^port //p' | head -n 1)
         if [ -n "`$port" ]; then
             printf '%s\n' "`$port"
             return
@@ -352,11 +358,17 @@ detect_port() {
     fi
 
     if [ -f "`$sshd_config" ]; then
-        port=`$(awk '
-            /^[[:space:]]*#/ { next }
-            tolower(`$1) == "port" { value = `$2 }
-            END { if (value != "") print value }
-        ' "`$sshd_config" 2>/dev/null)
+        port=`$(
+            while IFS= read -r line || [ -n "`$line" ]; do
+                set -- `$line
+                [ "`$#" -gt 0 ] || continue
+                case "`$1" in
+                    [Pp][Oo][Rr][Tt])
+                        printf '%s\n' "`$2"
+                        ;;
+                esac
+            done < "`$sshd_config" | tail -n 1
+        )
         if [ -n "`$port" ]; then
             printf '%s\n' "`$port"
             return
@@ -369,17 +381,19 @@ detect_port() {
 detect_listening() {
     port="`$1"
     if command -v ss >/dev/null 2>&1; then
-        ss -ltn 2>/dev/null | awk -v suffix=":`$port" '
-            NR > 1 && `$4 ~ suffix "$" { found = 1 }
-            END { print found ? "yes" : "no" }
-        '
+        if ss -ltn 2>/dev/null | grep -Eq ":`$port[[:space:]]"; then
+            printf '%s\n' yes
+        else
+            printf '%s\n' no
+        fi
         return
     fi
     if command -v netstat >/dev/null 2>&1; then
-        netstat -ltn 2>/dev/null | awk -v suffix=":`$port" '
-            NR > 2 && `$4 ~ suffix "$" { found = 1 }
-            END { print found ? "yes" : "no" }
-        '
+        if netstat -ltn 2>/dev/null | grep -Eq ":`$port[[:space:]]"; then
+            printf '%s\n' yes
+        else
+            printf '%s\n' no
+        fi
         return
     fi
     if pgrep -x sshd >/dev/null 2>&1; then
@@ -390,13 +404,22 @@ detect_listening() {
 }
 
 detect_ips() {
-    ips=`$(hostname -I 2>/dev/null | awk '{ for (i = 1; i <= NF; i++) if (`$i !~ /^fe80:/) print `$i }' | paste -sd ' ' -)
+    ips=`$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^fe80:' | tr '\n' ' ' | sed 's/[[:space:]]*`$//')
     if [ -n "`$ips" ]; then
         printf '%s\n' "`$ips"
         return
     fi
     if command -v ip >/dev/null 2>&1; then
-        ips=`$(ip -o -4 addr show scope global 2>/dev/null | awk '{ sub(/\/.*/, "", `$4); print `$4 }' | paste -sd ' ' -)
+        ips=`$(
+            ip -o -4 addr show scope global 2>/dev/null |
+                while IFS= read -r line || [ -n "`$line" ]; do
+                    set -- `$line
+                    addr="`$4"
+                    printf '%s\n' "`${addr%%/*}"
+                done |
+                tr '\n' ' ' |
+                sed 's/[[:space:]]*`$//'
+        )
         [ -n "`$ips" ] && printf '%s\n' "`$ips" && return
     fi
     printf '%s\n' unknown
@@ -415,7 +438,7 @@ show_authorized_keys_status() {
         return
     fi
 
-    home_dir=`$(getent passwd "`$target_user" | awk -F: '{ print `$6 }')
+    home_dir=`$(getent passwd "`$target_user" | cut -d: -f6)
     if [ -z "`$home_dir" ]; then
         print_kv "authorized_keys" "home not found"
         return
@@ -427,14 +450,15 @@ show_authorized_keys_status() {
         return
     fi
 
-    count=`$(awk 'NF { count++ } END { print count + 0 }' "`$auth_file" 2>/dev/null)
+    count=`$(grep -c '[^[:space:]]' "`$auth_file" 2>/dev/null || true)
+    [ -n "`$count" ] || count=0
     if [ -z "`$pubkey_b64" ]; then
         print_kv "authorized_keys" "`$auth_file (`$count key line(s))"
         print_kv "configured key" "not found from WSL_SSH_key"
         return
     fi
 
-    key=`$(printf '%s' "`$pubkey_b64" | base64 -d 2>/dev/null | awk 'NF { sub(/\r$/, ""); print; exit }')
+    key=`$(printf '%s' "`$pubkey_b64" | base64 -d 2>/dev/null | sed -n 's/\r`$//; /^[[:space:]]*`$/d; p; q')
     if [ -n "`$key" ] && grep -qxF "`$key" "`$auth_file" 2>/dev/null; then
         key_status=present
     else
@@ -553,12 +577,15 @@ key_tmp=
 prune_backups() {
     path="`$1"
     keep=3
+    count=0
     dir=`$(dirname "`$path")
     name=`$(basename "`$path")
     ls -1t "`$dir/`$name".bak.* 2>/dev/null |
-        awk -v keep="`$keep" 'NR > keep { print }' |
         while IFS= read -r old_backup; do
-            rm -f -- "`$old_backup"
+            count=`$((count + 1))
+            if [ "`$count" -gt "`$keep" ]; then
+                rm -f -- "`$old_backup"
+            fi
         done
 }
 
@@ -580,21 +607,28 @@ backup_file() {
 sshd_config_includes_dropins() {
     config_file="`$1"
     [ -f "`$config_file" ] || return 1
-    awk '
-        /^[[:space:]]*#/ { next }
-        tolower(`$1) == "include" {
-            for (i = 2; i <= NF; i++) {
-                if (`$i ~ /(^|\/)sshd_config\.d\/\*\.conf$/) {
-                    found = 1
-                }
-            }
-        }
-        END { exit found ? 0 : 1 }
-    ' "`$config_file"
+    while IFS= read -r line || [ -n "`$line" ]; do
+        set -- `$line
+        [ "`$#" -gt 0 ] || continue
+        case "`$1" in
+            \#*) continue ;;
+            [Ii][Nn][Cc][Ll][Uu][Dd][Ee])
+                shift
+                for item in "`$@"; do
+                    case "`$item" in
+                        */sshd_config.d/\*.conf|sshd_config.d/\*.conf) return 0 ;;
+                    esac
+                done
+                ;;
+        esac
+    done < "`$config_file"
+    return 1
 }
 
 has_systemd() {
-    [ "`$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" = "systemd" ] && command -v systemctl >/dev/null 2>&1
+    [ "`$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" = "systemd" ] &&
+        command -v systemctl >/dev/null 2>&1 &&
+        systemctl list-unit-files --no-pager >/dev/null 2>&1
 }
 
 detect_systemd_ssh_unit() {
@@ -723,22 +757,24 @@ configure_sshd_port() {
 
     tmp=`$(mktemp /etc/ssh/sshd_config.tmp.XXXXXX 2>/dev/null || mktemp)
     trap 'rm -f "`$tmp" "`$key_tmp"' EXIT
-    awk -v port="`$port" '
-    BEGIN { seen = 0 }
-    /^[[:space:]]*#?[[:space:]]*Port[[:space:]]+/ {
-        if (!seen) {
-            print "Port " port
-            seen = 1
-        }
-        next
-    }
-    { print }
-    END {
-        if (!seen) {
-            print "Port " port
-        }
-    }
-    ' "`$sshd_config" > "`$tmp"
+    seen=0
+    while IFS= read -r line || [ -n "`$line" ]; do
+        compact=`$(printf '%s' "`$line" | tr -d '[:space:]')
+        case "`$compact" in
+            [Pp][Oo][Rr][Tt]*|\#[Pp][Oo][Rr][Tt]*)
+                if [ "`$seen" -eq 0 ]; then
+                    printf 'Port %s\n' "`$port"
+                    seen=1
+                fi
+                ;;
+            *)
+                printf '%s\n' "`$line"
+                ;;
+        esac
+    done < "`$sshd_config" > "`$tmp"
+    if [ "`$seen" -eq 0 ]; then
+        printf 'Port %s\n' "`$port" >> "`$tmp"
+    fi
 
     mode=`$(stat -c '%a' "`$sshd_config" 2>/dev/null || printf '0644')
     owner=`$(stat -c '%u:%g' "`$sshd_config" 2>/dev/null || printf '0:0')
@@ -790,7 +826,7 @@ install_authorized_key() {
         exit 1
     fi
 
-    home_dir=`$(getent passwd "`$target_user" | awk -F: '{ print `$6 }')
+    home_dir=`$(getent passwd "`$target_user" | cut -d: -f6)
     if [ -z "`$home_dir" ]; then
         echo "Cannot resolve home directory for `$target_user" >&2
         exit 1
@@ -900,7 +936,7 @@ remove_authorized_key() {
         return 0
     fi
 
-    home_dir=`$(getent passwd "`$target_user" | awk -F: '{ print `$6 }')
+    home_dir=`$(getent passwd "`$target_user" | cut -d: -f6)
     if [ -z "`$home_dir" ]; then
         echo "Cannot resolve home directory for `$target_user; skip SSH public key removal." >&2
         return 0
@@ -913,7 +949,7 @@ remove_authorized_key() {
         return 0
     fi
 
-    pubkey=`$(printf '%s' "`$pubkey_b64" | base64 -d | awk 'NF { sub(/\r$/, ""); print; exit }')
+    pubkey=`$(printf '%s' "`$pubkey_b64" | base64 -d | sed -n 's/\r`$//; /^[[:space:]]*`$/d; p; q')
     if [ -z "`$pubkey" ]; then
         echo "Configured SSH public key is empty; skip removal." >&2
         return 0
@@ -921,15 +957,12 @@ remove_authorized_key() {
 
     auth_tmp=`$(mktemp "`$ssh_dir/.authorized_keys.tmp.XXXXXX")
     chmod 600 "`$auth_tmp"
-    awk -v key="`$pubkey" '
-        {
-            line = `$0
-            sub(/\r$/, "", line)
-            if (line != key) {
-                print `$0
-            }
-        }
-    ' "`$auth_file" > "`$auth_tmp"
+    while IFS= read -r line || [ -n "`$line" ]; do
+        clean_line=`$(printf '%s' "`$line" | tr -d '\r')
+        if [ "`$clean_line" != "`$pubkey" ]; then
+            printf '%s\n' "`$line"
+        fi
+    done < "`$auth_file" > "`$auth_tmp"
 
     group_name=`$(id -gn "`$target_user")
     chown "`$target_user:`$group_name" "`$auth_tmp" 2>/dev/null || true
@@ -951,7 +984,9 @@ cleanup() {
 trap cleanup EXIT
 
 has_systemd() {
-    [ "`$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" = "systemd" ] && command -v systemctl >/dev/null 2>&1
+    [ "`$(ps -p 1 -o comm= 2>/dev/null | tr -d ' ')" = "systemd" ] &&
+        command -v systemctl >/dev/null 2>&1 &&
+        systemctl list-unit-files --no-pager >/dev/null 2>&1
 }
 
 detect_systemd_ssh_unit() {

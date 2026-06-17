@@ -405,6 +405,110 @@ function Save-WslFallbackImage {
     return $true
 }
 
+function Test-WslPackagedImage {
+    param([string]$Path)
+
+    $extension = [System.IO.Path]::GetExtension($Path)
+    return ($extension -in @(".appx", ".msix"))
+}
+
+function Get-WslPackagedImageDefaultInstallPath {
+    param([string]$PackagePath)
+
+    return "$PackagePath.install.tar.gz"
+}
+
+function Find-WslPackagedRootfsEntryName {
+    param([string]$PackagePath)
+
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+        try {
+            $entries = @($archive.Entries | Where-Object {
+                $_.Length -gt 0 -and $_.FullName -match '(^|/)(install|rootfs)\.tar(\.(gz|xz))?$'
+            })
+
+            $entry = @($entries | Sort-Object FullName | Select-Object -First 1)[0]
+            if ($null -ne $entry) {
+                return $entry.FullName
+            }
+        } finally {
+            $archive.Dispose()
+        }
+    } catch {
+        Write-Fail "Failed to inspect packaged WSL image: $PackagePath"
+        Write-Fail $_.Exception.Message
+        return $null
+    }
+
+    Write-Fail "No install/rootfs tar archive found inside packaged WSL image: $PackagePath"
+    return $null
+}
+
+function Expand-WslPackagedImage {
+    param([string]$PackagePath)
+
+    $entryNameInPackage = Find-WslPackagedRootfsEntryName $PackagePath
+    if ([string]::IsNullOrWhiteSpace($entryNameInPackage)) {
+        return ""
+    }
+
+    $entryName = Get-SafeFileName ([System.IO.Path]::GetFileName($entryNameInPackage))
+    $destination = "$PackagePath.$entryName"
+    if (Test-Path -LiteralPath $destination -PathType Leaf) {
+        if ((Get-Item -LiteralPath $destination).LastWriteTimeUtc -ge (Get-Item -LiteralPath $PackagePath).LastWriteTimeUtc -and
+            -not [string]::IsNullOrWhiteSpace((Get-FileSha256 $destination))) {
+            Write-Host "Using cached extracted fallback image: $destination"
+            return $destination
+        }
+
+        Remove-WslFallbackImageCache $destination
+    }
+
+    Write-Host "Extracting packaged fallback image:"
+    Write-Host "  $entryNameInPackage"
+    Write-Host "  -> $destination"
+
+    $temp = New-WslDownloadTempPath ([System.IO.Path]::GetFileName($destination))
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+        $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+        try {
+            $entry = $archive.GetEntry($entryNameInPackage)
+            if ($null -eq $entry) {
+                Write-Fail "Packaged WSL image entry disappeared: $entryNameInPackage"
+                Remove-WslDownloadTemp $temp
+                return ""
+            }
+
+            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $temp.Path, $true)
+        } finally {
+            $archive.Dispose()
+        }
+        Move-Item -LiteralPath $temp.Path -Destination $destination -Force
+        [void](Write-WslImageHash $destination)
+    } catch {
+        Write-Fail "Failed to extract packaged fallback image."
+        Write-Fail $_.Exception.Message
+        Remove-WslDownloadTemp $temp
+        return ""
+    }
+
+    Remove-WslDownloadTemp $temp
+    return $destination
+}
+
+function Resolve-WslFallbackInstallImage {
+    param([string]$ImagePath)
+
+    if (-not (Test-WslPackagedImage $ImagePath)) {
+        return $ImagePath
+    }
+
+    return (Expand-WslPackagedImage $ImagePath)
+}
+
 function Install-WslResourceFallback {
     param(
         [string[]]$NativeExtra,
@@ -461,9 +565,10 @@ function Install-WslResourceFallback {
     $cacheDir = Get-WslDownloadDir
     $fileName = "{0}_{1}" -f (Get-SafeFileName $download.Name), (Get-FileNameFromUrl $download.Url)
     $imagePath = Join-Path $cacheDir $fileName
+    $dryRunInstallPath = if (Test-WslPackagedImage $imagePath) { Get-WslPackagedImageDefaultInstallPath $imagePath } else { $imagePath }
     $parentDir = Split-Path -Parent $installDir
 
-    $nativeArgs = @("--install", "--from-file", $imagePath, "--name", $script:Config.Name, "--location", $installDir, "--no-launch")
+    $nativeArgs = @("--install", "--from-file", $dryRunInstallPath, "--name", $script:Config.Name, "--location", $installDir, "--no-launch")
     if (-not [string]::IsNullOrWhiteSpace($script:Config.Version)) {
         $nativeArgs += @("--version", $script:Config.Version)
     }
@@ -476,6 +581,9 @@ function Install-WslResourceFallback {
             Write-Host "Fallback image SHA256: $(Normalize-Sha256Text $download.Sha256)"
         }
         Write-Host "Download path: $imagePath"
+        if ($dryRunInstallPath -ne $imagePath) {
+            Write-Host "Install path: $dryRunInstallPath"
+        }
         Show-NativeCommand "wsl.exe" $nativeArgs
         [void](Ensure-WslConfiguredUser -DryRun -AllowEmpty)
         return 0
@@ -484,6 +592,17 @@ function Install-WslResourceFallback {
     if (-not (Save-WslFallbackImage $download $imagePath)) {
         return 1
     }
+
+    $installImagePath = Resolve-WslFallbackInstallImage $imagePath
+    if ([string]::IsNullOrWhiteSpace($installImagePath)) {
+        return 1
+    }
+
+    $nativeArgs = @("--install", "--from-file", $installImagePath, "--name", $script:Config.Name, "--location", $installDir, "--no-launch")
+    if (-not [string]::IsNullOrWhiteSpace($script:Config.Version)) {
+        $nativeArgs += @("--version", $script:Config.Version)
+    }
+    $nativeArgs += @($NativeExtra)
 
     Ensure-Directory $parentDir
     $exit = Invoke-External "wsl.exe" $nativeArgs
@@ -497,5 +616,8 @@ function Install-WslResourceFallback {
     }
 
     [void](Write-WslImageHash $imagePath)
+    if ($installImagePath -ne $imagePath) {
+        [void](Write-WslImageHash $installImagePath)
+    }
     return 0
 }

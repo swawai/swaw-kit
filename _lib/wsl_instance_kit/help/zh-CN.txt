@@ -1,9 +1,10 @@
 version 1.0
 
 # 基本用法:
-  {{COMMAND}}                       打开入口文件中配置的 WSL 实例
+  {{COMMAND}}                       进入此命令绑定的 WSL 实例 ({WSL_name} 定义)
   {{COMMAND}} status                显示此实例状态
-  {{COMMAND}} -h                    显示帮助
+  {{COMMAND}} --help zh             显示中文版帮助信息
+  {{COMMAND}} --help en             Show English help information
 
 
 # 管理命令:
@@ -21,14 +22,13 @@ version 1.0
   {{COMMAND}} ctl systemd enable    启用此实例 systemd                    (/etc/wsl.conf)
   {{COMMAND}} ctl systemd disable   禁用此实例 systemd                    (/etc/wsl.conf)
   {{COMMAND}} ctl ssh status        显示此实例 SSH 服务状态
-  {{COMMAND}} ctl ssh config        打开此实例 /etc/ssh 目录
-  {{COMMAND}} ctl ssh enable        在 {WSL_systemd}=enable 时按 {WSL_SSH_port} 启用 SSH
-  {{COMMAND}} ctl ssh enable 2222   在 {WSL_systemd}=enable 时使用指定端口启用 SSH
-  {{COMMAND}} ctl ssh disable       停止 SSH 并移除配置公钥              (systemctl/service)
+  {{COMMAND}} ctl ssh config        打开实例级配置 wsl.conf 所在目录
+  {{COMMAND}} ctl ssh enable        开启 SSH 服务 (基于systemd托管)
+  {{COMMAND}} ctl ssh disable       停止 SSH 并移除配置公钥               (systemctl/service)
   {{COMMAND}} ctl remove --yes      注销并删除此实例                      (wsl --unregister)
 
-# 全局管理命令:
-  {{COMMAND}} ctl global config     打开当前用户目录查看 .wslconfig       (explorer %USERPROFILE%)
+# 全局管理命令(会影响当前 Windows 用户下的所有实例):
+  {{COMMAND}} ctl global config     打开用户级配置 .wslconfig 所在目录    (explorer %USERPROFILE%)
   {{COMMAND}} ctl global shutdown   关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
   {{COMMAND}} ctl global -t         同 global shutdown
   {{COMMAND}} ctl global network    按 WSL_network_* 更新 .wslconfig      (%USERPROFILE%)
@@ -40,11 +40,8 @@ version 1.0
   {{COMMAND}} cursor app/           打开 {WSL_default_workdir}/app/
 
 
-# 实例透传策略:
-  上面未出现的命令，会这样透传给 wsl.exe ：
-  wsl.exe -d <WSL_name> [-u <WSL_user>] [--cd <WSL_default_workdir>] <原始参数...>
-  如：
-  {{COMMAND}} uname -a              在该实例中执行 uname -a
-  {{COMMAND}} -- pwd                -- 后的内容会原样传入该实例内执行
-  {{COMMAND}} --cd /tmp -- pwd      同上，但追加指定工作目录
-  {{COMMAND}} -u root -- whoami     同上，但追加指定执行用户
+# 上面未出现的命令，会添加 -d -u --cd 信息后，透传给 wsl.exe ，例如：
+  {{COMMAND}} uname -a              等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir uname -a
+  {{COMMAND}} -- pwd                等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir -- pwd
+  {{COMMAND}} --cd /tmp -- pwd      同上，但追加 --cd 参数覆盖
+  {{COMMAND}} -u root -- whoami     同上，但追加 -u 参数覆盖

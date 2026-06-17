@@ -66,26 +66,28 @@ function Import-WslEntryFileEnvironment {
             break
         }
 
-        $name = ""
-        $rawValue = ""
-        if ($line -match '(?i)^\s*set\s+"([^=]+)=(.*)"\s*$') {
-            $name = $Matches[1]
-            $rawValue = $Matches[2]
-        } elseif ($line -match '(?i)^\s*set\s+([^=\s]+)=(.*)$') {
-            $name = $Matches[1]
-            $rawValue = $Matches[2]
-        } else {
-            continue
-        }
+        foreach ($segment in @($line -split '\s*&\s*')) {
+            $name = ""
+            $rawValue = ""
+            if ($segment -match '(?i)^\s*set\s+"([^=]+)=(.*)"\s*$') {
+                $name = $Matches[1]
+                $rawValue = $Matches[2]
+            } elseif ($segment -match '(?i)^\s*set\s+([^=\s]+)=(.*)$') {
+                $name = $Matches[1]
+                $rawValue = $Matches[2]
+            } else {
+                continue
+            }
 
-        if (-not $name.StartsWith("WSL_", [System.StringComparison]::OrdinalIgnoreCase)) {
-            continue
-        }
-        if ($runtimeNames -contains $name -or $name -like "WSL_KIT_ARG_*") {
-            continue
-        }
+            if (-not $name.StartsWith("WSL_", [System.StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+            if ($runtimeNames -contains $name -or $name -like "WSL_KIT_ARG_*") {
+                continue
+            }
 
-        $values[$name] = Expand-WslEntryBatchValue $rawValue $entryFile $values
+            $values[$name] = Expand-WslEntryBatchValue $rawValue $entryFile $values
+        }
     }
 
     foreach ($key in $values.Keys) {
