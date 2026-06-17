@@ -207,7 +207,7 @@ function Test-LiveDistribution {
         Invoke-LiveCommand $entryFile @("ctl", "install", "--fallback") 0 "install fallback $Source" | Out-Null
         Invoke-LiveCommand $entryFile @("ctl", "user", "default") 0 "set default user $Source" | Out-Null
         Invoke-LiveCommand $entryFile @("ctl", "systemd", "enable") 0 "systemd enable $Source" | Out-Null
-        Invoke-LiveCommand $entryFile @("ctl", "global", "shutdown") 0 "global shutdown after systemd $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @("vm", "shutdown") 0 "vm shutdown after systemd $Source" | Out-Null
 
         $packageFamily = Get-PackageFamily $name
         Write-Host "Package manager: $packageFamily" -ForegroundColor Green

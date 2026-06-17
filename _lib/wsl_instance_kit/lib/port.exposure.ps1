@@ -138,12 +138,12 @@ function Add-WslPortExposure {
         }
         "virtioproxy" {
             Write-Fail "WSL networkingMode=virtioproxy is not supported by ctl port automation yet."
-            Write-Fail "Use ctl settings to switch to NAT or mirrored for managed exposure."
+            Write-Fail "Use vm settings to switch to NAT or mirrored for managed exposure."
             return 1
         }
         "bridged" {
             Write-Fail "WSL networkingMode=bridged is deprecated and is not managed by ctl port."
-            Write-Fail "Use ctl settings to switch to NAT or mirrored."
+            Write-Fail "Use vm settings to switch to NAT or mirrored."
             return 1
         }
         default {
@@ -237,4 +237,3 @@ function Sync-WslPortExposure {
 
     return 0
 }
-

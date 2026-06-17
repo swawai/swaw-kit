@@ -49,7 +49,7 @@ set "WSL_SSH_key=%USERPROFILE%\.ssh\id_rsa"
 
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: %USERPROFILE%\.wslconfig 定义，参考https://learn.microsoft.com/windows/wsl/wsl-config
-:: 配置不表示立即生效，需执行如 wsl.1.cmd ctl global network 来进行应用
+:: 配置不表示立即生效，可用 wsl.1.cmd vm settings 打开可视化设置；修改后通常需要 wsl.1.cmd vm shutdown 重启 WSL VM。
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: 留空表示 ctl 不主动修改；mirrored/nat 表示 ctl 使用此默认网络模式
 :: 注意：网络模式是用户级 WSL2 全局配置，不是单实例配置。

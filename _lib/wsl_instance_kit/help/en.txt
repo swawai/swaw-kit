@@ -1,57 +1,51 @@
+version 1.0
 
 # Basic usage:
-  {{COMMAND}}                       Open the WSL instance configured in this entry file.
-  {{COMMAND}} status                Show this resource config and instance status.
-  {{COMMAND}} -h                    Show help.
-  {{COMMAND}} --help zh             Show Chinese help.
-  {{COMMAND}} --help en             Show English help.
-  # The entry file declares WSL_KIT_PROTOCOL; this kit currently supports v1.
-
+  {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} definition)
+  {{COMMAND}} status                Show this instance status
+  {{COMMAND}} --help zh             显示中文版帮助信息
+  {{COMMAND}} --help en             Show English help information
 
 # Management:
-  {{COMMAND}} ctl status            Same as status.
-  {{COMMAND}} ctl install           Install this instance from WSL_source; .tar uses wsl --import, distro names use wsl --install.
-  {{COMMAND}} ctl install --dry-run Preview native WSL install/init commands; no dirs are created and nothing is installed.
-  {{COMMAND}} ctl install --fallback Use bundled DistributionInfo to download an image and install with wsl --install --from-file.
-  {{COMMAND}} ctl backup            Export with WSL_export_format to a timestamped file under WSL_backup_dir.
-  {{COMMAND}} ctl backup dir        Open this instance's backup directory.
-  {{COMMAND}} ctl export D:\x.tar   Export with WSL_export_format to a specific path.
-  {{COMMAND}} ctl downloads dir     Open the fallback image cache directory.
-  {{COMMAND}} ctl user ensure       Create/check WSL_user.
-  {{COMMAND}} ctl user default      Set WSL_user as this instance's default user.
-  {{COMMAND}} ctl default           Set this instance as the default WSL distribution.
-  {{COMMAND}} ctl terminate         Terminate this instance.
-  {{COMMAND}} ctl global shutdown   Shut down the current user's WSL2 VM and instances.
-  {{COMMAND}} ctl systemd enable    Enable systemd in this instance.
-  {{COMMAND}} ctl systemd disable   Disable systemd in this instance.
-  {{COMMAND}} ctl ssh status        Show SSH service status for this instance.
-  {{COMMAND}} ctl ssh config        Open this instance's /etc/ssh directory.
-  {{COMMAND}} ctl ssh enable 2222   Enable SSH on port 2222 when systemd is active.
-  {{COMMAND}} ctl ssh disable       Stop SSH and remove the configured public key.
-  {{COMMAND}} ctl port status       Show port mapping, firewall, and networking mode status.
-  {{COMMAND}} ctl port expose 8080  Allow/map TCP 8080.
-  {{COMMAND}} ctl port expose 8080 80 Map Windows:8080 to WSL:80 in NAT mode.
-  {{COMMAND}} ctl port remove 8080  Remove the managed TCP 8080 mapping/firewall rule.
-  {{COMMAND}} ctl port sync         Refresh managed NAT mappings after WSL IP changes.
-  {{COMMAND}} ctl settings          Open the WSL Settings app.
-  {{COMMAND}} ctl remove --yes      Unregister and delete this instance.
-  # ctl is resource-oriented sugar; use wsl.exe directly for bare global WSL management commands.
+  {{COMMAND}} ctl install           Install this instance from {WSL_source}        (wsl --import or wsl --install)
+  {{COMMAND}} ctl install --dry-run Preview the install command without running it
+  {{COMMAND}} ctl install --fallback Same as ctl install without GitHub resources  (wsl --install --from-file)
+  {{COMMAND}} ctl backup            Export to the backup directory as {WSL_export_format} (wsl --export)
+  {{COMMAND}} ctl backup dir        Open this instance's backup directory
+  {{COMMAND}} ctl export D:\x.tar   Export to a specified path as {WSL_export_format} (wsl --export)
+  {{COMMAND}} ctl downloads dir     Open the fallback image cache directory
+  {{COMMAND}} ctl config            Open the instance-level wsl.conf directory     (explorer \\wsl...)
+  {{COMMAND}} ctl user ensure       Create/confirm that {WSL_user} exists          (wsl .. -- sh -lc useradd/adduser)
+  {{COMMAND}} ctl user default      Set {WSL_user} as the default user             (wsl --manage set-default-user)
+  {{COMMAND}} ctl default           Set this instance as the default WSL instance  (wsl --set-default)
+  {{COMMAND}} ctl terminate         Terminate this instance                        (wsl --terminate)
+  {{COMMAND}} ctl -t                Same as above, terminate this instance         (wsl --terminate)
+  {{COMMAND}} ctl systemd enable    Enable systemd in this instance                (/etc/wsl.conf)
+  {{COMMAND}} ctl systemd disable   Disable systemd in this instance               (/etc/wsl.conf)
+  {{COMMAND}} ctl ssh status        Show this instance's SSH service status
+  {{COMMAND}} ctl ssh config        Open this instance's /etc/ssh config directory
+  {{COMMAND}} ctl ssh enable 2222   Enable SSH service and set the port            (systemd-managed)
+  {{COMMAND}} ctl ssh disable       Stop SSH and remove the configured public key
+  {{COMMAND}} ctl port status       Show port mapping, firewall, and network mode status
+  {{COMMAND}} ctl port expose 8080  Map TCP 8080:8080 and allow it through firewall
+  {{COMMAND}} ctl port expose 8080 80 Map 8080 to WSL:80 and allow it (NAT)
+  {{COMMAND}} ctl port remove 8080  Remove the TCP 8080 mapping and firewall rule
+  {{COMMAND}} ctl port sync         WSL IP may change (NAT); run this command to refresh it
+  {{COMMAND}} ctl remove --yes      Unregister and delete this instance            (wsl --unregister)
 
+# WSL underlying VM management (affects all instances under the current Windows user):
+  {{COMMAND}} vm settings           Open the WSL Settings visual configuration app
+  {{COMMAND}} vm shutdown           Shut down the current user's WSL2 VM/all instances (wsl --shutdown)
+  {{COMMAND}} vm -t                 Same as vm shutdown
 
 # Remote editing:
-  {{COMMAND}} code ~                Open the WSL user's home directory with VS Code.
-  {{COMMAND}} code app/             Open app/ under WSL_default_workdir.
-  {{COMMAND}} cursor /etc           Open an absolute WSL path with Cursor.
-  # Relative paths are based on WSL_default_workdir; if empty or ~, they are based on the user's home directory.
+  {{COMMAND}} code                  Open {WSL_default_workdir} with VS Code        (code --remote=wsl+..)
+  {{COMMAND}} code ~                Open this instance user's home directory
+  {{COMMAND}} cursor /etc           Open a WSL absolute path with Cursor
+  {{COMMAND}} cursor app/           Open {WSL_default_workdir}/app/
 
-# Instance passthrough policy:
-  The kit only intercepts first args: -h / --help / /? / status / code / cursor / ctl.
-  Every other command is appended after the fixed resource prefix:
-    wsl.exe -d <WSL_name> [-u <WSL_user>] [--cd <WSL_default_workdir>] <original args...>
-
-  {{COMMAND}} uname -a              Run uname -a inside this instance.
-  {{COMMAND}} -- pwd                Run pwd in the entry default workdir.
-  {{COMMAND}} --cd /tmp -- pwd      Append --cd /tmp -- pwd as-is; the kit does not inspect or reorder it.
-  {{COMMAND}} -u root -- whoami     Append -u root -- whoami as-is; the kit does not inspect or reorder it.
-  # If original args repeat -d / -u / --cd, the final behavior is whatever wsl.exe decides.
-  # This entry only promises to run commands inside this resource instance; global WSL commands are not part of the entry protocol.
+# Commands not listed above are forwarded directly to wsl.exe after adding -d -u --cd, for example:
+  {{COMMAND}} uname -a              Equivalent to wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir uname -a
+  {{COMMAND}} -- pwd                Equivalent to wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir -- pwd
+  {{COMMAND}} --cd /tmp -- pwd      Same as above, but append --cd to override
+  {{COMMAND}} -u root -- whoami     Same as above, but append -u to override

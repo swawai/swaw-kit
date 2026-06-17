@@ -6,9 +6,7 @@ version 1.0
   {{COMMAND}} --help zh             显示中文版帮助信息
   {{COMMAND}} --help en             Show English help information
 
-
-
-# 管理命令:
+# 管理:
   {{COMMAND}} ctl install           使用 {WSL_source} 安装该实例          (wsl --import 或 wsl --install)
   {{COMMAND}} ctl install --dry-run 预览安装命令，不实际执行
   {{COMMAND}} ctl install --fallback 同ctl install 但不依赖 Github 资源   (wsl --install --from-file)
@@ -35,10 +33,10 @@ version 1.0
   {{COMMAND}} ctl port sync         WSL 的IP可能会变(NAT)，执行此命令可以刷新
   {{COMMAND}} ctl remove --yes      注销并删除此实例                      (wsl --unregister)
 
-# 全局管理命令(会影响当前 Windows 用户下的所有实例):
-  {{COMMAND}} ctl settings          打开 WSL Settings 可视化配置程序
-  {{COMMAND}} ctl global shutdown   关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
-  {{COMMAND}} ctl global -t         同 global shutdown
+# WSL 底层虚拟机管理 (会影响当前 Windows 用户下的所有实例):
+  {{COMMAND}} vm settings           打开 WSL Settings 可视化配置程序
+  {{COMMAND}} vm shutdown           关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
+  {{COMMAND}} vm -t                 同 vm shutdown
 
 # 远程编辑:
   {{COMMAND}} code                  用 VSCode 打开{WSL_default_workdir}   (code --remote=wsl+..)
@@ -46,8 +44,7 @@ version 1.0
   {{COMMAND}} cursor /etc           用 Cursor 打开 WSL 绝对路径
   {{COMMAND}} cursor app/           打开 {WSL_default_workdir}/app/
 
-
-# 上面未出现的命令，会添加 -d -u --cd 信息后，透传给 wsl.exe ，例如：
+# 上面未出现的命令，会添加 -d -u --cd 信息后，直接透传给 wsl.exe ，例如：
   {{COMMAND}} uname -a              等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir uname -a
   {{COMMAND}} -- pwd                等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir -- pwd
   {{COMMAND}} --cd /tmp -- pwd      同上，但追加 --cd 参数覆盖

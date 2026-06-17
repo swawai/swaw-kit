@@ -69,7 +69,7 @@ wsl.1.cmd ctl install --dry-run
 wsl.1.cmd ctl ssh status
 wsl.1.cmd ctl port status
 wsl.1.cmd ctl port expose 8080 80
-wsl.1.cmd ctl settings
+wsl.1.cmd vm settings
 wsl.1.cmd code ~
 ```
 
@@ -79,8 +79,8 @@ WSL 入口文件使用 `WSL_KIT_PROTOCOL` 声明与 `_lib\wsl_instance_kit` 的�
 在线发行版安装默认仍优先使用原生 `wsl --install`；如果失败，会提示显式尝试 `ctl install --fallback`，fallback 会使用 `_lib\wsl_instance_kit\DistributionInfo.json`。
 fallback 下载的发行版镜像会复用 `data\wsl.downloads`，下载时先写入临时目录，校验成功后再移入镜像库。
 fallback 安装成功后会为使用的源镜像写入同名 `.sha256` 文件；后续复用缓存前会校验该 hash，并在 DistributionInfo 提供 SHA256 时同步校验上游 hash，不匹配会清理后重新下载。
-`ctl systemd enable` / `ctl systemd disable` 负责写入实例内 `/etc/wsl.conf`；修改后通常需要 `ctl global shutdown` 让 WSL 重启后生效。
-`ctl settings` 会打开 WSL Settings 可视化配置程序，用于处理 WSL 全局网络等用户级配置。
+`ctl systemd enable` / `ctl systemd disable` 负责写入实例内 `/etc/wsl.conf`；修改后通常需要 `vm shutdown` 让 WSL 重启后生效。
+`vm settings` 会打开 WSL Settings 可视化配置程序，用于处理 WSL VM 网络等当前 Windows 用户级配置。
 `ctl ssh enable <port>` 只支持 systemd 托管启用，需要 systemd 已实际运行，并显式传入端口，例如 `ctl ssh enable 2222`；执行前会检查 Windows/WSL 侧端口占用。
 SSH 自动安装 `openssh-server` 目前支持 apt-get、dnf、yum、microdnf 系发行版；服务启停仍统一走 systemd。
 `ctl port status` / `ctl port doctor` 会显示当前 WSL 网络模式、运行状态、WSL IP、已管理的端口映射和防火墙规则。

@@ -42,7 +42,6 @@ function Stop-WslResource {
 }
 
 
-function Stop-WslGlobal {
+function Stop-WslVm {
     return (Invoke-ControlNativeCommand @("--shutdown"))
 }
-

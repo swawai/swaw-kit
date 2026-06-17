@@ -209,11 +209,11 @@ try {
     try {
         $helpCases = @(
             @{ Args = @("--help", "zh"); Env = "en"; Expected = "version 1.0"; Unexpected = "# Basic usage:"; Label = "entry --help zh" },
-            @{ Args = @("--help", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "version 1.0"; Label = "entry --help en" },
+            @{ Args = @("--help", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "# 基本用法:"; Label = "entry --help en" },
             @{ Args = @("-h", "zh"); Env = "en"; Expected = "version 1.0"; Unexpected = "# Basic usage:"; Label = "entry -h zh" },
-            @{ Args = @("-h", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "version 1.0"; Label = "entry -h en" },
+            @{ Args = @("-h", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "# 基本用法:"; Label = "entry -h en" },
             @{ Args = @("/?", "zh"); Env = "en"; Expected = "version 1.0"; Unexpected = "# Basic usage:"; Label = "entry /? zh" },
-            @{ Args = @("/?", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "version 1.0"; Label = "entry /? en" }
+            @{ Args = @("/?", "en"); Env = "zh-CN"; Expected = "# Basic usage:"; Unexpected = "# 基本用法:"; Label = "entry /? en" }
         )
 
         foreach ($case in $helpCases) {
@@ -305,9 +305,15 @@ try {
         Invoke-Checked $entryFile @("ctl", "downloads") 1 "reject downloads without dir"
         Invoke-Checked $entryFile @("ctl", "downloads", "dir", "extra") 1 "reject downloads dir extra args"
         Invoke-Checked $entryFile @("ctl", "download", "dir", "extra") 1 "reject download dir extra args"
-        Invoke-Checked $entryFile @("ctl", "settings", "extra") 1 "reject settings extra args"
-        Invoke-Checked $entryFile @("ctl", "global", "config") 1 "reject removed global config"
-        Invoke-Checked $entryFile @("ctl", "global", "network") 1 "reject removed global network"
+        Invoke-Checked $entryFile @("vm", "shutdown") 0 "vm shutdown"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual $actual @("--shutdown") "vm shutdown args"
+        Invoke-Checked $entryFile @("vm", "-t") 0 "vm -t"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual $actual @("--shutdown") "vm -t args"
+        Invoke-Checked $entryFile @("vm", "settings", "extra") 1 "reject vm settings extra args"
+        Invoke-Checked $entryFile @("vm", "shutdown", "extra") 1 "reject vm shutdown extra args"
+        Invoke-Checked $entryFile @("vm", "config") 1 "reject unknown vm command"
 
         $env:MOCK_WSL_EXIT_CODE = "9"
         Invoke-Checked $entryFile @("ctl", "install") 9 "native install failure preserves exit code"

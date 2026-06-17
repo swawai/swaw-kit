@@ -1,3 +1,46 @@
+function Invoke-VmControl {
+    param(
+        [string[]]$Rest,
+        [string]$Verb = "vm"
+    )
+
+    if ($Rest.Count -eq 0) {
+        return Show-CommandHelpHint "$Verb requires a command."
+    }
+
+    $action = $Rest[0].ToLowerInvariant()
+    $tail = @(Get-Slice $Rest 1)
+
+    switch ($action) {
+        "-t" {
+            if ($tail.Count -ne 0) {
+                return Show-CommandHelpHint "$Verb -t does not accept extra arguments."
+            }
+
+            return Stop-WslVm
+        }
+        "shutdown" {
+            if ($tail.Count -ne 0) {
+                return Show-CommandHelpHint "$Verb shutdown does not accept extra arguments."
+            }
+
+            return Stop-WslVm
+        }
+        "settings" {
+            if ($tail.Count -ne 0) {
+                Write-Fail "$Verb settings does not accept extra arguments."
+                return 1
+            }
+
+            return Open-WslSettings
+        }
+        default {
+            return Show-CommandHelpHint "Unknown VM command: $action"
+        }
+    }
+}
+
+
 function Invoke-Control {
     param(
         [string[]]$Rest,
@@ -33,34 +76,8 @@ function Invoke-Control {
         "config" {
             return Open-WslInstanceConfig
         }
-        "settings" {
-            if ($tail.Count -ne 0) {
-                Write-Fail "ctl settings does not accept extra arguments."
-                return 1
-            }
-
-            return Open-WslSettings
-        }
         "port" {
             return Invoke-PortControl $tail
-        }
-        "global" {
-            if ($tail.Count -eq 0) {
-                return Show-CommandHelpHint "$Verb global requires a command."
-            }
-
-            $globalAction = $tail[0].ToLowerInvariant()
-            switch ($globalAction) {
-                "-t" {
-                    return Stop-WslGlobal
-                }
-                "shutdown" {
-                    return Stop-WslGlobal
-                }
-                default {
-                    return Show-CommandHelpHint "Unknown control command: $action $globalAction"
-                }
-            }
         }
         "user" {
             if ($tail.Count -eq 0) {

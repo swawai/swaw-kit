@@ -84,6 +84,9 @@ switch ($verb) {
     "cursor" {
         exit (Open-Editor "cursor" (Get-Slice $Arguments 1))
     }
+    "vm" {
+        exit (Invoke-VmControl (Get-Slice $Arguments 1) $verb)
+    }
     "ctl" {
         exit (Invoke-Control (Get-Slice $Arguments 1) $verb)
     }

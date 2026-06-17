@@ -156,6 +156,6 @@ function Open-WslSettings {
 
     $expected = if ($candidates.Count -gt 0) { $candidates[0] } else { "%ProgramFiles%\WSL\wslsettings\wslsettings.exe" }
     Write-Fail "WSL Settings app not found: $expected"
-    Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) ctl settings"
+    Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) vm settings"
     return 1
 }

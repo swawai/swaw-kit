@@ -153,7 +153,7 @@ function Ensure-WslSshSystemdReady {
     if (-not (Test-WslSystemdRuntimeActive)) {
         Write-Fail "ctl ssh enable requires active systemd in this WSL instance."
         Write-Fail "Run: $($script:Config.CommandName) ctl systemd enable"
-        Write-Fail "Then restart WSL: $($script:Config.CommandName) ctl global shutdown"
+        Write-Fail "Then restart WSL: $($script:Config.CommandName) vm shutdown"
         Write-Fail "After restart, run ctl ssh enable again."
         return $false
     }
@@ -169,4 +169,3 @@ function Invoke-WslSshScript {
     $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--", "sh", "-lc", $runner)
     return (Invoke-ControlNativeCommand $nativeArgs)
 }
-
