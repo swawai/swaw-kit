@@ -3,6 +3,7 @@ version 1.0
 # Basic usage:
   {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} definition)
   {{COMMAND}} status                Show this instance status
+  {{COMMAND}} doctor                Check WSL, entry config, instance, storage, and network
   {{COMMAND}} --help zh             显示中文版帮助信息
   {{COMMAND}} --help en             Show English help information
 
@@ -10,16 +11,18 @@ version 1.0
   {{COMMAND}} ctl install           Install this instance from {WSL_source}        (wsl --import or wsl --install)
   {{COMMAND}} ctl install --dry-run Preview the install command without running it
   {{COMMAND}} ctl install --fallback Same as ctl install without GitHub resources  (wsl --install --from-file)
+  {{COMMAND}} ctl install dir       Open this instance's Windows install directory
   {{COMMAND}} ctl backup            Export to the backup directory as {WSL_export_format} (wsl --export)
   {{COMMAND}} ctl backup dir        Open this instance's backup directory
   {{COMMAND}} ctl export D:\x.tar   Export to a specified path as {WSL_export_format} (wsl --export)
   {{COMMAND}} ctl downloads dir     Open the fallback image cache directory
-  {{COMMAND}} ctl config            Open the instance-level wsl.conf directory     (explorer \\wsl...)
+  {{COMMAND}} ctl config dir        Open the instance-level wsl.conf directory     (explorer \\wsl...)
   {{COMMAND}} ctl user ensure       Create/confirm that {WSL_user} exists          (wsl .. -- sh -lc useradd/adduser)
   {{COMMAND}} ctl user default      Set {WSL_user} as the default user             (wsl --manage set-default-user)
   {{COMMAND}} ctl default           Set this instance as the default WSL instance  (wsl --set-default)
   {{COMMAND}} ctl terminate         Terminate this instance                        (wsl --terminate)
   {{COMMAND}} ctl -t                Same as above, terminate this instance         (wsl --terminate)
+  {{COMMAND}} ctl systemd status    Show this instance's systemd status
   {{COMMAND}} ctl systemd enable    Enable systemd in this instance                (/etc/wsl.conf)
   {{COMMAND}} ctl systemd disable   Disable systemd in this instance               (/etc/wsl.conf)
   {{COMMAND}} ctl ssh status        Show this instance's SSH service status
@@ -27,7 +30,8 @@ version 1.0
   {{COMMAND}} ctl ssh enable 2222   Enable SSH service and set the port            (systemd-managed)
   {{COMMAND}} ctl ssh disable       Stop SSH and remove the configured public key
   {{COMMAND}} ctl port status       Show port mapping, firewall, and network mode status
-  {{COMMAND}} ctl port expose 8080  Map TCP 8080:8080 and allow it through firewall
+  {{COMMAND}} ctl port expose 8080  Map TCP 8080:8080 and allow it through firewall (Admin access required)
+  {{COMMAND}} ctl port expose 8080 --uac Map a port and request UAC elevation
   {{COMMAND}} ctl port expose 8080 80 Map 8080 to WSL:80 and allow it (NAT)
   {{COMMAND}} ctl port remove 8080  Remove the TCP 8080 mapping and firewall rule
   {{COMMAND}} ctl port sync         WSL IP may change (NAT); run this command to refresh it
@@ -53,5 +57,5 @@ version 1.0
   {{COMMAND}} -u root -- whoami     Same as above, but append -u to override
 
 # References:
-  WSL practical guide https://swaw.com/zh/p/wsl-guide/
+  WSL practical guide https://swaw.com/p/wsl-guide/
   WSL configuration reference https://learn.microsoft.com/en-us/windows/wsl/wsl-config#main-wsl-settings

@@ -112,7 +112,16 @@ fi
 
     $runner = New-Base64ShRunner $scriptText
     $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--", "sh", "-lc", $runner)
-    return (Invoke-ControlNativeCommand $nativeArgs)
+    $exitCode = Invoke-ControlNativeCommand $nativeArgs
+    if ($exitCode -ne 0) {
+        Write-Fail "Failed to update systemd setting in /etc/wsl.conf."
+        return $exitCode
+    }
+
+    $stateText = if ($Action -eq "enable") { "enabled" } else { "disabled" }
+    Write-Host "Systemd $stateText in /etc/wsl.conf."
+    Write-Host "Restart WSL to apply: $($script:Config.CommandName) vm shutdown"
+    return 0
 }
 
 function Show-WslSystemdStatus {

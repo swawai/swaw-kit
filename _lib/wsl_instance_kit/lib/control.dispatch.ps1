@@ -76,8 +76,11 @@ function Invoke-Control {
         "status" {
             return Show-WslResourceStatus
         }
+        "doctor" {
+            return Invoke-WslDoctor $tail
+        }
         "install" {
-            return Install-WslResource $tail
+            return Invoke-InstallControl $tail
         }
         "backup" {
             return Invoke-BackupControl $tail
@@ -89,7 +92,20 @@ function Invoke-Control {
             return Invoke-DownloadControl -Rest $tail -Verb $action
         }
         "config" {
-            return Open-WslInstanceConfig
+            if ($tail.Count -eq 0) {
+                return Show-CommandHelpHint "$Verb config requires dir."
+            }
+
+            $configAction = $tail[0].ToLowerInvariant()
+            if ($configAction -eq "dir") {
+                if ($tail.Count -ne 1) {
+                    return Show-CommandHelpHint "$Verb config dir does not accept extra arguments."
+                }
+
+                return Open-WslInstanceConfig
+            }
+
+            return Show-CommandHelpHint "Unknown control command: $action $configAction"
         }
         "port" {
             return Invoke-PortControl $tail

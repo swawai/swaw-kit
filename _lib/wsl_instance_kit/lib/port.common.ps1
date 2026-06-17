@@ -44,12 +44,17 @@ function ConvertTo-WslPortOptionMap {
     $listenAddress = Get-WslPortListenAddress
     $protocol = "tcp"
     $dryRun = $false
+    $uac = $false
 
     for ($i = 0; $i -lt $Rest.Count; $i++) {
         $item = $Rest[$i]
         switch -Regex ($item) {
             '^--dry-run$' {
                 $dryRun = $true
+                continue
+            }
+            '^--uac$' {
+                $uac = $true
                 continue
             }
             '^--listen-address$' {
@@ -85,6 +90,7 @@ function ConvertTo-WslPortOptionMap {
         ListenAddress = $listenAddress
         Protocol      = $protocol
         DryRun        = $dryRun
+        Uac           = $uac
     }
 }
 
@@ -143,13 +149,108 @@ function Get-WslConfiguredNetworkingMode {
 function Test-WslKitAdmin {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        return $true
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+
+function Format-PowerShellSingleQuotedArgument {
+    param([AllowNull()] [string]$Value)
+
+    if ($null -eq $Value) {
+        $Value = ""
     }
 
-    Write-Fail "This ctl port action requires an elevated shell."
-    Write-Fail "Run the command again as Administrator."
-    return $false
+    return "'" + $Value.Replace("'", "''") + "'"
+}
+
+
+function Invoke-WslKitElevatedCommand {
+    param([string[]]$CommandArgs)
+
+    if ([string]::IsNullOrWhiteSpace($script:Config.EntryFile) -or -not (Test-Path -LiteralPath $script:Config.EntryFile -PathType Leaf)) {
+        Write-Fail "This ctl port action requires an elevated shell."
+        Write-Fail "Entry file not found, cannot self-elevate: $($script:Config.EntryFile)"
+        return 1
+    }
+
+    $displayCommand = Format-CommandLine $script:Config.CommandName $CommandArgs
+    $entryArgument = Format-PowerShellSingleQuotedArgument $script:Config.EntryFile
+    $argumentText = ((@($CommandArgs) | ForEach-Object { Format-PowerShellSingleQuotedArgument $_ }) -join " ")
+    $displayArgument = Format-PowerShellSingleQuotedArgument $displayCommand
+
+    $invokeLine = if ([string]::IsNullOrWhiteSpace($argumentText)) {
+        "& $entryArgument"
+    } else {
+        "& $entryArgument $argumentText"
+    }
+
+    $command = @"
+Write-Host 'Elevated command:'
+Write-Host $displayArgument
+$invokeLine
+`$exitCode = if (`$null -eq `$LASTEXITCODE) { 0 } else { [int]`$LASTEXITCODE }
+Write-Host ''
+Write-Host ('Exit code: ' + `$exitCode)
+[void](Read-Host 'Press Enter to close')
+exit `$exitCode
+"@
+
+    Write-Warn "Requesting administrator approval for:"
+    Write-Warn "  $displayCommand"
+
+    try {
+        $process = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $command) -Wait -PassThru
+    } catch {
+        Write-Fail "Elevation was cancelled or failed."
+        Write-Fail $_.Exception.Message
+        return 1
+    }
+
+    if ($null -eq $process -or $null -eq $process.ExitCode) {
+        return 0
+    }
+
+    return [int]$process.ExitCode
+}
+
+
+function Invoke-WslPortElevationOrRequireAdmin {
+    param(
+        [string]$Action,
+        [string[]]$Rest,
+        [switch]$DryRun,
+        [switch]$Uac
+    )
+
+    if ($DryRun -or (Test-WslKitAdmin)) {
+        return $null
+    }
+
+    if (-not $Uac) {
+        $suggestedArgs = New-Object System.Collections.ArrayList
+        [void]$suggestedArgs.Add("ctl")
+        [void]$suggestedArgs.Add("port")
+        [void]$suggestedArgs.Add($Action)
+        foreach ($item in @($Rest)) {
+            [void]$suggestedArgs.Add($item)
+        }
+        [void]$suggestedArgs.Add("--uac")
+
+        Write-Fail "This ctl port action requires administrator privileges."
+        Write-Fail "Run again with --uac to request elevation:"
+        Write-Fail "  $(Format-CommandLine $script:Config.CommandName @($suggestedArgs))"
+        return 1
+    }
+
+    $commandArgs = New-Object System.Collections.ArrayList
+    [void]$commandArgs.Add("ctl")
+    [void]$commandArgs.Add("port")
+    [void]$commandArgs.Add($Action)
+    foreach ($item in @($Rest)) {
+        [void]$commandArgs.Add($item)
+    }
+
+    return (Invoke-WslKitElevatedCommand -CommandArgs @($commandArgs.ToArray()))
 }
 
 
@@ -185,4 +286,3 @@ fi
 
     return ""
 }
-

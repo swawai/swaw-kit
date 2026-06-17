@@ -107,7 +107,7 @@ function Add-WslPortExposure {
     }
 
     if ($options.Positionals.Count -lt 1 -or $options.Positionals.Count -gt 2) {
-        Write-Fail "Usage: $($script:Config.CommandName) ctl port expose <listen-port> [connect-port] [--dry-run]"
+        Write-Fail "Usage: $($script:Config.CommandName) ctl port expose <listen-port> [connect-port] [--dry-run] [--uac]"
         return 1
     }
 
@@ -127,9 +127,21 @@ function Add-WslPortExposure {
     $mode = Get-WslConfiguredNetworkingMode
     switch ($mode.Mode) {
         "nat" {
+            $elevatedExitCode = Invoke-WslPortElevationOrRequireAdmin -Action "expose" -Rest $Rest -DryRun:($options.DryRun) -Uac:($options.Uac)
+            if ($null -ne $elevatedExitCode) {
+                return $elevatedExitCode
+            }
+
             return Add-WslNatPortExposure -ListenPort $listenPort -ConnectPort $connectPort -ListenAddress $options.ListenAddress -Protocol $options.Protocol -DryRun:($options.DryRun)
         }
         "mirrored" {
+            if ($listenPort -eq $connectPort) {
+                $elevatedExitCode = Invoke-WslPortElevationOrRequireAdmin -Action "expose" -Rest $Rest -DryRun:($options.DryRun) -Uac:($options.Uac)
+                if ($null -ne $elevatedExitCode) {
+                    return $elevatedExitCode
+                }
+            }
+
             return Add-WslMirroredPortExposure -ListenPort $listenPort -ConnectPort $connectPort -Protocol $options.Protocol -DryRun:($options.DryRun)
         }
         "none" {
@@ -148,6 +160,11 @@ function Add-WslPortExposure {
         }
         default {
             Write-Warn "Unknown WSL networkingMode '$($mode.Mode)'; using NAT-style portproxy."
+            $elevatedExitCode = Invoke-WslPortElevationOrRequireAdmin -Action "expose" -Rest $Rest -DryRun:($options.DryRun) -Uac:($options.Uac)
+            if ($null -ne $elevatedExitCode) {
+                return $elevatedExitCode
+            }
+
             return Add-WslNatPortExposure -ListenPort $listenPort -ConnectPort $connectPort -ListenAddress $options.ListenAddress -Protocol $options.Protocol -DryRun:($options.DryRun)
         }
     }
@@ -163,13 +180,18 @@ function Remove-WslPortExposure {
     }
 
     if ($options.Positionals.Count -ne 1) {
-        Write-Fail "Usage: $($script:Config.CommandName) ctl port remove <listen-port> [--dry-run]"
+        Write-Fail "Usage: $($script:Config.CommandName) ctl port remove <listen-port> [--dry-run] [--uac]"
         return 1
     }
 
     $listenPort = Resolve-WslPortNumber $options.Positionals[0] "listen port"
     if ($null -eq $listenPort) {
         return 1
+    }
+
+    $elevatedExitCode = Invoke-WslPortElevationOrRequireAdmin -Action "remove" -Rest $Rest -DryRun:($options.DryRun) -Uac:($options.Uac)
+    if ($null -ne $elevatedExitCode) {
+        return $elevatedExitCode
     }
 
     return Remove-WslPortRules -ListenPort $listenPort -Protocol $options.Protocol -ListenAddress $options.ListenAddress -DryRun:($options.DryRun)
@@ -192,8 +214,13 @@ function Sync-WslPortExposure {
     }
 
     if ($options.Positionals.Count -gt 2) {
-        Write-Fail "Usage: $($script:Config.CommandName) ctl port sync [listen-port] [connect-port] [--dry-run]"
+        Write-Fail "Usage: $($script:Config.CommandName) ctl port sync [listen-port] [connect-port] [--dry-run] [--uac]"
         return 1
+    }
+
+    $elevatedExitCode = Invoke-WslPortElevationOrRequireAdmin -Action "sync" -Rest $Rest -DryRun:($options.DryRun) -Uac:($options.Uac)
+    if ($null -ne $elevatedExitCode) {
+        return $elevatedExitCode
     }
 
     if ($options.Positionals.Count -gt 0) {

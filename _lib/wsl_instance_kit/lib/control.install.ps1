@@ -1,3 +1,22 @@
+function Open-WslInstallDir {
+    param([string[]]$Rest)
+
+    if ($Rest.Count -ne 0) {
+        Write-Fail "ctl install dir does not accept extra arguments."
+        return 1
+    }
+
+    $installDir = Resolve-EntryPath $script:Config.InstallDir
+    if ([string]::IsNullOrWhiteSpace($installDir)) {
+        Write-Fail "WSL_install_dir is empty."
+        return 1
+    }
+
+    Ensure-Directory $installDir
+    return (Open-WindowsFolder $installDir)
+}
+
+
 function Install-WslResource {
     param([string[]]$Rest)
 
@@ -70,3 +89,13 @@ function Install-WslResource {
     return (Ensure-WslConfiguredUser -AllowEmpty)
 }
 
+
+function Invoke-InstallControl {
+    param([string[]]$Rest)
+
+    if ($Rest.Count -gt 0 -and $Rest[0].ToLowerInvariant() -eq "dir") {
+        return (Open-WslInstallDir -Rest (Get-Slice $Rest 1))
+    }
+
+    return (Install-WslResource $Rest)
+}

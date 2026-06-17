@@ -3,23 +3,26 @@ version 1.0
 # 基本用法:
   {{COMMAND}}                       进入此命令绑定的 WSL 实例 ({WSL_name} 定义)
   {{COMMAND}} status                显示此实例状态
+  {{COMMAND}} doctor                检查 WSL、入口配置、实例、存储和网络
   {{COMMAND}} --help zh             显示中文版帮助信息
   {{COMMAND}} --help en             Show English help information
 
 # 管理:
   {{COMMAND}} ctl install           使用 {WSL_source} 安装该实例          (wsl --import 或 wsl --install)
   {{COMMAND}} ctl install --dry-run 预览安装命令，不实际执行
-  {{COMMAND}} ctl install --fallback 同ctl install 但不依赖 Github 资源   (wsl --install --from-file)
+  {{COMMAND}} ctl install --fallback 同ctl install 但不依赖 GitHub 资源   (wsl --install --from-file)
+  {{COMMAND}} ctl install dir       打开此实例 Windows 安装目录
   {{COMMAND}} ctl backup            按 {WSL_export_format} 在备份目录导出 (wsl --export)
   {{COMMAND}} ctl backup dir        打开此实例备份目录
   {{COMMAND}} ctl export D:\x.tar   按 {WSL_export_format} 导出到指定路径 (wsl --export)
   {{COMMAND}} ctl downloads dir     打开 fallback 镜像缓存目录
-  {{COMMAND}} ctl config            打开实例级配置 wsl.conf 所在目录      (explorer \\wsl...)
+  {{COMMAND}} ctl config dir        打开实例级配置 wsl.conf 所在目录      (explorer \\wsl...)
   {{COMMAND}} ctl user ensure       创建/确认 {WSL_user} 用户已存在       (wsl .. -- sh -lc useradd/adduser)
   {{COMMAND}} ctl user default      将 {WSL_user} 设置为默认用户          (wsl --manage set-default-user)
   {{COMMAND}} ctl default           将此实例设置为默认实例                (wsl --set-default)
   {{COMMAND}} ctl terminate         终止此实例                            (wsl --terminate)
   {{COMMAND}} ctl -t                同上，终止此实例                      (wsl --terminate)
+  {{COMMAND}} ctl systemd status    显示此实例 systemd 状态
   {{COMMAND}} ctl systemd enable    启用此实例 systemd                    (/etc/wsl.conf)
   {{COMMAND}} ctl systemd disable   禁用此实例 systemd                    (/etc/wsl.conf)
   {{COMMAND}} ctl ssh status        显示此实例 SSH 服务状态
@@ -27,7 +30,8 @@ version 1.0
   {{COMMAND}} ctl ssh enable 2222   开启 SSH 服务并设置端口               (基于 systemd 托管)
   {{COMMAND}} ctl ssh disable       停止 SSH 并移除配置公钥
   {{COMMAND}} ctl port status       显示端口映射、防火墙和网络模式状态
-  {{COMMAND}} ctl port expose 8080  映射 TCP 8080:8080 并让防火墙放行
+  {{COMMAND}} ctl port expose 8080  映射 TCP 8080:8080 并让防火墙放行 (需要管理员权限)
+  {{COMMAND}} ctl port expose 8080 --uac 映射端口并弹出 UAC 提权确认
   {{COMMAND}} ctl port expose 8080 80 映射 8080 到 WSL:80 并放行(NAT)
   {{COMMAND}} ctl port remove 8080  移除 TCP 8080 的映射与防火墙规则
   {{COMMAND}} ctl port sync         WSL 的IP可能会变(NAT)，执行此命令可以刷新

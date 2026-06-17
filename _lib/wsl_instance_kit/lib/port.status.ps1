@@ -99,12 +99,12 @@ function Show-WslPortUsage {
     Write-Host "Usage:"
     Write-Host "  $($script:Config.CommandName) ctl port status [listen-port]"
     Write-Host "  $($script:Config.CommandName) ctl port doctor [listen-port]"
-    Write-Host "  $($script:Config.CommandName) ctl port expose <listen-port> [connect-port] [--dry-run]"
-    Write-Host "  $($script:Config.CommandName) ctl port remove <listen-port> [--dry-run]"
-    Write-Host "  $($script:Config.CommandName) ctl port sync [listen-port] [connect-port] [--dry-run]"
+    Write-Host "  $($script:Config.CommandName) ctl port expose <listen-port> [connect-port] [--dry-run] [--uac]"
+    Write-Host "  $($script:Config.CommandName) ctl port remove <listen-port> [--dry-run] [--uac]"
+    Write-Host "  $($script:Config.CommandName) ctl port sync [listen-port] [connect-port] [--dry-run] [--uac]"
     Write-Host "Notes:"
     Write-Host "  NAT uses netsh portproxy plus Windows Firewall."
     Write-Host "  Mirrored uses Hyper-V Firewall and does not remap ports."
+    Write-Host "  Port changes require an administrator shell; add --uac to request elevation."
     return 0
 }
-

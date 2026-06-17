@@ -63,13 +63,16 @@ copy wsl.1.cmd wsl.dev.cmd
 
 ```bat
 wsl.1.cmd status
+wsl.1.cmd doctor
 wsl.1.cmd uname -a
 wsl.1.cmd --cd /tmp -- pwd
-wsl.1.cmd ctl config
+wsl.1.cmd ctl config dir
+wsl.1.cmd ctl install dir
 wsl.1.cmd ctl install --dry-run
 wsl.1.cmd ctl ssh status
 wsl.1.cmd ctl port status
 wsl.1.cmd ctl port expose 8080 80
+wsl.1.cmd ctl port expose 8080 80 --uac
 wsl.1.cmd vm status
 wsl.1.cmd vm settings
 wsl.1.cmd vm welcome
@@ -79,8 +82,9 @@ wsl.1.cmd code ~
 
 WSL 入口文件使用 `WSL_KIT_PROTOCOL` 声明与 `_lib\wsl_instance_kit` 的协议版本；当前模板使用 `1`。
 `ctl` 是此入口绑定实例的管理命名空间；`vm` 是当前 Windows 用户下 WSL 底层虚拟机/用户级设置的管理命名空间，会影响该用户下的所有 WSL 实例。
+`doctor` 会检查 `wsl.exe`、入口协议和关键配置、安装源/fallback 元数据、实例注册和运行状态、存储目录、Windows 虚拟化/WSL 功能、网络模式、GitHub WSL 发行版索引、fallback URL，并对 fallback 镜像做 15 秒下载测速；本地诊断会先输出，联网检查放在最后执行。`ctl doctor` 也可用，但不在 help 中展示。
 `ctl backup` 和 `ctl export` 的导出格式由入口文件中的 `WSL_export_format` 固定控制，默认是 `tar`。
-`ctl backup dir` 可打开当前实例备份目录；`ctl downloads dir` 可打开 fallback 镜像缓存目录；`status` 会显示当前实例备份、备份根目录和下载缓存占用。
+`ctl install dir` 可打开当前实例安装目录；`ctl backup dir` 可打开当前实例备份目录；`ctl downloads dir` 可打开 fallback 镜像缓存目录；`status` 会显示当前实例备份、备份根目录和下载缓存占用。
 在线发行版安装默认仍优先使用原生 `wsl --install`；如果失败，会提示显式尝试 `ctl install --fallback`，fallback 会使用 `_lib\wsl_instance_kit\DistributionInfo.json`。
 fallback 下载的发行版镜像会复用 `data\wsl.downloads`，下载时先写入临时目录，校验成功后再移入镜像库。
 fallback 安装成功后会为使用的源镜像写入同名 `.sha256` 文件；后续复用缓存前会校验该 hash，并在 DistributionInfo 提供 SHA256 时同步校验上游 hash，不匹配会清理后重新下载。
@@ -92,7 +96,7 @@ SSH 自动安装 `openssh-server` 目前支持 apt-get、dnf、yum、microdnf �
 `ctl port status` / `ctl port doctor` 会显示当前 WSL 网络模式、运行状态、WSL IP、已管理的端口映射和防火墙规则。
 `ctl port expose <listen-port> [connect-port]` 会根据网络模式自动选择策略：NAT 使用 `netsh interface portproxy` 加 Windows Firewall；mirrored 使用 Hyper-V Firewall 且不做端口重映射；none / virtioproxy / bridged 只给出诊断提示。
 `ctl port remove <listen-port>` 会删除对应的托管 portproxy / firewall 规则；`ctl port sync` 用于 NAT 下 WSL IP 变化后刷新已管理映射。
-端口修改需要管理员终端；可先加 `--dry-run` 查看将执行的命令。
+端口修改需要管理员权限；非管理员终端默认直接失败，可加 `--uac` 弹出 UAC 提权窗口，或加 `--dry-run` 预览将执行的命令。
 测试脚本分两层：`_lib\wsl_instance_kit\test\smoke.ps1` 默认不改环境；`_lib\wsl_instance_kit\test\live.ps1 -Yes` 会真实安装、shutdown、SSH 连接、backup/export、从导出包恢复并删除 `wslkit-live-*` 测试实例。
 
 参考资料：
