@@ -112,6 +112,11 @@ function New-WslKitConfig {
     } else {
         "wsl_instance_kit"
     }
+    $entryFileName = if (-not [string]::IsNullOrWhiteSpace($entryFile)) {
+        [System.IO.Path]::GetFileName($entryFile)
+    } else {
+        "$commandName.cmd"
+    }
 
     return [pscustomobject]@{
         Protocol       = (Get-EnvOrEmpty "WSL_KIT_PROTOCOL").Trim()
@@ -127,6 +132,7 @@ function New-WslKitConfig {
         SshPublicKey   = (Get-EnvOrEmpty "WSL_SSH_public_key").Trim()
         EntryDir       = [System.IO.Path]::GetFullPath($entryDir)
         CommandName    = $commandName
+        EntryFileName  = $entryFileName
         Verbose        = (Test-Truthy (Get-EnvOrEmpty "WSL_KIT_verbose"))
     }
 }

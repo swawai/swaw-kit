@@ -26,6 +26,8 @@ function Test-WslRelocateSmoke {
 
     $relocateEntryFile = $null
     $sameRelocateEntryFile = $null
+    $invalidTargetEntryFile = $null
+    $invalidBackupEntryFile = $null
     $fakeRegistryKeys = New-Object System.Collections.ArrayList
 
     try {
@@ -56,12 +58,32 @@ function Test-WslRelocateSmoke {
         [void]$fakeRegistryKeys.Add((New-FakeWslDistributionRecord -Name $sameRelocateName -BasePath ([System.IO.Path]::GetFullPath($sameRelocateDir))))
         $sameRelocateOutput = Invoke-Captured $sameRelocateEntryFile @(".relocate", "--dry-run") 1 "relocate rejects unchanged target"
         Assert-True ($sameRelocateOutput.Contains("already matches WSL_install_dir")) "relocate should reject unchanged target."
+
+        $invalidTargetName = "wsl.smoke-relocate-invalid-" + [guid]::NewGuid().ToString("N").Substring(0, 8)
+        $invalidTargetEntryFile = New-WslSmokeEntryFile -Name $invalidTargetName -InstallDir ":\bad\target" -BackupDir (Join-Path $TempRoot "relocate-invalid-backup") -User "john"
+        [void]$fakeRegistryKeys.Add((New-FakeWslDistributionRecord -Name $invalidTargetName -BasePath ([System.IO.Path]::GetFullPath((Join-Path $TempRoot "relocate-invalid-source")))))
+        $invalidTargetOutput = Invoke-Captured $invalidTargetEntryFile @(".relocate", "--dry-run") 1 "relocate rejects invalid WSL_install_dir"
+        Assert-True ($invalidTargetOutput.Contains("Invalid WSL_install_dir")) "relocate should report invalid WSL_install_dir."
+        Assert-True (-not $invalidTargetOutput.Contains("Exception calling `"GetFullPath`"")) "relocate should not leak GetFullPath exceptions."
+
+        $invalidBackupName = "wsl.smoke-relocate-backup-" + [guid]::NewGuid().ToString("N").Substring(0, 8)
+        $invalidBackupEntryFile = New-WslSmokeEntryFile -Name $invalidBackupName -InstallDir (Join-Path $TempRoot "relocate-invalid-backup-target") -BackupDir ":\bad\backup" -User "john"
+        [void]$fakeRegistryKeys.Add((New-FakeWslDistributionRecord -Name $invalidBackupName -BasePath ([System.IO.Path]::GetFullPath((Join-Path $TempRoot "relocate-invalid-backup-source")))))
+        $invalidBackupOutput = Invoke-Captured $invalidBackupEntryFile @(".relocate", "--dry-run") 1 "relocate rejects invalid WSL_backup_dir"
+        Assert-True ($invalidBackupOutput.Contains("Invalid WSL_backup_dir")) "relocate should report invalid WSL_backup_dir."
+        Assert-True (-not $invalidBackupOutput.Contains("Exception calling `"GetFullPath`"")) "relocate should not leak GetFullPath exceptions for backup paths."
     } finally {
         if ($relocateEntryFile -and (Test-Path -LiteralPath $relocateEntryFile)) {
             Remove-Item -LiteralPath $relocateEntryFile -Force
         }
         if ($sameRelocateEntryFile -and (Test-Path -LiteralPath $sameRelocateEntryFile)) {
             Remove-Item -LiteralPath $sameRelocateEntryFile -Force
+        }
+        if ($invalidTargetEntryFile -and (Test-Path -LiteralPath $invalidTargetEntryFile)) {
+            Remove-Item -LiteralPath $invalidTargetEntryFile -Force
+        }
+        if ($invalidBackupEntryFile -and (Test-Path -LiteralPath $invalidBackupEntryFile)) {
+            Remove-Item -LiteralPath $invalidBackupEntryFile -Force
         }
         foreach ($keyPath in @($fakeRegistryKeys)) {
             if (Test-Path -LiteralPath $keyPath) {

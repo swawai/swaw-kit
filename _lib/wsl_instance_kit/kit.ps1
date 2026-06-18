@@ -65,7 +65,7 @@ function Get-HelpLanguageArgument {
 function Invoke-KitHelp {
     param([string[]]$Items)
 
-    $helpArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "help.ps1"), "-CommandName", $script:Config.CommandName)
+    $helpArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $PSScriptRoot "help.ps1"), "-CommandName", $script:Config.CommandName, "-EntryFileName", $script:Config.EntryFileName)
     $helpLanguage = Get-HelpLanguageArgument $Items
     if ($helpLanguage) {
         $helpArgs += @("-Language", $helpLanguage)

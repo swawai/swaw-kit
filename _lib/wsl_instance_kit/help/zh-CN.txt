@@ -1,7 +1,7 @@
 version 1.0
 
 # 基本用法:
-  {{COMMAND}}                       进入此命令绑定的 WSL 实例             ({{COMMAND}}.cmd 中的 {WSL_name} 指定)
+  {{COMMAND}}                       进入此命令绑定的 WSL 实例             ({{ENTRY_FILE}} 中的 {WSL_name} 指定)
   {{COMMAND}} .status               显示此实例状态
   {{COMMAND}} .doctor               检查 WSL、入口配置、实例、存储和网络
   {{COMMAND}} .help en              Show English help information
@@ -15,7 +15,7 @@ version 1.0
   {{COMMAND}} .backup               按 {WSL_export_format} 在备份目录导出 (wsl --export)
   {{COMMAND}} .backup D:\x.tar      按 {WSL_export_format} 导出到指定路径 (wsl --export)
   {{COMMAND}} .backup list          列出此实例备份目录中的归档
-  {{COMMAND}} .relocate             迁移此实例到 {WSL_install_dir}        (导出、注销、重新导入)
+  {{COMMAND}} .relocate             迁移安装位置到 {WSL_install_dir}     （先在 {{ENTRY_FILE}} 中修改此值）
   {{COMMAND}} .relocate --dry-run   预览迁移命令，不实际执行
   {{COMMAND}} .delete --yes         注销并删除此实例                      (wsl --unregister)
   {{COMMAND}} .delete --yes --uac   清理端口策略需管理员权限时，弹出 UAC
@@ -63,7 +63,7 @@ version 1.0
   {{COMMAND}} .vm alive del <task>  删除指定 WSL alive 任务
   {{COMMAND}} .vm port              列出当前用户下所有 WSL 端口策略，并在有权限时自动清理失效项
   {{COMMAND}} .vm port --uac        同上，但会交互式提权
-  {{COMMAND}} .vm port del <id>     删除指定 WSL 端口策略                  (需要管理员权限)
+  {{COMMAND}} .vm port del <id>     删除指定 WSL 端口策略                 (需要管理员权限)
 
 # 上面未出现的命令，会添加 -d -u --cd 信息后，直接透传给 wsl.exe ，例如：
   {{COMMAND}} uname -a              等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir uname -a

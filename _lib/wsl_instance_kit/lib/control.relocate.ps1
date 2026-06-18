@@ -10,6 +10,34 @@ function Normalize-WslRelocatePath {
 }
 
 
+function Resolve-WslRelocatePath {
+    param(
+        [AllowNull()] [string]$Path,
+        [string]$Label,
+        [switch]$EntryPath
+    )
+
+    try {
+        $resolvedPath = if ($EntryPath) {
+            Resolve-EntryPath $Path
+        } else {
+            $Path
+        }
+
+        return (Normalize-WslRelocatePath $resolvedPath)
+    } catch {
+        Write-Fail "Invalid ${Label}: $Path"
+        $reason = if ($null -ne $_.Exception.InnerException) {
+            $_.Exception.InnerException.Message
+        } else {
+            $_.Exception.Message
+        }
+        Write-Fail $reason
+        return $null
+    }
+}
+
+
 function Test-WslRelocateTargetDirectory {
     param(
         [string]$SourceDir,
@@ -23,7 +51,7 @@ function Test-WslRelocateTargetDirectory {
 
     if ($SourceDir.Equals($TargetDir, [System.StringComparison]::OrdinalIgnoreCase)) {
         Write-Fail "Current install dir already matches WSL_install_dir: $TargetDir"
-        Write-Fail "Edit WSL_install_dir in $($script:Config.CommandName).cmd to a new location, then run: $($script:Config.CommandName) .relocate"
+        Write-Fail "Edit WSL_install_dir in $($script:Config.EntryFileName) to a new location, then run: $($script:Config.CommandName) .relocate"
         return $false
     }
 
@@ -55,7 +83,10 @@ function Test-WslRelocateTargetDirectory {
 function New-WslRelocateArchivePath {
     param([pscustomobject]$Format)
 
-    $backupDir = Resolve-EntryPath $script:Config.BackupDir
+    $backupDir = Resolve-WslRelocatePath -Path $script:Config.BackupDir -Label "WSL_backup_dir" -EntryPath
+    if ($null -eq $backupDir) {
+        return $null
+    }
     if ([string]::IsNullOrWhiteSpace($backupDir)) {
         Write-Fail "WSL_backup_dir is empty."
         return ""
@@ -121,7 +152,7 @@ function Invoke-WslRelocate {
         }
 
         Write-Fail ".relocate does not accept a target path argument."
-        Write-Fail "Edit WSL_install_dir in $($script:Config.CommandName).cmd, then run: $($script:Config.CommandName) .relocate"
+        Write-Fail "Edit WSL_install_dir in $($script:Config.EntryFileName), then run: $($script:Config.CommandName) .relocate"
         return 1
     }
 
@@ -131,13 +162,19 @@ function Invoke-WslRelocate {
         return 1
     }
 
-    $sourceDir = Normalize-WslRelocatePath $record.BasePath
+    $sourceDir = Resolve-WslRelocatePath -Path $record.BasePath -Label "current WSL BasePath"
+    if ($null -eq $sourceDir) {
+        return 1
+    }
     if ([string]::IsNullOrWhiteSpace($sourceDir)) {
         Write-Fail "Current WSL BasePath is not available for: $($script:Config.Name)"
         return 1
     }
 
-    $targetDir = Normalize-WslRelocatePath (Resolve-EntryPath $script:Config.InstallDir)
+    $targetDir = Resolve-WslRelocatePath -Path $script:Config.InstallDir -Label "WSL_install_dir" -EntryPath
+    if ($null -eq $targetDir) {
+        return 1
+    }
     if (-not (Test-WslRelocateTargetDirectory -SourceDir $sourceDir -TargetDir $targetDir)) {
         return 1
     }

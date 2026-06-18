@@ -5,6 +5,7 @@
 
 param(
     [string]$CommandName = "wsl_instance_kit",
+    [AllowNull()] [string]$EntryFileName,
     [AllowNull()] [string]$Language
 )
 
@@ -122,6 +123,12 @@ if (-not (Test-Path -LiteralPath $helpPath -PathType Leaf)) {
 }
 
 $text = [System.IO.File]::ReadAllText($helpPath, [System.Text.Encoding]::UTF8)
+$entryFileNameForHelp = if ([string]::IsNullOrWhiteSpace($EntryFileName)) {
+    "$CommandName.cmd"
+} else {
+    $EntryFileName
+}
+$text = $text.Replace("{{ENTRY_FILE}}", $entryFileNameForHelp)
 $text = $text.Replace("{{COMMAND}}", $CommandName)
 Write-Host $text
 exit 0

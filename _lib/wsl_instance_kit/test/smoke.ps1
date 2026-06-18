@@ -96,9 +96,13 @@ function Test-HelpTemplateShape {
     $enLines = [System.IO.File]::ReadAllLines((Join-Path $kitRoot "help\en.txt"))
     $zhBlankCount = @($zhLines | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count
     $enBlankCount = @($enLines | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count
+    $zhText = $zhLines -join "`n"
+    $enText = $enLines -join "`n"
 
     Assert-True ($zhLines.Count -eq $enLines.Count) "help templates should keep the same line count. zh-CN=$($zhLines.Count), en=$($enLines.Count)."
     Assert-True ($zhBlankCount -eq $enBlankCount) "help templates should keep the same blank-line count. zh-CN=$zhBlankCount, en=$enBlankCount."
+    Assert-True (-not $zhText.Contains("{{COMMAND}}.cmd")) "zh-CN help should use the entry-file placeholder instead of hand-built command.cmd text."
+    Assert-True (-not $enText.Contains("{{COMMAND}}.cmd")) "English help should use the entry-file placeholder instead of hand-built command.cmd text."
 }
 
 function New-MockWsl {
@@ -306,6 +310,8 @@ try {
     Invoke-Checked $entryFile @(".help") 0 "entry dot help"
     $defaultHelpOutput = Invoke-Captured $entryFile @(".help", "en") 0 "entry dot help includes doctor"
     Assert-True ($defaultHelpOutput.Contains("wsl01 .doctor")) "help should show dotted doctor."
+    Assert-True ($defaultHelpOutput.Contains("wsl01.cmd")) "help should show the entry file name."
+    Assert-True (-not $defaultHelpOutput.Contains("{{ENTRY_FILE}}")) "help should replace the entry-file placeholder."
     Assert-True ($defaultHelpOutput.Contains("wsl01 .help en")) "help should show dotted help."
     Assert-True (-not $defaultHelpOutput.Contains("wsl01 --help")) "help should not promote bare help flags."
     Assert-True ($defaultHelpOutput -match '(?m)^\s*wsl01 \.t\s{2,}') "help should show short terminate command."

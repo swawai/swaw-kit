@@ -1,7 +1,7 @@
 version 1.0
 
 # Basic usage:
-  {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} in {{COMMAND}}.cmd)
+  {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} in {{ENTRY_FILE}})
   {{COMMAND}} .status               Show this instance status
   {{COMMAND}} .doctor               Check WSL, entry config, instance, storage, and network
   {{COMMAND}} .help en              Show English help information
@@ -12,15 +12,15 @@ version 1.0
   {{COMMAND}} .install D:\x.tar     Restore: create/rebuild this instance from an archive  (wsl --import)
   {{COMMAND}} .install --yes        Reinstall: rebuild this instance from {WSL_source}     (wsl --import or wsl --install)
   {{COMMAND}} .install --dry-run    Preview the install command without running it
-  {{COMMAND}} .backup               Export to the backup directory as {WSL_export_format} (wsl --export)
-  {{COMMAND}} .backup D:\x.tar      Export to a specified path as {WSL_export_format} (wsl --export)
+  {{COMMAND}} .backup               Export to the backup directory as {WSL_export_format}  (wsl --export)
+  {{COMMAND}} .backup D:\x.tar      Export to a specified path as {WSL_export_format}      (wsl --export)
   {{COMMAND}} .backup list          List archives in this instance's backup directory
-  {{COMMAND}} .relocate             Relocate this instance to {WSL_install_dir}    (export, unregister, re-import)
+  {{COMMAND}} .relocate             Relocate install dir to {WSL_install_dir}      (edit it in {{ENTRY_FILE}} first)
   {{COMMAND}} .relocate --dry-run   Preview the relocate commands without running them
   {{COMMAND}} .delete --yes         Unregister and delete this instance            (wsl --unregister)
   {{COMMAND}} .delete --yes --uac   Request UAC when port-rule cleanup needs admin rights
 # Stop and keep alive:
-  {{COMMAND}} .t                    Stop this instance                            (wsl --terminate)
+  {{COMMAND}} .t                    Stop this instance                             (wsl --terminate)
   {{COMMAND}} .alive 600            Keep this instance running in the background for 600 seconds (wsl sleep)
   {{COMMAND}} .alive                Keep alive now and after current-user logon
   {{COMMAND}} .alive off            Disable alive settings
@@ -36,7 +36,7 @@ version 1.0
   {{COMMAND}} .user default         Set {WSL_user} as the default user             (wsl --manage set-default-user)
 # Service port management:
   {{COMMAND}} .port status          Show port mapping, firewall, and network mode status
-  {{COMMAND}} .port expose 8080     Map TCP 8080:8080 and allow it through firewall (Admin access required)
+  {{COMMAND}} .port expose 8080     Map TCP 8080:8080 and allow it through firewall(Admin access required)
   {{COMMAND}} .port expose 8080 --uac Map a port and request UAC elevation
   {{COMMAND}} .port expose 8080 80  Map 8080 to WSL:80 and allow it (NAT)
   {{COMMAND}} .port del 8080        Remove the TCP 8080 mapping and firewall rule
