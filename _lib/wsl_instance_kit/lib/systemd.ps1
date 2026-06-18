@@ -120,7 +120,7 @@ fi
 
     $stateText = if ($Action -eq "enable") { "enabled" } else { "disabled" }
     Write-Host "Systemd $stateText in /etc/wsl.conf."
-    Write-Host "Restart WSL to apply: $($script:Config.CommandName) vm -s"
+    Write-Host "Restart WSL to apply: $($script:Config.CommandName) .vm -s"
     return 0
 }
 

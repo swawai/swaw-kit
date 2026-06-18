@@ -44,7 +44,7 @@ function Test-NoInlineExportFormat {
 
     foreach ($item in @($Rest)) {
         if ($item -ieq "--format") {
-            Write-Fail "Do not pass --format to ctl backup. Set WSL_export_format in the entry file instead."
+            Write-Fail "Do not pass --format to .backup. Set WSL_export_format in the entry file instead."
             return $false
         }
     }
@@ -81,14 +81,14 @@ function Export-WslResource {
         $target = Join-Path $backupDir ("Backup_{0}_{1}.{2}" -f $script:Config.Name, $stamp, $format.Extension)
     } else {
         if ($Rest.Count -ne 1 -or [string]::IsNullOrWhiteSpace($Rest[0])) {
-            Write-Fail "ctl backup accepts either no path or exactly one target path. Set WSL_export_format in the entry file to change format."
+            Write-Fail ".backup accepts either no path or exactly one target path. Set WSL_export_format in the entry file to change format."
             return 1
         }
 
         $target = $Rest[0]
         $target = Resolve-OutputPath $target
         if (-not (Test-WslBackupArchivePath $target)) {
-            Write-Fail "ctl backup target path must end with .tar, .tar.gz, .tar.xz, .tgz, .vhd, or .vhdx."
+            Write-Fail ".backup target path must end with .tar, .tar.gz, .tar.xz, .tgz, .vhd, or .vhdx."
             return 1
         }
         Ensure-Directory (Split-Path -Parent $target)
@@ -125,7 +125,7 @@ function Show-WslBackupList {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        Write-Fail "ctl backup list does not accept extra arguments."
+        Write-Fail ".backup list does not accept extra arguments."
         return 1
     }
 
@@ -158,7 +158,7 @@ function Open-WslBackupDir {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        Write-Fail "ctl dir backup does not accept extra arguments."
+        Write-Fail ".dir backup does not accept extra arguments."
         return 1
     }
 

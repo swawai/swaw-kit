@@ -23,7 +23,7 @@ function Show-WslVmAliveList {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        return Show-CommandHelpHint "vm alive does not accept extra arguments."
+        return Show-CommandHelpHint ".vm alive does not accept extra arguments."
     }
 
     $items = @(Get-WslAliveAllTaskInfos)
@@ -45,13 +45,13 @@ function Delete-WslVmAliveTask {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 1 -or [string]::IsNullOrWhiteSpace($Rest[0])) {
-        return Show-CommandHelpHint "vm alive del requires a task name shown by vm alive."
+        return Show-CommandHelpHint ".vm alive del requires a task name shown by .vm alive."
     }
 
     $taskName = $Rest[0].Trim()
     if ($taskName -notmatch '^alive_[A-Za-z0-9_.-]+$') {
         Write-Fail "Invalid alive task name: $taskName"
-        Write-Fail "Run vm alive and pass one of the displayed task names."
+        Write-Fail "Run .vm alive and pass one of the displayed task names."
         return 1
     }
 
@@ -59,7 +59,7 @@ function Delete-WslVmAliveTask {
     $match = @($items | Where-Object { $_.TaskName -eq $taskName } | Select-Object -First 1)
     if ($match.Count -eq 0) {
         Write-Fail "Alive task not found: $taskName"
-        Write-Fail "Run vm alive and pass one of the displayed task names."
+        Write-Fail "Run .vm alive and pass one of the displayed task names."
         return 1
     }
 
@@ -86,7 +86,7 @@ function Invoke-WslVmAlive {
             return Delete-WslVmAliveTask $tail
         }
         default {
-            return Show-CommandHelpHint "Unknown VM alive command: $action"
+            return Show-CommandHelpHint "Unknown .vm alive command: $action"
         }
     }
 }

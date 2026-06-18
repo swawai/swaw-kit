@@ -17,19 +17,19 @@ set "WSL_source=Ubuntu"
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: 此实例的最终 Windows 安装目录
 set "WSL_install_dir=%~dp0\data\wsl\%WSL_name%"
-:: 默认备份目录，后续 ctl backup / ctl backup <path> / ctl backup list 可使用此目录
+:: 默认备份目录，后续 .backup / .backup <path> / .backup list 可使用此目录
 set "WSL_backup_dir=%~dp0\data\wsl.backup\%WSL_name%"
 :: 默认 Linux 工作目录。留空或 ~ 表示用户家目录。
 set "WSL_default_workdir=~"
 :: WSL 版本。通常使用 2；留空时可由系统默认值决定。
 set "WSL_version=2"
-rem ctl backup fixed format: tar / tar.gz / tar.xz / vhd; empty means no --format.
+rem .backup fixed format: tar / tar.gz / tar.xz / vhd; empty means no --format.
 set "WSL_export_format=tar"
 :: 调试开关，设置为 1 / true / yes / on / debug 时，后续 kit 可输出调试信息。
 set "WSL_KIT_verbose="
 :: 可选：指定 help 语言 zh-CN / en；留空自动检测。
 :: set "WSL_KIT_HELP_LANG=zh-CN"
-:: 开启 ssh 时会顺便导入下面设置的公钥
+:: .sshd enable 时会顺便导入下面设置的公钥
 :: set "WSL_SSH_public_key=%USERPROFILE%\.ssh\id_rsa.pub"
 
 

@@ -128,7 +128,7 @@ function Test-WslDoctorEntryConfig {
 
     $backupDir = Resolve-EntryPath $script:Config.BackupDir
     if ([string]::IsNullOrWhiteSpace($backupDir)) {
-        Add-WslDoctorWarn "WSL_backup_dir" "empty; ctl backup needs an explicit path"
+        Add-WslDoctorWarn "WSL_backup_dir" "empty; backup needs an explicit path"
     } else {
         Add-WslDoctorOk "WSL_backup_dir" $backupDir
     }
@@ -151,7 +151,7 @@ function Test-WslDoctorEntryConfig {
     }
 
     if ([string]::IsNullOrWhiteSpace($script:Config.SshPublicKey)) {
-        Add-WslDoctorWarn "WSL_SSH_public_key" "empty; ctl ssh enable will not install a public key"
+        Add-WslDoctorWarn "WSL_SSH_public_key" "empty; .sshd enable will not install a public key"
     } else {
         $expanded = [Environment]::ExpandEnvironmentVariables($script:Config.SshPublicKey.Trim())
         if (-not [System.IO.Path]::IsPathRooted($expanded)) {
@@ -274,7 +274,7 @@ function Test-WslDoctorInstance {
 
     $record = Get-WslDistributionRecord
     if ($null -eq $record) {
-        Add-WslDoctorWarn "installed instance" "not registered: $($script:Config.Name)" "Run: $($script:Config.CommandName) ctl install"
+        Add-WslDoctorWarn "installed instance" "not registered: $($script:Config.Name)" "Run: $($script:Config.CommandName) .install"
         if (-not [string]::IsNullOrWhiteSpace($InstallDir) -and (Test-Path -LiteralPath $InstallDir -PathType Container)) {
             $children = @(Get-ChildItem -LiteralPath $InstallDir -Force -ErrorAction SilentlyContinue | Select-Object -First 1)
             if ($children.Count -gt 0) {
@@ -519,10 +519,10 @@ function Test-WslDoctorNetworking {
             Add-WslDoctorWarn "networkingMode" "none; WSL networking is disabled" $network.Path
         }
         "virtioproxy" {
-            Add-WslDoctorWarn "networkingMode" "virtioproxy; ctl port automation does not manage this mode yet" $network.Path
+            Add-WslDoctorWarn "networkingMode" "virtioproxy; port automation does not manage this mode yet" $network.Path
         }
         "bridged" {
-            Add-WslDoctorWarn "networkingMode" "bridged is deprecated and not managed by ctl port" $network.Path
+            Add-WslDoctorWarn "networkingMode" "bridged is deprecated and not managed by port" $network.Path
         }
         default {
             Add-WslDoctorWarn "networkingMode" "unknown value: $($network.Mode)" $network.Path
@@ -563,7 +563,7 @@ function Test-WslDoctorNetworking {
         $runtimeIps = @($InstanceInfo.RuntimeIp -split '\s+' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
         foreach ($entry in @($managedProxyEntries)) {
             if ($runtimeIps -notcontains $entry.ConnectAddress) {
-                Add-WslDoctorWarn "NAT portproxy $($entry.ListenPort)" "connect address is stale or unexpected" "$($entry.ConnectAddress) -> current WSL IP: $($runtimeIps -join ', ')`nRun: $($script:Config.CommandName) ctl port sync"
+                Add-WslDoctorWarn "NAT portproxy $($entry.ListenPort)" "connect address is stale or unexpected" "$($entry.ConnectAddress) -> current WSL IP: $($runtimeIps -join ', ')`nRun: $($script:Config.CommandName) .port sync"
             }
         }
     }

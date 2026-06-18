@@ -18,14 +18,14 @@ function Invoke-PortControl {
         "expose" {
             return Add-WslPortExposure $tail
         }
-        "remove" {
+        "del" {
             return Remove-WslPortExposure $tail
         }
         "sync" {
             return Sync-WslPortExposure $tail
         }
         default {
-            Write-Fail "Unknown control command: port $action"
+            Write-Fail "Unknown .port command: $action"
             [void](Show-WslPortUsage)
             return 1
         }

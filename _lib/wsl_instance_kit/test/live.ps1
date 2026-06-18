@@ -61,10 +61,10 @@ function Get-NewBackupFile {
         [void]$before.Add($file.FullName)
     }
 
-    Invoke-LiveCommand $EntryFile @("ctl", "backup") 0 "backup $Source" | Out-Null
+    Invoke-LiveCommand $EntryFile @(".backup") 0 "backup $Source" | Out-Null
 
     $newFiles = @(Get-LiveBackupFiles $BackupDir | Where-Object { -not $before.Contains($_.FullName) } | Sort-Object LastWriteTimeUtc -Descending)
-    Assert-True ($newFiles.Count -ge 1) "Expected ctl backup to create a new .tar file for $Source."
+    Assert-True ($newFiles.Count -ge 1) "Expected backup to create a new .tar file for $Source."
     Assert-True ($newFiles[0].Length -gt 0) "Backup file is empty: $($newFiles[0].FullName)"
     return $newFiles[0].FullName
 }
@@ -119,7 +119,7 @@ function Invoke-LiveRemoveAndAssertGone {
         [string]$Label
     )
 
-    Invoke-LiveCommand $EntryFile @("ctl", "remove", "--yes") 0 $Label | Out-Null
+    Invoke-LiveCommand $EntryFile @(".delete", "--yes") 0 $Label | Out-Null
     Assert-True (-not (Test-WslDistributionExists $Name)) "Expected distribution to be removed: $Name"
 }
 
@@ -137,18 +137,18 @@ function Test-ExportRoundTrip {
 
     $markerContent = "source=$Source;name=$Name"
     Write-LiveMarker $Name $Source
-    Invoke-LiveCommand $EntryFile @("ctl", "-t") 0 "terminate before backup $Source" | Out-Null
+    Invoke-LiveCommand $EntryFile @(".t") 0 "terminate before backup $Source" | Out-Null
 
     $backupPath = Get-NewBackupFile $EntryFile $BackupDir $Source
     Write-Host "Backup file: $backupPath" -ForegroundColor Green
-    $backupList = Invoke-LiveCommand $EntryFile @("ctl", "backup", "list") 0 "backup list $Source"
-    Assert-True (($backupList.Output -join "`n").Contains((Split-Path -Leaf $backupPath))) "Expected ctl backup list to include $backupPath"
+    $backupList = Invoke-LiveCommand $EntryFile @(".backup", "list") 0 "backup list $Source"
+    Assert-True (($backupList.Output -join "`n").Contains((Split-Path -Leaf $backupPath))) "Expected backup list to include $backupPath"
 
     $exportPath = Join-Path $BackupDir ("Export_{0}.tar" -f $Name)
     if (Test-Path -LiteralPath $exportPath) {
         Remove-Item -LiteralPath $exportPath -Force
     }
-    Invoke-LiveCommand $EntryFile @("ctl", "backup", $exportPath) 0 "explicit backup $Source" | Out-Null
+    Invoke-LiveCommand $EntryFile @(".backup", $exportPath) 0 "explicit backup $Source" | Out-Null
     Assert-True (Test-Path -LiteralPath $exportPath -PathType Leaf) "Expected explicit backup file: $exportPath"
     Assert-True ((Get-Item -LiteralPath $exportPath).Length -gt 0) "Explicit backup file is empty: $exportPath"
 
@@ -162,7 +162,7 @@ function Test-ExportRoundTrip {
         Remove-SafeDirectory $restoreInstallDir $liveRoot
         Remove-SafeDirectory $restoreBackupDir $liveBackupRoot
 
-        Invoke-LiveCommand $restoreEntryFile @("ctl", "install", $backupPath) 0 "install from backup $Source" | Out-Null
+        Invoke-LiveCommand $restoreEntryFile @(".install", $backupPath) 0 "install from backup $Source" | Out-Null
         Assert-LiveMarker $restoreName $markerContent "verify marker after restore $Source"
 
         if ($Keep) {
@@ -206,16 +206,16 @@ function Test-LiveDistribution {
         Remove-SafeDirectory $installDir $liveRoot
         Remove-SafeDirectory $backupDir $liveBackupRoot
 
-        Invoke-LiveCommand $entryFile @("ctl", "install") 0 "install $Source" | Out-Null
-        Invoke-LiveCommand $entryFile @("ctl", "user", "default") 0 "set default user $Source" | Out-Null
-        Invoke-LiveCommand $entryFile @("ctl", "systemd", "enable") 0 "systemd enable $Source" | Out-Null
-        Invoke-LiveCommand $entryFile @("vm", "-s") 0 "vm -s after systemd $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @(".install") 0 "install $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @(".user", "default") 0 "set default user $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @(".systemd", "enable") 0 "systemd enable $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @(".vm", "-s") 0 "vm -s after systemd $Source" | Out-Null
 
         $packageFamily = Get-PackageFamily $name
         Write-Host "Package manager: $packageFamily" -ForegroundColor Green
 
-        Invoke-LiveCommand $entryFile @("ctl", "ssh", "enable", ([string]$port)) 0 "ssh enable $Source" | Out-Null
-        $status = Invoke-LiveCommand $entryFile @("ctl", "ssh", "status") 0 "ssh status $Source"
+        Invoke-LiveCommand $entryFile @(".sshd", "enable", ([string]$port)) 0 "ssh enable $Source" | Out-Null
+        $status = Invoke-LiveCommand $entryFile @(".sshd", "status") 0 "ssh status $Source"
         $statusText = $status.Output -join "`n"
         Assert-True ($statusText -match "service manager:\s+systemd") "Expected systemd service manager for $Source."
         Assert-True ($statusText -match "service active:\s+active") "Expected active SSH service for $Source."
@@ -246,7 +246,7 @@ systemctl is-enabled ssh 2>/dev/null || systemctl is-enabled sshd 2>/dev/null
             Write-Host "SSH connection skipped: generated key pair is unavailable." -ForegroundColor Yellow
         }
 
-        Invoke-LiveCommand $entryFile @("status") 0 "entry status $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @(".status") 0 "entry status $Source" | Out-Null
         Test-ExportRoundTrip $name $Source $entryFile $backupDir $SshKey
 
         if ($Keep) {

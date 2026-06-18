@@ -7,7 +7,7 @@ function Show-WslPortStatus {
     }
 
     if ($options.Positionals.Count -gt 1) {
-        Write-Fail "Usage: $($script:Config.CommandName) ctl port status [listen-port]"
+        Write-Fail "Usage: $($script:Config.CommandName) .port status [listen-port]"
         return 1
     }
 
@@ -35,8 +35,8 @@ function Show-WslPortStatus {
         "nat" { Write-Host "  Strategy:        portproxy + Windows Firewall" }
         "mirrored" { Write-Host "  Strategy:        Hyper-V Firewall, no portproxy" }
         "none" { Write-Host "  Strategy:        no network connectivity" }
-        "virtioproxy" { Write-Host "  Strategy:        not managed by ctl port" }
-        "bridged" { Write-Host "  Strategy:        deprecated, not managed by ctl port" }
+        "virtioproxy" { Write-Host "  Strategy:        not managed by port" }
+        "bridged" { Write-Host "  Strategy:        deprecated, not managed by port" }
         default { Write-Host "  Strategy:        unknown mode; expose uses NAT-style portproxy" }
     }
 
@@ -98,11 +98,11 @@ function Show-WslPortStatus {
 
 function Show-WslPortUsage {
     Write-Host "Usage:"
-    Write-Host "  $($script:Config.CommandName) ctl port status [listen-port]"
-    Write-Host "  $($script:Config.CommandName) ctl port doctor [listen-port]"
-    Write-Host "  $($script:Config.CommandName) ctl port expose <listen-port> [connect-port] [--dry-run] [--uac]"
-    Write-Host "  $($script:Config.CommandName) ctl port remove <listen-port> [--dry-run] [--uac]"
-    Write-Host "  $($script:Config.CommandName) ctl port sync [listen-port] [connect-port] [--dry-run] [--uac]"
+    Write-Host "  $($script:Config.CommandName) .port status [listen-port]"
+    Write-Host "  $($script:Config.CommandName) .port doctor [listen-port]"
+    Write-Host "  $($script:Config.CommandName) .port expose <listen-port> [connect-port] [--dry-run] [--uac]"
+    Write-Host "  $($script:Config.CommandName) .port del <listen-port> [--dry-run] [--uac]"
+    Write-Host "  $($script:Config.CommandName) .port sync [listen-port] [connect-port] [--dry-run] [--uac]"
     Write-Host "Notes:"
     Write-Host "  NAT uses netsh portproxy plus Windows Firewall."
     Write-Host "  Mirrored uses Hyper-V Firewall and does not remap ports."

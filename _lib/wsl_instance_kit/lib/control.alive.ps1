@@ -67,18 +67,18 @@ function Resolve-WslAliveDuration {
     param([AllowNull()] [string]$Value)
 
     if ([string]::IsNullOrWhiteSpace($Value)) {
-        Write-Fail "ctl alive requires a number of seconds greater than or equal to $(Get-WslAliveMinimumSeconds)."
+        Write-Fail ".alive requires a number of seconds greater than or equal to $(Get-WslAliveMinimumSeconds)."
         return $null
     }
 
     $seconds = [long]0
     if (-not [long]::TryParse($Value.Trim(), [ref]$seconds)) {
-        Write-Fail "ctl alive duration must be an integer number of seconds."
+        Write-Fail ".alive duration must be an integer number of seconds."
         return $null
     }
 
     if ($seconds -lt (Get-WslAliveMinimumSeconds)) {
-        Write-Fail "ctl alive duration must be at least $(Get-WslAliveMinimumSeconds) seconds. Use ctl alive for long-running logon keep-alive."
+        Write-Fail ".alive duration must be at least $(Get-WslAliveMinimumSeconds) seconds. Use .alive for long-running logon keep-alive."
         return $null
     }
 
@@ -474,7 +474,7 @@ function Register-WslAliveTask {
 
     if ($null -eq (Get-WslDistributionRecord)) {
         Write-Fail "WSL instance is not installed: $($script:Config.Name)"
-        Write-Fail "Run: $($script:Config.CommandName) ctl install"
+        Write-Fail "Run: $($script:Config.CommandName) .install"
         return 1
     }
 
@@ -510,7 +510,7 @@ function Show-WslAliveStatus {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        return Show-CommandHelpHint "ctl alive status does not accept extra arguments."
+        return Show-CommandHelpHint ".alive status does not accept extra arguments."
     }
 
     $record = Get-WslDistributionRecord
@@ -574,7 +574,7 @@ function Disable-WslAliveSettings {
             continue
         }
 
-        Write-Fail "Unknown ctl alive off option: $item"
+        Write-Fail "Unknown .alive off option: $item"
         return 1
     }
 
@@ -604,7 +604,7 @@ function Invoke-WslAliveLogon {
             continue
         }
 
-        Write-Fail "Unknown ctl alive option: $item"
+        Write-Fail "Unknown .alive option: $item"
         return 1
     }
 
@@ -627,17 +627,17 @@ function Invoke-WslAliveDuration {
         }
 
         if ([string]::IsNullOrWhiteSpace($item)) {
-            Write-Fail "ctl alive received an empty duration."
+            Write-Fail ".alive received an empty duration."
             return 1
         }
 
         if ($item.StartsWith("-")) {
-            Write-Fail "Unknown ctl alive option: $item"
+            Write-Fail "Unknown .alive option: $item"
             return 1
         }
 
         if ($null -ne $durationText) {
-            Write-Fail "ctl alive accepts at most one duration."
+            Write-Fail ".alive accepts at most one duration."
             return 1
         }
 
@@ -646,7 +646,7 @@ function Invoke-WslAliveDuration {
 
     $duration = Resolve-WslAliveDuration $durationText
     if ($null -eq $duration) {
-        Write-Fail "Run: $($script:Config.CommandName) ctl alive <seconds>"
+        Write-Fail "Run: $($script:Config.CommandName) .alive <seconds>"
         return 1
     }
 

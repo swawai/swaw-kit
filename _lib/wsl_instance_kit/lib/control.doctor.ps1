@@ -7,7 +7,7 @@ function Invoke-WslDoctor {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        return Show-CommandHelpHint "doctor does not accept extra arguments."
+        return Show-CommandHelpHint ".doctor does not accept extra arguments."
     }
 
     Initialize-WslDoctorState

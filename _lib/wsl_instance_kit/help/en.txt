@@ -2,62 +2,67 @@ version 1.0
 
 # Basic usage:
   {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} definition)
-  {{COMMAND}} status                Show this instance status
-  {{COMMAND}} doctor                Check WSL, entry config, instance, storage, and network
-  {{COMMAND}} --help zh             显示中文版帮助信息
-  {{COMMAND}} --help en             Show English help information
+  {{COMMAND}} .status               Show this instance status
+  {{COMMAND}} .doctor               Check WSL, entry config, instance, storage, and network
+  {{COMMAND}} .help en              Show English help information
+  {{COMMAND}} .help zh              Show Chinese help information
 
-# Management:
-  {{COMMAND}} ctl install           Create/rebuild this instance from {WSL_source} (wsl --import or wsl --install)
-  {{COMMAND}} ctl install D:\x.tar  Create/rebuild this instance from an archive   (wsl --import)
-  {{COMMAND}} ctl install --dry-run Preview the install command without running it
-  {{COMMAND}} ctl backup            Export to the backup directory as {WSL_export_format} (wsl --export)
-  {{COMMAND}} ctl backup D:\x.tar   Export to a specified path as {WSL_export_format} (wsl --export)
-  {{COMMAND}} ctl backup list       List archives in this instance's backup directory
-  {{COMMAND}} ctl alive status      Show alive-related setting status
-  {{COMMAND}} ctl alive 600         Keep this instance running in the background for 600 seconds (wsl sleep)
-  {{COMMAND}} ctl alive             Keep alive now and after current-user logon
-  {{COMMAND}} ctl alive off         Disable alive settings
-  {{COMMAND}} ctl dir install       Open this instance's Windows install directory
-  {{COMMAND}} ctl dir backup        Open this instance's backup directory
-  {{COMMAND}} ctl dir downloads     Open the fallback image cache directory
-  {{COMMAND}} ctl dir config        Open the instance-level wsl.conf directory     (explorer \\wsl...)
-  {{COMMAND}} ctl dir ssh           Open this instance's /etc/ssh config directory
-  {{COMMAND}} ctl user ensure       Create/confirm that {WSL_user} exists          (wsl .. -- sh -lc useradd/adduser)
-  {{COMMAND}} ctl user default      Set {WSL_user} as the default user             (wsl --manage set-default-user)
-  {{COMMAND}} ctl -t                Terminate this instance                        (wsl --terminate)
-  {{COMMAND}} ctl systemd status    Show this instance's systemd status
-  {{COMMAND}} ctl systemd enable    Enable systemd in this instance                (/etc/wsl.conf)
-  {{COMMAND}} ctl systemd disable   Disable systemd in this instance               (/etc/wsl.conf)
-  {{COMMAND}} ctl ssh status        Show this instance's SSH service status
-  {{COMMAND}} ctl ssh enable 2222   Enable SSH service and set the port            (systemd-managed)
-  {{COMMAND}} ctl ssh disable       Stop SSH and remove the configured public key
-  {{COMMAND}} ctl port status       Show port mapping, firewall, and network mode status
-  {{COMMAND}} ctl port expose 8080  Map TCP 8080:8080 and allow it through firewall (Admin access required)
-  {{COMMAND}} ctl port expose 8080 --uac Map a port and request UAC elevation
-  {{COMMAND}} ctl port expose 8080 80 Map 8080 to WSL:80 and allow it (NAT)
-  {{COMMAND}} ctl port remove 8080  Remove the TCP 8080 mapping and firewall rule
-  {{COMMAND}} ctl port sync         WSL IP may change (NAT); run this command to refresh it
-  {{COMMAND}} ctl remove --yes      Unregister and delete this instance            (wsl --unregister)
-  {{COMMAND}} ctl remove --yes --uac Request UAC when port-rule cleanup needs admin rights
+# Install/restore, backup, move, delete:
+  {{COMMAND}} .install              Install: create/rebuild this instance from {WSL_source} (wsl --import or wsl --install)
+  {{COMMAND}} .install D:\x.tar     Restore: create/rebuild this instance from an archive   (wsl --import)
+  {{COMMAND}} .install --dry-run    Preview the install command without running it
+  {{COMMAND}} .backup               Export to the backup directory as {WSL_export_format} (wsl --export)
+  {{COMMAND}} .backup D:\x.tar      Export to a specified path as {WSL_export_format} (wsl --export)
+  {{COMMAND}} .backup list          List archives in this instance's backup directory
+  {{COMMAND}} .moveto D:\wsl\x      Move this instance to a new install directory  (wsl --manage --move)
+  {{COMMAND}} .moveto D:\wsl\x --dry-run Preview the move command without running it
+  {{COMMAND}} .delete --yes         Unregister and delete this instance            (wsl --unregister)
+  {{COMMAND}} .delete --yes --uac   Request UAC when port-rule cleanup needs admin rights
+# Stop and keep alive:
+  {{COMMAND}} .t                    Stop this instance                            (wsl --terminate)
+  {{COMMAND}} .alive 600            Keep this instance running in the background for 600 seconds (wsl sleep)
+  {{COMMAND}} .alive                Keep alive now and after current-user logon
+  {{COMMAND}} .alive off            Disable alive settings
+  {{COMMAND}} .alive status         Show alive-related setting status
+# systemd, sshd, and users:
+  {{COMMAND}} .systemd status       Show this instance's systemd status
+  {{COMMAND}} .systemd enable       Enable systemd in this instance                (/etc/wsl.conf)
+  {{COMMAND}} .systemd disable      Disable systemd in this instance               (/etc/wsl.conf)
+  {{COMMAND}} .sshd status          Show this instance's SSH service status
+  {{COMMAND}} .sshd enable 2222     Enable SSH service and set the port            (systemd-managed)
+  {{COMMAND}} .sshd disable         Stop SSH and remove the configured public key
+  {{COMMAND}} .user ensure          Create/confirm that {WSL_user} exists          (wsl .. -- sh -lc useradd/adduser)
+  {{COMMAND}} .user default         Set {WSL_user} as the default user             (wsl --manage set-default-user)
+# Service port management:
+  {{COMMAND}} .port status          Show port mapping, firewall, and network mode status
+  {{COMMAND}} .port expose 8080     Map TCP 8080:8080 and allow it through firewall (Admin access required)
+  {{COMMAND}} .port expose 8080 --uac Map a port and request UAC elevation
+  {{COMMAND}} .port expose 8080 80  Map 8080 to WSL:80 and allow it (NAT)
+  {{COMMAND}} .port del 8080        Remove the TCP 8080 mapping and firewall rule
+  {{COMMAND}} .port sync            WSL IP may change (NAT); run this command to refresh it
+# Quick directory open:
+  {{COMMAND}} .dir install          Open this instance's Windows install directory
+  {{COMMAND}} .dir backup           Open this instance's backup directory
+  {{COMMAND}} .dir downloads        Open the fallback image cache directory
+  {{COMMAND}} .dir config           Open the instance-level wsl.conf directory     (explorer \\wsl...)
+  {{COMMAND}} .dir ssh              Open this instance's /etc/ssh config directory
+# IDE editing:
+  {{COMMAND}} .code                 Open {WSL_default_workdir} with VS Code        (code --remote=wsl+..)
+  {{COMMAND}} .code ~               Open this instance user's home directory
+  {{COMMAND}} .cursor /etc          Open a WSL absolute path with Cursor
+  {{COMMAND}} .cursor app/          Open {WSL_default_workdir}/app/
 
 # WSL underlying VM management (affects all instances under the current Windows user):
-  {{COMMAND}} vm                    Open the WSL Settings visual configuration app
-  {{COMMAND}} vm status             Show current user's WSL VM/all-instance status
-  {{COMMAND}} vm show               Open the WSL welcome/feature introduction page
-  {{COMMAND}} vm default            Set this instance as current user's default    (wsl --set-default)
-  {{COMMAND}} vm -s                 Shut down the current user's WSL2 VM/all instances (wsl --shutdown)
-  {{COMMAND}} vm alive              List all WSL alive tasks and auto-clean stale entries
-  {{COMMAND}} vm alive del <task>   Delete the specified WSL alive task
-  {{COMMAND}} vm port               List all WSL port rules and auto-clean stale entries when permitted
-  {{COMMAND}} vm port --uac         Same as above, but requests interactive elevation
-  {{COMMAND}} vm port del <id>      Delete the specified WSL port rule             (Admin access required)
-
-# Remote editing:
-  {{COMMAND}} code                  Open {WSL_default_workdir} with VS Code        (code --remote=wsl+..)
-  {{COMMAND}} code ~                Open this instance user's home directory
-  {{COMMAND}} cursor /etc           Open a WSL absolute path with Cursor
-  {{COMMAND}} cursor app/           Open {WSL_default_workdir}/app/
+  {{COMMAND}} .vm                   Open the WSL Settings visual configuration app
+  {{COMMAND}} .vm status            Show current user's WSL VM/all-instance status
+  {{COMMAND}} .vm show              Open the WSL welcome/feature introduction page
+  {{COMMAND}} .vm default           Set this instance as current user's default    (wsl --set-default)
+  {{COMMAND}} .vm -s                Shut down the current user's WSL2 VM/all instances (wsl --shutdown)
+  {{COMMAND}} .vm alive             List all WSL alive tasks and auto-clean stale entries
+  {{COMMAND}} .vm alive del <task>  Delete the specified WSL alive task
+  {{COMMAND}} .vm port              List all WSL port rules and auto-clean stale entries when permitted
+  {{COMMAND}} .vm port --uac        Same as above, but requests interactive elevation
+  {{COMMAND}} .vm port del <id>     Delete the specified WSL port rule             (Admin access required)
 
 # Commands not listed above are forwarded directly to wsl.exe after adding -d -u --cd, for example:
   {{COMMAND}} uname -a              Equivalent to wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir uname -a

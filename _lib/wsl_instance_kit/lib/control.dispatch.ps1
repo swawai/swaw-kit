@@ -1,7 +1,7 @@
 function Invoke-VmControl {
     param(
         [string[]]$Rest,
-        [string]$Verb = "vm"
+        [string]$Verb = ".vm"
     )
 
     if ($Rest.Count -eq 0) {
@@ -49,7 +49,7 @@ function Invoke-VmControl {
             return Invoke-WslVmPort $tail
         }
         default {
-            return Show-CommandHelpHint "Unknown VM command: $action"
+            return Show-CommandHelpHint "Unknown .vm command: $action"
         }
     }
 }
@@ -58,11 +58,11 @@ function Invoke-VmControl {
 function Invoke-DirControl {
     param(
         [string[]]$Rest,
-        [string]$Verb = "ctl"
+        [string]$Verb = ".dir"
     )
 
     if ($Rest.Count -eq 0) {
-        return Show-CommandHelpHint "$Verb dir requires install, backup, downloads, config, or ssh."
+        return Show-CommandHelpHint "$Verb requires install, backup, downloads, config, or ssh."
     }
 
     $target = $Rest[0].ToLowerInvariant()
@@ -80,14 +80,14 @@ function Invoke-DirControl {
         }
         "config" {
             if ($tail.Count -ne 0) {
-                return Show-CommandHelpHint "$Verb dir config does not accept extra arguments."
+                return Show-CommandHelpHint "$Verb config does not accept extra arguments."
             }
 
             return Open-WslInstanceConfig
         }
         "ssh" {
             if ($tail.Count -ne 0) {
-                return Show-CommandHelpHint "$Verb dir ssh does not accept extra arguments."
+                return Show-CommandHelpHint "$Verb ssh does not accept extra arguments."
             }
 
             return Open-WslSshConfig
@@ -99,25 +99,19 @@ function Invoke-DirControl {
 }
 
 
-function Invoke-Control {
-    param(
-        [string[]]$Rest,
-        [string]$Verb = "ctl"
-    )
+function Invoke-InstanceManagementCommand {
+    param([string[]]$Rest)
 
     if ($Rest.Count -eq 0) {
-        return Show-CommandHelpHint "$Verb requires a command."
+        return Show-CommandHelpHint "Instance management command is missing."
     }
 
     $action = $Rest[0].ToLowerInvariant()
     $tail = @(Get-Slice $Rest 1)
 
     switch ($action) {
-        "-t" {
+        "t" {
             return Stop-WslResource
-        }
-        "doctor" {
-            return Invoke-WslDoctor $tail
         }
         "install" {
             return Install-WslResource $tail
@@ -126,7 +120,7 @@ function Invoke-Control {
             return Invoke-BackupControl $tail
         }
         "dir" {
-            return Invoke-DirControl -Rest $tail -Verb $Verb
+            return Invoke-DirControl -Rest $tail
         }
         "alive" {
             return Invoke-WslAlive $tail
@@ -136,7 +130,7 @@ function Invoke-Control {
         }
         "user" {
             if ($tail.Count -eq 0) {
-                return Show-CommandHelpHint "$Verb user requires a command."
+                return Show-CommandHelpHint ".user requires a command."
             }
 
             $userAction = $tail[0].ToLowerInvariant()
@@ -149,34 +143,42 @@ function Invoke-Control {
                     return Set-WslDefaultUser $userTail
                 }
                 default {
-                    return Show-CommandHelpHint "Unknown control command: $action $userAction"
+                    return Show-CommandHelpHint "Unknown .user command: $userAction"
                 }
             }
         }
-        "ssh" {
+        "sshd" {
             if ($tail.Count -eq 0) {
-                return Show-CommandHelpHint "$Verb ssh requires a command."
+                return Show-CommandHelpHint ".sshd requires a command."
             }
 
             $sshAction = $tail[0].ToLowerInvariant()
             $sshTail = @(Get-Slice $tail 1)
             switch ($sshAction) {
                 "status" {
+                    if ($sshTail.Count -ne 0) {
+                        return Show-CommandHelpHint ".sshd status does not accept extra arguments."
+                    }
+
                     return Show-WslSshStatus
                 }
                 "enable" {
                     return Enable-WslSsh $sshTail
                 }
                 "disable" {
+                    if ($sshTail.Count -ne 0) {
+                        return Show-CommandHelpHint ".sshd disable does not accept extra arguments."
+                    }
+
                     return Disable-WslSsh
                 }
             }
 
-            return Show-CommandHelpHint "Unknown control command: $action $sshAction"
+            return Show-CommandHelpHint "Unknown sshd command: $sshAction"
         }
         "systemd" {
             if ($tail.Count -eq 0) {
-                return Show-CommandHelpHint "$Verb systemd requires a command."
+                return Show-CommandHelpHint ".systemd requires a command."
             }
 
             $systemdAction = $tail[0].ToLowerInvariant()
@@ -185,15 +187,15 @@ function Invoke-Control {
             }
             if ($systemdAction -eq "status") {
                 if ($tail.Count -ne 1) {
-                    return Show-CommandHelpHint "$Verb systemd status does not accept extra arguments."
+                    return Show-CommandHelpHint ".systemd status does not accept extra arguments."
                 }
 
                 return Show-WslSystemdStatus
             }
 
-            return Show-CommandHelpHint "Unknown control command: $action $systemdAction"
+            return Show-CommandHelpHint "Unknown .systemd command: $systemdAction"
         }
-        "remove" {
+        "delete" {
             $removeYes = $false
             $removeUac = $false
             foreach ($item in @($tail)) {
@@ -207,14 +209,14 @@ function Invoke-Control {
                         continue
                     }
                     default {
-                        Write-Fail "Unknown $Verb remove option: $item"
+                        Write-Fail "Unknown delete option: $item"
                         return 1
                     }
                 }
             }
 
             if (-not $removeYes) {
-                Write-Fail "$Verb remove requires --yes."
+                Write-Fail ".delete requires --yes."
                 return 1
             }
 
@@ -223,11 +225,11 @@ function Invoke-Control {
                 if (-not $removeUac) {
                     Write-Fail "Managed port rules require administrator cleanup before removing this instance."
                     Write-Fail "Run again with --uac to request elevation:"
-                    Write-Fail "  $(Format-CommandLine $script:Config.CommandName @("ctl", "remove", "--yes", "--uac"))"
+                    Write-Fail "  $(Format-CommandLine $script:Config.CommandName @(".delete", "--yes", "--uac"))"
                     return 1
                 }
 
-                return (Invoke-WslKitElevatedCommand -CommandArgs @("ctl", "remove", "--yes"))
+                return (Invoke-WslKitElevatedCommand -CommandArgs @(".delete", "--yes"))
             }
 
             $aliveExit = Remove-WslAliveTask -Quiet
@@ -245,8 +247,11 @@ function Invoke-Control {
             $nativeArgs = @("--unregister", $script:Config.Name)
             return (Invoke-ControlNativeCommand $nativeArgs)
         }
+        "moveto" {
+            return Invoke-WslMoveTo $tail
+        }
         default {
-            return Show-CommandHelpHint "Unknown control command: $action"
+            return Show-CommandHelpHint "Unknown tool command: .$action"
         }
     }
 }

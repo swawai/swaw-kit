@@ -116,7 +116,7 @@ function Add-WslPortExposure {
     }
 
     if ($options.Positionals.Count -lt 1 -or $options.Positionals.Count -gt 2) {
-        Write-Fail "Usage: $($script:Config.CommandName) ctl port expose <listen-port> [connect-port] [--dry-run] [--uac]"
+        Write-Fail "Usage: $($script:Config.CommandName) .port expose <listen-port> [connect-port] [--dry-run] [--uac]"
         return 1
     }
 
@@ -158,13 +158,13 @@ function Add-WslPortExposure {
             return 1
         }
         "virtioproxy" {
-            Write-Fail "WSL networkingMode=virtioproxy is not supported by ctl port automation yet."
-            Write-Fail "Use vm to switch to NAT or mirrored for managed exposure."
+            Write-Fail "WSL networkingMode=virtioproxy is not supported by port automation yet."
+            Write-Fail "Use .vm to switch to NAT or mirrored for managed exposure."
             return 1
         }
         "bridged" {
-            Write-Fail "WSL networkingMode=bridged is deprecated and is not managed by ctl port."
-            Write-Fail "Use vm to switch to NAT or mirrored."
+            Write-Fail "WSL networkingMode=bridged is deprecated and is not managed by port."
+            Write-Fail "Use .vm to switch to NAT or mirrored."
             return 1
         }
         default {
@@ -189,7 +189,7 @@ function Remove-WslPortExposure {
     }
 
     if ($options.Positionals.Count -ne 1) {
-        Write-Fail "Usage: $($script:Config.CommandName) ctl port remove <listen-port> [--dry-run] [--uac]"
+        Write-Fail "Usage: $($script:Config.CommandName) .port del <listen-port> [--dry-run] [--uac]"
         return 1
     }
 
@@ -198,7 +198,7 @@ function Remove-WslPortExposure {
         return 1
     }
 
-    $elevatedExitCode = Invoke-WslPortElevationOrRequireAdmin -Action "remove" -Rest $Rest -DryRun:($options.DryRun) -Uac:($options.Uac)
+    $elevatedExitCode = Invoke-WslPortElevationOrRequireAdmin -Action "del" -Rest $Rest -DryRun:($options.DryRun) -Uac:($options.Uac)
     if ($null -ne $elevatedExitCode) {
         return $elevatedExitCode
     }
@@ -217,13 +217,13 @@ function Sync-WslPortExposure {
 
     $mode = Get-WslConfiguredNetworkingMode
     if ($mode.Mode -ne "nat") {
-        Write-Fail "ctl port sync is only needed for NAT networking."
+        Write-Fail ".port sync is only needed for NAT networking."
         Write-Fail "Current networkingMode: $($mode.Mode)"
         return 1
     }
 
     if ($options.Positionals.Count -gt 2) {
-        Write-Fail "Usage: $($script:Config.CommandName) ctl port sync [listen-port] [connect-port] [--dry-run] [--uac]"
+        Write-Fail "Usage: $($script:Config.CommandName) .port sync [listen-port] [connect-port] [--dry-run] [--uac]"
         return 1
     }
 

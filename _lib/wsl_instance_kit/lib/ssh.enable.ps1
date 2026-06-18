@@ -261,7 +261,7 @@ ensure_pubkey_authentication() {
     fi
 
     dropin=/etc/ssh/sshd_config.d/00-wsl-instance-kit-pubkey-auth.conf
-    desired="# Managed by wsl_instance_kit ctl ssh enable
+    desired="# Managed by wsl_instance_kit .sshd enable
 PubkeyAuthentication yes"
     current=
     if [ -f "`$dropin" ]; then
@@ -337,21 +337,21 @@ start_ssh_service() {
         cat "`$start_log" >&2
         rm -f "`$start_log"
         echo "Failed to start/restart SSH service on port `$port." >&2
-        echo "If the port is already in use, try: $($script:Config.CommandName) ctl ssh enable 2222" >&2
+        echo "If the port is already in use, try: $($script:Config.CommandName) .sshd enable 2222" >&2
         systemctl status "`$unit" --no-pager -l >&2 || true
         exit 1
     fi
 
     echo "systemd is not active in this WSL instance." >&2
-    echo "Run: $($script:Config.CommandName) ctl systemd enable" >&2
-    echo "Then restart WSL: $($script:Config.CommandName) vm -s" >&2
+    echo "Run: $($script:Config.CommandName) .systemd enable" >&2
+    echo "Then restart WSL: $($script:Config.CommandName) .vm -s" >&2
     exit 1
 }
 
 ensure_openssh_server
 if ! has_systemd; then
     echo "systemd is not active in this WSL instance." >&2
-    echo "Restart WSL, then run ctl ssh enable again: $($script:Config.CommandName) vm -s" >&2
+    echo "Restart WSL, then run .sshd enable again: $($script:Config.CommandName) .vm -s" >&2
     exit 1
 fi
 port="`$port_input"

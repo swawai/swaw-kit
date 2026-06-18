@@ -2,7 +2,7 @@ function Show-WslVmPortList {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        return Show-CommandHelpHint "vm port does not accept extra arguments."
+        return Show-CommandHelpHint ".vm port does not accept extra arguments."
     }
 
     $cleanup = Invoke-WslPortMissingInstanceCleanup -All -Quiet
@@ -35,7 +35,7 @@ function Show-WslVmPortList {
     }
 
     if ($hasMissingInstance -and -not (Test-WslKitAdmin)) {
-        Write-Warn "  Run $(Format-CommandLine $script:Config.CommandName @("vm", "port", "--uac")) to request elevation and auto-clean missing-instance rules."
+        Write-Warn "  Run $(Format-CommandLine $script:Config.CommandName @(".vm", "port", "--uac")) to request elevation and auto-clean missing-instance rules."
     }
 
     return 0
@@ -65,7 +65,7 @@ function Delete-WslVmPortRule {
             }
             default {
                 if ($item.StartsWith("--")) {
-                    Write-Fail "Unknown vm port del option: $item"
+                    Write-Fail "Unknown .vm port del option: $item"
                     return 1
                 }
 
@@ -75,32 +75,32 @@ function Delete-WslVmPortRule {
     }
 
     if ($ids.Count -ne 1 -or [string]::IsNullOrWhiteSpace($ids[0])) {
-        return Show-CommandHelpHint "vm port del requires a rule id shown by vm port."
+        return Show-CommandHelpHint ".vm port del requires a rule id shown by .vm port."
     }
 
     $id = $ids[0].Trim()
     if ($id -notmatch '^wsl_instance_kit-[A-Za-z0-9_.-]+-port-[A-Za-z0-9]+-[A-Za-z0-9_.-]+-\d+$') {
         Write-Fail "Invalid WSL port rule id: $id"
-        Write-Fail "Run vm port and pass one of the displayed rule ids."
+        Write-Fail "Run .vm port and pass one of the displayed rule ids."
         return 1
     }
 
     $match = @(Resolve-WslManagedPortItemById $id)
     if ($match.Count -eq 0) {
         Write-Fail "WSL port rule not found: $id"
-        Write-Fail "Run vm port and pass one of the displayed rule ids."
+        Write-Fail "Run .vm port and pass one of the displayed rule ids."
         return 1
     }
 
     if (-not $dryRun -and -not (Test-WslKitAdmin)) {
         if (-not $uac) {
-            Write-Fail "This vm port del action requires administrator privileges."
+            Write-Fail "This .vm port del action requires administrator privileges."
             Write-Fail "Run again with --uac to request elevation:"
-            Write-Fail "  $(Format-CommandLine $script:Config.CommandName @("vm", "port", "del", $id, "--uac"))"
+            Write-Fail "  $(Format-CommandLine $script:Config.CommandName @(".vm", "port", "del", $id, "--uac"))"
             return 1
         }
 
-        return (Invoke-WslKitElevatedCommand -CommandArgs @("vm", "port", "del", $id))
+        return (Invoke-WslKitElevatedCommand -CommandArgs @(".vm", "port", "del", $id))
     }
 
     return (Remove-WslManagedPortItem -Item $match[0] -DryRun:$dryRun)
@@ -118,7 +118,7 @@ function Invoke-WslVmPort {
             return Show-WslVmPortList @()
         }
 
-        return (Invoke-WslKitElevatedCommand -CommandArgs @("vm", "port"))
+        return (Invoke-WslKitElevatedCommand -CommandArgs @(".vm", "port"))
     }
 
     $action = $Rest[0].ToLowerInvariant()
@@ -128,7 +128,7 @@ function Invoke-WslVmPort {
             return Delete-WslVmPortRule $tail
         }
         default {
-            return Show-CommandHelpHint "Unknown VM port command: $action"
+            return Show-CommandHelpHint "Unknown .vm port command: $action"
         }
     }
 }

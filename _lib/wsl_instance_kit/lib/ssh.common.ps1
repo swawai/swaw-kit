@@ -6,7 +6,7 @@ function Resolve-WslSshPort {
 
     $portArgs = @($Rest)
     if ($portArgs.Count -gt 1) {
-        Write-Fail "ctl ssh enable accepts exactly one port argument."
+        Write-Fail ".sshd enable accepts exactly one port argument."
         return $null
     }
 
@@ -16,7 +16,7 @@ function Resolve-WslSshPort {
             return ""
         }
 
-        Write-Fail "SSH port is required. Run: $($script:Config.CommandName) ctl ssh enable <port>"
+        Write-Fail "SSH port is required. Run: $($script:Config.CommandName) .sshd enable <port>"
         return $null
     }
 
@@ -151,10 +151,10 @@ function Test-WslSystemdRuntimeActive {
 
 function Ensure-WslSshSystemdReady {
     if (-not (Test-WslSystemdRuntimeActive)) {
-        Write-Fail "ctl ssh enable requires active systemd in this WSL instance."
-        Write-Fail "Run: $($script:Config.CommandName) ctl systemd enable"
-        Write-Fail "Then restart WSL: $($script:Config.CommandName) vm -s"
-        Write-Fail "After restart, run ctl ssh enable again."
+        Write-Fail ".sshd enable requires active systemd in this WSL instance."
+        Write-Fail "Run: $($script:Config.CommandName) .systemd enable"
+        Write-Fail "Then restart WSL: $($script:Config.CommandName) .vm -s"
+        Write-Fail "After restart, run .sshd enable again."
         return $false
     }
 

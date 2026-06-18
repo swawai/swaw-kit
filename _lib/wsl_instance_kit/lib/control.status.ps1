@@ -372,7 +372,7 @@ function Show-WslResourceStatus {
     Write-Host "  Alive:               $(Get-WslAliveStatusSummary)"
     Write-Host "  Port:                $(Get-WslPortStatusSummary)"
     Show-WslStorageStatus $backupDir
-    Write-Host "  More status:        $($script:Config.CommandName) status ssh | port | systemd"
+    Write-Host "  More status:        $($script:Config.CommandName) .status sshd | port | systemd"
 
     return 0
 }
@@ -385,7 +385,7 @@ function Show-CommandHelpHint {
         Write-Fail $Message
     }
 
-    Write-Fail "Run: $($script:Config.CommandName) --help"
+    Write-Fail "Run: $($script:Config.CommandName) .help"
     return 1
 }
 
@@ -401,9 +401,9 @@ function Invoke-Status {
     $tail = @(Get-Slice $Rest 1)
 
     switch ($action) {
-        "ssh" {
+        "sshd" {
             if ($tail.Count -ne 0) {
-                return Show-CommandHelpHint "status ssh does not accept extra arguments."
+                return Show-CommandHelpHint ".status sshd does not accept extra arguments."
             }
 
             return Show-WslSshStatus
@@ -413,7 +413,7 @@ function Invoke-Status {
         }
         "systemd" {
             if ($tail.Count -ne 0) {
-                return Show-CommandHelpHint "status systemd does not accept extra arguments."
+                return Show-CommandHelpHint ".status systemd does not accept extra arguments."
             }
 
             return Show-WslSystemdStatus

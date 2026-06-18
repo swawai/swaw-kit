@@ -2,7 +2,7 @@ function Open-WslInstallDir {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        Write-Fail "ctl dir install does not accept extra arguments."
+        Write-Fail ".dir install does not accept extra arguments."
         return 1
     }
 
@@ -73,7 +73,7 @@ function Install-WslResourceFromArchive {
     }
 
     if (-not (Test-WslBackupArchivePath $ArchivePath)) {
-        Write-Fail "ctl install supports .tar, .tar.gz, .tar.xz, .tgz, .vhd, and .vhdx archives."
+        Write-Fail ".install supports .tar, .tar.gz, .tar.xz, .tgz, .vhd, and .vhdx archives."
         return 1
     }
 
@@ -85,7 +85,7 @@ function Install-WslResourceFromArchive {
     $record = Get-WslDistributionRecord
     $hasExisting = ($null -ne $record)
     if ($hasExisting -and -not $DryRun -and -not $Yes) {
-        Write-Fail "ctl install would unregister the existing instance '$($script:Config.Name)'. Add --yes to rebuild it."
+        Write-Fail ".install would unregister the existing instance '$($script:Config.Name)'. Add --yes to rebuild it."
         return 1
     }
 
@@ -139,7 +139,7 @@ function Install-WslResource {
         }
 
         if ($item.StartsWith("-")) {
-            Write-Fail "Unknown ctl install option: $item"
+            Write-Fail "Unknown .install option: $item"
             return 1
         }
 
@@ -147,7 +147,7 @@ function Install-WslResource {
     }
 
     if ($sourceArgs.Count -gt 1) {
-        Write-Fail "ctl install accepts at most one archive path."
+        Write-Fail ".install accepts at most one archive path."
         return 1
     }
 
@@ -176,7 +176,7 @@ function Install-WslResource {
     $record = Get-WslDistributionRecord
     $hasExisting = ($null -ne $record)
     if ($hasExisting -and -not $dryRun -and -not $yes) {
-        Write-Fail "ctl install would unregister the existing instance '$($script:Config.Name)'. Add --yes to rebuild it."
+        Write-Fail ".install would unregister the existing instance '$($script:Config.Name)'. Add --yes to rebuild it."
         return 1
     }
 
@@ -191,7 +191,7 @@ function Install-WslResource {
             Show-NativeCommand "wsl.exe" @("--unregister", $script:Config.Name)
         }
         Show-NativeCommand "wsl.exe" $nativeArgs
-        Write-Host "If native install fails, ctl install will automatically try fallback install from DistributionInfo.json."
+        Write-Host "If native install fails, .install will automatically try fallback install from DistributionInfo.json."
         [void](Ensure-WslConfiguredUser -DryRun -AllowEmpty)
         return 0
     }

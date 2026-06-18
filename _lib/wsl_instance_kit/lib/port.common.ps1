@@ -70,7 +70,7 @@ function ConvertTo-WslPortOptionMap {
                 continue
             }
             '^--listen-address$' {
-                Write-Fail "--listen-address is not supported. ctl port always exposes ${listenAddress}:<listen-port>."
+                Write-Fail "--listen-address is not supported. port always exposes ${listenAddress}:<listen-port>."
                 return $null
             }
             '^--protocol$' {
@@ -83,7 +83,7 @@ function ConvertTo-WslPortOptionMap {
                 continue
             }
             '^--' {
-                Write-Fail "Unknown ctl port option: $item"
+                Write-Fail "Unknown port option: $item"
                 return $null
             }
             default {
@@ -93,7 +93,7 @@ function ConvertTo-WslPortOptionMap {
     }
 
     if ($protocol -ne "tcp") {
-        Write-Fail "ctl port currently supports only TCP."
+        Write-Fail "port currently supports only TCP."
         return $null
     }
 
@@ -180,7 +180,7 @@ function Invoke-WslKitElevatedCommand {
     param([string[]]$CommandArgs)
 
     if ([string]::IsNullOrWhiteSpace($script:Config.EntryFile) -or -not (Test-Path -LiteralPath $script:Config.EntryFile -PathType Leaf)) {
-        Write-Fail "This ctl port action requires an elevated shell."
+        Write-Fail "This port action requires an elevated shell."
         Write-Fail "Entry file not found, cannot self-elevate: $($script:Config.EntryFile)"
         return 1
     }
@@ -240,23 +240,21 @@ function Invoke-WslPortElevationOrRequireAdmin {
 
     if (-not $Uac) {
         $suggestedArgs = New-Object System.Collections.ArrayList
-        [void]$suggestedArgs.Add("ctl")
-        [void]$suggestedArgs.Add("port")
+        [void]$suggestedArgs.Add(".port")
         [void]$suggestedArgs.Add($Action)
         foreach ($item in @($Rest)) {
             [void]$suggestedArgs.Add($item)
         }
         [void]$suggestedArgs.Add("--uac")
 
-        Write-Fail "This ctl port action requires administrator privileges."
+        Write-Fail "This port action requires administrator privileges."
         Write-Fail "Run again with --uac to request elevation:"
         Write-Fail "  $(Format-CommandLine $script:Config.CommandName @($suggestedArgs))"
         return 1
     }
 
     $commandArgs = New-Object System.Collections.ArrayList
-    [void]$commandArgs.Add("ctl")
-    [void]$commandArgs.Add("port")
+    [void]$commandArgs.Add(".port")
     [void]$commandArgs.Add($Action)
     foreach ($item in @($Rest)) {
         [void]$commandArgs.Add($item)
