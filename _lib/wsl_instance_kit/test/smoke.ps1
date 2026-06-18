@@ -4,7 +4,7 @@ param()
 $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryFile = Join-Path $repoRoot "wsl.1.cmd"
+$entryFile = Join-Path $repoRoot "wsl01.cmd"
 $kitCmd = Join-Path $repoRoot "_lib\wsl_instance_kit\kit.cmd"
 $kitRoot = Join-Path $repoRoot "_lib\wsl_instance_kit"
 
@@ -160,6 +160,42 @@ function Get-FreeTcpPort {
     }
 }
 
+function Set-EntryLine {
+    param(
+        [string]$Content,
+        [string]$Name,
+        [string]$Value
+    )
+
+    $line = 'set "' + $Name + "=" + $Value + '"'
+    return [regex]::Replace($Content, '(?m)^set "' + [regex]::Escape($Name) + '=.*"\r?$', [System.Text.RegularExpressions.MatchEvaluator]{ param($match) $line })
+}
+
+function New-WslSmokeEntryFile {
+    param(
+        [string]$Name,
+        [string]$Source = "Ubuntu",
+        [string]$InstallDir,
+        [string]$BackupDir,
+        [string]$User = "john"
+    )
+
+    $entryPath = Join-Path $repoRoot ("$Name.cmd")
+    $content = [System.IO.File]::ReadAllText($entryFile)
+    $content = Set-EntryLine $content "WSL_name" $Name
+    $content = Set-EntryLine $content "WSL_user" $User
+    $content = Set-EntryLine $content "WSL_source" $Source
+    if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
+        $content = Set-EntryLine $content "WSL_install_dir" $InstallDir
+    }
+    if (-not [string]::IsNullOrWhiteSpace($BackupDir)) {
+        $content = Set-EntryLine $content "WSL_backup_dir" $BackupDir
+    }
+    $content = $content -replace "`r?`n", "`r`n"
+    [System.IO.File]::WriteAllText($entryPath, $content, [System.Text.UTF8Encoding]::new($false))
+    return $entryPath
+}
+
 function New-SshEnableTestEntryFile {
     param([string]$TempRoot)
 
@@ -217,7 +253,7 @@ try {
 
     Invoke-Checked $entryFile @("-h") 0 "entry help"
     $defaultHelpOutput = Invoke-Captured $entryFile @("--help", "en") 0 "entry help includes doctor"
-    Assert-True ($defaultHelpOutput.Contains("wsl.1 doctor")) "top-level help should show wsl.1 doctor."
+    Assert-True ($defaultHelpOutput.Contains("wsl01 doctor")) "top-level help should show wsl01 doctor."
     Assert-True (-not $defaultHelpOutput.Contains("ctl doctor")) "top-level help should not show hidden ctl doctor."
     $oldHelpLang = $env:WSL_KIT_HELP_LANG
     try {
@@ -255,7 +291,7 @@ try {
     Assert-True ($portStatusOutput.Contains("Networking mode:")) "port status should show networking mode."
     Assert-True ($portStatusOutput.Contains("Strategy:")) "port status should show selected strategy."
     $ctlHelpOutput = Invoke-Captured $entryFile @("ctl", "help") 1 "ctl help removed"
-    Assert-True ($ctlHelpOutput.Contains("Run: wsl.1 --help")) "ctl help should point to top-level help."
+    Assert-True ($ctlHelpOutput.Contains("Run: wsl01 --help")) "ctl help should point to top-level help."
     Assert-True (-not $ctlHelpOutput.Contains("Usage:")) "ctl help should not print a second usage document."
     Invoke-Checked $entryFile @("ctl", "config") 1 "reject config without dir"
     Invoke-Checked $entryFile @("ctl", "config", "dir", "extra") 1 "reject config dir extra args"
@@ -302,6 +338,7 @@ try {
     $oldArgsPath = $env:MOCK_WSL_ARGS_PATH
     $oldExitCode = $env:MOCK_WSL_EXIT_CODE
     $sshEnableEntryFile = $null
+    $restoreEntryFile = $null
 
     try {
         $shimDir = New-MockWsl $tempRoot
@@ -312,49 +349,85 @@ try {
         & cmd.exe /d /c $cmdLine
         Assert-ExitCode $LASTEXITCODE 0 "passthrough empty arg"
         $actual = Read-MockWslArgs $argsFile
-        Assert-ArrayEqual $actual @("-d", "wsl.1", "-u", "john", "--cd", "~", "alpha", "", "two words", "omega") "passthrough empty arg"
+        Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "alpha", "", "two words", "omega") "passthrough empty arg"
 
         Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
         $installHintOutput = Invoke-Captured $entryFile @("install") 1 "hint missing ctl install"
-        Assert-True ($installHintOutput.Contains("wsl.1 ctl install")) "bare install should suggest ctl install."
-        Assert-True ($installHintOutput.Contains("wsl.1 -- install")) "bare install should show explicit passthrough."
+        Assert-True ($installHintOutput.Contains("wsl01 ctl install")) "bare install should suggest ctl install."
+        Assert-True ($installHintOutput.Contains("wsl01 -- install")) "bare install should show explicit passthrough."
         Assert-True (-not (Test-Path -LiteralPath $argsFile)) "bare install should not passthrough to wsl.exe."
 
         Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
         $shutdownHintOutput = Invoke-Captured $entryFile @("shutdown") 1 "hint missing vm shutdown"
-        Assert-True ($shutdownHintOutput.Contains("wsl.1 vm shutdown")) "bare shutdown should suggest vm shutdown."
-        Assert-True ($shutdownHintOutput.Contains("wsl.1 -- shutdown")) "bare shutdown should show explicit passthrough."
+        Assert-True ($shutdownHintOutput.Contains("wsl01 vm shutdown")) "bare shutdown should suggest vm shutdown."
+        Assert-True ($shutdownHintOutput.Contains("wsl01 -- shutdown")) "bare shutdown should show explicit passthrough."
         Assert-True (-not (Test-Path -LiteralPath $argsFile)) "bare shutdown should not passthrough to wsl.exe."
 
         Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
         $terminateHintOutput = Invoke-Captured $entryFile @("-t") 1 "hint missing control layer -t"
-        Assert-True ($terminateHintOutput.Contains("wsl.1 ctl -t")) "bare -t should suggest ctl -t."
-        Assert-True ($terminateHintOutput.Contains("wsl.1 vm -t")) "bare -t should suggest vm -t."
-        Assert-True ($terminateHintOutput.Contains("wsl.1 -- -t")) "bare -t should show explicit passthrough."
+        Assert-True ($terminateHintOutput.Contains("wsl01 ctl -t")) "bare -t should suggest ctl -t."
+        Assert-True ($terminateHintOutput.Contains("wsl01 vm -t")) "bare -t should suggest vm -t."
+        Assert-True ($terminateHintOutput.Contains("wsl01 -- -t")) "bare -t should show explicit passthrough."
         Assert-True (-not (Test-Path -LiteralPath $argsFile)) "bare -t should not passthrough to wsl.exe."
 
         Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
         $configHintOutput = Invoke-Captured $entryFile @("config") 1 "hint missing ctl config dir"
-        Assert-True ($configHintOutput.Contains("wsl.1 ctl config dir")) "bare config should suggest ctl config dir."
-        Assert-True ($configHintOutput.Contains("wsl.1 -- config")) "bare config should show explicit passthrough."
+        Assert-True ($configHintOutput.Contains("wsl01 ctl config dir")) "bare config should suggest ctl config dir."
+        Assert-True ($configHintOutput.Contains("wsl01 -- config")) "bare config should show explicit passthrough."
         Assert-True (-not (Test-Path -LiteralPath $argsFile)) "bare config should not passthrough to wsl.exe."
 
         Invoke-Checked $entryFile @("-u", "root", "--", "whoami") 0 "passthrough native option"
         $actual = Read-MockWslArgs $argsFile
-        Assert-ArrayEqual $actual @("-d", "wsl.1", "-u", "john", "--cd", "~", "-u", "root", "--", "whoami") "passthrough native option"
+        Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "-u", "root", "--", "whoami") "passthrough native option"
 
         Invoke-Checked $entryFile @("--", "ssh") 0 "explicit passthrough control-looking command"
         $actual = Read-MockWslArgs $argsFile
-        Assert-ArrayEqual $actual @("-d", "wsl.1", "-u", "john", "--cd", "~", "--", "ssh") "explicit passthrough control-looking command"
+        Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "--", "ssh") "explicit passthrough control-looking command"
 
         $target = Join-Path $tempRoot "out.tar"
         Invoke-Checked $entryFile @("ctl", "export", $target) 0 "export fixed format"
         $actual = Read-MockWslArgs $argsFile
-        Assert-ArrayEqual $actual @("--export", "wsl.1", ([System.IO.Path]::GetFullPath($target)), "--format", "tar") "export fixed format"
+        Assert-ArrayEqual $actual @("--export", "wsl01", ([System.IO.Path]::GetFullPath($target)), "--format", "tar") "export fixed format"
 
         Invoke-Checked $entryFile @("ctl", "export", "--format", "tar.gz", $target) 1 "reject inline export format"
         Invoke-Checked $entryFile @("ctl", "backup", "--format", "tar.gz") 1 "reject inline backup format"
         Invoke-Checked $entryFile @("ctl", "backup", "dir", "extra") 1 "reject backup dir extra args"
+
+        $restoreName = "wsl.smoke-restore-" + [guid]::NewGuid().ToString("N").Substring(0, 8)
+        $restoreInstallDir = Join-Path $tempRoot "restore-install"
+        $restoreBackupDir = Join-Path $tempRoot "restore-backup"
+        $restoreEntryFile = New-WslSmokeEntryFile -Name $restoreName -InstallDir $restoreInstallDir -BackupDir $restoreBackupDir -User ""
+        New-Item -ItemType Directory -Path $restoreBackupDir -Force | Out-Null
+
+        $backupOutput = Invoke-Captured $restoreEntryFile @("ctl", "backup") 0 "backup output path"
+        Assert-True ($backupOutput -match 'Backup archive:\s+(?<path>[^\r\n]+)') "backup should print generated archive path. Output: $backupOutput"
+        $backupOutputPath = $Matches["path"].Trim()
+        $restoreBackupDirFull = [System.IO.Path]::GetFullPath($restoreBackupDir).TrimEnd("\") + "\"
+        Assert-True ($backupOutputPath.StartsWith($restoreBackupDirFull, [System.StringComparison]::OrdinalIgnoreCase)) "backup path should be under WSL_backup_dir. Output: $backupOutput"
+        Assert-True ($backupOutputPath.Contains("Backup_$restoreName`_") -and $backupOutputPath.EndsWith(".tar", [System.StringComparison]::OrdinalIgnoreCase)) "backup path should include the generated archive filename. Output: $backupOutput"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual $actual @("--export", $restoreName, $backupOutputPath, "--format", "tar") "backup args should use printed path"
+
+        $restoreArchive = Join-Path $restoreBackupDir ("Backup_{0}_20260618000102.tar" -f $restoreName)
+        [System.IO.File]::WriteAllBytes($restoreArchive, [byte[]](1, 2, 3))
+        $restoreVhd = Join-Path $restoreBackupDir ("Backup_{0}_20260618000103.vhdx" -f $restoreName)
+        [System.IO.File]::WriteAllBytes($restoreVhd, [byte[]](4, 5, 6))
+
+        $backupListOutput = Invoke-Captured $restoreEntryFile @("ctl", "backup", "list") 0 "backup list"
+        Assert-True ($backupListOutput.Contains("WSL backups: $restoreName")) "backup list should show the entry name."
+        Assert-True ($backupListOutput.Contains((Split-Path -Leaf $restoreArchive))) "backup list should show tar archives. Output: $backupListOutput"
+        Assert-True ($backupListOutput.Contains((Split-Path -Leaf $restoreVhd))) "backup list should show vhdx archives. Output: $backupListOutput"
+        Invoke-Checked $restoreEntryFile @("ctl", "backup", "list", "extra") 1 "reject backup list extra args"
+        Invoke-Checked $restoreEntryFile @("ctl", "restore") 1 "reject restore without archive"
+        Invoke-Checked $restoreEntryFile @("ctl", "restore", (Join-Path $restoreBackupDir "missing.tar")) 1 "reject missing restore archive"
+
+        Invoke-Checked $restoreEntryFile @("ctl", "restore", (Split-Path -Leaf $restoreArchive)) 0 "restore from backup basename"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual $actual @("--import", $restoreName, ([System.IO.Path]::GetFullPath($restoreInstallDir)), ([System.IO.Path]::GetFullPath($restoreArchive)), "--version", "2") "restore import args"
+
+        $restoreVhdDryRun = Invoke-Captured $restoreEntryFile @("ctl", "restore", $restoreVhd, "--dry-run") 0 "restore vhd dry-run"
+        Assert-True ($restoreVhdDryRun.Contains("--vhd")) "restore vhd dry-run should pass --vhd."
+
         Invoke-Checked $entryFile @("ctl", "downloads") 1 "reject downloads without dir"
         Invoke-Checked $entryFile @("ctl", "downloads", "dir", "extra") 1 "reject downloads dir extra args"
         Invoke-Checked $entryFile @("ctl", "download", "dir", "extra") 1 "reject download dir extra args"
@@ -381,7 +454,7 @@ try {
         Invoke-Checked $entryFile @("ctl", "install", "--fallback", "--refresh", "--dry-run") 1 "reject removed fallback refresh"
         $systemdEnableOutput = Invoke-Captured $entryFile @("ctl", "systemd", "enable") 0 "systemd enable success message"
         Assert-True ($systemdEnableOutput.Contains("Systemd enabled in /etc/wsl.conf.")) "systemd enable should print success."
-        Assert-True ($systemdEnableOutput.Contains("wsl.1 vm shutdown")) "systemd enable should suggest restart command."
+        Assert-True ($systemdEnableOutput.Contains("wsl01 vm shutdown")) "systemd enable should suggest restart command."
         Invoke-Checked $entryFile @("ctl", "ssh", "enable") 1 "reject ssh enable without port"
         Invoke-Checked $entryFile @("ctl", "ssh", "enable", "abc") 1 "reject non-numeric ssh port"
         Invoke-Checked $entryFile @("ctl", "ssh", "enable", "2222", "extra") 1 "reject ssh enable extra args"
@@ -394,7 +467,7 @@ try {
         $sshEnablePort = [string]$sshEnableCase.Port
         Invoke-Checked $sshEnableEntryFile @("ctl", "ssh", "enable", $sshEnablePort) 0 "ssh enable script generation"
         $actual = Read-MockWslArgs $argsFile
-        Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "ssh enable root script prefix"
+        Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl01", "-u", "root", "--", "sh", "-lc") "ssh enable root script prefix"
         Assert-True ($actual.Count -eq 8) "ssh enable should pass a single shell runner."
         $enableScript = Decode-Base64ShRunner $actual[7]
         Assert-True ($enableScript.Contains(('port_input="{0}"' -f $sshEnablePort))) "ssh enable script should use the explicit port argument."
@@ -403,28 +476,28 @@ try {
         Assert-True ($enableScript.Contains("microdnf install -y openssh-server")) "ssh enable script should support microdnf."
         Assert-True ($enableScript.Contains("ssh-keygen -A")) "ssh enable script should generate host keys."
 
-        if (Test-WslDistributionExists "wsl.1") {
+        if (Test-WslDistributionExists "wsl01") {
             Invoke-Checked $entryFile @("ctl", "ssh", "status") 0 "ssh status"
             $actual = Read-MockWslArgs $argsFile
-            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "ssh status root script prefix"
+            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl01", "-u", "root", "--", "sh", "-lc") "ssh status root script prefix"
             Assert-True ($actual.Count -eq 8) "ssh status should pass a single shell runner."
 
             Invoke-Checked $entryFile @("status", "ssh") 0 "status ssh"
             $actual = Read-MockWslArgs $argsFile
-            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "status ssh root script prefix"
+            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl01", "-u", "root", "--", "sh", "-lc") "status ssh root script prefix"
             Assert-True ($actual.Count -eq 8) "status ssh should pass a single shell runner."
 
             Invoke-Checked $entryFile @("status", "systemd") 0 "status systemd"
             $actual = Read-MockWslArgs $argsFile
-            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "status systemd root script prefix"
+            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl01", "-u", "root", "--", "sh", "-lc") "status systemd root script prefix"
             Assert-True ($actual.Count -eq 8) "status systemd should pass a single shell runner."
 
             Invoke-Checked $entryFile @("ctl", "systemd", "status") 0 "ctl systemd status"
             $actual = Read-MockWslArgs $argsFile
-            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl.1", "-u", "root", "--", "sh", "-lc") "ctl systemd status root script prefix"
+            Assert-ArrayEqual @($actual[0..6]) @("-d", "wsl01", "-u", "root", "--", "sh", "-lc") "ctl systemd status root script prefix"
             Assert-True ($actual.Count -eq 8) "ctl systemd status should pass a single shell runner."
         } else {
-            Write-Host "ssh/systemd status skipped: wsl.1 is not installed" -ForegroundColor Yellow
+            Write-Host "ssh/systemd status skipped: wsl01 is not installed" -ForegroundColor Yellow
         }
     } finally {
         $env:PATH = $oldPath
@@ -432,6 +505,9 @@ try {
         $env:MOCK_WSL_EXIT_CODE = $oldExitCode
         if ($sshEnableEntryFile -and (Test-Path -LiteralPath $sshEnableEntryFile)) {
             Remove-Item -LiteralPath $sshEnableEntryFile -Force
+        }
+        if ($restoreEntryFile -and (Test-Path -LiteralPath $restoreEntryFile)) {
+            Remove-Item -LiteralPath $restoreEntryFile -Force
         }
         if (Test-Path -LiteralPath $tempRoot) {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force

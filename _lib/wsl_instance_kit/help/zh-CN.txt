@@ -13,8 +13,10 @@ version 1.0
   {{COMMAND}} ctl install --fallback 同ctl install 但不依赖 GitHub 资源   (wsl --install --from-file)
   {{COMMAND}} ctl install dir       打开此实例 Windows 安装目录
   {{COMMAND}} ctl backup            按 {WSL_export_format} 在备份目录导出 (wsl --export)
+  {{COMMAND}} ctl backup list       列出此实例备份目录中的归档
   {{COMMAND}} ctl backup dir        打开此实例备份目录
   {{COMMAND}} ctl export D:\x.tar   按 {WSL_export_format} 导出到指定路径 (wsl --export)
+  {{COMMAND}} ctl restore D:\x.tar  从归档还原/重建此实例                 (wsl --import)
   {{COMMAND}} ctl downloads dir     打开 fallback 镜像缓存目录
   {{COMMAND}} ctl config dir        打开实例级配置 wsl.conf 所在目录      (explorer \\wsl...)
   {{COMMAND}} ctl user ensure       创建/确认 {WSL_user} 用户已存在       (wsl .. -- sh -lc useradd/adduser)

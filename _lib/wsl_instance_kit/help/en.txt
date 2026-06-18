@@ -13,8 +13,10 @@ version 1.0
   {{COMMAND}} ctl install --fallback Same as ctl install without GitHub resources  (wsl --install --from-file)
   {{COMMAND}} ctl install dir       Open this instance's Windows install directory
   {{COMMAND}} ctl backup            Export to the backup directory as {WSL_export_format} (wsl --export)
+  {{COMMAND}} ctl backup list       List archives in this instance's backup directory
   {{COMMAND}} ctl backup dir        Open this instance's backup directory
   {{COMMAND}} ctl export D:\x.tar   Export to a specified path as {WSL_export_format} (wsl --export)
+  {{COMMAND}} ctl restore D:\x.tar  Restore/rebuild this instance from the archive (wsl --import)
   {{COMMAND}} ctl downloads dir     Open the fallback image cache directory
   {{COMMAND}} ctl config dir        Open the instance-level wsl.conf directory     (explorer \\wsl...)
   {{COMMAND}} ctl user ensure       Create/confirm that {WSL_user} exists          (wsl .. -- sh -lc useradd/adduser)

@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "live.lib.ps1")
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryTemplate = Join-Path $repoRoot "wsl.1.cmd"
+$entryTemplate = Join-Path $repoRoot "wsl01.cmd"
 $liveRoot = Join-Path $repoRoot "data\wsl.live"
 $liveBackupRoot = Join-Path $repoRoot "data\wsl.live.backup"
 
@@ -141,6 +141,8 @@ function Test-ExportRoundTrip {
 
     $backupPath = Get-NewBackupFile $EntryFile $BackupDir $Source
     Write-Host "Backup file: $backupPath" -ForegroundColor Green
+    $backupList = Invoke-LiveCommand $EntryFile @("ctl", "backup", "list") 0 "backup list $Source"
+    Assert-True (($backupList.Output -join "`n").Contains((Split-Path -Leaf $backupPath))) "Expected ctl backup list to include $backupPath"
 
     $exportPath = Join-Path $BackupDir ("Export_{0}.tar" -f $Name)
     if (Test-Path -LiteralPath $exportPath) {
@@ -160,7 +162,7 @@ function Test-ExportRoundTrip {
         Remove-SafeDirectory $restoreInstallDir $liveRoot
         Remove-SafeDirectory $restoreBackupDir $liveBackupRoot
 
-        Invoke-LiveCommand $restoreEntryFile @("ctl", "install") 0 "restore install from export $Source" | Out-Null
+        Invoke-LiveCommand $restoreEntryFile @("ctl", "restore", $backupPath) 0 "restore from backup $Source" | Out-Null
         Assert-LiveMarker $restoreName $markerContent "verify marker after restore $Source"
 
         if ($Keep) {

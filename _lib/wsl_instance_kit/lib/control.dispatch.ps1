@@ -88,6 +88,9 @@ function Invoke-Control {
         "export" {
             return Export-WslResource $tail
         }
+        "restore" {
+            return Restore-WslResource $tail
+        }
         { $_ -in @("download", "downloads") } {
             return Invoke-DownloadControl -Rest $tail -Verb $action
         }
