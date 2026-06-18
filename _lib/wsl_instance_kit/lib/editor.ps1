@@ -173,7 +173,7 @@ function Open-WslSettings {
 
     $expected = Get-WslSettingsExpectedPath
     Write-Fail "WSL Settings app not found: $expected"
-    Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) vm settings"
+    Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) vm"
     return 1
 }
 
@@ -185,6 +185,6 @@ function Open-WslWelcome {
 
     $expected = Get-WslSettingsExpectedPath
     Write-Fail "WSL Settings app not found: $expected"
-    Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) vm welcome"
+    Write-Fail "Install or update WSL, then try: $($script:Config.CommandName) vm show"
     return 1
 }

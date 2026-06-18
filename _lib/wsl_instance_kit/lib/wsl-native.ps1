@@ -1,10 +1,30 @@
 function Get-WslDistributionRecord {
+    $items = @(Get-WslDistributionRecords)
+    return @($items | Where-Object { $_.DistributionName -eq $script:Config.Name } | Select-Object -First 1)[0]
+}
+
+function Get-WslDistributionRecords {
     try {
         $items = Get-ItemProperty -Path "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Lxss\*" -ErrorAction SilentlyContinue
-        return @($items | Where-Object { $_.DistributionName -eq $script:Config.Name } | Select-Object -First 1)[0]
+        return @($items | Where-Object { -not [string]::IsNullOrWhiteSpace($_.DistributionName) })
     } catch {
-        return $null
+        return @()
     }
+}
+
+function Get-WslInstalledDistributionNames {
+    return @((Get-WslDistributionRecords) | ForEach-Object { [string]$_.DistributionName })
+}
+
+function Get-WslInstalledDistributionNameSet {
+    $set = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in @(Get-WslInstalledDistributionNames)) {
+        if (-not [string]::IsNullOrWhiteSpace($name)) {
+            [void]$set.Add($name)
+        }
+    }
+
+    return $set
 }
 
 function Get-WslBaseArgs {

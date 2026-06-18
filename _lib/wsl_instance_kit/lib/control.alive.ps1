@@ -302,12 +302,17 @@ function Get-WslAliveTaskSpecFromXml {
     if ($description -match '(?:^|;\s*)seconds=(?<seconds>\d+)') {
         [void][long]::TryParse($Matches["seconds"], [ref]$seconds)
     }
+    $wslName = ""
+    if ($description -match '(?:^|;\s*)wsl=(?<wsl>[^;]+)') {
+        $wslName = $Matches["wsl"].Trim()
+    }
 
     return [pscustomobject]@{
         Mode        = $mode
         Seconds     = $seconds
         Label       = Format-WslAliveTaskMode -Mode $mode -Seconds $seconds
         Description = $description
+        WslName     = $wslName
     }
 }
 
@@ -319,10 +324,7 @@ function Format-WslAliveTaskMode {
 
     switch ($Mode) {
         "logon" {
-            return "forever, auto-start at current-user logon"
-        }
-        "forever" {
-            return "forever"
+            return "auto-start at current-user logon"
         }
         "duration" {
             if ($Seconds -ge 0) {
@@ -381,8 +383,28 @@ function Test-WslAliveDurationTaskExpired {
     return ($State -ine "Running")
 }
 
+function Test-WslAliveTaskMissingInstance {
+    param(
+        [AllowNull()] [pscustomobject]$Spec,
+        [AllowNull()] [object]$InstalledNames
+    )
+
+    if ($null -eq $Spec -or [string]::IsNullOrWhiteSpace($Spec.WslName)) {
+        return $false
+    }
+
+    if ($null -eq $InstalledNames) {
+        $InstalledNames = Get-WslInstalledDistributionNameSet
+    }
+
+    return (-not $InstalledNames.Contains($Spec.WslName))
+}
+
 function Get-WslAliveTaskInfoByName {
-    param([string]$TaskName)
+    param(
+        [string]$TaskName,
+        [AllowNull()] [object]$InstalledNames
+    )
 
     $taskFullName = "$(Get-WslAliveTaskPath)$TaskName"
     $xml = Get-WslAliveTaskXmlByFullName $taskFullName
@@ -390,7 +412,7 @@ function Get-WslAliveTaskInfoByName {
     $spec = if ($exists) { Get-WslAliveTaskSpecFromXml $xml } else { $null }
     $state = if ($exists) { Get-WslAliveTaskStateByName $TaskName } else { "absent" }
 
-    if (Test-WslAliveDurationTaskExpired -Spec $spec -State $state) {
+    if ((Test-WslAliveDurationTaskExpired -Spec $spec -State $state) -or (Test-WslAliveTaskMissingInstance -Spec $spec -InstalledNames $InstalledNames)) {
         [void](Remove-WslAliveTaskByFullName $taskFullName -Quiet)
         $exists = $false
         $state = "absent"
@@ -570,101 +592,6 @@ function Disable-WslAliveSettings {
     Write-Host "Disabled WSL alive settings."
     Write-Host "  Task: removed or already absent $((Get-WslAliveTaskIdentity).Full)"
     return 0
-}
-
-function Get-WslAliveAllTaskInfos {
-    $items = New-Object System.Collections.ArrayList
-    try {
-        $tasks = @(Get-ScheduledTask -TaskPath (Get-WslAliveTaskPath) -ErrorAction Stop | Where-Object {
-            $_.TaskName -like "alive_*"
-        } | Sort-Object -Property TaskName)
-    } catch {
-        return @()
-    }
-
-    foreach ($task in $tasks) {
-        $info = Get-WslAliveTaskInfoByName $task.TaskName
-        if ($info.Exists) {
-            [void]$items.Add($info)
-        }
-    }
-
-    return @($items)
-}
-
-function Show-WslVmAliveList {
-    param([string[]]$Rest)
-
-    if ($Rest.Count -ne 0) {
-        return Show-CommandHelpHint "vm alive list does not accept extra arguments."
-    }
-
-    $items = @(Get-WslAliveAllTaskInfos)
-    Write-Host "WSL alive tasks: current Windows user"
-    if ($items.Count -eq 0) {
-        Write-Host "  (none)"
-        return 0
-    }
-
-    foreach ($item in $items) {
-        $label = if ($null -ne $item.Spec) { $item.Spec.Label } else { "unknown" }
-        Write-Host ("  {0,-28} {1,-42} {2}" -f $item.TaskName, $label, $item.State)
-    }
-
-    return 0
-}
-
-function Disable-WslVmAliveTask {
-    param([string[]]$Rest)
-
-    if ($Rest.Count -ne 1 -or [string]::IsNullOrWhiteSpace($Rest[0])) {
-        return Show-CommandHelpHint "vm alive off requires a task name shown by vm alive list."
-    }
-
-    $taskName = $Rest[0].Trim()
-    if ($taskName -notmatch '^alive_[A-Za-z0-9_.-]+$') {
-        Write-Fail "Invalid alive task name: $taskName"
-        Write-Fail "Run vm alive list and pass one of the displayed task names."
-        return 1
-    }
-
-    $items = @(Get-WslAliveAllTaskInfos)
-    $match = @($items | Where-Object { $_.TaskName -eq $taskName } | Select-Object -First 1)
-    if ($match.Count -eq 0) {
-        Write-Fail "Alive task not found: $taskName"
-        Write-Fail "Run vm alive list and pass one of the displayed task names."
-        return 1
-    }
-
-    $exitCode = Remove-WslAliveTaskByFullName $match[0].Name -Quiet
-    if ($exitCode -ne 0) {
-        return $exitCode
-    }
-
-    Write-Host "Disabled WSL alive task: $taskName"
-    return 0
-}
-
-function Invoke-WslVmAlive {
-    param([string[]]$Rest)
-
-    if ($Rest.Count -eq 0) {
-        return Show-CommandHelpHint "vm alive requires list or off."
-    }
-
-    $action = $Rest[0].ToLowerInvariant()
-    $tail = @(Get-Slice $Rest 1)
-    switch ($action) {
-        "list" {
-            return Show-WslVmAliveList $tail
-        }
-        "off" {
-            return Disable-WslVmAliveTask $tail
-        }
-        default {
-            return Show-CommandHelpHint "Unknown VM alive command: $action"
-        }
-    }
 }
 
 function Invoke-WslAliveLogon {

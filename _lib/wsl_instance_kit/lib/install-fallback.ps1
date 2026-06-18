@@ -511,7 +511,7 @@ function Resolve-WslFallbackInstallImage {
 
 function Install-WslResourceFallback {
     param(
-        [string[]]$NativeExtra,
+        [string[]]$NativeExtra = @(),
         [switch]$DryRun
     )
 

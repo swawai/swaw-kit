@@ -6,7 +6,7 @@
 set "WSL_name=wsl02"
 set "WSL_user=john"
 
-:: 支持填写 .tar 结尾的文件路径（优先检测）或在线发行版名称 (wsl -l -o 可查看)
+:: 支持填写归档路径（优先检测）或在线发行版名称 (wsl -l -o 可查看)
 :: set "WSL_source=%~dp0wsl.automng\ubuntu-22.backup.tar"
 set "WSL_source=Debian"
 
@@ -18,7 +18,7 @@ set "WSL_source=Debian"
 :: 此实例的最终 Windows 安装目录
 set "WSL_install_dir=%~dp0\data\wsl\%WSL_name%"
 
-:: 默认备份目录，后续 ctl backup / ctl backup list / ctl export 可使用此目录
+:: 默认备份目录，后续 ctl backup / ctl backup <path> / ctl backup list 可使用此目录
 set "WSL_backup_dir=%~dp0\data\wsl.backup\%WSL_name%"
 
 :: 默认 Linux 工作目录。留空或 ~ 表示用户家目录。

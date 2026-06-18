@@ -370,6 +370,7 @@ function Show-WslResourceStatus {
     }
 
     Write-Host "  Alive:               $(Get-WslAliveStatusSummary)"
+    Write-Host "  Port:                $(Get-WslPortStatusSummary)"
     Show-WslStorageStatus $backupDir
     Write-Host "  More status:        $($script:Config.CommandName) status ssh | port | systemd"
 

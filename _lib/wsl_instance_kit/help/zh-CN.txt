@@ -8,31 +8,28 @@ version 1.0
   {{COMMAND}} --help en             Show English help information
 
 # 管理:
-  {{COMMAND}} ctl install           使用 {WSL_source} 安装该实例          (wsl --import 或 wsl --install)
+  {{COMMAND}} ctl install           使用 {WSL_source} 创建/重建此实例     (wsl --import 或 wsl --install)
+  {{COMMAND}} ctl install D:\x.tar  从归档创建/重建此实例                 (wsl --import)
   {{COMMAND}} ctl install --dry-run 预览安装命令，不实际执行
-  {{COMMAND}} ctl install --fallback 同ctl install 但不依赖 GitHub 资源   (wsl --install --from-file)
-  {{COMMAND}} ctl install dir       打开此实例 Windows 安装目录
   {{COMMAND}} ctl backup            按 {WSL_export_format} 在备份目录导出 (wsl --export)
+  {{COMMAND}} ctl backup D:\x.tar   按 {WSL_export_format} 导出到指定路径 (wsl --export)
   {{COMMAND}} ctl backup list       列出此实例备份目录中的归档
-  {{COMMAND}} ctl backup dir        打开此实例备份目录
-  {{COMMAND}} ctl export D:\x.tar   按 {WSL_export_format} 导出到指定路径 (wsl --export)
-  {{COMMAND}} ctl restore D:\x.tar  从归档还原/重建此实例                 (wsl --import)
   {{COMMAND}} ctl alive status      显示保活相关设置状态
   {{COMMAND}} ctl alive 600         让此实例保持后台运行 600 秒           (wsl sleep)
   {{COMMAND}} ctl alive             保持后台运行，当前 Windows 账户下次登录时，还继续
   {{COMMAND}} ctl alive off         关闭 alive 设置
-  {{COMMAND}} ctl downloads dir     打开 fallback 镜像缓存目录
-  {{COMMAND}} ctl config dir        打开实例级配置 wsl.conf 所在目录      (explorer \\wsl...)
+  {{COMMAND}} ctl dir install       打开此实例 Windows 安装目录
+  {{COMMAND}} ctl dir backup        打开此实例备份目录
+  {{COMMAND}} ctl dir downloads     打开 fallback 镜像缓存目录
+  {{COMMAND}} ctl dir config        打开实例级配置 wsl.conf 所在目录      (explorer \\wsl...)
+  {{COMMAND}} ctl dir ssh           打开实例级中 /etc/ssh 配置目录
   {{COMMAND}} ctl user ensure       创建/确认 {WSL_user} 用户已存在       (wsl .. -- sh -lc useradd/adduser)
   {{COMMAND}} ctl user default      将 {WSL_user} 设置为默认用户          (wsl --manage set-default-user)
-  {{COMMAND}} ctl default           将此实例设置为默认实例                (wsl --set-default)
-  {{COMMAND}} ctl terminate         终止此实例                            (wsl --terminate)
-  {{COMMAND}} ctl -t                同上，终止此实例                      (wsl --terminate)
+  {{COMMAND}} ctl -t                终止此实例                            (wsl --terminate)
   {{COMMAND}} ctl systemd status    显示此实例 systemd 状态
   {{COMMAND}} ctl systemd enable    启用此实例 systemd                    (/etc/wsl.conf)
   {{COMMAND}} ctl systemd disable   禁用此实例 systemd                    (/etc/wsl.conf)
   {{COMMAND}} ctl ssh status        显示此实例 SSH 服务状态
-  {{COMMAND}} ctl ssh config        打开实例级中 /etc/ssh 配置目录
   {{COMMAND}} ctl ssh enable 2222   开启 SSH 服务并设置端口               (基于 systemd 托管)
   {{COMMAND}} ctl ssh disable       停止 SSH 并移除配置公钥
   {{COMMAND}} ctl port status       显示端口映射、防火墙和网络模式状态
@@ -42,15 +39,19 @@ version 1.0
   {{COMMAND}} ctl port remove 8080  移除 TCP 8080 的映射与防火墙规则
   {{COMMAND}} ctl port sync         WSL 的IP可能会变(NAT)，此命令可以刷新
   {{COMMAND}} ctl remove --yes      注销并删除此实例                      (wsl --unregister)
+  {{COMMAND}} ctl remove --yes --uac 清理端口策略需管理员权限时，弹出 UAC
 
 # WSL 底层虚拟机管理 (会影响当前 Windows 用户下的所有实例):
+  {{COMMAND}} vm                    打开 WSL Settings 可视化配置程序
   {{COMMAND}} vm status             显示当前用户 WSL VM/全部实例状态
-  {{COMMAND}} vm settings           打开 WSL Settings 可视化配置程序
-  {{COMMAND}} vm welcome            打开 WSL 欢迎/功能介绍页面
-  {{COMMAND}} vm shutdown           关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
-  {{COMMAND}} vm -t                 同 vm shutdown
-  {{COMMAND}} vm alive list         列出当前用户下所有 WSL alive 任务
-  {{COMMAND}} vm alive off ...      删除指定 WSL alive 任务
+  {{COMMAND}} vm show               打开 WSL 欢迎/功能介绍页面
+  {{COMMAND}} vm default            将此实例设置为当前用户默认实例        (wsl --set-default)
+  {{COMMAND}} vm -s                 关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
+  {{COMMAND}} vm alive              列出当前用户下所有 WSL alive 任务，并自动清理失效项
+  {{COMMAND}} vm alive del <task>   删除指定 WSL alive 任务
+  {{COMMAND}} vm port               列出当前用户下所有 WSL 端口策略，并在有权限时自动清理失效项
+  {{COMMAND}} vm port --uac         同上，但会交互式提权
+  {{COMMAND}} vm port del <id>      删除指定 WSL 端口策略                  (需要管理员权限)
 
 # 远程编辑:
   {{COMMAND}} code                  用 VSCode 打开{WSL_default_workdir}   (code --remote=wsl+..)

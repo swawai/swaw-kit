@@ -142,7 +142,15 @@ function Invoke-ControlLayerCommandHint {
         }
 
         $candidateCount += 1
-        if ($tokens[0].ToLowerInvariant() -ne $target) {
+        $prefixMatchesTarget = $false
+        foreach ($item in @($prefix)) {
+            if ($item.ToLowerInvariant() -eq $target) {
+                $prefixMatchesTarget = $true
+                break
+            }
+        }
+
+        if (-not $prefixMatchesTarget) {
             continue
         }
 

@@ -1,5 +1,17 @@
+function ConvertTo-WslPortSafeName {
+    param([AllowNull()] [string]$Value)
+
+    $safe = if ([string]::IsNullOrWhiteSpace($Value)) { "wsl" } else { $Value }
+    $safe = $safe -replace '[^A-Za-z0-9_.-]', '_'
+    if ([string]::IsNullOrWhiteSpace($safe)) {
+        return "wsl"
+    }
+
+    return $safe
+}
+
 function Get-WslPortRulePrefix {
-    $safeName = ($script:Config.Name -replace '[^A-Za-z0-9_.-]', '_')
+    $safeName = ConvertTo-WslPortSafeName $script:Config.Name
     return "wsl_instance_kit-$safeName-port"
 }
 

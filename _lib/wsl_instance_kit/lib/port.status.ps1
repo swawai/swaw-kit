@@ -21,6 +21,7 @@ function Show-WslPortStatus {
 
     $mode = Get-WslConfiguredNetworkingMode
     $record = Get-WslDistributionRecord
+    [void](Invoke-WslPortMissingInstanceCleanup -InstanceName $script:Config.Name -Quiet)
     $runtime = if ($null -eq $record) { $null } else { Get-WslDistributionRuntimeInfo $record }
     $runtimeState = if ($null -eq $runtime -or [string]::IsNullOrWhiteSpace($runtime.State)) { "unknown" } else { $runtime.State }
     $runtimeIp = if ($runtimeState -ieq "Running") { Get-WslRunningIpAddresses $runtimeState } else { "" }

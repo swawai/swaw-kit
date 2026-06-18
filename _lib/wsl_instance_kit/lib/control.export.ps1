@@ -44,7 +44,7 @@ function Test-NoInlineExportFormat {
 
     foreach ($item in @($Rest)) {
         if ($item -ieq "--format") {
-            Write-Fail "Do not pass --format to ctl export/backup. Set WSL_export_format in the entry file instead."
+            Write-Fail "Do not pass --format to ctl backup. Set WSL_export_format in the entry file instead."
             return $false
         }
     }
@@ -55,8 +55,7 @@ function Test-NoInlineExportFormat {
 
 function Export-WslResource {
     param(
-        [string[]]$Rest,
-        [switch]$UseDefaultTarget
+        [string[]]$Rest
     )
 
     if (-not (Test-NoInlineExportFormat $Rest)) {
@@ -68,14 +67,12 @@ function Export-WslResource {
         return 1
     }
 
-    if ($UseDefaultTarget) {
-        if ($Rest.Count -gt 0) {
-            Write-Fail "ctl backup does not accept extra arguments. Set WSL_export_format in the entry file to change backup format."
-            return 1
-        }
+    $useGeneratedTarget = $false
+    if ($Rest.Count -eq 0) {
+        $useGeneratedTarget = $true
         $backupDir = Resolve-EntryPath $script:Config.BackupDir
         if ([string]::IsNullOrWhiteSpace($backupDir)) {
-            Write-Fail "No export path provided and WSL_backup_dir is empty."
+            Write-Fail "No backup path provided and WSL_backup_dir is empty."
             return 1
         }
 
@@ -84,12 +81,16 @@ function Export-WslResource {
         $target = Join-Path $backupDir ("Backup_{0}_{1}.{2}" -f $script:Config.Name, $stamp, $format.Extension)
     } else {
         if ($Rest.Count -ne 1 -or [string]::IsNullOrWhiteSpace($Rest[0])) {
-            Write-Fail "ctl export requires exactly one target path. Set WSL_export_format in the entry file to change format."
+            Write-Fail "ctl backup accepts either no path or exactly one target path. Set WSL_export_format in the entry file to change format."
             return 1
         }
 
         $target = $Rest[0]
         $target = Resolve-OutputPath $target
+        if (-not (Test-WslBackupArchivePath $target)) {
+            Write-Fail "ctl backup target path must end with .tar, .tar.gz, .tar.xz, .tgz, .vhd, or .vhdx."
+            return 1
+        }
         Ensure-Directory (Split-Path -Parent $target)
     }
 
@@ -99,41 +100,11 @@ function Export-WslResource {
     }
 
     $exitCode = Invoke-ControlNativeCommand $nativeArgs
-    if ($exitCode -eq 0 -and $UseDefaultTarget) {
+    if ($exitCode -eq 0 -and $useGeneratedTarget) {
         Write-Host "Backup archive: $target"
     }
 
     return $exitCode
-}
-
-
-function Test-WslBackupArchivePath {
-    param([AllowNull()] [string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return $false
-    }
-
-    $lower = $Path.Trim().ToLowerInvariant()
-    foreach ($suffix in @(".tar", ".tar.gz", ".tar.xz", ".tgz", ".vhd", ".vhdx")) {
-        if ($lower.EndsWith($suffix)) {
-            return $true
-        }
-    }
-
-    return $false
-}
-
-
-function Test-WslVhdArchivePath {
-    param([AllowNull()] [string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return $false
-    }
-
-    $lower = $Path.Trim().ToLowerInvariant()
-    return ($lower.EndsWith(".vhd") -or $lower.EndsWith(".vhdx"))
 }
 
 
@@ -183,128 +154,11 @@ function Show-WslBackupList {
 }
 
 
-function Resolve-WslRestoreArchivePath {
-    param([string]$Path)
-
-    $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim())
-    if ([System.IO.Path]::IsPathRooted($expanded)) {
-        return [System.IO.Path]::GetFullPath($expanded)
-    }
-
-    $candidates = New-Object System.Collections.ArrayList
-    [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path (Get-Location) $expanded)))
-
-    $backupDir = Resolve-EntryPath $script:Config.BackupDir
-    if (-not [string]::IsNullOrWhiteSpace($backupDir)) {
-        [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path $backupDir $expanded)))
-    }
-
-    foreach ($candidate in @($candidates)) {
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            return $candidate
-        }
-    }
-
-    return [string]$candidates[0]
-}
-
-
-function Restore-WslResource {
-    param([string[]]$Rest)
-
-    $dryRun = $false
-    $yes = $false
-    $archiveArgs = New-Object System.Collections.ArrayList
-
-    foreach ($item in @($Rest)) {
-        if ($item -eq "--dry-run") {
-            $dryRun = $true
-            continue
-        }
-
-        if ($item -eq "--yes") {
-            $yes = $true
-            continue
-        }
-
-        if ($item.StartsWith("-")) {
-            Write-Fail "Unknown ctl restore option: $item"
-            return 1
-        }
-
-        [void]$archiveArgs.Add($item)
-    }
-
-    if ($archiveArgs.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$archiveArgs[0])) {
-        Write-Fail "ctl restore requires exactly one backup archive path."
-        return 1
-    }
-
-    $installDir = Resolve-EntryPath $script:Config.InstallDir
-    if ([string]::IsNullOrWhiteSpace($installDir)) {
-        Write-Fail "WSL_install_dir is empty."
-        return 1
-    }
-
-    $archivePath = Resolve-WslRestoreArchivePath ([string]$archiveArgs[0])
-    if (-not (Test-WslBackupArchivePath $archivePath)) {
-        Write-Fail "ctl restore supports .tar, .tar.gz, .tar.xz, .tgz, .vhd, and .vhdx archives."
-        return 1
-    }
-
-    if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
-        Write-Fail "Backup archive not found: $archivePath"
-        return 1
-    }
-
-    $record = Get-WslDistributionRecord
-    $hasExisting = ($null -ne $record)
-    if ($hasExisting -and -not $dryRun -and -not $yes) {
-        Write-Fail "ctl restore would unregister the existing instance '$($script:Config.Name)'. Add --yes to confirm."
-        return 1
-    }
-
-    $importArgs = @("--import", $script:Config.Name, $installDir, $archivePath)
-    if (Test-WslVhdArchivePath $archivePath) {
-        $importArgs += @("--vhd")
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($script:Config.Version)) {
-        $importArgs += @("--version", $script:Config.Version)
-    }
-
-    if ($dryRun) {
-        if ($hasExisting) {
-            Show-NativeCommand "wsl.exe" @("--unregister", $script:Config.Name)
-        }
-        Show-NativeCommand "wsl.exe" $importArgs
-        [void](Ensure-WslConfiguredUser -DryRun -AllowEmpty)
-        return 0
-    }
-
-    if ($hasExisting) {
-        Write-Warn "Unregistering existing WSL instance before restore: $($script:Config.Name)"
-        $removeExit = Invoke-ControlNativeCommand @("--unregister", $script:Config.Name)
-        if ($removeExit -ne 0) {
-            return $removeExit
-        }
-    }
-
-    Ensure-Directory $installDir
-    $importExit = Invoke-ControlNativeCommand $importArgs
-    if ($importExit -ne 0) {
-        return $importExit
-    }
-
-    return (Ensure-WslConfiguredUser -AllowEmpty)
-}
-
-
 function Open-WslBackupDir {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        Write-Fail "ctl backup dir does not accept extra arguments."
+        Write-Fail "ctl dir backup does not accept extra arguments."
         return 1
     }
 
@@ -322,13 +176,9 @@ function Open-WslBackupDir {
 function Invoke-BackupControl {
     param([string[]]$Rest)
 
-    if ($Rest.Count -gt 0 -and $Rest[0].ToLowerInvariant() -eq "dir") {
-        return (Open-WslBackupDir -Rest (Get-Slice $Rest 1))
-    }
-
     if ($Rest.Count -gt 0 -and $Rest[0].ToLowerInvariant() -eq "list") {
         return (Show-WslBackupList -Rest (Get-Slice $Rest 1))
     }
 
-    return (Export-WslResource $Rest -UseDefaultTarget)
+    return (Export-WslResource $Rest)
 }

@@ -185,7 +185,7 @@ function Test-ArchiveSource {
     param([string]$Source)
 
     $lower = $Source.ToLowerInvariant()
-    foreach ($suffix in @(".tar", ".tar.gz", ".tar.xz", ".tgz")) {
+    foreach ($suffix in @(".tar", ".tar.gz", ".tar.xz", ".tgz", ".vhd", ".vhdx")) {
         if ($lower.EndsWith($suffix)) {
             return $true
         }

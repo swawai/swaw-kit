@@ -137,7 +137,7 @@ function Test-ExportRoundTrip {
 
     $markerContent = "source=$Source;name=$Name"
     Write-LiveMarker $Name $Source
-    Invoke-LiveCommand $EntryFile @("ctl", "terminate") 0 "terminate before export $Source" | Out-Null
+    Invoke-LiveCommand $EntryFile @("ctl", "-t") 0 "terminate before backup $Source" | Out-Null
 
     $backupPath = Get-NewBackupFile $EntryFile $BackupDir $Source
     Write-Host "Backup file: $backupPath" -ForegroundColor Green
@@ -148,9 +148,9 @@ function Test-ExportRoundTrip {
     if (Test-Path -LiteralPath $exportPath) {
         Remove-Item -LiteralPath $exportPath -Force
     }
-    Invoke-LiveCommand $EntryFile @("ctl", "export", $exportPath) 0 "explicit export $Source" | Out-Null
-    Assert-True (Test-Path -LiteralPath $exportPath -PathType Leaf) "Expected explicit export file: $exportPath"
-    Assert-True ((Get-Item -LiteralPath $exportPath).Length -gt 0) "Explicit export file is empty: $exportPath"
+    Invoke-LiveCommand $EntryFile @("ctl", "backup", $exportPath) 0 "explicit backup $Source" | Out-Null
+    Assert-True (Test-Path -LiteralPath $exportPath -PathType Leaf) "Expected explicit backup file: $exportPath"
+    Assert-True ((Get-Item -LiteralPath $exportPath).Length -gt 0) "Explicit backup file is empty: $exportPath"
 
     $restoreName = "$Name-restore"
     $restoreEntryFile = New-ScenarioEntryFile $restoreName $exportPath $SshKey.PublicKey
@@ -162,7 +162,7 @@ function Test-ExportRoundTrip {
         Remove-SafeDirectory $restoreInstallDir $liveRoot
         Remove-SafeDirectory $restoreBackupDir $liveBackupRoot
 
-        Invoke-LiveCommand $restoreEntryFile @("ctl", "restore", $backupPath) 0 "restore from backup $Source" | Out-Null
+        Invoke-LiveCommand $restoreEntryFile @("ctl", "install", $backupPath) 0 "install from backup $Source" | Out-Null
         Assert-LiveMarker $restoreName $markerContent "verify marker after restore $Source"
 
         if ($Keep) {
@@ -206,10 +206,10 @@ function Test-LiveDistribution {
         Remove-SafeDirectory $installDir $liveRoot
         Remove-SafeDirectory $backupDir $liveBackupRoot
 
-        Invoke-LiveCommand $entryFile @("ctl", "install", "--fallback") 0 "install fallback $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @("ctl", "install") 0 "install $Source" | Out-Null
         Invoke-LiveCommand $entryFile @("ctl", "user", "default") 0 "set default user $Source" | Out-Null
         Invoke-LiveCommand $entryFile @("ctl", "systemd", "enable") 0 "systemd enable $Source" | Out-Null
-        Invoke-LiveCommand $entryFile @("vm", "shutdown") 0 "vm shutdown after systemd $Source" | Out-Null
+        Invoke-LiveCommand $entryFile @("vm", "-s") 0 "vm -s after systemd $Source" | Out-Null
 
         $packageFamily = Get-PackageFamily $name
         Write-Host "Package manager: $packageFamily" -ForegroundColor Green

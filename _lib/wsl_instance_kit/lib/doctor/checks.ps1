@@ -128,7 +128,7 @@ function Test-WslDoctorEntryConfig {
 
     $backupDir = Resolve-EntryPath $script:Config.BackupDir
     if ([string]::IsNullOrWhiteSpace($backupDir)) {
-        Add-WslDoctorWarn "WSL_backup_dir" "empty; ctl backup needs an explicit export path"
+        Add-WslDoctorWarn "WSL_backup_dir" "empty; ctl backup needs an explicit path"
     } else {
         Add-WslDoctorOk "WSL_backup_dir" $backupDir
     }
@@ -231,13 +231,13 @@ function Test-WslDoctorSource {
 
         $fallbackDownload = Get-WslDoctorFallbackDownload $distributionInfo $source
         if ($null -eq $fallbackDownload) {
-            Add-WslDoctorWarn "ctl install --fallback" "distribution not found in DistributionInfo.json"
+            Add-WslDoctorWarn "install fallback" "distribution not found in DistributionInfo.json"
         } else {
             $detail = "URL: $($fallbackDownload.Url)"
             if (-not [string]::IsNullOrWhiteSpace($fallbackDownload.Sha256)) {
                 $detail = "$detail`nSHA256: $(Normalize-Sha256Text $fallbackDownload.Sha256)"
             }
-            Add-WslDoctorOk "ctl install --fallback" "$($fallbackDownload.Name)" $detail
+            Add-WslDoctorOk "install fallback" "$($fallbackDownload.Name)" $detail
 
             $downloadDir = Get-WslDownloadDir
             $fileName = "{0}_{1}" -f (Get-SafeFileName $fallbackDownload.Name), (Get-FileNameFromUrl $fallbackDownload.Url)
@@ -255,7 +255,7 @@ function Test-WslDoctorSource {
             }
         }
     } else {
-        Add-WslDoctorOk "ctl install --fallback" "not needed for archive source"
+        Add-WslDoctorOk "install fallback" "not needed for archive source"
     }
 
     return [pscustomobject]@{

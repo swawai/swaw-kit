@@ -4,6 +4,7 @@ $libDir = $PSScriptRoot
 . (Join-Path $libDir "control.install.ps1")
 . (Join-Path $libDir "control.export.ps1")
 . (Join-Path $libDir "control.alive.ps1")
+. (Join-Path $libDir "control.alive.vm.ps1")
 . (Join-Path $libDir "control.download.ps1")
 . (Join-Path $libDir "control.doctor.ps1")
 . (Join-Path $libDir "control.dispatch.ps1")

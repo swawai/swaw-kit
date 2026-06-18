@@ -2,7 +2,7 @@ function Open-WslInstallDir {
     param([string[]]$Rest)
 
     if ($Rest.Count -ne 0) {
-        Write-Fail "ctl install dir does not accept extra arguments."
+        Write-Fail "ctl dir install does not accept extra arguments."
         return 1
     }
 
@@ -16,86 +16,200 @@ function Open-WslInstallDir {
     return (Open-WindowsFolder $installDir)
 }
 
+function Resolve-WslInstallArchivePath {
+    param([string]$Path)
+
+    $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim())
+    if ([System.IO.Path]::IsPathRooted($expanded)) {
+        return [System.IO.Path]::GetFullPath($expanded)
+    }
+
+    $candidates = New-Object System.Collections.ArrayList
+    [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path (Get-Location) $expanded)))
+
+    $backupDir = Resolve-EntryPath $script:Config.BackupDir
+    if (-not [string]::IsNullOrWhiteSpace($backupDir)) {
+        [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path $backupDir $expanded)))
+    }
+
+    foreach ($candidate in @($candidates)) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+
+    return [string]$candidates[0]
+}
+
+function New-WslImportArgs {
+    param(
+        [string]$InstallDir,
+        [string]$ArchivePath
+    )
+
+    $importArgs = @("--import", $script:Config.Name, $InstallDir, $ArchivePath)
+    if (Test-WslVhdArchivePath $ArchivePath) {
+        $importArgs += @("--vhd")
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($script:Config.Version)) {
+        $importArgs += @("--version", $script:Config.Version)
+    }
+
+    return $importArgs
+}
+
+function Install-WslResourceFromArchive {
+    param(
+        [string]$ArchivePath,
+        [switch]$DryRun,
+        [switch]$Yes
+    )
+
+    $installDir = Resolve-EntryPath $script:Config.InstallDir
+    if ([string]::IsNullOrWhiteSpace($installDir)) {
+        Write-Fail "WSL_install_dir is empty."
+        return 1
+    }
+
+    if (-not (Test-WslBackupArchivePath $ArchivePath)) {
+        Write-Fail "ctl install supports .tar, .tar.gz, .tar.xz, .tgz, .vhd, and .vhdx archives."
+        return 1
+    }
+
+    if (-not (Test-Path -LiteralPath $ArchivePath -PathType Leaf)) {
+        Write-Fail "Install archive not found: $ArchivePath"
+        return 1
+    }
+
+    $record = Get-WslDistributionRecord
+    $hasExisting = ($null -ne $record)
+    if ($hasExisting -and -not $DryRun -and -not $Yes) {
+        Write-Fail "ctl install would unregister the existing instance '$($script:Config.Name)'. Add --yes to rebuild it."
+        return 1
+    }
+
+    $importArgs = New-WslImportArgs -InstallDir $installDir -ArchivePath $ArchivePath
+
+    if ($DryRun) {
+        if ($hasExisting) {
+            Show-NativeCommand "wsl.exe" @("--unregister", $script:Config.Name)
+        }
+        Show-NativeCommand "wsl.exe" $importArgs
+        [void](Ensure-WslConfiguredUser -DryRun -AllowEmpty)
+        return 0
+    }
+
+    if ($hasExisting) {
+        Write-Warn "Unregistering existing WSL instance before install: $($script:Config.Name)"
+        $removeExit = Invoke-ControlNativeCommand @("--unregister", $script:Config.Name)
+        if ($removeExit -ne 0) {
+            return $removeExit
+        }
+    }
+
+    Ensure-Directory $installDir
+    $importExit = Invoke-ControlNativeCommand $importArgs
+    if ($importExit -ne 0) {
+        return $importExit
+    }
+
+    return (Ensure-WslConfiguredUser -AllowEmpty)
+}
 
 function Install-WslResource {
     param([string[]]$Rest)
 
-    $dryRun = $Rest -contains "--dry-run"
-    $fallback = $Rest -contains "--fallback"
-    if ($fallback -and ($Rest -contains "--refresh")) {
-        Write-Fail "ctl install --fallback --refresh has been removed. Cached fallback images are verified by SHA256 and re-downloaded automatically when invalid."
-        return 1
-    }
-
-    $nativeExtra = New-Object System.Collections.ArrayList
+    $dryRun = $false
+    $yes = $false
+    $sourceArgs = New-Object System.Collections.ArrayList
     foreach ($item in @($Rest)) {
-        if ($null -eq $item -or $item -in @("--dry-run", "--fallback")) {
+        if ($null -eq $item) {
             continue
         }
 
-        [void]$nativeExtra.Add($item)
+        if ($item -eq "--dry-run") {
+            $dryRun = $true
+            continue
+        }
+
+        if ($item -eq "--yes") {
+            $yes = $true
+            continue
+        }
+
+        if ($item.StartsWith("-")) {
+            Write-Fail "Unknown ctl install option: $item"
+            return 1
+        }
+
+        [void]$sourceArgs.Add($item)
     }
 
-    if ($fallback) {
-        return (Install-WslResourceFallback @($nativeExtra) -DryRun:$dryRun)
+    if ($sourceArgs.Count -gt 1) {
+        Write-Fail "ctl install accepts at most one archive path."
+        return 1
+    }
+
+    if ($sourceArgs.Count -eq 1) {
+        $archivePath = Resolve-WslInstallArchivePath ([string]$sourceArgs[0])
+        return (Install-WslResourceFromArchive -ArchivePath $archivePath -DryRun:$dryRun -Yes:$yes)
     }
 
     $source = Resolve-WslSource $script:Config.Source
-    $installDir = Resolve-EntryPath $script:Config.InstallDir
-
     if ([string]::IsNullOrWhiteSpace($source)) {
-        Write-Fail "WSL_source is empty. Set it to a .tar path or an online distro name."
+        Write-Fail "WSL_source is empty. Set it to an archive path or an online distro name."
         return 1
     }
+
+    if (Test-ArchiveSource $source) {
+        return (Install-WslResourceFromArchive -ArchivePath $source -DryRun:$dryRun -Yes:$yes)
+    }
+
+    $installDir = Resolve-EntryPath $script:Config.InstallDir
 
     if ([string]::IsNullOrWhiteSpace($installDir)) {
         Write-Fail "WSL_install_dir is empty."
         return 1
     }
 
-    if (Test-ArchiveSource $source) {
-        $nativeArgs = @("--import", $script:Config.Name, $installDir, $source)
-        if (-not [string]::IsNullOrWhiteSpace($script:Config.Version)) {
-            $nativeArgs += @("--version", $script:Config.Version)
-        }
-        $directoryToEnsure = $installDir
-    } else {
-        $parentDir = Split-Path -Parent $installDir
-        $nativeArgs = @("--install", $source, "--name", $script:Config.Name, "--location", $installDir, "--no-launch")
-        if (-not [string]::IsNullOrWhiteSpace($script:Config.Version)) {
-            $nativeArgs += @("--version", $script:Config.Version)
-        }
-        $directoryToEnsure = $parentDir
+    $record = Get-WslDistributionRecord
+    $hasExisting = ($null -ne $record)
+    if ($hasExisting -and -not $dryRun -and -not $yes) {
+        Write-Fail "ctl install would unregister the existing instance '$($script:Config.Name)'. Add --yes to rebuild it."
+        return 1
     }
 
-    $nativeArgs += @($nativeExtra)
+    $parentDir = Split-Path -Parent $installDir
+    $nativeArgs = @("--install", $source, "--name", $script:Config.Name, "--location", $installDir, "--no-launch")
+    if (-not [string]::IsNullOrWhiteSpace($script:Config.Version)) {
+        $nativeArgs += @("--version", $script:Config.Version)
+    }
 
     if ($dryRun) {
+        if ($hasExisting) {
+            Show-NativeCommand "wsl.exe" @("--unregister", $script:Config.Name)
+        }
         Show-NativeCommand "wsl.exe" $nativeArgs
+        Write-Host "If native install fails, ctl install will automatically try fallback install from DistributionInfo.json."
         [void](Ensure-WslConfiguredUser -DryRun -AllowEmpty)
         return 0
     }
 
-    Ensure-Directory $directoryToEnsure
+    if ($hasExisting) {
+        Write-Warn "Unregistering existing WSL instance before install: $($script:Config.Name)"
+        $removeExit = Invoke-ControlNativeCommand @("--unregister", $script:Config.Name)
+        if ($removeExit -ne 0) {
+            return $removeExit
+        }
+    }
+
+    Ensure-Directory $parentDir
     $exitCode = Invoke-External "wsl.exe" $nativeArgs
     if ($exitCode -ne 0) {
-        if (-not (Test-ArchiveSource $source)) {
-            Write-Warn "Native wsl --install failed. You can try the explicit fallback path:"
-            Write-Warn "  $($script:Config.CommandName) ctl install --fallback"
-        }
-        return $exitCode
+        Write-Warn "Native wsl --install failed. Trying fallback install..."
+        return (Install-WslResourceFallback)
     }
 
     return (Ensure-WslConfiguredUser -AllowEmpty)
-}
-
-
-function Invoke-InstallControl {
-    param([string[]]$Rest)
-
-    if ($Rest.Count -gt 0 -and $Rest[0].ToLowerInvariant() -eq "dir") {
-        return (Open-WslInstallDir -Rest (Get-Slice $Rest 1))
-    }
-
-    return (Install-WslResource $Rest)
 }

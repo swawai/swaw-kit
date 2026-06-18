@@ -1,6 +1,10 @@
 function Get-WslManagedWindowsFirewallRules {
     $prefix = Get-WslPortRulePrefix
-    return @(Get-NetFirewallRule -Name "$prefix-*" -ErrorAction SilentlyContinue)
+    try {
+        return @(Get-NetFirewallRule -Name "$prefix-*" -ErrorAction SilentlyContinue)
+    } catch {
+        return @()
+    }
 }
 
 
@@ -10,7 +14,33 @@ function Get-WslManagedHyperVFirewallRules {
     }
 
     $prefix = Get-WslPortRulePrefix
-    return @(Get-NetFirewallHyperVRule -Name "$prefix-*" -ErrorAction SilentlyContinue)
+    try {
+        return @(Get-NetFirewallHyperVRule -Name "$prefix-*" -ErrorAction SilentlyContinue)
+    } catch {
+        return @()
+    }
+}
+
+
+function Get-WslAllManagedWindowsFirewallRules {
+    try {
+        return @(Get-NetFirewallRule -Name "wsl_instance_kit-*-port-*" -ErrorAction SilentlyContinue)
+    } catch {
+        return @()
+    }
+}
+
+
+function Get-WslAllManagedHyperVFirewallRules {
+    if (-not (Get-Command Get-NetFirewallHyperVRule -ErrorAction SilentlyContinue)) {
+        return @()
+    }
+
+    try {
+        return @(Get-NetFirewallHyperVRule -Name "wsl_instance_kit-*-port-*" -ErrorAction SilentlyContinue)
+    } catch {
+        return @()
+    }
 }
 
 
@@ -89,4 +119,3 @@ function Set-WslHyperVFirewallRule {
     New-NetFirewallHyperVRule -Name $ruleName -DisplayName $displayName -Direction Inbound -VMCreatorId $creatorId -Protocol $Protocol.ToUpperInvariant() -LocalPorts @([string]$ListenPort) -Action Allow -Enabled True | Out-Null
     return 0
 }
-

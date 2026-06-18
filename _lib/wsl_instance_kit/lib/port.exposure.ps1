@@ -10,8 +10,17 @@ function Remove-WslPortRules {
         return 1
     }
 
-    $exitCode = Remove-WslNatPortProxy -ListenPort $ListenPort -ListenAddress $ListenAddress -DryRun:$DryRun
     $ruleName = Get-WslPortRuleName $Protocol $ListenPort
+    $windowsRule = if ($DryRun) { $null } else { Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue }
+    $hyperVRule = $null
+    if (-not $DryRun -and (Get-Command Get-NetFirewallHyperVRule -ErrorAction SilentlyContinue)) {
+        $hyperVRule = Get-NetFirewallHyperVRule -Name $ruleName -ErrorAction SilentlyContinue
+    }
+    $removePortProxy = $DryRun -or $null -ne $windowsRule -or $null -eq $hyperVRule
+    $exitCode = 0
+    if ($removePortProxy) {
+        $exitCode = Remove-WslNatPortProxy -ListenPort $ListenPort -ListenAddress $ListenAddress -DryRun:$DryRun
+    }
 
     if ($DryRun) {
         Write-Host "Remove-NetFirewallRule -Name $ruleName"
@@ -150,12 +159,12 @@ function Add-WslPortExposure {
         }
         "virtioproxy" {
             Write-Fail "WSL networkingMode=virtioproxy is not supported by ctl port automation yet."
-            Write-Fail "Use vm settings to switch to NAT or mirrored for managed exposure."
+            Write-Fail "Use vm to switch to NAT or mirrored for managed exposure."
             return 1
         }
         "bridged" {
             Write-Fail "WSL networkingMode=bridged is deprecated and is not managed by ctl port."
-            Write-Fail "Use vm settings to switch to NAT or mirrored."
+            Write-Fail "Use vm to switch to NAT or mirrored."
             return 1
         }
         default {

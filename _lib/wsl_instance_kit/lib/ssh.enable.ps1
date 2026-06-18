@@ -344,14 +344,14 @@ start_ssh_service() {
 
     echo "systemd is not active in this WSL instance." >&2
     echo "Run: $($script:Config.CommandName) ctl systemd enable" >&2
-    echo "Then restart WSL: $($script:Config.CommandName) vm shutdown" >&2
+    echo "Then restart WSL: $($script:Config.CommandName) vm -s" >&2
     exit 1
 }
 
 ensure_openssh_server
 if ! has_systemd; then
     echo "systemd is not active in this WSL instance." >&2
-    echo "Restart WSL, then run ctl ssh enable again: $($script:Config.CommandName) vm shutdown" >&2
+    echo "Restart WSL, then run ctl ssh enable again: $($script:Config.CommandName) vm -s" >&2
     exit 1
 fi
 port="`$port_input"

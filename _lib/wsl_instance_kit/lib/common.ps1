@@ -234,13 +234,41 @@ function Test-WindowsPathLike {
     }
 
     $lower = $trimmed.ToLowerInvariant()
-    foreach ($suffix in @(".tar", ".tar.gz", ".tar.xz", ".tgz")) {
+    foreach ($suffix in @(".tar", ".tar.gz", ".tar.xz", ".tgz", ".vhd", ".vhdx")) {
         if ($lower.EndsWith($suffix)) {
             return $true
         }
     }
 
     return $false
+}
+
+function Test-WslBackupArchivePath {
+    param([AllowNull()] [string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    $lower = $Path.Trim().ToLowerInvariant()
+    foreach ($suffix in @(".tar", ".tar.gz", ".tar.xz", ".tgz", ".vhd", ".vhdx")) {
+        if ($lower.EndsWith($suffix)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-WslVhdArchivePath {
+    param([AllowNull()] [string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $false
+    }
+
+    $lower = $Path.Trim().ToLowerInvariant()
+    return ($lower.EndsWith(".vhd") -or $lower.EndsWith(".vhdx"))
 }
 
 function Resolve-EntryPath {
