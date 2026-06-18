@@ -17,6 +17,10 @@ version 1.0
   {{COMMAND}} ctl backup dir        Open this instance's backup directory
   {{COMMAND}} ctl export D:\x.tar   Export to a specified path as {WSL_export_format} (wsl --export)
   {{COMMAND}} ctl restore D:\x.tar  Restore/rebuild this instance from the archive (wsl --import)
+  {{COMMAND}} ctl alive status      Show alive-related setting status
+  {{COMMAND}} ctl alive 600         Keep this instance running in the background for 600 seconds (wsl sleep)
+  {{COMMAND}} ctl alive             Keep alive now and after current-user logon
+  {{COMMAND}} ctl alive off         Disable alive settings
   {{COMMAND}} ctl downloads dir     Open the fallback image cache directory
   {{COMMAND}} ctl config dir        Open the instance-level wsl.conf directory     (explorer \\wsl...)
   {{COMMAND}} ctl user ensure       Create/confirm that {WSL_user} exists          (wsl .. -- sh -lc useradd/adduser)
@@ -45,6 +49,8 @@ version 1.0
   {{COMMAND}} vm welcome            Open the WSL welcome/feature introduction page
   {{COMMAND}} vm shutdown           Shut down the current user's WSL2 VM/all instances (wsl --shutdown)
   {{COMMAND}} vm -t                 Same as vm shutdown
+  {{COMMAND}} vm alive list         List all WSL alive tasks for the current user
+  {{COMMAND}} vm alive off ...      Delete the specified WSL alive task
 
 # Remote editing:
   {{COMMAND}} code                  Open {WSL_default_workdir} with VS Code        (code --remote=wsl+..)

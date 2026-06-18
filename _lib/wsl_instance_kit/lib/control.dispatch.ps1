@@ -49,6 +49,9 @@ function Invoke-VmControl {
 
             return Open-WslWelcome
         }
+        "alive" {
+            return Invoke-WslVmAlive $tail
+        }
         default {
             return Show-CommandHelpHint "Unknown VM command: $action"
         }
@@ -90,6 +93,9 @@ function Invoke-Control {
         }
         "restore" {
             return Restore-WslResource $tail
+        }
+        "alive" {
+            return Invoke-WslAlive $tail
         }
         { $_ -in @("download", "downloads") } {
             return Invoke-DownloadControl -Rest $tail -Verb $action
@@ -185,6 +191,10 @@ function Invoke-Control {
         "remove" {
             if (-not (Require-Yes "$Verb remove" $tail)) {
                 return 1
+            }
+            $aliveExit = Remove-WslAliveTask -Quiet
+            if ($aliveExit -ne 0) {
+                return $aliveExit
             }
             $nativeArgs = @("--unregister", $script:Config.Name)
             return (Invoke-ControlNativeCommand $nativeArgs)

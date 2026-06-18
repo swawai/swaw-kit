@@ -150,6 +150,15 @@ function Read-MockWslArgs {
     })
 }
 
+function Assert-MockWslNotCalled {
+    param(
+        [string]$Path,
+        [string]$Label
+    )
+
+    Assert-True (-not (Test-Path -LiteralPath $Path)) "$Label should not call wsl.exe."
+}
+
 function Get-FreeTcpPort {
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     try {
@@ -280,6 +289,7 @@ try {
     Assert-True ($statusOutput.Contains("Backup size:")) "status should show instance backup size."
     Assert-True ($statusOutput.Contains("Backup root size:")) "status should show backup root size."
     Assert-True ($statusOutput.Contains("Download cache size:")) "status should show download cache size."
+    Assert-True ($statusOutput.Contains("Alive:")) "status should show alive summary."
     Assert-True ($statusOutput.Contains("More status:")) "status should show sub-status shortcuts."
     Assert-True ($statusOutput.Contains("status ssh | port | systemd")) "status should mention status subcommands."
     Invoke-Checked $entryFile @("doctor", "extra") 1 "reject doctor extra args"
@@ -335,6 +345,7 @@ try {
     $tempRoot = Join-Path $env:TEMP ("wslkit-smoke-" + [guid]::NewGuid().ToString("N"))
     $argsFile = Join-Path $tempRoot "args.txt"
     $oldPath = $env:PATH
+    $oldAppData = $env:APPDATA
     $oldArgsPath = $env:MOCK_WSL_ARGS_PATH
     $oldExitCode = $env:MOCK_WSL_EXIT_CODE
     $sshEnableEntryFile = $null
@@ -342,7 +353,11 @@ try {
 
     try {
         $shimDir = New-MockWsl $tempRoot
+        $tempAppData = Join-Path $tempRoot "appdata"
+        New-Item -ItemType Directory -Path $tempAppData -Force | Out-Null
+
         $env:PATH = "$shimDir;$oldPath"
+        $env:APPDATA = $tempAppData
         $env:MOCK_WSL_ARGS_PATH = $argsFile
 
         $cmdLine = 'call "{0}" alpha "" "two words" omega' -f $entryFile
@@ -376,6 +391,12 @@ try {
         Assert-True ($configHintOutput.Contains("wsl01 -- config")) "bare config should show explicit passthrough."
         Assert-True (-not (Test-Path -LiteralPath $argsFile)) "bare config should not passthrough to wsl.exe."
 
+        Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+        $aliveHintOutput = Invoke-Captured $entryFile @("alive", "600") 1 "hint missing ctl alive"
+        Assert-True ($aliveHintOutput.Contains("wsl01 ctl alive 600")) "bare alive should suggest ctl alive."
+        Assert-True ($aliveHintOutput.Contains("wsl01 -- alive 600")) "bare alive should show explicit passthrough."
+        Assert-MockWslNotCalled $argsFile "bare alive"
+
         Invoke-Checked $entryFile @("-u", "root", "--", "whoami") 0 "passthrough native option"
         $actual = Read-MockWslArgs $argsFile
         Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "-u", "root", "--", "whoami") "passthrough native option"
@@ -383,6 +404,35 @@ try {
         Invoke-Checked $entryFile @("--", "ssh") 0 "explicit passthrough control-looking command"
         $actual = Read-MockWslArgs $argsFile
         Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "--", "ssh") "explicit passthrough control-looking command"
+
+        Invoke-Checked $entryFile @("ctl", "alive", "-1") 1 "reject negative alive duration"
+        Invoke-Checked $entryFile @("ctl", "alive", "0") 1 "reject removed alive 0"
+        Invoke-Checked $entryFile @("ctl", "alive", "9") 1 "reject too-short alive duration"
+        Invoke-Checked $entryFile @("ctl", "alive", "12", "extra") 1 "reject extra alive duration"
+        Invoke-Checked $entryFile @("ctl", "alive", "12", "--unknown") 1 "reject unknown alive option"
+
+        Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+        $aliveDryRunOutput = Invoke-Captured $entryFile @("ctl", "alive", "123", "--dry-run") 0 "alive dry-run"
+        Assert-True ($aliveDryRunOutput.Contains("sleep 123")) "alive dry-run should show the sleep command."
+        Assert-True ($aliveDryRunOutput.Contains("wsl_instance_kit_alive_wsl01")) "alive dry-run should include the alive marker."
+        Assert-True ($aliveDryRunOutput.Contains("schtasks.exe /Create")) "alive dry-run should show the scheduled task create command."
+        Assert-MockWslNotCalled $argsFile "alive dry-run"
+
+        $aliveLogonDryRunOutput = Invoke-Captured $entryFile @("ctl", "alive", "--dry-run") 0 "alive logon dry-run"
+        Assert-True ($aliveLogonDryRunOutput.Contains("current-user logon")) "bare ctl alive dry-run should configure logon auto-start."
+        Assert-True ($aliveLogonDryRunOutput.Contains("while :; do sleep 3600; done")) "bare ctl alive dry-run should keep alive forever."
+
+        $aliveStatusOutput = Invoke-Captured $entryFile @("ctl", "alive", "status") 0 "alive status"
+        Assert-True ($aliveStatusOutput.Contains("WSL alive: wsl01")) "alive status should show heading."
+        Assert-True ($aliveStatusOutput.Contains("Alive task:")) "alive status should show the scheduled task name."
+        Assert-True ($aliveStatusOutput.Contains("Alive setting:")) "alive status should show the configured mode."
+        Assert-True ($aliveStatusOutput.Contains("Task State:")) "alive status should show the scheduled task state."
+
+        $aliveInvalidDurationOutput = Invoke-Captured $entryFile @("ctl", "alive", "auto") 1 "reject non-numeric alive duration"
+        Assert-True ($aliveInvalidDurationOutput.Contains("duration must be an integer")) "non-numeric alive duration should be rejected."
+
+        $aliveOffOutput = Invoke-Captured $entryFile @("ctl", "alive", "off", "--dry-run") 0 "alive off dry-run"
+        Assert-True ($aliveOffOutput.Contains("Would disable all WSL alive settings")) "alive off dry-run should report disabled."
 
         $target = Join-Path $tempRoot "out.tar"
         Invoke-Checked $entryFile @("ctl", "export", $target) 0 "export fixed format"
@@ -434,6 +484,11 @@ try {
         $vmStatusOutput = Invoke-Captured $entryFile @("vm", "status") 0 "vm status"
         Assert-True ($vmStatusOutput.Contains("WSL VM: current Windows user")) "vm status should show the VM status heading."
         Assert-True ($vmStatusOutput.Contains("Networking mode:")) "vm status should show networking mode."
+        $vmAliveListOutput = Invoke-Captured $entryFile @("vm", "alive", "list") 0 "vm alive list"
+        Assert-True ($vmAliveListOutput.Contains("WSL alive tasks: current Windows user")) "vm alive list should show heading."
+        Invoke-Checked $entryFile @("vm", "alive", "list", "extra") 1 "reject vm alive list extra args"
+        Invoke-Checked $entryFile @("vm", "alive", "off", "wsl01") 1 "reject guessed vm alive task name"
+        Invoke-Checked $entryFile @("vm", "alive", "off", "alive_missing") 1 "reject missing vm alive task"
         Invoke-Checked $entryFile @("vm", "shutdown") 0 "vm shutdown"
         $actual = Read-MockWslArgs $argsFile
         Assert-ArrayEqual $actual @("--shutdown") "vm shutdown args"
@@ -501,6 +556,7 @@ try {
         }
     } finally {
         $env:PATH = $oldPath
+        $env:APPDATA = $oldAppData
         $env:MOCK_WSL_ARGS_PATH = $oldArgsPath
         $env:MOCK_WSL_EXIT_CODE = $oldExitCode
         if ($sshEnableEntryFile -and (Test-Path -LiteralPath $sshEnableEntryFile)) {

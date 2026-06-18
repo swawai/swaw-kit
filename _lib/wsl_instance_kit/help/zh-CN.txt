@@ -1,7 +1,7 @@
 version 1.0
 
 # 基本用法:
-  {{COMMAND}}                       进入此命令绑定的 WSL 实例 ({WSL_name} 定义)
+  {{COMMAND}}                       进入此命令绑定的 WSL 实例             ({WSL_name} 指定)
   {{COMMAND}} status                显示此实例状态
   {{COMMAND}} doctor                检查 WSL、入口配置、实例、存储和网络
   {{COMMAND}} --help zh             显示中文版帮助信息
@@ -17,6 +17,10 @@ version 1.0
   {{COMMAND}} ctl backup dir        打开此实例备份目录
   {{COMMAND}} ctl export D:\x.tar   按 {WSL_export_format} 导出到指定路径 (wsl --export)
   {{COMMAND}} ctl restore D:\x.tar  从归档还原/重建此实例                 (wsl --import)
+  {{COMMAND}} ctl alive status      显示保活相关设置状态
+  {{COMMAND}} ctl alive 600         让此实例保持后台运行 600 秒           (wsl sleep)
+  {{COMMAND}} ctl alive             保持后台运行，当前 Windows 账户下次登录时，还继续
+  {{COMMAND}} ctl alive off         关闭 alive 设置
   {{COMMAND}} ctl downloads dir     打开 fallback 镜像缓存目录
   {{COMMAND}} ctl config dir        打开实例级配置 wsl.conf 所在目录      (explorer \\wsl...)
   {{COMMAND}} ctl user ensure       创建/确认 {WSL_user} 用户已存在       (wsl .. -- sh -lc useradd/adduser)
@@ -32,11 +36,11 @@ version 1.0
   {{COMMAND}} ctl ssh enable 2222   开启 SSH 服务并设置端口               (基于 systemd 托管)
   {{COMMAND}} ctl ssh disable       停止 SSH 并移除配置公钥
   {{COMMAND}} ctl port status       显示端口映射、防火墙和网络模式状态
-  {{COMMAND}} ctl port expose 8080  映射 TCP 8080:8080 并让防火墙放行 (需要管理员权限)
+  {{COMMAND}} ctl port expose 8080  映射 TCP 8080:8080 并让防火墙放行     (需要管理员权限)
   {{COMMAND}} ctl port expose 8080 --uac 映射端口并弹出 UAC 提权确认
   {{COMMAND}} ctl port expose 8080 80 映射 8080 到 WSL:80 并放行(NAT)
   {{COMMAND}} ctl port remove 8080  移除 TCP 8080 的映射与防火墙规则
-  {{COMMAND}} ctl port sync         WSL 的IP可能会变(NAT)，执行此命令可以刷新
+  {{COMMAND}} ctl port sync         WSL 的IP可能会变(NAT)，此命令可以刷新
   {{COMMAND}} ctl remove --yes      注销并删除此实例                      (wsl --unregister)
 
 # WSL 底层虚拟机管理 (会影响当前 Windows 用户下的所有实例):
@@ -45,6 +49,8 @@ version 1.0
   {{COMMAND}} vm welcome            打开 WSL 欢迎/功能介绍页面
   {{COMMAND}} vm shutdown           关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
   {{COMMAND}} vm -t                 同 vm shutdown
+  {{COMMAND}} vm alive list         列出当前用户下所有 WSL alive 任务
+  {{COMMAND}} vm alive off ...      删除指定 WSL alive 任务
 
 # 远程编辑:
   {{COMMAND}} code                  用 VSCode 打开{WSL_default_workdir}   (code --remote=wsl+..)
