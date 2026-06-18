@@ -8,7 +8,7 @@ set "WSL_user=john"
 
 :: 支持填写归档路径（优先检测）或在线发行版名称 (wsl -l -o 可查看)
 :: set "WSL_source=%~dp0wsl.automng\ubuntu-22.backup.tar"
-set "WSL_source=Ubuntu"
+set "WSL_source=Debian"
 
 
 

@@ -247,8 +247,8 @@ function Invoke-InstanceManagementCommand {
             $nativeArgs = @("--unregister", $script:Config.Name)
             return (Invoke-ControlNativeCommand $nativeArgs)
         }
-        "moveto" {
-            return Invoke-WslMoveTo $tail
+        "relocate" {
+            return Invoke-WslRelocate $tail
         }
         default {
             return Show-CommandHelpHint "Unknown tool command: .$action"

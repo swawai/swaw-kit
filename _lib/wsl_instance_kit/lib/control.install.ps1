@@ -19,26 +19,37 @@ function Open-WslInstallDir {
 function Resolve-WslInstallArchivePath {
     param([string]$Path)
 
-    $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim())
-    if ([System.IO.Path]::IsPathRooted($expanded)) {
-        return [System.IO.Path]::GetFullPath($expanded)
-    }
-
-    $candidates = New-Object System.Collections.ArrayList
-    [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path (Get-Location) $expanded)))
-
-    $backupDir = Resolve-EntryPath $script:Config.BackupDir
-    if (-not [string]::IsNullOrWhiteSpace($backupDir)) {
-        [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path $backupDir $expanded)))
-    }
-
-    foreach ($candidate in @($candidates)) {
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            return $candidate
+    try {
+        $expanded = [Environment]::ExpandEnvironmentVariables($Path.Trim())
+        if ([System.IO.Path]::IsPathRooted($expanded)) {
+            return [System.IO.Path]::GetFullPath($expanded)
         }
-    }
 
-    return [string]$candidates[0]
+        $candidates = New-Object System.Collections.ArrayList
+        [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path (Get-Location) $expanded)))
+
+        $backupDir = Resolve-EntryPath $script:Config.BackupDir
+        if (-not [string]::IsNullOrWhiteSpace($backupDir)) {
+            [void]$candidates.Add([System.IO.Path]::GetFullPath((Join-Path $backupDir $expanded)))
+        }
+
+        foreach ($candidate in @($candidates)) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return $candidate
+            }
+        }
+
+        return [string]$candidates[0]
+    } catch {
+        Write-Fail "Invalid install archive path: $Path"
+        $reason = if ($null -ne $_.Exception.InnerException) {
+            $_.Exception.InnerException.Message
+        } else {
+            $_.Exception.Message
+        }
+        Write-Fail $reason
+        return $null
+    }
 }
 
 function New-WslImportArgs {
@@ -153,6 +164,10 @@ function Install-WslResource {
 
     if ($sourceArgs.Count -eq 1) {
         $archivePath = Resolve-WslInstallArchivePath ([string]$sourceArgs[0])
+        if ([string]::IsNullOrWhiteSpace($archivePath)) {
+            return 1
+        }
+
         return (Install-WslResourceFromArchive -ArchivePath $archivePath -DryRun:$dryRun -Yes:$yes)
     }
 

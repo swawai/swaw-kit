@@ -7,6 +7,7 @@ $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $entryFile = Join-Path $repoRoot "wsl01.cmd"
 $kitCmd = Join-Path $repoRoot "_lib\wsl_instance_kit\kit.cmd"
 $kitRoot = Join-Path $repoRoot "_lib\wsl_instance_kit"
+. (Join-Path $PSScriptRoot "smoke.relocate.ps1")
 
 function Assert-True {
     param(
@@ -308,6 +309,7 @@ try {
     Assert-True ($defaultHelpOutput.Contains("wsl01 .help en")) "help should show dotted help."
     Assert-True (-not $defaultHelpOutput.Contains("wsl01 --help")) "help should not promote bare help flags."
     Assert-True ($defaultHelpOutput -match '(?m)^\s*wsl01 \.t\s{2,}') "help should show short terminate command."
+    Assert-True ($defaultHelpOutput -match '(?m)^\s*wsl01 \.relocate\s{2,}') "help should show relocate command."
     Assert-True ($defaultHelpOutput.Contains("wsl01 .sshd enable 2222")) "help should show dotted sshd service management."
     Assert-True ($defaultHelpOutput -match '(?m)^\s*wsl01 \.port del 8080\s{2,}') "help should show port del."
     Assert-True (-not $defaultHelpOutput.Contains("wsl01 doctor")) "help should not show bare doctor."
@@ -428,12 +430,7 @@ try {
         Assert-True ($topInstallOutput.Contains("automatically try fallback install")) "dotted install should run instance install."
         Assert-MockWslNotCalled $argsFile "dotted install dry-run"
 
-        $moveTarget = Join-Path $tempRoot "move-target"
-        $moveDryRunOutput = Invoke-Captured $entryFile @(".moveto", $moveTarget, "--dry-run") 0 "moveto dry-run"
-        Assert-True ($moveDryRunOutput.Contains("--manage wsl01 --move")) "moveto dry-run should show native move command."
-        Assert-True ($moveDryRunOutput.Contains([System.IO.Path]::GetFullPath($moveTarget))) "moveto dry-run should show target path."
-        Assert-True ($moveDryRunOutput.Contains("Would update WSL_install_dir")) "moveto dry-run should show entry-file update."
-        Assert-MockWslNotCalled $argsFile "moveto dry-run"
+        Test-WslRelocateSmoke -EntryFile $entryFile -TempRoot $tempRoot -ArgsFile $argsFile
 
         Invoke-Checked $entryFile @(".delete") 1 "delete requires yes"
 
@@ -547,6 +544,9 @@ try {
         Assert-True ($backupListOutput.Contains((Split-Path -Leaf $restoreVhd))) "backup list should show vhdx archives. Output: $backupListOutput"
         Invoke-Checked $restoreEntryFile @(".backup", "list", "extra") 1 "reject backup list extra args"
         Invoke-Checked $restoreEntryFile @(".install", (Join-Path $restoreBackupDir "missing.tar")) 1 "reject missing install archive"
+        $invalidInstallPathOutput = Invoke-Captured $restoreEntryFile @(".install", ":\not-supported.tar") 1 "reject invalid install archive path"
+        Assert-True ($invalidInstallPathOutput.Contains("Invalid install archive path")) "invalid install archive path should be reported without a PowerShell exception. Output: $invalidInstallPathOutput"
+        Assert-True (-not $invalidInstallPathOutput.Contains("Exception calling")) "invalid install archive path should not leak a raw .NET exception. Output: $invalidInstallPathOutput"
 
         Invoke-Checked $restoreEntryFile @(".install", (Split-Path -Leaf $restoreArchive)) 0 "install from backup basename"
         $actual = Read-MockWslArgs $argsFile

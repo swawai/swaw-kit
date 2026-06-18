@@ -108,7 +108,7 @@ switch ($verb) {
             "vm" {
                 exit (Invoke-VmControl $toolArgs ".vm")
             }
-            { $_ -in @("t", "install", "backup", "dir", "alive", "port", "user", "sshd", "systemd", "delete", "moveto") } {
+            { $_ -in @("t", "install", "backup", "dir", "alive", "port", "user", "sshd", "systemd", "delete", "relocate") } {
                 exit (Invoke-InstanceManagementCommand (@($toolVerb) + $toolArgs))
             }
             default {

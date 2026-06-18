@@ -1,21 +1,22 @@
 version 1.0
 
 # Basic usage:
-  {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} definition)
+  {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} in {{COMMAND}}.cmd)
   {{COMMAND}} .status               Show this instance status
   {{COMMAND}} .doctor               Check WSL, entry config, instance, storage, and network
   {{COMMAND}} .help en              Show English help information
   {{COMMAND}} .help zh              Show Chinese help information
 
-# Install/restore, backup, move, delete:
-  {{COMMAND}} .install              Install: create/rebuild this instance from {WSL_source} (wsl --import or wsl --install)
-  {{COMMAND}} .install D:\x.tar     Restore: create/rebuild this instance from an archive   (wsl --import)
+# Install/restore, reinstall, backup, relocate, delete:
+  {{COMMAND}} .install              Install: create this instance from {WSL_source}        (wsl --import or wsl --install)
+  {{COMMAND}} .install D:\x.tar     Restore: create/rebuild this instance from an archive  (wsl --import)
+  {{COMMAND}} .install --yes        Reinstall: rebuild this instance from {WSL_source}     (wsl --import or wsl --install)
   {{COMMAND}} .install --dry-run    Preview the install command without running it
   {{COMMAND}} .backup               Export to the backup directory as {WSL_export_format} (wsl --export)
   {{COMMAND}} .backup D:\x.tar      Export to a specified path as {WSL_export_format} (wsl --export)
   {{COMMAND}} .backup list          List archives in this instance's backup directory
-  {{COMMAND}} .moveto D:\wsl\x      Move this instance to a new install directory  (wsl --manage --move)
-  {{COMMAND}} .moveto D:\wsl\x --dry-run Preview the move command without running it
+  {{COMMAND}} .relocate             Relocate this instance to {WSL_install_dir}    (export, unregister, re-import)
+  {{COMMAND}} .relocate --dry-run   Preview the relocate commands without running them
   {{COMMAND}} .delete --yes         Unregister and delete this instance            (wsl --unregister)
   {{COMMAND}} .delete --yes --uac   Request UAC when port-rule cleanup needs admin rights
 # Stop and keep alive:
