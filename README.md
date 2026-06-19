@@ -51,10 +51,13 @@ pathhereremove.cmd
 ```bat
 porttask.cmd 80*           # 查询80* 端口占用程序
 taskport.cmd chrome        # 查询chrome进程占用端口
+tcpview.exe                # GUI 程序, 查看系统 TCP 端口/进程（微软sysinternals组件）
 portrule.cmd               # 交互式管理防火墙入站规则
+psping qq.com:80           # TCP ping               （微软sysinternals组件）
 copy vps1.cmd vps2.cmd     # 为ssh远程主机创建专用命令 (复制后修改其中的ssh 主机信息，执行 vps2 --help)
 copy git1.cmd git2.cmd     # 为git身份设置专用包装脚本 (复制后修改其中的git 账户信息，然后用git2 替代git 命令来使用)
-copy wsl01.cmd wsl02.cmd   # 为WSL实例创建专用命令    (复制后修改其中的WSL实例绑定信息，执行 wsl02 --help)
+copy wsl01.cmd wsl02.cmd   # 为WSL实例创建专用命令     (复制后修改其中的WSL实例绑定信息，执行 wsl02 --help)
+
 ```
 
 对于带点号的命令，例如 copy vps1.cmd vps.2.cmd ...然后期望在 Win+R 中输入 vps.2 来快速执行，貌似会报错。
