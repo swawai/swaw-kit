@@ -11,3 +11,5 @@ xvenv.cmd
 data/
 
 wsl.automng/
+wsl02.cmd
+vps2.cmd
