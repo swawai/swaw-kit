@@ -2,11 +2,12 @@
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: 实例基本信息(必填)
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: 绑定实例名称 (wsl -l 显示值) 和 wsl 中的 Linux 用户名 (安装时会自动创建)
+:: wsl -l 中显示的实例名称，也是本工具的安装/使用等命令会一直绑定的实例ID
 set "WSL_name=wsl01"
+:: 安装时创建并默认使用的 Linux 用户
 set "WSL_user=john"
 
-:: 支持填写归档路径（优先检测）或在线发行版名称 (wsl -l -o 可查看)
+:: 安装/重装的镜像源，可以是归档路径(优先检测),或在线发行版名 (wsl -l -o 可查看)
 :: set "WSL_source=%~dp0wsl.automng\ubuntu-22.backup.tar"
 set "WSL_source=Debian"
 
@@ -15,22 +16,23 @@ set "WSL_source=Debian"
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: 可选配置
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: 此实例的最终 Windows 安装目录
+:: 此实例在 Windows 上的安装目录
 set "WSL_install_dir=%~dp0\data\wsl\%WSL_name%"
-:: 默认备份目录，后续 .backup / .backup <path> / .backup list 可使用此目录
+:: 默认备份目录，后续 .backup / .backup <path> / .backup list 命令默认使用此目录
 set "WSL_backup_dir=%~dp0\data\wsl.backup\%WSL_name%"
-:: 默认 Linux 工作目录。留空或 ~ 表示用户家目录。
+:: 默认 Linux 工作目录; ~ 表示用户家目录。
 set "WSL_default_workdir=~"
-:: WSL 版本。通常使用 2；留空时可由系统默认值决定。
-set "WSL_version=2"
-rem .backup fixed format: tar / tar.gz / tar.xz / vhd; empty means no --format.
+:: 备份格式,支持：.backup fixed format: tar / tar.gz / tar.xz / vhd 或留空
 set "WSL_export_format=tar"
+:: WSL 版本。通常使用 2; 留空时可由系统默认值决定。
+set "WSL_version=2"
+:: .sshd enable 时会顺便导入下面设置的公钥
+:: set "WSL_SSH_public_key=%USERPROFILE%\.ssh\id_rsa.pub"
 :: 调试开关，设置为 1 / true / yes / on / debug 时，后续 kit 可输出调试信息。
 set "WSL_KIT_verbose="
 :: 可选：指定 help 语言 zh-CN / en；留空自动检测。
 :: set "WSL_KIT_HELP_LANG=zh-CN"
-:: .sshd enable 时会顺便导入下面设置的公钥
-:: set "WSL_SSH_public_key=%USERPROFILE%\.ssh\id_rsa.pub"
+
 
 
 

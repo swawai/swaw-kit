@@ -50,6 +50,8 @@ function Assert-ArrayEqual {
     }
 }
 
+. (Join-Path $PSScriptRoot "smoke.mock.ps1")
+
 function Invoke-Checked {
     param(
         [string]$File,
@@ -103,65 +105,6 @@ function Test-HelpTemplateShape {
     Assert-True ($zhBlankCount -eq $enBlankCount) "help templates should keep the same blank-line count. zh-CN=$zhBlankCount, en=$enBlankCount."
     Assert-True (-not $zhText.Contains("{{COMMAND}}.cmd")) "zh-CN help should use the entry-file placeholder instead of hand-built command.cmd text."
     Assert-True (-not $enText.Contains("{{COMMAND}}.cmd")) "English help should use the entry-file placeholder instead of hand-built command.cmd text."
-}
-
-function New-MockWsl {
-    param([string]$TempRoot)
-
-    $projectDir = Join-Path $TempRoot "MockWsl"
-    $publishDir = Join-Path $TempRoot "publish"
-    $shimDir = Join-Path $TempRoot "shim"
-    New-Item -ItemType Directory -Path $shimDir -Force | Out-Null
-
-    dotnet new console --use-program-main --name MockWsl --output $projectDir | Out-Null
-    $program = @'
-using System;
-using System.IO;
-using System.Linq;
-using System.Text;
-
-namespace MockWsl;
-
-internal class Program
-{
-    static int Main(string[] args)
-    {
-        var path = Environment.GetEnvironmentVariable("MOCK_WSL_ARGS_PATH");
-        if (!string.IsNullOrWhiteSpace(path))
-        {
-            File.WriteAllLines(path, args.Select(a => Convert.ToBase64String(Encoding.UTF8.GetBytes(a))));
-        }
-
-        var exitCodeText = Environment.GetEnvironmentVariable("MOCK_WSL_EXIT_CODE");
-        return int.TryParse(exitCodeText, out var exitCode) ? exitCode : 0;
-    }
-}
-'@
-    [System.IO.File]::WriteAllText((Join-Path $projectDir "Program.cs"), $program, [System.Text.UTF8Encoding]::new($false))
-    dotnet publish $projectDir -c Release -r win-x64 --self-contained false -o $publishDir | Out-Null
-
-    Copy-Item -LiteralPath (Join-Path $publishDir "MockWsl.exe") -Destination (Join-Path $shimDir "wsl.exe") -Force
-    Copy-Item -LiteralPath (Join-Path $publishDir "MockWsl.dll") -Destination (Join-Path $shimDir "MockWsl.dll") -Force
-    Copy-Item -LiteralPath (Join-Path $publishDir "MockWsl.runtimeconfig.json") -Destination (Join-Path $shimDir "MockWsl.runtimeconfig.json") -Force
-
-    return $shimDir
-}
-
-function Read-MockWslArgs {
-    param([string]$Path)
-
-    return @([System.IO.File]::ReadAllLines($Path) | ForEach-Object {
-        [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_))
-    })
-}
-
-function Assert-MockWslNotCalled {
-    param(
-        [string]$Path,
-        [string]$Label
-    )
-
-    Assert-True (-not (Test-Path -LiteralPath $Path)) "$Label should not call wsl.exe."
 }
 
 function Get-FreeTcpPort {
@@ -407,9 +350,11 @@ try {
     Write-Host "mock passthrough"
     $tempRoot = Join-Path $env:TEMP ("wslkit-smoke-" + [guid]::NewGuid().ToString("N"))
     $argsFile = Join-Path $tempRoot "args.txt"
+    $rawCommandLineFile = Join-Path $tempRoot "command-line.txt"
     $oldPath = $env:PATH
     $oldAppData = $env:APPDATA
     $oldArgsPath = $env:MOCK_WSL_ARGS_PATH
+    $oldCommandLinePath = $env:MOCK_WSL_COMMAND_LINE_PATH
     $oldExitCode = $env:MOCK_WSL_EXIT_CODE
     $sshEnableEntryFile = $null
     $restoreEntryFile = $null
@@ -424,12 +369,20 @@ try {
         $env:PATH = "$shimDir;$oldPath"
         $env:APPDATA = $tempAppData
         $env:MOCK_WSL_ARGS_PATH = $argsFile
+        $env:MOCK_WSL_COMMAND_LINE_PATH = $rawCommandLineFile
 
         $cmdLine = 'call "{0}" alpha "" "two words" omega' -f $entryFile
         & cmd.exe /d /c $cmdLine
         Assert-ExitCode $LASTEXITCODE 0 "passthrough empty arg"
         $actual = Read-MockWslArgs $argsFile
         Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "alpha", "", "two words", "omega") "passthrough empty arg"
+
+        Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+        $cmdLine = 'call "{0}" "alpha&beta"' -f $entryFile
+        & cmd.exe /d /c $cmdLine
+        Assert-ExitCode $LASTEXITCODE 0 "passthrough quoted cmd metachar arg"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "alpha&beta") "passthrough quoted cmd metachar arg"
 
         Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
         $topInstallOutput = Invoke-Captured $entryFile @(".install", "--dry-run") 0 "dotted install dry-run"
@@ -440,10 +393,71 @@ try {
 
         Invoke-Checked $entryFile @(".delete") 1 "delete requires yes"
 
-        Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
-        Invoke-Checked $entryFile @(".t") 0 "dotted t"
-        $actual = Read-MockWslArgs $argsFile
-        Assert-ArrayEqual $actual @("--terminate", "wsl01") "dotted t args"
+        $powerShellMarker = Join-Path $tempRoot "powershell-shim-marker.txt"
+        Add-FailingPowerShellShim -ShimDir $shimDir -MarkerPath $powerShellMarker
+        try {
+            Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+            Invoke-Checked $entryFile @(".help", "en") 0 "dotted help explicit language fast path"
+            Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "explicit help fast path should not start PowerShell."
+
+            Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+            Invoke-Checked $entryFile @(".t") 0 "dotted t fast path"
+            Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "dotted t fast path should not start PowerShell."
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual $actual @("--terminate", "wsl01") "dotted t args"
+
+            Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+            Invoke-Checked $entryFile @(".vm", "-s") 0 "vm shutdown fast path"
+            Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "vm shutdown fast path should not start PowerShell."
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual $actual @("--shutdown") "vm -s args"
+
+            Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+            Invoke-Checked $entryFile @(".vm", "default") 0 "vm default fast path"
+            Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "vm default fast path should not start PowerShell."
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual $actual @("--set-default", "wsl01") "vm default args"
+
+            Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+            Invoke-Checked $entryFile @() 0 "default shell passthrough fast path"
+            Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "default shell fast path should not start PowerShell."
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~") "default shell passthrough args"
+            $rawCommandLine = [System.IO.File]::ReadAllText($rawCommandLineFile)
+            Assert-True ($rawCommandLine.Contains("-d wsl01")) "default shell fast path should leave the distro name unquoted for wsl.exe command-line parsing."
+            Assert-True (-not $rawCommandLine.Contains('-d "wsl01"')) "default shell fast path should not quote the distro name."
+
+            Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+            Invoke-Checked $entryFile @("config") 0 "native config passthrough fast path"
+            Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "native config fast path should not start PowerShell."
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "config") "native config passthrough args"
+
+            Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+            Invoke-Checked $entryFile @("--", "ssh") 0 "explicit passthrough fast path"
+            Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "explicit passthrough fast path should not start PowerShell."
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "--", "ssh") "explicit passthrough control-looking command"
+            $rawCommandLine = [System.IO.File]::ReadAllText($rawCommandLineFile)
+            Assert-True (-not $rawCommandLine.Contains('"--"')) "explicit passthrough fast path should not quote simple native args."
+
+            Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+            Invoke-Checked $entryFile @(".myshell") 0 "unknown dotted command passthrough fast path"
+            Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "unknown dotted fast path should not start PowerShell."
+            $actual = Read-MockWslArgs $argsFile
+            Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", ".myshell") "unknown dotted command passthrough args"
+        } finally {
+            Remove-PowerShellShim -ShimDir $shimDir
+            Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
+        }
 
         Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
         Invoke-Checked $entryFile @("-t") 0 "native -t passthrough"
@@ -573,12 +587,6 @@ try {
         Assert-True ($vmPortOutput.Contains("WSL port rules: current Windows user")) "vm port should show heading."
         Invoke-Checked $entryFile @(".vm", "port", "del", "wsl_instance_kit-missing-port-tcp-0.0.0.0-65535") 1 "reject missing vm port rule"
         Invoke-Checked $entryFile @(".vm", "port", "extra") 1 "reject unknown vm port command"
-        Invoke-Checked $entryFile @(".vm", "-s") 0 "vm -s"
-        $actual = Read-MockWslArgs $argsFile
-        Assert-ArrayEqual $actual @("--shutdown") "vm -s args"
-        Invoke-Checked $entryFile @(".vm", "default") 0 "vm default"
-        $actual = Read-MockWslArgs $argsFile
-        Assert-ArrayEqual $actual @("--set-default", "wsl01") "vm default args"
         Invoke-Checked $entryFile @(".vm", "status", "extra") 1 "reject vm status extra args"
         Invoke-Checked $entryFile @(".vm", "show", "extra") 1 "reject vm show extra args"
         Invoke-Checked $entryFile @(".vm", "default", "extra") 1 "reject vm default extra args"
@@ -653,6 +661,7 @@ try {
         $env:PATH = $oldPath
         $env:APPDATA = $oldAppData
         $env:MOCK_WSL_ARGS_PATH = $oldArgsPath
+        $env:MOCK_WSL_COMMAND_LINE_PATH = $oldCommandLinePath
         $env:MOCK_WSL_EXIT_CODE = $oldExitCode
         if ($sshEnableEntryFile -and (Test-Path -LiteralPath $sshEnableEntryFile)) {
             Remove-Item -LiteralPath $sshEnableEntryFile -Force
