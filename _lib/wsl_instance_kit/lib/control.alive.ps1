@@ -107,6 +107,15 @@ function Get-WslAliveActionArguments {
     return (Get-ProcessArgumentLine $nativeArgs)
 }
 
+function Get-WslAliveHeadlessArguments {
+    param(
+        [string]$File,
+        [string[]]$CommandArgs
+    )
+
+    return "--headless " + (Format-CommandLine $File $CommandArgs)
+}
+
 function New-WslAliveDurationActionScript {
     param([pscustomobject]$Spec)
 
@@ -129,15 +138,17 @@ function Get-WslAliveTaskAction {
 
     if ($Spec.Mode -eq "duration") {
         $encoded = New-WslAliveEncodedPowerShellCommand (New-WslAliveDurationActionScript $Spec)
+        $powerShellArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-EncodedCommand", $encoded)
         return [pscustomobject]@{
-            Command   = "powershell.exe"
-            Arguments = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand $encoded"
+            Command   = "conhost.exe"
+            Arguments = Get-WslAliveHeadlessArguments "powershell.exe" $powerShellArgs
         }
     }
 
+    $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--cd", "/", "--", "sh", "-lc", (Get-WslAliveShellScript $Spec))
     return [pscustomobject]@{
-        Command   = "wsl.exe"
-        Arguments = Get-WslAliveActionArguments $Spec
+        Command   = "conhost.exe"
+        Arguments = Get-WslAliveHeadlessArguments "wsl.exe" $nativeArgs
     }
 }
 

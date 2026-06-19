@@ -53,6 +53,7 @@ function Assert-ArrayEqual {
 . (Join-Path $PSScriptRoot "smoke.entry.ps1")
 . (Join-Path $PSScriptRoot "smoke.mock.ps1")
 . (Join-Path $PSScriptRoot "smoke.env-user.ps1")
+. (Join-Path $PSScriptRoot "smoke.alive.ps1")
 
 function Invoke-Checked {
     param(
@@ -237,6 +238,7 @@ try {
     Test-EntryCommandLineEndings @($entryFile, (Join-Path $repoRoot "wsl02.cmd"))
     Test-LineEndingDiagnosticInvalidPath
     Test-PortInventoryDryRun
+    Test-WslAliveHeadlessTaskAction
 
     Write-Host "basic commands"
     $entryTemplate = [System.IO.File]::ReadAllText($entryFile)
