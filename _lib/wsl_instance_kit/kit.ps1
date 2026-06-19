@@ -13,6 +13,7 @@ $ErrorActionPreference = "Stop"
 
 $libDir = Join-Path $PSScriptRoot "lib"
 . (Join-Path $libDir "common.ps1")
+. (Join-Path $libDir "native-input.ps1")
 . (Join-Path $libDir "config.ps1")
 . (Join-Path $libDir "wsl-native.ps1")
 . (Join-Path $libDir "user.ps1")
@@ -25,6 +26,9 @@ $libDir = Join-Path $PSScriptRoot "lib"
 
 Initialize-ConsoleEncoding
 Import-WslEntryFileEnvironment
+if (-not (Import-WslEnvironmentFile)) {
+    exit 1
+}
 
 $script:Config = New-WslKitConfig
 if (-not (Test-WslKitConfig $script:Config)) {

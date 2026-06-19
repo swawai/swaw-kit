@@ -95,6 +95,82 @@ function Import-WslEntryFileEnvironment {
     }
 }
 
+function Resolve-WslEnvironmentFilePath {
+    $rawPath = (Get-EnvOrEmpty "WSL_env_file").Trim()
+    if ([string]::IsNullOrWhiteSpace($rawPath)) {
+        return ""
+    }
+
+    try {
+        $expanded = [Environment]::ExpandEnvironmentVariables($rawPath)
+        if ([System.IO.Path]::IsPathRooted($expanded)) {
+            return [System.IO.Path]::GetFullPath($expanded)
+        }
+
+        $entryFile = (Get-EnvOrEmpty "WSL_ENTRY_FILE").Trim()
+        $entryDir = if (-not [string]::IsNullOrWhiteSpace($entryFile)) {
+            Split-Path -Parent ([System.IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($entryFile)))
+        } else {
+            [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
+        }
+
+        return [System.IO.Path]::GetFullPath((Join-Path $entryDir $expanded))
+    } catch {
+        Write-Fail "Invalid WSL_env_file path: $rawPath"
+        $reason = if ($null -ne $_.Exception.InnerException) {
+            $_.Exception.InnerException.Message
+        } else {
+            $_.Exception.Message
+        }
+        Write-Fail $reason
+        return $null
+    }
+}
+
+function Import-WslEnvironmentFile {
+    $envFile = Resolve-WslEnvironmentFilePath
+    if ($null -eq $envFile) {
+        return $false
+    }
+    if ([string]::IsNullOrWhiteSpace($envFile)) {
+        return $true
+    }
+    if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+        Write-Fail "Environment file not found: $envFile"
+        return $false
+    }
+
+    $lineNumber = 0
+    foreach ($rawLine in [System.IO.File]::ReadAllLines($envFile)) {
+        $lineNumber += 1
+        $line = ([string]$rawLine -replace "^\uFEFF", "").Trim()
+        if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith("#")) {
+            continue
+        }
+
+        $equalsIndex = $line.IndexOf("=")
+        if ($equalsIndex -le 0) {
+            Write-Fail "Invalid environment file line $lineNumber in $envFile. Expected KEY=value."
+            return $false
+        }
+
+        $name = $line.Substring(0, $equalsIndex).Trim()
+        if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
+            Write-Fail "Invalid environment variable name on line $lineNumber in ${envFile}: $name"
+            return $false
+        }
+
+        if ($null -ne [Environment]::GetEnvironmentVariable($name, "Process")) {
+            continue
+        }
+
+        $value = $line.Substring($equalsIndex + 1).Trim()
+        [Environment]::SetEnvironmentVariable($name, $value, "Process")
+    }
+
+    return $true
+}
+
 function New-WslKitConfig {
     $entryFile = (Get-EnvOrEmpty "WSL_ENTRY_FILE").Trim()
     if (-not [string]::IsNullOrWhiteSpace($entryFile)) {
@@ -130,6 +206,7 @@ function New-WslKitConfig {
         Version        = (Get-EnvOrEmpty "WSL_version").Trim()
         ExportFormat   = (Get-EnvOrEmpty "WSL_export_format").Trim()
         SshPublicKey   = (Get-EnvOrEmpty "WSL_SSH_public_key").Trim()
+        EnvFile        = (Get-EnvOrEmpty "WSL_env_file").Trim()
         EntryDir       = [System.IO.Path]::GetFullPath($entryDir)
         CommandName    = $commandName
         EntryFileName  = $entryFileName
@@ -151,6 +228,16 @@ function Get-WslKitProtocolMajor {
     return ($Protocol.Trim() -split '\.', 2)[0]
 }
 
+function Test-WslDistributionName {
+    param([AllowNull()] [string]$Name)
+
+    if ([string]::IsNullOrWhiteSpace($Name)) {
+        return $false
+    }
+
+    return $Name -match '^[A-Za-z0-9._-]+$'
+}
+
 function Test-WslKitConfig {
     param([pscustomobject]$Config)
 
@@ -167,6 +254,10 @@ function Test-WslKitConfig {
 
     if ([string]::IsNullOrWhiteSpace($Config.Name)) {
         Write-Fail "WSL_name is required in the entry file."
+        return $false
+    }
+    if (-not (Test-WslDistributionName $Config.Name)) {
+        Write-Fail "Invalid WSL_name: use only A-Z a-z 0-9 . _ -"
         return $false
     }
 

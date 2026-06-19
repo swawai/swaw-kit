@@ -71,6 +71,21 @@ function Test-WslDoctorNative {
     }
 }
 
+function Add-WslDoctorCommandScriptLineEndingStatus {
+    param([pscustomobject]$Status)
+
+    if ($null -eq $Status -or [string]::IsNullOrWhiteSpace($Status.Path) -or $Status.Status -eq "not found") {
+        return
+    }
+
+    $label = "$($Status.Label) line endings"
+    if ($Status.Warning) {
+        Add-WslDoctorWarn $label $Status.Message $Status.Path
+    } else {
+        Add-WslDoctorOk $label $Status.Message $Status.Path
+    }
+}
+
 
 function Test-WslDoctorEntryConfig {
     Write-WslDoctorSection "Entry config"
@@ -79,6 +94,7 @@ function Test-WslDoctorEntryConfig {
         Add-WslDoctorWarn "WSL_ENTRY_FILE" "not set" "The kit is not running from an entry file."
     } elseif (Test-Path -LiteralPath $script:Config.EntryFile -PathType Leaf) {
         Add-WslDoctorOk "WSL_ENTRY_FILE" $script:Config.EntryFile
+        Add-WslDoctorCommandScriptLineEndingStatus (Get-CommandScriptLineEndingStatus "WSL_ENTRY_FILE" $script:Config.EntryFile)
     } else {
         Add-WslDoctorFail "WSL_ENTRY_FILE" "not found: $($script:Config.EntryFile)"
     }
@@ -101,6 +117,7 @@ function Test-WslDoctorEntryConfig {
 
     if (Test-Path -LiteralPath $kitPath -PathType Leaf) {
         Add-WslDoctorOk "WSL_KIT" $kitPath
+        Add-WslDoctorCommandScriptLineEndingStatus (Get-CommandScriptLineEndingStatus "WSL_KIT" $kitPath)
     } else {
         Add-WslDoctorFail "WSL_KIT" "kit.cmd not found: $kitPath"
     }

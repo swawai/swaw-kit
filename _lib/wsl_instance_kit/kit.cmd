@@ -47,7 +47,10 @@ goto :ArgLoop
 
 :TryFastPath
 if defined WSL_KIT_PARSE_ENTRY_FILE goto :RunKit
+call :ValidateWslName
+if errorlevel 1 exit /b 1
 if defined WSL_KIT_verbose goto :RunKit
+if defined WSL_env_file goto :RunKit
 if "%WSL_KIT_ARG_COUNT%"=="" set "WSL_KIT_ARG_COUNT=0"
 if "%WSL_KIT_ARG_COUNT%"=="0" goto :RunPassthroughFastPath
 
@@ -207,6 +210,23 @@ if not "%candidate:>=%"=="%candidate%" exit /b 1
 if not "%candidate:^=%"=="%candidate%" exit /b 1
 if not "%candidate:(=%"=="%candidate%" exit /b 1
 if not "%candidate:)=%"=="%candidate%" exit /b 1
+exit /b 0
+
+:ValidateWslName
+if not defined WSL_name (
+    call :WriteKitError "Invalid WSL_name: use only A-Z a-z 0-9 . _ -"
+    exit /b 1
+)
+set WSL_name | findstr /R /C:"^WSL_name=[A-Za-z0-9_.-][A-Za-z0-9_.-]*$" >nul 2>nul
+if errorlevel 1 (
+    call :WriteKitError "Invalid WSL_name: use only A-Z a-z 0-9 . _ -"
+    exit /b 1
+)
+exit /b 0
+
+:WriteKitError
+for /F "delims=" %%E in ('echo prompt $E^| cmd') do set "ESC=%%E"
+echo %ESC%[31m[ERROR] %~1%ESC%[0m
 exit /b 0
 
 :BuildPassthroughArgs

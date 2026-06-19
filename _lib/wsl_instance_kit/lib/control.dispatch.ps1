@@ -142,6 +142,9 @@ function Invoke-InstanceManagementCommand {
                 "default" {
                     return Set-WslDefaultUser $userTail
                 }
+                "passwd" {
+                    return Set-WslUserPassword $userTail
+                }
                 default {
                     return Show-CommandHelpHint "Unknown .user command: $userAction"
                 }

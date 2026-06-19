@@ -170,6 +170,13 @@ function Show-WslStorageStatus {
     Write-Host "  Download cache size: $(Format-WslDirectorySize $downloadDir) (global)"
 }
 
+function Show-WslCommandScriptLineEndingWarnings {
+    foreach ($status in @(Get-WslCommandScriptLineEndingStatuses | Where-Object { $_.Warning })) {
+        Write-Host "  Line endings:       warning: $($status.Label) uses $($status.Message)" -ForegroundColor Yellow
+        Write-Host "                       $($status.Path)" -ForegroundColor DarkGray
+    }
+}
+
 function Convert-WslNativeBytesToLines {
     param([AllowNull()] [byte[]]$Bytes)
 
@@ -338,6 +345,8 @@ function Show-WslResourceStatus {
     Write-Host "  WSL_default_workdir: $(if ([string]::IsNullOrWhiteSpace($script:Config.DefaultWorkdir)) { '(home)' } else { $script:Config.DefaultWorkdir })"
     Write-Host "  WSL_version:         $(if ([string]::IsNullOrWhiteSpace($script:Config.Version)) { '(system default)' } else { $script:Config.Version })"
     Write-Host "  WSL_export_format:   $(if ([string]::IsNullOrWhiteSpace($script:Config.ExportFormat)) { '(native default)' } else { $script:Config.ExportFormat })"
+    Show-WslConfiguredStatus
+    Show-WslCommandScriptLineEndingWarnings
 
     if ($null -eq $record) {
         Write-Host "  Installed:           no" -ForegroundColor Yellow
@@ -360,6 +369,9 @@ function Show-WslResourceStatus {
             } else {
                 Write-Host "  Runtime IP:          (not running)"
             }
+        }
+        if ($null -ne $runtime) {
+            Show-WslUserPasswordStatus $runtime.State
         }
 
         $registryBasePath = if ($record.BasePath) { [System.IO.Path]::GetFullPath($record.BasePath).TrimEnd("\") } else { "" }

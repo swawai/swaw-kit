@@ -33,6 +33,8 @@ version 1.0
   {{COMMAND}} .sshd enable 2222     开启 SSH 服务并设置端口               (基于 systemd 托管)
   {{COMMAND}} .sshd disable         停止 SSH 并移除配置公钥
   {{COMMAND}} .user ensure          创建/确认 {WSL_user} 用户已存在       (wsl .. -- sh -lc useradd/adduser)
+  {{COMMAND}} .user passwd          交互式设置 {WSL_user} 的密码          (wsl .. -- passwd)
+  {{COMMAND}} .user passwd --env VAR 从环境变量设置 {WSL_user} 密码       (wsl .. -- chpasswd)
   {{COMMAND}} .user default         将 {WSL_user} 设置为默认用户          (wsl --manage set-default-user)
 # 服务端口管理:
   {{COMMAND}} .port status          显示端口映射、防火墙和网络模式状态

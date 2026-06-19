@@ -72,6 +72,78 @@ function Invoke-EnsureWslUser {
     return 0
 }
 
+function Set-WslUserPassword {
+    param([string[]]$Rest)
+
+    $user = ""
+    $envName = ""
+    $i = 0
+    while ($i -lt $Rest.Count) {
+        $item = [string]$Rest[$i]
+        if ($item -eq "--env") {
+            if (-not [string]::IsNullOrWhiteSpace($envName)) {
+                Write-Fail ".user passwd accepts at most one --env option."
+                return 1
+            }
+            $i += 1
+            if ($i -ge $Rest.Count -or [string]::IsNullOrWhiteSpace($Rest[$i])) {
+                Write-Fail ".user passwd --env requires an environment variable name."
+                return 1
+            }
+            $envName = [string]$Rest[$i]
+        } elseif ($item.StartsWith("-")) {
+            Write-Fail "Unknown .user passwd option: $item"
+            return 1
+        } elseif ([string]::IsNullOrWhiteSpace($user)) {
+            $user = $item
+        } else {
+            Write-Fail ".user passwd accepts at most one user argument."
+            return 1
+        }
+
+        $i += 1
+    }
+
+    if ([string]::IsNullOrWhiteSpace($user)) {
+        $user = $script:Config.User
+    }
+    if ([string]::IsNullOrWhiteSpace($user)) {
+        Write-Fail "No user provided and WSL_user is empty."
+        return 1
+    }
+    if (-not (Test-LinuxUserName $user)) {
+        Write-Fail "Invalid Linux username: $user"
+        return 1
+    }
+
+    if ([string]::IsNullOrWhiteSpace($envName)) {
+        $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--", "passwd", $user)
+        return (Invoke-ControlNativeCommand $nativeArgs)
+    }
+
+    if ($envName -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
+        Write-Fail "Invalid environment variable name: $envName"
+        return 1
+    }
+
+    $password = [Environment]::GetEnvironmentVariable($envName, "Process")
+    if ([string]::IsNullOrEmpty($password)) {
+        Write-Fail "Environment variable is empty or not found: $envName"
+        return 1
+    }
+    if ($password.Contains("`n") -or $password.Contains("`r")) {
+        Write-Fail "Environment variable contains a newline and cannot be used as a password: $envName"
+        return 1
+    }
+
+    $passwordInput = "${user}:$password`n"
+    $password = $null
+    $nativeArgs = @("-d", $script:Config.Name, "-u", "root", "--", "sh", "-lc", "chpasswd")
+    $exitCode = Invoke-ExternalWithInput "wsl.exe" $nativeArgs $passwordInput
+    $passwordInput = $null
+    return $exitCode
+}
+
 function Ensure-WslConfiguredUser {
     param(
         [string[]]$Rest,

@@ -50,7 +50,9 @@ function Assert-ArrayEqual {
     }
 }
 
+. (Join-Path $PSScriptRoot "smoke.entry.ps1")
 . (Join-Path $PSScriptRoot "smoke.mock.ps1")
+. (Join-Path $PSScriptRoot "smoke.env-user.ps1")
 
 function Invoke-Checked {
     param(
@@ -93,20 +95,6 @@ function Test-PowerShellSyntax {
     Assert-True (-not $failed) "PowerShell syntax check failed."
 }
 
-function Test-HelpTemplateShape {
-    $zhLines = [System.IO.File]::ReadAllLines((Join-Path $kitRoot "help\zh-CN.txt"))
-    $enLines = [System.IO.File]::ReadAllLines((Join-Path $kitRoot "help\en.txt"))
-    $zhBlankCount = @($zhLines | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count
-    $enBlankCount = @($enLines | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count
-    $zhText = $zhLines -join "`n"
-    $enText = $enLines -join "`n"
-
-    Assert-True ($zhLines.Count -eq $enLines.Count) "help templates should keep the same line count. zh-CN=$($zhLines.Count), en=$($enLines.Count)."
-    Assert-True ($zhBlankCount -eq $enBlankCount) "help templates should keep the same blank-line count. zh-CN=$zhBlankCount, en=$enBlankCount."
-    Assert-True (-not $zhText.Contains("{{COMMAND}}.cmd")) "zh-CN help should use the entry-file placeholder instead of hand-built command.cmd text."
-    Assert-True (-not $enText.Contains("{{COMMAND}}.cmd")) "English help should use the entry-file placeholder instead of hand-built command.cmd text."
-}
-
 function Get-FreeTcpPort {
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     try {
@@ -142,6 +130,7 @@ function New-WslSmokeEntryFile {
     $content = Set-EntryLine $content "WSL_name" $Name
     $content = Set-EntryLine $content "WSL_user" $User
     $content = Set-EntryLine $content "WSL_source" $Source
+    $content = Set-EntryLine $content "WSL_env_file" ""
     if (-not [string]::IsNullOrWhiteSpace($InstallDir)) {
         $content = Set-EntryLine $content "WSL_install_dir" $InstallDir
     }
@@ -236,19 +225,23 @@ function Test-PortInventoryDryRun {
 }
 
 Push-Location $repoRoot
+$originalUserProfile = $env:USERPROFILE
+$smokeUserProfileRoot = Join-Path $env:TEMP ("wslkit-profile-" + [guid]::NewGuid().ToString("N"))
 try {
+    Initialize-SmokeUserProfile $smokeUserProfileRoot
+    $env:USERPROFILE = $smokeUserProfileRoot
     Write-Host "syntax"
     Test-PowerShellSyntax
     Test-HelpTemplateShape
+    Test-GitAttributesCommandLineEndings
+    Test-EntryCommandLineEndings @($entryFile, (Join-Path $repoRoot "wsl02.cmd"))
+    Test-LineEndingDiagnosticInvalidPath
     Test-PortInventoryDryRun
 
     Write-Host "basic commands"
     $entryTemplate = [System.IO.File]::ReadAllText($entryFile)
-    Assert-True (-not $entryTemplate.Contains("WSL_systemd")) "entry template should not declare WSL_systemd."
-    Assert-True (-not $entryTemplate.Contains("WSL_network")) "entry template should not declare WSL_network settings."
-    Assert-True (-not $entryTemplate.Contains("WSL_SSH_port")) "entry template should not declare WSL_SSH_port."
-    Assert-True (-not $entryTemplate.Contains("WSL_SSH_key")) "entry template should not declare WSL_SSH_key."
-    Assert-True ($entryTemplate.Contains("WSL_SSH_public_key")) "entry template should declare WSL_SSH_public_key."
+    Test-EntryTemplateShape $entryTemplate
+    Test-WslNameValidationSlowPath
 
     Invoke-Checked $entryFile @(".help") 0 "entry dot help"
     $defaultHelpOutput = Invoke-Captured $entryFile @(".help", "en") 0 "entry dot help includes doctor"
@@ -288,12 +281,15 @@ try {
     }
     $statusOutput = Invoke-Captured $entryFile @(".status") 0 "entry status"
     Assert-True ($statusOutput.Contains("Backup size:")) "status should show instance backup size."
+    Assert-True ($statusOutput.Contains("WSL_env_file:")) "status should show WSL_env_file."
+    Assert-True ($statusOutput.Contains("WSL_SSH_public_key:")) "status should show WSL_SSH_public_key."
     Assert-True ($statusOutput.Contains("Backup root size:")) "status should show backup root size."
     Assert-True ($statusOutput.Contains("Download cache size:")) "status should show download cache size."
     Assert-True ($statusOutput.Contains("Alive:")) "status should show alive summary."
     Assert-True ($statusOutput.Contains("Port:")) "status should show port summary."
     Assert-True ($statusOutput.Contains("More status:")) "status should show sub-status shortcuts."
     Assert-True ($statusOutput.Contains(".status sshd | port | systemd")) "status should mention status subcommands."
+    Test-EntryLineEndingStatusDiagnostics
     Invoke-Checked $entryFile @(".doctor", "extra") 1 "reject doctor extra args"
     $directPortStatusOutput = Invoke-Captured $entryFile @(".status", "port") 0 "status port"
     Assert-True ($directPortStatusOutput.Contains("Networking mode:")) "status port should show networking mode."
@@ -316,7 +312,7 @@ try {
     $oldUserProfile = $env:USERPROFILE
     $tempUserProfile = Join-Path $env:TEMP ("wslkit-profile-" + [guid]::NewGuid().ToString("N"))
     try {
-        New-Item -ItemType Directory -Path $tempUserProfile -Force | Out-Null
+        Initialize-SmokeUserProfile $tempUserProfile
 
         $env:USERPROFILE = $tempUserProfile
         $natDryRunOutput = Invoke-Captured $entryFile @(".port", "expose", "8080", "80", "--dry-run") 0 "nat port expose dry-run"
@@ -360,6 +356,7 @@ try {
     $restoreEntryFile = $null
     $archiveEntryFile = $null
     $unknownSourceEntryFile = $null
+    $fastPathEntryFile = $null
 
     try {
         $shimDir = New-MockWsl $tempRoot
@@ -370,6 +367,11 @@ try {
         $env:APPDATA = $tempAppData
         $env:MOCK_WSL_ARGS_PATH = $argsFile
         $env:MOCK_WSL_COMMAND_LINE_PATH = $rawCommandLineFile
+
+        Test-EnvFileAndUserPasswdSmoke -TempRoot $tempRoot -ArgsFile $argsFile -RawCommandLineFile $rawCommandLineFile
+        Test-WslNameValidationFastPath -ArgsFile $argsFile
+        Test-WslNameValidationHelpFastPath -ArgsFile $argsFile
+        Test-WslNameRequiredHelpFastPath -ArgsFile $argsFile
 
         $cmdLine = 'call "{0}" alpha "" "two words" omega' -f $entryFile
         & cmd.exe /d /c $cmdLine
@@ -393,38 +395,44 @@ try {
 
         Invoke-Checked $entryFile @(".delete") 1 "delete requires yes"
 
+        $fastPathEntryFile = Join-Path $repoRoot ("wsl.smoke-fast-" + [guid]::NewGuid().ToString("N") + ".cmd")
+        $fastPathContent = [System.IO.File]::ReadAllText($entryFile)
+        $fastPathContent = Set-EntryLine $fastPathContent "WSL_env_file" ""
+        $fastPathContent = $fastPathContent -replace "`r?`n", "`r`n"
+        [System.IO.File]::WriteAllText($fastPathEntryFile, $fastPathContent, [System.Text.UTF8Encoding]::new($false))
+
         $powerShellMarker = Join-Path $tempRoot "powershell-shim-marker.txt"
         Add-FailingPowerShellShim -ShimDir $shimDir -MarkerPath $powerShellMarker
         try {
             Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
-            Invoke-Checked $entryFile @(".help", "en") 0 "dotted help explicit language fast path"
+            Invoke-Checked $fastPathEntryFile @(".help", "en") 0 "dotted help explicit language fast path"
             Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "explicit help fast path should not start PowerShell."
 
             Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
-            Invoke-Checked $entryFile @(".t") 0 "dotted t fast path"
+            Invoke-Checked $fastPathEntryFile @(".t") 0 "dotted t fast path"
             Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "dotted t fast path should not start PowerShell."
             $actual = Read-MockWslArgs $argsFile
             Assert-ArrayEqual $actual @("--terminate", "wsl01") "dotted t args"
 
             Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
-            Invoke-Checked $entryFile @(".vm", "-s") 0 "vm shutdown fast path"
+            Invoke-Checked $fastPathEntryFile @(".vm", "-s") 0 "vm shutdown fast path"
             Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "vm shutdown fast path should not start PowerShell."
             $actual = Read-MockWslArgs $argsFile
             Assert-ArrayEqual $actual @("--shutdown") "vm -s args"
 
             Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
-            Invoke-Checked $entryFile @(".vm", "default") 0 "vm default fast path"
+            Invoke-Checked $fastPathEntryFile @(".vm", "default") 0 "vm default fast path"
             Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "vm default fast path should not start PowerShell."
             $actual = Read-MockWslArgs $argsFile
             Assert-ArrayEqual $actual @("--set-default", "wsl01") "vm default args"
 
             Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
-            Invoke-Checked $entryFile @() 0 "default shell passthrough fast path"
+            Invoke-Checked $fastPathEntryFile @() 0 "default shell passthrough fast path"
             Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "default shell fast path should not start PowerShell."
             $actual = Read-MockWslArgs $argsFile
             Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~") "default shell passthrough args"
@@ -434,14 +442,14 @@ try {
 
             Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
-            Invoke-Checked $entryFile @("config") 0 "native config passthrough fast path"
+            Invoke-Checked $fastPathEntryFile @("config") 0 "native config passthrough fast path"
             Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "native config fast path should not start PowerShell."
             $actual = Read-MockWslArgs $argsFile
             Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "config") "native config passthrough args"
 
             Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
-            Invoke-Checked $entryFile @("--", "ssh") 0 "explicit passthrough fast path"
+            Invoke-Checked $fastPathEntryFile @("--", "ssh") 0 "explicit passthrough fast path"
             Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "explicit passthrough fast path should not start PowerShell."
             $actual = Read-MockWslArgs $argsFile
             Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "--", "ssh") "explicit passthrough control-looking command"
@@ -450,7 +458,7 @@ try {
 
             Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $powerShellMarker -Force -ErrorAction SilentlyContinue
-            Invoke-Checked $entryFile @(".myshell") 0 "unknown dotted command passthrough fast path"
+            Invoke-Checked $fastPathEntryFile @(".myshell") 0 "unknown dotted command passthrough fast path"
             Assert-True (-not (Test-Path -LiteralPath $powerShellMarker)) "unknown dotted fast path should not start PowerShell."
             $actual = Read-MockWslArgs $argsFile
             Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", ".myshell") "unknown dotted command passthrough args"
@@ -675,6 +683,9 @@ try {
         if ($unknownSourceEntryFile -and (Test-Path -LiteralPath $unknownSourceEntryFile)) {
             Remove-Item -LiteralPath $unknownSourceEntryFile -Force
         }
+        if ($fastPathEntryFile -and (Test-Path -LiteralPath $fastPathEntryFile)) {
+            Remove-Item -LiteralPath $fastPathEntryFile -Force
+        }
         if (Test-Path -LiteralPath $tempRoot) {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force
         }
@@ -682,5 +693,9 @@ try {
 
     Write-Host "smoke ok" -ForegroundColor Green
 } finally {
+    $env:USERPROFILE = $originalUserProfile
+    if (Test-Path -LiteralPath $smokeUserProfileRoot) {
+        Remove-Item -LiteralPath $smokeUserProfileRoot -Recurse -Force
+    }
     Pop-Location
 }

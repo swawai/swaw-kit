@@ -164,6 +164,161 @@ function Invoke-External {
     return [int]$process.ExitCode
 }
 
+function Resolve-NativeCommandPath {
+    param([string]$File)
+
+    if ([string]::IsNullOrWhiteSpace($File)) {
+        return $File
+    }
+    if ([System.IO.Path]::IsPathRooted($File) -and (Test-Path -LiteralPath $File -PathType Leaf)) {
+        return [System.IO.Path]::GetFullPath($File)
+    }
+
+    $extensions = @("")
+    if ([string]::IsNullOrWhiteSpace([System.IO.Path]::GetExtension($File))) {
+        $extensions = @((Get-EnvOrEmpty "PATHEXT").Split(";") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+        if ($extensions.Count -eq 0) {
+            $extensions = @(".COM", ".EXE", ".BAT", ".CMD")
+        }
+    }
+
+    foreach ($dir in @((Get-EnvOrEmpty "PATH").Split(";"))) {
+        if ([string]::IsNullOrWhiteSpace($dir)) {
+            continue
+        }
+
+        foreach ($extension in $extensions) {
+            $candidate = Join-Path $dir ($File + $extension)
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                return [System.IO.Path]::GetFullPath($candidate)
+            }
+        }
+    }
+
+    return $File
+}
+
+function Get-CommandScriptLineEndingStatus {
+    param(
+        [string]$Label,
+        [AllowNull()] [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return [pscustomobject]@{
+            Label = $Label
+            Path = ""
+            Status = "not configured"
+            Warning = $false
+            Message = "not configured"
+        }
+    }
+
+    try {
+        if ($Path.IndexOfAny([System.IO.Path]::GetInvalidPathChars()) -ge 0) {
+            $displayPath = $Path -replace '[\x00-\x1F]', '?'
+            return [pscustomobject]@{
+                Label = $Label
+                Path = $displayPath
+                Status = "invalid path"
+                Warning = $true
+                Message = "invalid path; expected CRLF for cmd.exe"
+            }
+        }
+
+        $expandedPath = [Environment]::ExpandEnvironmentVariables($Path)
+        if ($expandedPath.IndexOfAny([System.IO.Path]::GetInvalidPathChars()) -ge 0) {
+            $displayPath = $expandedPath -replace '[\x00-\x1F]', '?'
+            return [pscustomobject]@{
+                Label = $Label
+                Path = $displayPath
+                Status = "invalid path"
+                Warning = $true
+                Message = "invalid path; expected CRLF for cmd.exe"
+            }
+        }
+
+        $resolvedPath = [System.IO.Path]::GetFullPath($expandedPath)
+    } catch {
+        $displayPath = ([string]$Path) -replace '[\x00-\x1F]', '?'
+        return [pscustomobject]@{
+            Label = $Label
+            Path = $displayPath
+            Status = "invalid path"
+            Warning = $true
+            Message = "invalid path; expected CRLF for cmd.exe"
+            Error = $_.Exception.Message
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
+        return [pscustomobject]@{
+            Label = $Label
+            Path = $resolvedPath
+            Status = "not found"
+            Warning = $false
+            Message = "not found"
+        }
+    }
+
+    $bytes = [System.IO.File]::ReadAllBytes($resolvedPath)
+    $lfCount = 0
+    $crlfCount = 0
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        if ($bytes[$i] -ne 10) {
+            continue
+        }
+
+        $lfCount += 1
+        if ($i -gt 0 -and $bytes[$i - 1] -eq 13) {
+            $crlfCount += 1
+        }
+    }
+
+    $bareLfCount = $lfCount - $crlfCount
+    $status = if ($lfCount -eq 0) {
+        "no line endings"
+    } elseif ($bareLfCount -eq 0) {
+        "CRLF"
+    } elseif ($crlfCount -eq 0) {
+        "LF"
+    } else {
+        "mixed"
+    }
+    $warning = ($bareLfCount -gt 0)
+    $message = if ($warning) {
+        "$status; expected CRLF for cmd.exe"
+    } else {
+        $status
+    }
+
+    return [pscustomobject]@{
+        Label = $Label
+        Path = $resolvedPath
+        Status = $status
+        Warning = $warning
+        Message = $message
+        LfCount = $lfCount
+        CrlfCount = $crlfCount
+        BareLfCount = $bareLfCount
+    }
+}
+
+function Get-WslCommandScriptLineEndingStatuses {
+    $items = New-Object System.Collections.ArrayList
+
+    if ($null -ne $script:Config -and -not [string]::IsNullOrWhiteSpace($script:Config.EntryFile)) {
+        [void]$items.Add((Get-CommandScriptLineEndingStatus "WSL_ENTRY_FILE" $script:Config.EntryFile))
+    }
+
+    $kitPath = (Get-EnvOrEmpty "WSL_KIT").Trim()
+    if (-not [string]::IsNullOrWhiteSpace($kitPath)) {
+        [void]$items.Add((Get-CommandScriptLineEndingStatus "WSL_KIT" $kitPath))
+    }
+
+    return @($items)
+}
+
 function Start-ExternalDetached {
     param(
         [string]$File,

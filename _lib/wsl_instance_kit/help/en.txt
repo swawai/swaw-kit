@@ -33,6 +33,8 @@ version 1.0
   {{COMMAND}} .sshd enable 2222     Enable SSH service and set the port            (systemd-managed)
   {{COMMAND}} .sshd disable         Stop SSH and remove the configured public key
   {{COMMAND}} .user ensure          Create/confirm that {WSL_user} exists          (wsl .. -- sh -lc useradd/adduser)
+  {{COMMAND}} .user passwd          Set {WSL_user}'s password interactively        (wsl .. -- passwd)
+  {{COMMAND}} .user passwd --env VAR Set {WSL_user}'s password from an env var     (wsl .. -- chpasswd)
   {{COMMAND}} .user default         Set {WSL_user} as the default user             (wsl --manage set-default-user)
 # Service port management:
   {{COMMAND}} .port status          Show port mapping, firewall, and network mode status

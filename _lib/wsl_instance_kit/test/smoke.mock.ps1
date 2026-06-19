@@ -4,10 +4,39 @@ function New-MockWsl {
     $projectDir = Join-Path $TempRoot "MockWsl"
     $publishDir = Join-Path $TempRoot "publish"
     $shimDir = Join-Path $TempRoot "shim"
+    $dotnetHome = Join-Path $TempRoot "dotnet-home"
+    $nugetHome = Join-Path $TempRoot "nuget-home"
     New-Item -ItemType Directory -Path $shimDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $dotnetHome -Force | Out-Null
+    New-Item -ItemType Directory -Path $nugetHome -Force | Out-Null
 
-    dotnet new console --use-program-main --name MockWsl --output $projectDir | Out-Null
-    $program = @'
+    $oldDotnetCliHome = $env:DOTNET_CLI_HOME
+    $oldNuGetCliHome = $env:NUGET_CLI_HOME
+    $oldNuGetPackages = $env:NUGET_PACKAGES
+    $oldNuGetHttpCachePath = $env:NUGET_HTTP_CACHE_PATH
+    $oldNuGetPluginsCachePath = $env:NUGET_PLUGINS_CACHE_PATH
+    $oldAppData = $env:APPDATA
+    $oldLocalAppData = $env:LOCALAPPDATA
+    $oldUserProfile = $env:USERPROFILE
+
+    try {
+        $env:DOTNET_CLI_HOME = $dotnetHome
+        $env:NUGET_CLI_HOME = $nugetHome
+        $env:NUGET_PACKAGES = Join-Path $nugetHome "packages"
+        $env:NUGET_HTTP_CACHE_PATH = Join-Path $nugetHome "http-cache"
+        $env:NUGET_PLUGINS_CACHE_PATH = Join-Path $nugetHome "plugins-cache"
+        $env:APPDATA = Join-Path $dotnetHome "appdata"
+        $env:LOCALAPPDATA = Join-Path $dotnetHome "localappdata"
+        $env:USERPROFILE = $dotnetHome
+        New-Item -ItemType Directory -Path $env:APPDATA, $env:LOCALAPPDATA -Force | Out-Null
+
+        Push-Location $TempRoot
+        try {
+            dotnet new console --use-program-main --name MockWsl --output $projectDir | Out-Null
+        } finally {
+            Pop-Location
+        }
+        $program = @'
 using System;
 using System.IO;
 using System.Linq;
@@ -31,13 +60,46 @@ internal class Program
             File.WriteAllText(commandLinePath, Environment.CommandLine);
         }
 
+        var stdinPath = Environment.GetEnvironmentVariable("MOCK_WSL_STDIN_PATH");
+        var stdinBytesPath = Environment.GetEnvironmentVariable("MOCK_WSL_STDIN_BYTES_PATH");
+        if (!string.IsNullOrWhiteSpace(stdinPath) || !string.IsNullOrWhiteSpace(stdinBytesPath))
+        {
+            using var stdin = Console.OpenStandardInput();
+            using var memory = new MemoryStream();
+            stdin.CopyTo(memory);
+            var bytes = memory.ToArray();
+            if (!string.IsNullOrWhiteSpace(stdinPath))
+            {
+                File.WriteAllText(stdinPath, Encoding.UTF8.GetString(bytes), new UTF8Encoding(false));
+            }
+            if (!string.IsNullOrWhiteSpace(stdinBytesPath))
+            {
+                File.WriteAllText(stdinBytesPath, Convert.ToBase64String(bytes), new UTF8Encoding(false));
+            }
+        }
+
         var exitCodeText = Environment.GetEnvironmentVariable("MOCK_WSL_EXIT_CODE");
         return int.TryParse(exitCodeText, out var exitCode) ? exitCode : 0;
     }
 }
 '@
-    [System.IO.File]::WriteAllText((Join-Path $projectDir "Program.cs"), $program, [System.Text.UTF8Encoding]::new($false))
-    dotnet publish $projectDir -c Release -r win-x64 --self-contained false -o $publishDir | Out-Null
+        [System.IO.File]::WriteAllText((Join-Path $projectDir "Program.cs"), $program, [System.Text.UTF8Encoding]::new($false))
+        Push-Location $TempRoot
+        try {
+            dotnet publish $projectDir -c Release -r win-x64 --self-contained false -o $publishDir | Out-Null
+        } finally {
+            Pop-Location
+        }
+    } finally {
+        $env:DOTNET_CLI_HOME = $oldDotnetCliHome
+        $env:NUGET_CLI_HOME = $oldNuGetCliHome
+        $env:NUGET_PACKAGES = $oldNuGetPackages
+        $env:NUGET_HTTP_CACHE_PATH = $oldNuGetHttpCachePath
+        $env:NUGET_PLUGINS_CACHE_PATH = $oldNuGetPluginsCachePath
+        $env:APPDATA = $oldAppData
+        $env:LOCALAPPDATA = $oldLocalAppData
+        $env:USERPROFILE = $oldUserProfile
+    }
 
     Copy-Item -LiteralPath (Join-Path $publishDir "MockWsl.exe") -Destination (Join-Path $shimDir "wsl.exe") -Force
     Copy-Item -LiteralPath (Join-Path $publishDir "MockWsl.dll") -Destination (Join-Path $shimDir "MockWsl.dll") -Force
