@@ -14,14 +14,16 @@ function Get-EnsureWslUserScript {
     $userArg = "'$User'"
     $parts = @(
         "set -eu",
-        "if ! id -u $userArg >/dev/null 2>&1; then if command -v useradd >/dev/null 2>&1; then if [ -x /bin/bash ]; then useradd -m -s /bin/bash $userArg; else useradd -m -s /bin/sh $userArg; fi",
-        "elif command -v adduser >/dev/null 2>&1; then if adduser --help 2>&1 | grep -q -- `"--disabled-password`"; then if [ -x /bin/bash ]; then adduser --disabled-password --gecos `"`" --shell /bin/bash $userArg; else adduser --disabled-password --gecos `"`" --shell /bin/sh $userArg; fi",
-        "else if [ -x /bin/bash ]; then adduser -D -s /bin/bash $userArg; else adduser -D -s /bin/sh $userArg; fi",
+        "created_user=0",
+        "if ! id -u $userArg >/dev/null 2>&1; then if command -v useradd >/dev/null 2>&1; then if [ -x /bin/bash ]; then useradd -m -s /bin/bash $userArg; else useradd -m -s /bin/sh $userArg; fi; created_user=1",
+        "elif command -v adduser >/dev/null 2>&1; then if adduser --help 2>&1 | grep -q -- `"--disabled-password`"; then if [ -x /bin/bash ]; then adduser --disabled-password --gecos `"`" --shell /bin/bash $userArg; else adduser --disabled-password --gecos `"`" --shell /bin/sh $userArg; fi; created_user=1",
+        "else if [ -x /bin/bash ]; then adduser -D -s /bin/bash $userArg; else adduser -D -s /bin/sh $userArg; fi; created_user=1",
         "fi",
         "else echo `"No useradd/adduser command found.`" >&2",
         "exit 1",
         "fi",
         "fi",
+        "if [ `"`$created_user`" = 1 ] && command -v passwd >/dev/null 2>&1; then passwd -d $userArg >/dev/null 2>&1 || true; fi",
         "if command -v usermod >/dev/null 2>&1; then if [ -x /bin/bash ] && [ `"`$(getent passwd $userArg | cut -d: -f7)`" != /bin/bash ]; then usermod -s /bin/bash $userArg; elif [ ! -x /bin/bash ] && [ -x /bin/sh ] && [ `"`$(getent passwd $userArg | cut -d: -f7)`" != /bin/sh ]; then usermod -s /bin/sh $userArg; fi; if command -v getent >/dev/null 2>&1 && getent group sudo >/dev/null 2>&1 && ! id -nG $userArg | tr ' ' '\n' | grep -qx sudo; then usermod -aG sudo $userArg; fi",
         "fi"
     )

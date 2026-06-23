@@ -69,6 +69,14 @@ function Test-EnvFileAndUserPasswdSmoke {
         Assert-True ($envStatusOutput.Contains("User password:       not checked (instance not running)")) "status should not start WSL to check password."
 
         Remove-Item -LiteralPath $ArgsFile -Force -ErrorAction SilentlyContinue
+        Invoke-Checked $envEntryFile @(".user", "ensure") 0 "user ensure"
+        $actual = Read-MockWslArgs $ArgsFile
+        Assert-ArrayEqual @($actual[0..6]) @("-d", $entryName, "-u", "root", "--", "sh", "-lc") "user ensure root script prefix"
+        $ensureScript = Decode-Base64ShRunner $actual[7]
+        Assert-True ($ensureScript.Contains("passwd -d 'john'")) "user ensure should leave new WSL users unlocked with an empty password so they can run passwd themselves."
+        Assert-True ($ensureScript.Contains('if [ "$created_user" = 1 ]')) "user ensure should only clear the password for newly-created users."
+
+        Remove-Item -LiteralPath $ArgsFile -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $RawCommandLineFile -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $stdinFile -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $stdinBytesFile -Force -ErrorAction SilentlyContinue
