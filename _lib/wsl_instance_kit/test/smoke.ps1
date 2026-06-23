@@ -284,6 +284,7 @@ try {
         Assert-True ($natDryRunOutput.Contains("listenaddress=0.0.0.0")) "nat dry-run should use the fixed 0.0.0.0 listen address."
         Assert-True ($natDryRunOutput.Contains("connectaddress=<WSL-IP>")) "nat dry-run should not require a live WSL IP."
         Assert-True ($natDryRunOutput.Contains("wsl_instance_kit-")) "nat dry-run should use the wsl_instance_kit rule prefix."
+        Assert-True ($natDryRunOutput.Contains("wsl01 .port sync")) "nat dry-run should tell users to refresh mappings after WSL IP changes."
         $natDelDryRunOutput = Invoke-Captured $entryFile @(".port", "del", "8080", "--dry-run") 0 "nat port del dry-run"
         Assert-True ($natDelDryRunOutput.Contains("portproxy delete")) "nat del dry-run should delete the NAT portproxy."
         Assert-True ($natDelDryRunOutput.Contains("Remove-NetFirewallRule")) "nat del dry-run should remove the firewall rule."

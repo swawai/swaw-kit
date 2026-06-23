@@ -75,6 +75,7 @@ function Add-WslNatPortExposure {
     }
 
     Write-Host "Exposed NAT port: $ListenAddress`:$ListenPort -> $targetIp`:$ConnectPort"
+    Write-Host "NAT note: WSL IP can change after restart; run $($script:Config.CommandName) .port sync to refresh managed mappings."
     return 0
 }
 
