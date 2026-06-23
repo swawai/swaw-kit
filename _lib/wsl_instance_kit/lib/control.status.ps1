@@ -409,6 +409,10 @@ function Invoke-Status {
         return Show-WslResourceStatus
     }
 
+    if ($Rest.Count -eq 1 -and $Rest[0] -ieq "--json") {
+        return Show-WslResourceStatusJson
+    }
+
     $action = $Rest[0].ToLowerInvariant()
     $tail = @(Get-Slice $Rest 1)
 

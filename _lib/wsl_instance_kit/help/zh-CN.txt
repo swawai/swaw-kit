@@ -4,6 +4,8 @@ version 1.0
   {{COMMAND}}                       进入此命令绑定的 WSL 实例             ({{ENTRY_FILE}} 中的 {WSL_name} 指定)
   {{COMMAND}} .status               显示此实例状态
   {{COMMAND}} .doctor               检查 WSL、入口配置、实例、存储和网络
+  {{COMMAND}} .status  --json       同 .status，json格式输出，更利于Agent处理
+  {{COMMAND}} .doctor  --json       同 .doctor
   {{COMMAND}} .help en              Show English help information
   {{COMMAND}} .help zh              显示中文版帮助信息
 

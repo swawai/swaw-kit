@@ -51,9 +51,11 @@ function Assert-ArrayEqual {
 }
 
 . (Join-Path $PSScriptRoot "smoke.entry.ps1")
+. (Join-Path $PSScriptRoot "smoke.json.ps1")
 . (Join-Path $PSScriptRoot "smoke.mock.ps1")
 . (Join-Path $PSScriptRoot "smoke.env-user.ps1")
 . (Join-Path $PSScriptRoot "smoke.alive.ps1")
+. (Join-Path $PSScriptRoot "smoke.port.ps1")
 
 function Invoke-Checked {
     param(
@@ -184,47 +186,6 @@ function Test-WslDistributionExists {
     }
 }
 
-function Test-PortInventoryDryRun {
-    . (Join-Path $kitRoot "lib\common.ps1")
-    . (Join-Path $kitRoot "lib\port.netsh.ps1")
-    . (Join-Path $kitRoot "lib\port.inventory.ps1")
-
-    function Get-WslPortProxyEntries {
-        return @()
-    }
-    $script:SmokePortProxyCalls = 0
-    function Remove-WslNatPortProxy {
-        param(
-            [int]$ListenPort,
-            [string]$ListenAddress,
-            [switch]$DryRun
-        )
-
-        $script:SmokePortProxyCalls += 1
-        return 0
-    }
-
-    $hyperVItem = [pscustomobject]@{
-        Kind          = "hyperv-firewall"
-        Id            = "wsl_instance_kit-demo-port-tcp-0.0.0.0-2222"
-        ListenAddress = "0.0.0.0"
-        ListenPort    = 2222
-    }
-    $script:SmokePortProxyCalls = 0
-    & { [void](Remove-WslManagedPortItem -Item $hyperVItem -DryRun) } 6>$null
-    Assert-True ($script:SmokePortProxyCalls -eq 0) "Hyper-V port dry-run should not delete NAT portproxy."
-
-    $windowsItem = [pscustomobject]@{
-        Kind          = "windows-firewall"
-        Id            = "wsl_instance_kit-demo-port-tcp-0.0.0.0-2223"
-        ListenAddress = "0.0.0.0"
-        ListenPort    = 2223
-    }
-    $script:SmokePortProxyCalls = 0
-    & { [void](Remove-WslManagedPortItem -Item $windowsItem -DryRun) } 6>$null
-    Assert-True ($script:SmokePortProxyCalls -eq 1) "Windows firewall port dry-run should delete NAT portproxy."
-}
-
 Push-Location $repoRoot
 $originalUserProfile = $env:USERPROFILE
 $smokeUserProfileRoot = Join-Path $env:TEMP ("wslkit-profile-" + [guid]::NewGuid().ToString("N"))
@@ -291,6 +252,8 @@ try {
     Assert-True ($statusOutput.Contains("Port:")) "status should show port summary."
     Assert-True ($statusOutput.Contains("More status:")) "status should show sub-status shortcuts."
     Assert-True ($statusOutput.Contains(".status sshd | port | systemd")) "status should mention status subcommands."
+    Test-StatusJsonOutput
+    Test-DoctorJsonOutput
     Test-EntryLineEndingStatusDiagnostics
     Invoke-Checked $entryFile @(".doctor", "extra") 1 "reject doctor extra args"
     $directPortStatusOutput = Invoke-Captured $entryFile @(".status", "port") 0 "status port"

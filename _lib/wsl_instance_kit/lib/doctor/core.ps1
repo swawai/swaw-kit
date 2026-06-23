@@ -4,6 +4,7 @@ function Initialize-WslDoctorState {
         WARN = 0
         FAIL = 0
     }
+    $script:WslDoctorResults = New-Object System.Collections.ArrayList
 }
 
 
@@ -21,6 +22,10 @@ function Get-WslDoctorColor {
 
 function Write-WslDoctorSection {
     param([string]$Title)
+
+    if ($script:WslDoctorJsonMode) {
+        return
+    }
 
     Write-Host ""
     Write-Host $Title
@@ -58,6 +63,26 @@ function Add-WslDoctorResult {
     }
 
     $script:WslDoctorStats[$Level] = [int]$script:WslDoctorStats[$Level] + 1
+
+    if ($null -eq $script:WslDoctorResults) {
+        $script:WslDoctorResults = New-Object System.Collections.ArrayList
+    }
+
+    $result = [ordered]@{
+        level = $Level
+        label = $Label
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Message)) {
+        $result.message = $Message
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Detail)) {
+        $result.detail = $Detail
+    }
+    [void]$script:WslDoctorResults.Add([pscustomobject]$result)
+
+    if ($script:WslDoctorJsonMode) {
+        return
+    }
 
     $line = "  [{0}] {1}" -f $Level, $Label
     if (-not [string]::IsNullOrWhiteSpace($Message)) {

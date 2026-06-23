@@ -55,6 +55,15 @@ function Write-Warn {
     Write-Host $Message -ForegroundColor Yellow
 }
 
+function Write-CompactJson {
+    param(
+        [AllowNull()] [object]$Value,
+        [int]$Depth = 5
+    )
+
+    Write-Host ($Value | ConvertTo-Json -Depth $Depth -Compress)
+}
+
 function Format-Arg {
     param([AllowNull()] [string]$Value)
 
