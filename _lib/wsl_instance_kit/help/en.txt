@@ -2,7 +2,7 @@ version 1.0
 
 # Basic usage:
   {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} in {{ENTRY_FILE}})
-  {{COMMAND}} .status               Show this instance status
+  {{COMMAND}} .status               Show this instance status (e.g. whether it's installed)
   {{COMMAND}} .doctor               Check WSL, entry config, instance, storage, and network
   {{COMMAND}} .status --json        Same as .status, but outputs JSON for easier AI agent processing
   {{COMMAND}} .doctor --json        Same as .doctor

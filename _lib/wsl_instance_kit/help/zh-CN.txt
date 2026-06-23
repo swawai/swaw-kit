@@ -2,9 +2,9 @@ version 1.0
 
 # 基本用法:
   {{COMMAND}}                       进入此命令绑定的 WSL 实例             ({{ENTRY_FILE}} 中的 {WSL_name} 指定)
-  {{COMMAND}} .status               显示此实例状态
+  {{COMMAND}} .status               显示此实例状态 (例如是否已安装)
   {{COMMAND}} .doctor               检查 WSL、入口配置、实例、存储和网络
-  {{COMMAND}} .status  --json       同 .status，json格式输出，更利于Agent处理
+  {{COMMAND}} .status  --json       同 .status，status，JSON 格式输出，更利于 Agent 处理
   {{COMMAND}} .doctor  --json       同 .doctor
   {{COMMAND}} .help en              Show English help information
   {{COMMAND}} .help zh              显示中文版帮助信息
@@ -52,7 +52,7 @@ version 1.0
   {{COMMAND}} .dir config           打开实例级配置 wsl.conf 所在目录      (explorer \\wsl...)
   {{COMMAND}} .dir ssh              打开此实例中的 /etc/ssh 配置目录
 # IDE 编辑:
-  {{COMMAND}} .code                 用 VSCode 打开{WSL_default_workdir}   (code --remote=wsl+..)
+  {{COMMAND}} .code                 用 VS Code 打开 {WSL_default_workdir} (code --remote=wsl+..)
   {{COMMAND}} .code ~               打开此实例用户家目录
   {{COMMAND}} .cursor /etc          用 Cursor 打开 WSL 绝对路径
   {{COMMAND}} .cursor app/          打开 {WSL_default_workdir}/app/
@@ -62,14 +62,14 @@ version 1.0
   {{COMMAND}} .vm status            显示当前用户 WSL VM/全部实例状态
   {{COMMAND}} .vm show              打开 WSL 欢迎/功能介绍页面
   {{COMMAND}} .vm default           将此实例设置为当前用户默认实例        (wsl --set-default)
-  {{COMMAND}} .vm -s                关闭当前用户的 WSL2 VM/全部实例       (wsl --shutdown)
+  {{COMMAND}} .vm -s                关闭当前用户的 WSL 2 VM/全部实例      (wsl --shutdown)
   {{COMMAND}} .vm alive             列出当前用户下所有 WSL alive 任务，并自动清理失效项
   {{COMMAND}} .vm alive del <task>  删除指定 WSL alive 任务
   {{COMMAND}} .vm port              列出当前用户下所有 WSL 端口策略，并在有权限时自动清理失效项
   {{COMMAND}} .vm port --uac        同上，但会交互式提权
   {{COMMAND}} .vm port del <id>     删除指定 WSL 端口策略                 (需要管理员权限)
 
-# 上面未出现的命令，会添加 -d -u --cd 信息后，直接透传给 wsl.exe ，例如：
+# 上面未出现的命令，会添加 -d -u --cd 信息后，直接透传给 wsl.exe，例如：
   {{COMMAND}} uname -a              等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir uname -a
   {{COMMAND}} -- pwd                等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir -- pwd
   {{COMMAND}} --cd /tmp -- pwd      同上，但追加 --cd 参数覆盖
