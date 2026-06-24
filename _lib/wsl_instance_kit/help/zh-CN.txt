@@ -3,11 +3,15 @@ version 1.0
 # 基本用法:
   {{COMMAND}}                       进入此命令绑定的 WSL 实例             ({{ENTRY_FILE}} 中的 {WSL_name} 指定)
   {{COMMAND}} .status               显示此实例状态 (例如是否已安装)
-  {{COMMAND}} .doctor               检查 WSL、入口配置、实例、存储和网络
-  {{COMMAND}} .status  --json       同 .status，status，JSON 格式输出，更利于 Agent 处理
-  {{COMMAND}} .doctor  --json       同 .doctor
-  {{COMMAND}} .help en              Show English help information
-  {{COMMAND}} .help zh              显示中文版帮助信息
+  {{COMMAND}} .doctor               检查 WSL、入口配置、实例、存储和网速，整体耗时可能接近30秒
+  {{COMMAND}} .status  --json       同 .status，JSON 格式输出，更利于 Agent 处理
+  {{COMMAND}} .status  --json --brief 面向 Agent 首轮判断的紧凑 JSON
+  {{COMMAND}} .doctor  --json       同 .doctor，输出约 6KB
+  {{COMMAND}} .help en              Show English help information, Output: ~4.3 KB
+  {{COMMAND}} .help zh              显示中文版帮助信息，输出约 4.3KB
+
+# Agent / 自动化 使用提示：
+  --dry-run 可以试运行；--uac 会进入交互界面（慎用）；Linux 命令透传请使用 {{COMMAND}} -- <cmd>
 
 # 安装/还原、重装、备份、迁移、删除:
   {{COMMAND}} .install              安装：使用 {WSL_source} 创建此实例    (wsl --import 或 wsl --install)

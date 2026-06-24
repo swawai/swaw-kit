@@ -29,6 +29,23 @@ function Write-WslDoctorJson {
     Write-CompactJson ([pscustomobject]$data) 5
 }
 
+function Test-WslDoctorJsonRequested {
+    param([string[]]$Rest)
+
+    return ($null -ne (@($Rest) | Where-Object { $_ -ieq "--json" } | Select-Object -First 1))
+}
+
+function Show-WslDoctorJsonHelpHint {
+    param([AllowNull()] [string]$Message)
+
+    if ([string]::IsNullOrWhiteSpace($Message)) {
+        $Message = ".doctor received invalid arguments."
+    }
+
+    Write-CommandErrorJson "doctor" "invalid_arguments" $Message "Run: $($script:Config.CommandName) .help"
+    return 1
+}
+
 
 function Invoke-WslDoctor {
     param([string[]]$Rest)
@@ -37,6 +54,10 @@ function Invoke-WslDoctor {
     if ($Rest.Count -eq 1 -and $Rest[0] -ieq "--json") {
         $json = $true
     } elseif ($Rest.Count -ne 0) {
+        if (Test-WslDoctorJsonRequested $Rest) {
+            return Show-WslDoctorJsonHelpHint ".doctor --json does not accept extra arguments."
+        }
+
         return Show-CommandHelpHint ".doctor does not accept extra arguments."
     }
 

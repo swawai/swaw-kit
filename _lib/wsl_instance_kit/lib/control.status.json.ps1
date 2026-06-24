@@ -27,6 +27,61 @@ function Get-WslStatusWarningItems {
     return @($items)
 }
 
+function Get-WslStatusNextCommand {
+    param(
+        [bool]$Installed,
+        [string]$State,
+        [int]$WarningCount
+    )
+
+    if (-not $Installed) {
+        return "$($script:Config.CommandName) .install"
+    }
+
+    if ($WarningCount -gt 0 -or [string]::IsNullOrWhiteSpace($State) -or $State -ieq "unknown") {
+        return "$($script:Config.CommandName) .doctor --json"
+    }
+
+    return ""
+}
+
+function Show-WslResourceStatusBriefJson {
+    $record = Get-WslDistributionRecord
+    $installed = ($null -ne $record)
+    $runtimeState = if ($installed) { "unknown" } else { "not installed" }
+    $runtimeVersion = ""
+    $runtimeIp = ""
+
+    if ($installed) {
+        $runtime = Get-WslDistributionRuntimeInfo $record
+        $runtimeState = if ($null -eq $runtime -or [string]::IsNullOrWhiteSpace($runtime.State)) { "unknown" } else { [string]$runtime.State }
+        $runtimeVersion = if ($null -eq $runtime -or [string]::IsNullOrWhiteSpace($runtime.Version)) { "" } else { [string]$runtime.Version }
+        $runtimeIp = Get-WslRunningIpAddresses $runtimeState
+    }
+
+    $warnings = @(Get-WslStatusWarningItems)
+    $data = [ordered]@{
+        command        = "status"
+        mode           = "brief"
+        ok             = [bool]($installed -and $warnings.Count -eq 0)
+        entry          = [string]$script:Config.CommandName
+        name           = [string]$script:Config.Name
+        user           = if ([string]::IsNullOrWhiteSpace($script:Config.User)) { "" } else { [string]$script:Config.User }
+        workdir        = if ([string]::IsNullOrWhiteSpace($script:Config.DefaultWorkdir)) { "" } else { [string]$script:Config.DefaultWorkdir }
+        installed      = [bool]$installed
+        state          = [string]$runtimeState
+        runtimeVersion = [string]$runtimeVersion
+        ip             = [string]$runtimeIp
+        alive          = [string](Get-WslAliveStatusSummary)
+        port           = [string](Get-WslPortStatusSummary)
+        warnings       = @($warnings)
+        next           = [string](Get-WslStatusNextCommand $installed $runtimeState $warnings.Count)
+    }
+
+    Write-CompactJson ([pscustomobject]$data) 5
+    return 0
+}
+
 function Show-WslResourceStatusJson {
     $source = Resolve-WslSource $script:Config.Source
     $installDir = Resolve-EntryPath $script:Config.InstallDir

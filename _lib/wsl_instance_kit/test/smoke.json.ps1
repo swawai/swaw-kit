@@ -19,6 +19,59 @@ function Test-StatusJsonOutput {
     Assert-True ($null -ne $json.warnings) "status json should include warnings."
 }
 
+function Test-StatusJsonBriefOutput {
+    $output = Invoke-Captured $entryFile @(".status", "--json", "--brief") 0 "entry brief status json"
+    Assert-True (-not $output.Contains("WSL resource:")) "brief status json should not include text heading."
+
+    try {
+        $json = $output | ConvertFrom-Json
+    } catch {
+        throw "brief status json should parse: $($_.Exception.Message). Output: $output"
+    }
+
+    Assert-True ($json.command -eq "status") "brief status json should identify the command."
+    Assert-True ($json.mode -eq "brief") "brief status json should identify brief mode."
+    Assert-True ($json.name -eq "wsl01") "brief status json should include WSL name."
+    Assert-True ($json.user -eq "john") "brief status json should include WSL user."
+    Assert-True ($json.workdir -eq "~") "brief status json should include workdir."
+    Assert-True ($json.installed -eq $false) "brief status json should include installed."
+    Assert-True ($json.state -eq "not installed") "brief status json should include state."
+    Assert-True ($json.next -eq "wsl01 .install") "brief status json should suggest install when missing."
+    Assert-True ($null -ne $json.warnings) "brief status json should include warnings."
+    Assert-True ($null -eq $json.source) "brief status json should omit source."
+    Assert-True ($null -eq $json.entryFile) "brief status json should omit entryFile."
+    Assert-True ($null -eq $json.installDir) "brief status json should omit installDir."
+    Assert-True ($null -eq $json.backupBytes) "brief status json should omit backup sizes."
+    Assert-True ($null -eq $json.downloadBytes) "brief status json should omit download size."
+}
+
+function Test-JsonErrorOutput {
+    param(
+        [string]$Output,
+        [string]$ExpectedCommand,
+        [string]$ExpectedCode,
+        [string]$Label
+    )
+
+    try {
+        $json = $Output | ConvertFrom-Json
+    } catch {
+        throw "$Label should parse as JSON: $($_.Exception.Message). Output: $Output"
+    }
+
+    Assert-True ($json.ok -eq $false) "$Label should set ok=false."
+    Assert-True ($json.command -eq $ExpectedCommand) "$Label should identify the command."
+    Assert-True ($json.name -eq "wsl01") "$Label should include WSL name."
+    Assert-True ($json.error.code -eq $ExpectedCode) "$Label should include error code $ExpectedCode."
+    Assert-True (-not [string]::IsNullOrWhiteSpace($json.error.message)) "$Label should include an error message."
+    Assert-True ($json.error.hint.Contains(".help")) "$Label should include a help hint."
+}
+
+function Test-StatusJsonErrorOutput {
+    $output = Invoke-Captured $entryFile @(".status", "--json", "extra") 1 "status json rejects extra args"
+    Test-JsonErrorOutput $output "status" "invalid_arguments" "status json invalid arguments"
+}
+
 function Test-DoctorJsonOutput {
     $oldConfig = $script:Config
     try {
@@ -86,4 +139,9 @@ function Test-DoctorJsonOutput {
     Assert-True ($json.results.Count -gt 0) "doctor json should include results."
     Assert-True ($null -ne $json.results[0].level) "doctor result should include level."
     Assert-True ($null -ne $json.results[0].label) "doctor result should include label."
+}
+
+function Test-DoctorJsonErrorOutput {
+    $output = Invoke-Captured $entryFile @(".doctor", "--json", "extra") 1 "doctor json rejects extra args"
+    Test-JsonErrorOutput $output "doctor" "invalid_arguments" "doctor json invalid arguments"
 }

@@ -64,6 +64,31 @@ function Write-CompactJson {
     Write-Host ($Value | ConvertTo-Json -Depth $Depth -Compress)
 }
 
+function Write-CommandErrorJson {
+    param(
+        [string]$Command,
+        [string]$Code,
+        [string]$Message,
+        [AllowNull()] [string]$Hint
+    )
+
+    $data = [ordered]@{
+        ok      = $false
+        command = [string]$Command
+        entry   = [string]$script:Config.CommandName
+        name    = [string]$script:Config.Name
+        error   = [ordered]@{
+            code    = [string]$Code
+            message = [string]$Message
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Hint)) {
+        $data.error.hint = [string]$Hint
+    }
+
+    Write-CompactJson ([pscustomobject]$data) 5
+}
+
 function Format-Arg {
     param([AllowNull()] [string]$Value)
 
@@ -146,31 +171,36 @@ function Invoke-External {
         Write-Host (Format-CommandLine $File $CommandArgs) -ForegroundColor DarkGray
     }
 
-    $startParams = @{
-        FilePath    = $File
-        Wait        = $true
-        NoNewWindow = $true
-        PassThru    = $true
-    }
-
     $argumentLine = Get-ProcessArgumentLine $CommandArgs
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = Resolve-NativeCommandPath $File
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $false
     if (-not [string]::IsNullOrWhiteSpace($argumentLine)) {
-        $startParams.ArgumentList = $argumentLine
+        $startInfo.Arguments = $argumentLine
     }
 
+    $process = $null
+    $exitCode = $null
     try {
-        $process = Start-Process @startParams
+        $process = [System.Diagnostics.Process]::Start($startInfo)
+        $process.WaitForExit()
+        $exitCode = [int]$process.ExitCode
     } catch {
         Write-Fail "Failed to start native command: $File"
         Write-Fail $_.Exception.Message
         return 1
+    } finally {
+        if ($null -ne $process) {
+            $process.Dispose()
+        }
     }
 
-    if ($null -eq $process -or $null -eq $process.ExitCode) {
+    if ($null -eq $exitCode) {
         return 0
     }
 
-    return [int]$process.ExitCode
+    return $exitCode
 }
 
 function Resolve-NativeCommandPath {

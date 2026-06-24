@@ -253,7 +253,10 @@ try {
     Assert-True ($statusOutput.Contains("More status:")) "status should show sub-status shortcuts."
     Assert-True ($statusOutput.Contains(".status sshd | port | systemd")) "status should mention status subcommands."
     Test-StatusJsonOutput
+    Test-StatusJsonBriefOutput
+    Test-StatusJsonErrorOutput
     Test-DoctorJsonOutput
+    Test-DoctorJsonErrorOutput
     Test-EntryLineEndingStatusDiagnostics
     Invoke-Checked $entryFile @(".doctor", "extra") 1 "reject doctor extra args"
     $directPortStatusOutput = Invoke-Captured $entryFile @(".status", "port") 0 "status port"
@@ -351,6 +354,23 @@ try {
         Assert-ExitCode $LASTEXITCODE 0 "passthrough quoted cmd metachar arg"
         $actual = Read-MockWslArgs $argsFile
         Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "alpha&beta") "passthrough quoted cmd metachar arg"
+
+        $percentShell = "printf '%s\n' ok"
+        Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+        Invoke-Checked $entryFile @("--", "sh", "-lc", $percentShell) 0 "passthrough percent shell arg"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "--", "sh", "-lc", $percentShell) "passthrough percent shell arg"
+
+        $substitutionShell = 'echo user=$(id -un) pwd=$PWD kernel=$(uname -srm)'
+        Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+        Invoke-Checked $entryFile @("--", "sh", "-lc", $substitutionShell) 0 "passthrough substitution shell arg"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "--", "sh", "-lc", $substitutionShell) "passthrough substitution shell arg"
+
+        Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
+        Invoke-Checked $kitCmd @("--entry-file", $entryFile, "--", "sh", "-lc", $substitutionShell) 0 "kit passthrough substitution shell arg"
+        $actual = Read-MockWslArgs $argsFile
+        Assert-ArrayEqual $actual @("-d", "wsl01", "-u", "john", "--cd", "~", "--", "sh", "-lc", $substitutionShell) "kit passthrough substitution shell arg"
 
         Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
         $topInstallOutput = Invoke-Captured $entryFile @(".install", "--dry-run") 0 "dotted install dry-run"

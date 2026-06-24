@@ -3,11 +3,15 @@ version 1.0
 # Basic usage:
   {{COMMAND}}                       Enter the WSL instance bound by this command ({WSL_name} in {{ENTRY_FILE}})
   {{COMMAND}} .status               Show this instance status (e.g. whether it's installed)
-  {{COMMAND}} .doctor               Check WSL, entry config, instance, storage, and network
+  {{COMMAND}} .doctor               Check WSL, entry config, instance, storage, and network speed; may take close to 30 seconds
   {{COMMAND}} .status --json        Same as .status, but outputs JSON for easier AI agent processing
+  {{COMMAND}} .status --json --brief Compact JSON for an agent's first decision
   {{COMMAND}} .doctor --json        Same as .doctor
   {{COMMAND}} .help en              Show English help information
   {{COMMAND}} .help zh              Show Chinese help information
+
+# Agent / automation usage:
+  Use --dry-run for trial runs; --uac enters an interactive prompt (use with care); use {{COMMAND}} -- <cmd> for Linux passthrough commands
 
 # Install/restore, reinstall, backup, relocate, delete:
   {{COMMAND}} .install              Install: create this instance from {WSL_source}        (wsl --import or wsl --install)

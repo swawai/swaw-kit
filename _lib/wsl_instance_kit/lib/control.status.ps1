@@ -401,6 +401,33 @@ function Show-CommandHelpHint {
     return 1
 }
 
+function Test-StatusJsonRequested {
+    param([string[]]$Rest)
+
+    return ($null -ne (@($Rest) | Where-Object { $_ -ieq "--json" } | Select-Object -First 1))
+}
+
+function Test-StatusJsonBriefRequested {
+    param([string[]]$Rest)
+
+    if ($Rest.Count -ne 2) {
+        return $false
+    }
+
+    return (Test-StatusJsonRequested $Rest) -and ($null -ne (@($Rest) | Where-Object { $_ -ieq "--brief" } | Select-Object -First 1))
+}
+
+function Show-StatusJsonHelpHint {
+    param([AllowNull()] [string]$Message)
+
+    if ([string]::IsNullOrWhiteSpace($Message)) {
+        $Message = ".status received invalid arguments."
+    }
+
+    Write-CommandErrorJson "status" "invalid_arguments" $Message "Run: $($script:Config.CommandName) .help"
+    return 1
+}
+
 
 function Invoke-Status {
     param([string[]]$Rest)
@@ -411,6 +438,14 @@ function Invoke-Status {
 
     if ($Rest.Count -eq 1 -and $Rest[0] -ieq "--json") {
         return Show-WslResourceStatusJson
+    }
+
+    if (Test-StatusJsonBriefRequested $Rest) {
+        return Show-WslResourceStatusBriefJson
+    }
+
+    if (Test-StatusJsonRequested $Rest) {
+        return Show-StatusJsonHelpHint ".status --json accepts only optional --brief."
     }
 
     $action = $Rest[0].ToLowerInvariant()

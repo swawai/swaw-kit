@@ -30,18 +30,19 @@ if defined helpLanguage (
 exit /b %ERRORLEVEL%
 
 :Main
-if "%~1"=="" (
-    if "%WSL_KIT_ARGS_READY%"=="1" goto :TryFastPath
-    set "WSL_KIT_ARG_COUNT=0"
-    goto :TryFastPath
-)
-
+if "%WSL_KIT_ARGS_READY%"=="1" goto :TryFastPath
 set "WSL_KIT_ARG_COUNT=0"
 
 :ArgLoop
-if "%~1"=="" if not [%1]==[""] goto :TryFastPath
+set "WSL_KIT_CURRENT_ARG=%~1"
+if defined WSL_KIT_CURRENT_ARG goto :StoreArg
+if [%1]==[""] goto :StoreArg
+goto :TryFastPath
+
+:StoreArg
 set /a WSL_KIT_ARG_COUNT+=1
-set "WSL_KIT_ARG_%WSL_KIT_ARG_COUNT%=%~1"
+set "WSL_KIT_ARG_%WSL_KIT_ARG_COUNT%=%WSL_KIT_CURRENT_ARG%"
+set "WSL_KIT_CURRENT_ARG="
 shift /1
 goto :ArgLoop
 
