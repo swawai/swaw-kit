@@ -3,14 +3,14 @@ version 1.0
 # 基本用法:
   {{COMMAND}}                       进入此命令绑定的 WSL 实例             ({{ENTRY_FILE}} 中的 {WSL_name} 指定)
   {{COMMAND}} .status               显示此实例状态 (例如是否已安装)
-  {{COMMAND}} .doctor               检查 WSL、入口配置、实例、存储和网速，整体耗时可能接近30秒
-  {{COMMAND}} .status  --json       同 .status，JSON 格式输出，更利于 Agent 处理
-  {{COMMAND}} .status  --json --brief 面向 Agent 首轮判断的紧凑 JSON
-  {{COMMAND}} .doctor  --json       同 .doctor，输出约 6KB
-  {{COMMAND}} .help en              Show English help information, Output: ~4.3 KB
-  {{COMMAND}} .help zh              显示中文版帮助信息，输出约 4.3KB
+  {{COMMAND}} .doctor               检查 WSL、入口配置、实例、存储和网速，整体耗时可能接近 30 秒
+  {{COMMAND}} .status --json        同 .status，JSON 格式输出，更利于 Agent 处理
+  {{COMMAND}} .status --json --brief 面向 Agent 首轮判断的紧凑 JSON
+  {{COMMAND}} .doctor --json        同 .doctor，输出约 6 KB
+  {{COMMAND}} .help en              Show English help information, output: ~4.3 KB
+  {{COMMAND}} .help zh              显示中文版帮助信息，输出约 4.3 KB
 
-# Agent / 自动化 使用提示：
+# Agent / 自动化使用提示:
   --dry-run 可以试运行；--uac 会进入交互界面（慎用）；Linux 命令透传请使用 {{COMMAND}} -- <cmd>
 
 # 安装/还原、重装、备份、迁移、删除:
@@ -28,7 +28,7 @@ version 1.0
 # 停止与保活:
   {{COMMAND}} .t                    停止此实例                            (wsl --terminate)
   {{COMMAND}} .alive 600            让此实例保持后台运行 600 秒           (wsl sleep)
-  {{COMMAND}} .alive                保持后台运行，当前 Windows 账户下次登录时，还继续
+  {{COMMAND}} .alive                保持后台运行，并在当前 Windows 账户下次登录时继续保活
   {{COMMAND}} .alive off            关闭 alive 设置
   {{COMMAND}} .alive status         显示保活相关设置状态
 # systemd、sshd 与用户:
@@ -46,9 +46,9 @@ version 1.0
   {{COMMAND}} .port status          显示端口映射、防火墙和网络模式状态
   {{COMMAND}} .port expose 8080     映射 TCP 8080:8080 并让防火墙放行     (需要管理员权限)
   {{COMMAND}} .port expose 8080 --uac 映射端口并弹出 UAC 提权确认
-  {{COMMAND}} .port expose 8080 80  映射 8080 到 WSL:80 并放行(NAT)
+  {{COMMAND}} .port expose 8080 80  映射 8080 到 WSL:80 并放行 (NAT)
   {{COMMAND}} .port del 8080        移除 TCP 8080 的映射与防火墙规则
-  {{COMMAND}} .port sync            WSL 的 IP 可能会变(NAT)，此命令可以刷新
+  {{COMMAND}} .port sync            WSL 的 IP 可能会变 (NAT)，此命令可以刷新
 # 快速打开目标目录:
   {{COMMAND}} .dir install          打开此实例 Windows 安装目录
   {{COMMAND}} .dir backup           打开此实例备份目录
@@ -57,7 +57,7 @@ version 1.0
   {{COMMAND}} .dir ssh              打开此实例中的 /etc/ssh 配置目录
 # IDE 编辑:
   {{COMMAND}} .code                 用 VS Code 打开 {WSL_default_workdir} (code --remote=wsl+..)
-  {{COMMAND}} .code ~               打开此实例用户家目录
+  {{COMMAND}} .code ~               打开此实例用户主目录
   {{COMMAND}} .cursor /etc          用 Cursor 打开 WSL 绝对路径
   {{COMMAND}} .cursor app/          打开 {WSL_default_workdir}/app/
 
@@ -76,8 +76,8 @@ version 1.0
 # 上面未出现的命令，会添加 -d -u --cd 信息后，直接透传给 wsl.exe，例如：
   {{COMMAND}} uname -a              等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir uname -a
   {{COMMAND}} -- pwd                等同 wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir -- pwd
-  {{COMMAND}} --cd /tmp -- pwd      同上，但追加 --cd 参数覆盖
-  {{COMMAND}} -u root -- whoami     同上，但追加 -u 参数覆盖
+  {{COMMAND}} --cd /tmp -- pwd      同上，但追加 --cd 参数覆盖默认目录
+  {{COMMAND}} -u root -- whoami     同上，但追加 -u 参数覆盖默认用户
 
 # 参考资料:
   WSL 实用指南 https://swaw.com/zh/p/wsl-guide/

@@ -6,9 +6,9 @@ version 1.0
   {{COMMAND}} .doctor               Check WSL, entry config, instance, storage, and network speed; may take close to 30 seconds
   {{COMMAND}} .status --json        Same as .status, but outputs JSON for easier AI agent processing
   {{COMMAND}} .status --json --brief Compact JSON for an agent's first decision
-  {{COMMAND}} .doctor --json        Same as .doctor
-  {{COMMAND}} .help en              Show English help information
-  {{COMMAND}} .help zh              Show Chinese help information
+  {{COMMAND}} .doctor --json        Same as .doctor, outputs JSON (~6 KB)
+  {{COMMAND}} .help en              Show English help information, output: ~4.3 KB
+  {{COMMAND}} .help zh              显示中文版帮助信息，输出约 4.3 KB
 
 # Agent / automation usage:
   Use --dry-run for trial runs; --uac enters an interactive prompt (use with care); use {{COMMAND}} -- <cmd> for Linux passthrough commands
@@ -28,7 +28,7 @@ version 1.0
 # Stop and keep alive:
   {{COMMAND}} .t                    Stop this instance                             (wsl --terminate)
   {{COMMAND}} .alive 600            Keep this instance running in the background for 600 seconds (wsl sleep)
-  {{COMMAND}} .alive                Keep alive now and after current-user logon
+  {{COMMAND}} .alive                Keep running in the background now and after current-user logon
   {{COMMAND}} .alive off            Disable alive settings
   {{COMMAND}} .alive status         Show alive-related setting status
 # systemd, sshd, and users:
@@ -44,7 +44,7 @@ version 1.0
   {{COMMAND}} .user default         Set {WSL_user} as the default user             (wsl --manage set-default-user)
 # Service port management:
   {{COMMAND}} .port status          Show port mapping, firewall, and network mode status
-  {{COMMAND}} .port expose 8080     Map TCP 8080:8080 and allow it through firewall(Admin access required)
+  {{COMMAND}} .port expose 8080     Map TCP 8080:8080 and allow it through firewall (admin access required)
   {{COMMAND}} .port expose 8080 --uac Map a port and request UAC elevation
   {{COMMAND}} .port expose 8080 80  Map 8080 to WSL:80 and allow it (NAT)
   {{COMMAND}} .port del 8080        Remove the TCP 8080 mapping and firewall rule
@@ -76,8 +76,8 @@ version 1.0
 # Commands not listed above are forwarded directly to wsl.exe after adding -d -u --cd, for example:
   {{COMMAND}} uname -a              Equivalent to wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir uname -a
   {{COMMAND}} -- pwd                Equivalent to wsl.exe -d WSL_name -u WSL_user --cd WSL_default_workdir -- pwd
-  {{COMMAND}} --cd /tmp -- pwd      Same as above, but append --cd to override
-  {{COMMAND}} -u root -- whoami     Same as above, but append -u to override
+  {{COMMAND}} --cd /tmp -- pwd      Same as above, but append --cd to override the default directory
+  {{COMMAND}} -u root -- whoami     Same as above, but append -u to override the default user
 
 # References:
   WSL practical guide https://swaw.com/p/wsl-guide/
