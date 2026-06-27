@@ -13,3 +13,7 @@ data/
 wsl.automng/
 wsl02.cmd
 vps2.cmd
+
+*.cmd
+!vps1.cmd
+!wsl01.cmd
