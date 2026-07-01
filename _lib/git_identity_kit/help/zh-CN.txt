@@ -1,0 +1,53 @@
+
+# Git 身份包装器:
+  {{COMMAND}} .help         显示本帮助。
+  {{COMMAND}} .info         显示这个入口注入给 Git 的身份。
+  {{COMMAND}} .info --verbose
+                       显示原始 Git 身份诊断。
+
+这个包装器会在运行 git 前注入当前进程有效的 Git 配置:
+  user.name
+  user.email
+  可选 user.signingkey / gpg.format
+  可选 GIT_SSH_COMMAND 覆盖项；否则用配置的 SSH 私钥拼接
+
+
+# 同步到当前仓库:
+  {{COMMAND}} .sync              将此身份持久写入当前仓库的 .git/config。
+  {{COMMAND}} .sync --dry-run    只显示将写入什么，不修改 .git/config。
+  {{COMMAND}} .sync --clear      清理上次 SWAW Kit Git sync 管理且未被改动的值。
+
+.sync 会写入 user.name、user.email、core.sshCommand 等普通 local Git 配置。
+同时会在 [swaw-kit-git] 下记录 marker，供 --clear 判断哪些值由本工具管理。
+如果托管值在 .sync 后被手动改过，--clear 会拒绝清理，并保持配置不变。
+--clear 会移除托管值，但不会恢复 .sync 前曾经存在的配置值。
+
+
+# 编辑器和终端启动器:
+  {{COMMAND}} .code .       用当前 Git 身份启动 VS Code。
+  {{COMMAND}} .cursor .     用当前 Git 身份启动 Cursor。
+  {{COMMAND}} .cmd          用当前 Git 身份打开 cmd.exe。
+  {{COMMAND}} .ps           用当前 Git 身份打开 Windows PowerShell。
+  {{COMMAND}} .pwsh         用当前 Git 身份打开 PowerShell 7。
+
+如果编辑器已经在运行，并复用了旧进程，它的 Git 扩展可能继续使用旧环境。
+需要严格切换身份时，请先完全关闭编辑器，再用本入口启动。
+
+
+# Git 透传:
+自定义包装器命令都以点号开头。其他命令会在注入身份后直接透传给 git。
+例如:
+  {{COMMAND}} status
+  {{COMMAND}} commit -m "message"
+  {{COMMAND}} push
+
+
+# 创建另一个身份:
+  copy git1.cmd git2.cmd
+
+然后修改 git2.cmd 顶部的这些配置:
+  set "GIT_IDENTITY_NAME=Your Name"
+  set "GIT_IDENTITY_EMAIL=you@example.com"
+  set "GIT_IDENTITY_SSH_KEY=%USERPROFILE%\.ssh\id_ed25519"
+
+之后，在需要这个身份的仓库里用 git2 代替 git。
