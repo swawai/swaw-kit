@@ -1,5 +1,0 @@
-next
-
-不必所有命令都启动 powershell
-
-
