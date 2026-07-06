@@ -4,6 +4,7 @@ setlocal
 
 if not defined GIT_IDENTITY_ENTRY_COMMAND set "GIT_IDENTITY_ENTRY_COMMAND=git_identity"
 
+if "%~1"=="" goto :LaunchDefaultTerminal
 if "%~1"=="-h" goto :ShowHelp
 if /i "%~1"=="--help" goto :ShowHelp
 if "%~1"=="/?" goto :ShowHelp
@@ -24,6 +25,16 @@ if errorlevel 1 exit /b %ERRORLEVEL%
 git %*
 exit /b %ERRORLEVEL%
 
+:LaunchDefaultTerminal
+if not defined GIT_IDENTITY_DEFAULT_TERMINAL goto :LaunchCmd
+if /i "%GIT_IDENTITY_DEFAULT_TERMINAL%"=="cmd" goto :LaunchCmd
+if /i "%GIT_IDENTITY_DEFAULT_TERMINAL%"=="powershell" goto :LaunchPowerShell
+if /i "%GIT_IDENTITY_DEFAULT_TERMINAL%"=="ps" goto :LaunchPowerShell
+if /i "%GIT_IDENTITY_DEFAULT_TERMINAL%"=="pwsh" goto :LaunchPwsh
+echo [ERROR] Invalid GIT_IDENTITY_DEFAULT_TERMINAL: %GIT_IDENTITY_DEFAULT_TERMINAL%
+echo Use cmd, powershell, ps, or pwsh.
+exit /b 1
+
 :ShowHelp
 PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0help.ps1" -CommandName "%GIT_IDENTITY_ENTRY_COMMAND%" -Language "%~2"
 exit /b %ERRORLEVEL%
@@ -32,53 +43,8 @@ exit /b %ERRORLEVEL%
 call :PrepareIdentity
 if errorlevel 1 exit /b %ERRORLEVEL%
 
-if /i "%~2"=="--verbose" (
-    if not "%~3"=="" goto :WhoAmITooManyArguments
-    goto :WhoAmIVerbose
-)
 if not "%~2"=="" goto :WhoAmIUnknownOption
 
-call :ReadGitSeesIdentity
-if defined GIT_IDENTITY_ENTRY_FILE echo Entry: %GIT_IDENTITY_ENTRY_FILE%
-echo Name: %GIT_IDENTITY_NAME%
-echo Email: %GIT_IDENTITY_EMAIL%
-if defined GIT_IDENTITY_SSH_KEY echo SSH Key: %GIT_IDENTITY_SSH_KEY%
-
-set "GIT_IDENTITY_NAME_MISMATCH="
-set "GIT_IDENTITY_EMAIL_MISMATCH="
-if not "%GIT_SEES_NAME%"=="%GIT_IDENTITY_NAME%" set "GIT_IDENTITY_NAME_MISMATCH=1"
-if not "%GIT_SEES_EMAIL%"=="%GIT_IDENTITY_EMAIL%" set "GIT_IDENTITY_EMAIL_MISMATCH=1"
-
-echo.
-if not defined GIT_IDENTITY_NAME_MISMATCH if not defined GIT_IDENTITY_EMAIL_MISMATCH (
-    set "GIT_IDENTITY_COLOR_TEXT=Git sees: OK"
-    set "GIT_IDENTITY_COLOR=Green"
-    call :EchoColor
-    exit /b 0
-)
-
-set "GIT_IDENTITY_COLOR_TEXT=Git sees: MISMATCH"
-set "GIT_IDENTITY_COLOR=Red"
-call :EchoColor
-if defined GIT_IDENTITY_NAME_MISMATCH (
-    echo.
-    echo Name:
-    echo   Config: %GIT_IDENTITY_NAME%
-    set "GIT_IDENTITY_COLOR_TEXT=  Git sees: %GIT_SEES_NAME%"
-    set "GIT_IDENTITY_COLOR=Red"
-    call :EchoColor
-)
-if defined GIT_IDENTITY_EMAIL_MISMATCH (
-    echo.
-    echo Email:
-    echo   Config: %GIT_IDENTITY_EMAIL%
-    set "GIT_IDENTITY_COLOR_TEXT=  Git sees: %GIT_SEES_EMAIL%"
-    set "GIT_IDENTITY_COLOR=Red"
-    call :EchoColor
-)
-exit /b 0
-
-:WhoAmIVerbose
 if defined GIT_IDENTITY_ENTRY_FILE echo Entry: %GIT_IDENTITY_ENTRY_FILE%
 echo Name: %GIT_IDENTITY_NAME%
 echo Email: %GIT_IDENTITY_EMAIL%
@@ -94,23 +60,6 @@ exit /b %ERRORLEVEL%
 echo [ERROR] Unrecognized .info option: %~2
 echo Run "%GIT_IDENTITY_ENTRY_COMMAND% --help" for examples.
 exit /b 1
-
-:WhoAmITooManyArguments
-echo [ERROR] Too many .info arguments.
-echo Run "%GIT_IDENTITY_ENTRY_COMMAND% --help" for examples.
-exit /b 1
-
-:ReadGitSeesIdentity
-set "GIT_SEES_NAME="
-set "GIT_SEES_EMAIL="
-for /f "delims=" %%A in ('git config --get user.name') do if not defined GIT_SEES_NAME set "GIT_SEES_NAME=%%A"
-for /f "delims=" %%A in ('git config --get user.email') do if not defined GIT_SEES_EMAIL set "GIT_SEES_EMAIL=%%A"
-exit /b 0
-
-:EchoColor
-PowerShell -NoProfile -ExecutionPolicy Bypass -Command "Write-Host $env:GIT_IDENTITY_COLOR_TEXT -ForegroundColor $env:GIT_IDENTITY_COLOR"
-if errorlevel 1 echo %GIT_IDENTITY_COLOR_TEXT%
-exit /b 0
 
 :Sync
 set "GIT_IDENTITY_SYNC_MODE=write"

@@ -49,7 +49,7 @@ function Set-EntryLine {
         [string]$Value
     )
 
-    $pattern = '(?m)^set "' + [regex]::Escape($Name) + '=.*"\r?$'
+    $pattern = '(?m)^(?::: )?set "' + [regex]::Escape($Name) + '=.*"\r?$'
     Assert-True ($Content -match $pattern) "entry template should declare $Name."
 
     $line = 'set "' + $Name + '=' + $Value + '"'
@@ -140,6 +140,7 @@ function Test-EntryTemplateShape {
     Assert-True ($content.Contains("GIT_IDENTITY_NAME")) "entry template should expose GIT_IDENTITY_NAME."
     Assert-True ($content.Contains("GIT_IDENTITY_EMAIL")) "entry template should expose GIT_IDENTITY_EMAIL."
     Assert-True ($content.Contains("GIT_IDENTITY_SSH_KEY")) "entry template should expose GIT_IDENTITY_SSH_KEY."
+    Assert-True ($content.Contains("GIT_IDENTITY_DEFAULT_TERMINAL")) "entry template should expose GIT_IDENTITY_DEFAULT_TERMINAL."
     Assert-True ($content.Contains("GIT_SSH_COMMAND")) "entry template should expose advanced GIT_SSH_COMMAND override."
     Assert-True ($content.Contains("_lib\git_identity_kit\kit.cmd")) "entry template should dispatch to git_identity_kit."
 }
@@ -175,6 +176,7 @@ function Test-HelpUsesWrapperHelp {
         Assert-True ($output.Contains("Git identity")) "help should describe the wrapper instead of raw git help."
         Assert-True ($output.Contains($commandName)) "help should use the entry command name."
         Assert-True ($output.Contains(".info")) "help should document the identity diagnostic command."
+        Assert-True (-not $output.Contains(".info --verbose")) "help should not document removed .info --verbose command."
         Assert-True ($output.Contains(".sync --dry-run")) "help should document sync dry-run."
         Assert-True ($output.Contains(".sync --clear")) "help should document conservative sync clear."
         Assert-True ($output.Contains(".code")) "help should document editor launchers."
@@ -248,39 +250,12 @@ function Test-InfoShowsIdentityStatus {
     Assert-True ($output.Contains("Name: Smoke User")) ".info should show the configured name."
     Assert-True ($output.Contains("Email: smoke@example.invalid")) ".info should show the configured email."
     Assert-True ($output.Contains("SSH Key:")) ".info should show the configured SSH key."
-    Assert-True ($output.Contains("Git sees: OK")) ".info should report OK when Git sees the configured identity."
-    Assert-True (-not $output.Contains("Command:")) "default .info should omit wrapper internals."
-    Assert-True (-not $output.Contains("Smoke User <smoke@example.invalid>")) "default .info should hide raw Git author ident."
+    Assert-True ($output.Contains("Git sees:")) ".info should include Git config diagnostics."
+    Assert-True (-not $output.Contains("Command:")) ".info should omit the redundant command name."
+    Assert-True (-not $output.Contains("Git sees: OK")) ".info should not use the removed OK/MISMATCH summary."
 
-    $verbose = Invoke-Captured $EntryPath @(".info", "--verbose") 0 ".info verbose"
-    Assert-True ($verbose.Contains("Git sees:")) ".info --verbose should include Git config diagnostics."
-    Assert-True ($verbose.Contains("Smoke User")) ".info --verbose should include the Git-visible user.name."
-    Assert-True ($verbose.Contains("smoke@example.invalid")) ".info --verbose should include the Git-visible user.email."
-    Assert-True (-not $verbose.Contains("Command:")) ".info --verbose should omit the redundant command name."
-    Assert-True (-not $verbose.Contains("Smoke User <smoke@example.invalid>")) ".info --verbose should omit raw Git author ident."
-    $binDir = Join-Path $TempRoot "git-mismatch-bin"
-    New-Item -ItemType Directory -Path $binDir | Out-Null
-    $fakeGitContent = @'
-@echo off
-if /i "%~1 %~2 %~3"=="config --get user.name" (echo Other User& exit /b 0)
-if /i "%~1 %~2 %~3"=="config --get user.email" (echo other@example.invalid& exit /b 0)
-if /i "%~1 %~2"=="var GIT_AUTHOR_IDENT" (echo Other User ^<other@example.invalid^> 0 +0000& exit /b 0)
-echo unexpected git args:%*
-exit /b 1
-'@ -replace "`n", "`r`n"
-    [System.IO.File]::WriteAllText((Join-Path $binDir "git.cmd"), $fakeGitContent, [System.Text.UTF8Encoding]::new($false))
-    $oldPath = $env:PATH
-    try {
-        $env:PATH = "$binDir;$oldPath"
-        $mismatch = Invoke-Captured $EntryPath @(".info") 0 ".info mismatch"
-        Assert-True ($mismatch.Contains("Git sees: MISMATCH")) ".info should flag mismatched Git identity."
-        Assert-True ($mismatch.Contains("Config: Smoke User")) ".info should show the configured name on mismatch."
-        Assert-True ($mismatch.Contains("Git sees: Other User")) ".info should show the Git name on mismatch."
-        Assert-True ($mismatch.Contains("Config: smoke@example.invalid")) ".info should show the configured email on mismatch."
-        Assert-True ($mismatch.Contains("Git sees: other@example.invalid")) ".info should show the Git email on mismatch."
-    } finally {
-        $env:PATH = $oldPath
-    }
+    $verbose = Invoke-Captured $EntryPath @(".info", "--verbose") 1 ".info verbose removed"
+    Assert-True ($verbose.Contains("Unrecognized .info option: --verbose")) ".info --verbose should be rejected after removal."
 }
 
 function Test-BareCustomWordsPassThroughToGit {
@@ -339,6 +314,83 @@ echo ARGS:%*
         Assert-True ($output.Contains("ARGS:--reuse-window")) "code launcher should forward editor args without the launcher verb."
     } finally {
         $env:PATH = $oldPath
+    }
+}
+
+function Test-EmptyArgsLaunchBoundCmd {
+    param(
+        [string]$EntryPath,
+        [string]$TempRoot
+    )
+
+    $binDir = Join-Path $TempRoot "empty-args-powershell-bin"
+    New-Item -ItemType Directory -Path $binDir | Out-Null
+    $fakePowerShell = Join-Path $binDir "PowerShell.cmd"
+    $fakePowerShellContent = @'
+@echo off
+echo POWERSHELL_ARGS:%*
+echo NAME:
+git config --get user.name
+echo EMAIL:
+git config --get user.email
+echo SSH:%GIT_SSH_COMMAND%
+exit /b 0
+'@ -replace "`n", "`r`n"
+    [System.IO.File]::WriteAllText($fakePowerShell, $fakePowerShellContent, [System.Text.UTF8Encoding]::new($false))
+
+    $oldPath = $env:PATH
+    try {
+        $env:PATH = "$binDir;$oldPath"
+        $output = Invoke-Captured $EntryPath @() 0 "empty args launcher"
+
+        Assert-True ($output.Contains("-File")) "empty args should dispatch to the launcher script instead of raw git help."
+        Assert-True ($output.Contains("-Tool")) "empty args should pass the launcher tool option."
+        Assert-True ($output.Contains("cmd")) "empty args should launch the cmd tool by default."
+        Assert-True ($output.Contains("Smoke User")) "empty args cmd launcher should inherit bound user.name."
+        Assert-True ($output.Contains("smoke@example.invalid")) "empty args cmd launcher should inherit bound user.email."
+        Assert-True ($output.Contains("IdentitiesOnly=yes")) "empty args cmd launcher should inherit GIT_SSH_COMMAND."
+    } finally {
+        $env:PATH = $oldPath
+    }
+}
+
+function Test-EmptyArgsLaunchConfiguredTerminal {
+    param(
+        [string]$EntryPath,
+        [string]$TempRoot
+    )
+
+    Set-GitSmokeEntryValue $EntryPath "GIT_IDENTITY_DEFAULT_TERMINAL" "pwsh"
+
+    $binDir = Join-Path $TempRoot "empty-args-configured-terminal-bin"
+    New-Item -ItemType Directory -Path $binDir | Out-Null
+    $fakePowerShell = Join-Path $binDir "PowerShell.cmd"
+    $fakePowerShellContent = @'
+@echo off
+echo POWERSHELL_ARGS:%*
+echo NAME:
+git config --get user.name
+echo EMAIL:
+git config --get user.email
+echo SSH:%GIT_SSH_COMMAND%
+exit /b 0
+'@ -replace "`n", "`r`n"
+    [System.IO.File]::WriteAllText($fakePowerShell, $fakePowerShellContent, [System.Text.UTF8Encoding]::new($false))
+
+    $oldPath = $env:PATH
+    try {
+        $env:PATH = "$binDir;$oldPath"
+        $output = Invoke-Captured $EntryPath @() 0 "configured empty args launcher"
+
+        Assert-True ($output.Contains("-Tool")) "configured empty args should pass the launcher tool option."
+        Assert-True ($output.Contains("pwsh")) "configured empty args should launch the configured terminal."
+        Assert-True (-not $output.Contains(" cmd ")) "configured empty args should not hard-code cmd."
+        Assert-True ($output.Contains("Smoke User")) "configured empty args launcher should inherit bound user.name."
+        Assert-True ($output.Contains("smoke@example.invalid")) "configured empty args launcher should inherit bound user.email."
+        Assert-True ($output.Contains("IdentitiesOnly=yes")) "configured empty args launcher should inherit GIT_SSH_COMMAND."
+    } finally {
+        $env:PATH = $oldPath
+        Set-GitSmokeEntryValue $EntryPath "GIT_IDENTITY_DEFAULT_TERMINAL" ""
     }
 }
 
@@ -455,6 +507,8 @@ try {
     Test-InfoShowsIdentityStatus $smokeEntry $tempRoot
     Test-BareCustomWordsPassThroughToGit $smokeEntry $tempRoot
     Test-EditorLauncherInheritsBoundIdentity $smokeEntry $tempRoot
+    Test-EmptyArgsLaunchBoundCmd $smokeEntry $tempRoot
+    Test-EmptyArgsLaunchConfiguredTerminal $smokeEntry $tempRoot
     Test-SyncDryRunDoesNotWriteLocalConfig $smokeEntry $tempRoot
     Test-SyncWritesLocalConfigAndSwawMarker $smokeEntry $tempRoot
     Test-SyncClearRemovesUnchangedManagedValues $smokeEntry $tempRoot

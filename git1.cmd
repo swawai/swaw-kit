@@ -6,7 +6,7 @@
 set "GIT_IDENTITY_NAME=user1"
 set "GIT_IDENTITY_EMAIL=user1@example.com"
 set "GIT_IDENTITY_SSH_KEY=%USERPROFILE%\.ssh\id_ed25519"
-
+set "GIT_IDENTITY_DEFAULT_TERMINAL=cmd"
 
 
 :::::::::::::::::::::::::::::::::::::::::::::::::::
