@@ -28,6 +28,11 @@
   {{COMMAND}}  cursor app/       # Open remote $HOME/app/ with Cursor.
 
 
+# SSH config:
+  {{COMMAND}}  config.install  Install this entry's Host config into the current user's ~/.ssh/config for direct ssh/Remote-SSH use.
+  {{COMMAND}}  config.remove   Remove the managed Include from the current user's ~/.ssh/config and delete the generated data/ssh_config file.
+
+
 # Key management (modifies remote ~/.ssh/authorized_keys; key.fix/key.add.fix may also modify sshd config):
   {{COMMAND}}  key.add       Add the configured .pub key to remote ~/.ssh/authorized_keys (idempotent; no duplicate entries).
   {{COMMAND}}  key.remove    Remove that public key from remote ~/.ssh/authorized_keys (idempotent; duplicate entries are removed together).

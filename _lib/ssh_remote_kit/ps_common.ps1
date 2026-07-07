@@ -81,27 +81,16 @@ function Split-RemoteKitOptionString {
     return $tokens.ToArray()
 }
 
-function Test-RemoteKitOpenSshOption {
-    param(
-        [Parameter(Mandatory=$true)] [object[]]$Options,
-        [Parameter(Mandatory=$true)] [string]$Name,
-        [Parameter(Mandatory=$true)] [string]$Value
-    )
-
-    $text = $Options -join " "
-    $namePattern = [regex]::Escape($Name)
-    $valuePattern = [regex]::Escape($Value)
-    return $text -imatch "(^|\s)(-o\s*)?$namePattern\s*=\s*$valuePattern(\s|$)"
-}
-
 function Initialize-RemoteKitContext {
     param(
         [Parameter(Mandatory=$true)] [int]$Port,
         [Parameter(Mandatory=$true)] [string]$RemoteHost,
         [Parameter(Mandatory=$true)] [string]$RemoteUser,
-        [Parameter(Mandatory=$true)] [string]$SshKeyPath,
+        [AllowEmptyString()] [Parameter(Mandatory=$true)] [string]$SshKeyPath,
         [Parameter(Mandatory=$true)] [string]$ModuleRoot,
         [Parameter(Mandatory=$true)] [string]$UploadSubdir,
+        [AllowNull()] [string]$SshConfigPath = $env:REMOTE_KIT_SSH_CONFIG_PATH,
+        [AllowNull()] [string]$SshHostAlias = $env:REMOTE_KIT_SSH_HOST,
         [switch]$QuietInfrastructureOutput
     )
 
@@ -110,14 +99,16 @@ function Initialize-RemoteKitContext {
     $tempWorkspaceRoot = Join-Path $repoRoot "temp_workspace"
     $uploadTempRoot = Join-Path $tempWorkspaceRoot $UploadSubdir
 
+    $useSshConfigHost = -not [string]::IsNullOrWhiteSpace($SshConfigPath) -and -not [string]::IsNullOrWhiteSpace($SshHostAlias)
+
     $sshIdOpts = @(Split-RemoteKitOptionString $env:REMOTE_KIT_SSH_ID_OPTS)
     if ($sshIdOpts.Count -eq 0) {
-        $sshIdOpts = @("-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes")
+        $sshIdOpts = if ($useSshConfigHost) { @() } else { @("-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes") }
     }
 
     $sshHostKeyOpts = @(Split-RemoteKitOptionString $env:REMOTE_KIT_SSH_HOSTKEY_OPTS)
     if ($sshHostKeyOpts.Count -eq 0) {
-        $sshHostKeyOpts = @("-o", "StrictHostKeyChecking=accept-new")
+        $sshHostKeyOpts = if ($useSshConfigHost) { @() } else { @("-o", "StrictHostKeyChecking=accept-new") }
     }
 
     $sshLogOpts = @(Split-RemoteKitOptionString $env:REMOTE_KIT_SSH_LOG_OPTS)
@@ -132,19 +123,18 @@ function Initialize-RemoteKitContext {
         Port                    = $Port
         RemoteHost              = $RemoteHost
         RemoteUser              = $RemoteUser
-        RemoteTarget            = "$RemoteUser@$RemoteHost"
+        RemoteTarget            = if ($useSshConfigHost) { $SshHostAlias } else { "$RemoteUser@$RemoteHost" }
         SshKeyPath              = $SshKeyPath
+        SshConfigPath           = $SshConfigPath
+        SshHostAlias            = $SshHostAlias
+        UseSshConfigHost        = $useSshConfigHost
         ModuleRoot              = $ModuleRoot
         RepoRoot                = $repoRoot
         TempWorkspaceRoot       = $tempWorkspaceRoot
         UploadTempRoot          = $uploadTempRoot
-        PlinkPath               = Join-Path $ModuleRoot "plink.exe"
-        PscpPath                = Join-Path $ModuleRoot "pscp.exe"
         SshExe                  = "ssh.exe"
-        ScpExe                  = "scp.exe"
         SshCommonOpts           = $sshCommonOpts
         SshCommandOpts          = $sshCommandOpts
-        AutoAcceptPuttyHostKey  = Test-RemoteKitOpenSshOption $sshHostKeyOpts "StrictHostKeyChecking" "no"
         QuietInfrastructureOutput = $QuietInfrastructureOutput.IsPresent
     }
 
@@ -157,6 +147,29 @@ function Get-RemoteKitContext {
     }
 
     return $script:RemoteKitContext
+}
+
+function Get-RemoteKitOpenSshBaseArgs {
+    $ctx = Get-RemoteKitContext
+    $args = @()
+
+    if ($ctx.UseSshConfigHost) {
+        $args += @("-F", $ctx.SshConfigPath)
+    } else {
+        $args += @("-i", $ctx.SshKeyPath)
+    }
+
+    $args += $ctx.SshCommonOpts
+    return $args
+}
+
+function Get-RemoteKitOpenSshTargetArgs {
+    $ctx = Get-RemoteKitContext
+    if ($ctx.UseSshConfigHost) {
+        return @($ctx.RemoteTarget)
+    }
+
+    return @("-p", $ctx.Port, $ctx.RemoteTarget)
 }
 
 function Format-RemoteKitArgForLog {
@@ -179,13 +192,6 @@ function Format-RemoteKitCommandForLog {
     $displayArgs = New-Object System.Collections.Generic.List[string]
     for ($i = 0; $i -lt $Arguments.Count; $i++) {
         $arg = [string]$Arguments[$i]
-
-        if (($arg -eq "-pw" -or $arg -eq "-pwfile") -and ($i + 1) -lt $Arguments.Count) {
-            $displayArgs.Add($arg)
-            $displayArgs.Add("<hidden>")
-            $i++
-            continue
-        }
 
         $displayArgs.Add((Format-RemoteKitArgForLog $arg))
     }
@@ -216,14 +222,13 @@ function Invoke-RemoteKitLoggedCommand {
         [Parameter(Mandatory=$true)] [string]$ExePath,
         [Parameter(Mandatory=$true)] [object[]]$Arguments,
         [AllowNull()] [object[]]$LogArguments = $null,
-        [AllowNull()] [string]$InputText = $null,
         [switch]$OutputOnlyOnError
     )
 
     $displayArguments = if ($null -eq $LogArguments) { $Arguments } else { $LogArguments }
     Write-RemoteKitInfrastructureLog "[DEBUG] ${Label}: $(Format-RemoteKitCommandForLog $ExePath $displayArguments)"
 
-    if (-not $OutputOnlyOnError.IsPresent -and -not $PSBoundParameters.ContainsKey("InputText")) {
+    if (-not $OutputOnlyOnError.IsPresent) {
         & $ExePath @Arguments | ForEach-Object { Write-Host $_ }
         return $LASTEXITCODE
     }
@@ -233,16 +238,11 @@ function Invoke-RemoteKitLoggedCommand {
     $process.StartInfo.Arguments = Join-RemoteKitProcessArguments $Arguments
     $process.StartInfo.UseShellExecute = $false
     $process.StartInfo.CreateNoWindow = $true
-    $process.StartInfo.RedirectStandardInput = $PSBoundParameters.ContainsKey("InputText")
+    $process.StartInfo.RedirectStandardInput = $false
     $process.StartInfo.RedirectStandardOutput = $true
     $process.StartInfo.RedirectStandardError = $true
 
     $process.Start() | Out-Null
-    if ($PSBoundParameters.ContainsKey("InputText")) {
-        $process.StandardInput.Write($InputText)
-        $process.StandardInput.Close()
-    }
-
     $stdout = $process.StandardOutput.ReadToEnd()
     $stderr = $process.StandardError.ReadToEnd()
     $process.WaitForExit()
@@ -324,192 +324,48 @@ function New-RemoteKitUploadTextFile {
     return $path
 }
 
-function New-RemoteKitPasswordFile {
-    param([Parameter(Mandatory=$true)] [string]$Password)
-
-    $ctx = Get-RemoteKitContext
-
-    if ($Password.Contains("`r") -or $Password.Contains("`n")) {
-        throw "SSH password must not contain CR/LF characters when using PuTTY -pwfile."
-    }
-
-    New-Item -ItemType Directory -Force -Path $ctx.UploadTempRoot | Out-Null
-
-    $path = Join-Path $ctx.UploadTempRoot ("password_$([guid]::NewGuid().ToString("N")).txt")
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText($path, "", $utf8NoBom)
-
-    $currentUserName = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-    & icacls.exe $path /inheritance:r /grant:r "${currentUserName}:F" "SYSTEM:F" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Remove-RemoteKitTempPath $path
-        throw "Failed to protect SSH password temp file ACL: $path"
-    }
-
-    [System.IO.File]::WriteAllText($path, $Password, $utf8NoBom)
-    return $path
-}
-
-function Copy-RemoteKitPreparedFile {
+function Invoke-RemoteKitOpenSshStdinPayload {
     param(
-        [Parameter(Mandatory=$true)] [ValidateSet("openssh","putty")] [string]$Client,
-        [Parameter(Mandatory=$true)] [string]$Prefix,
-        [Parameter(Mandatory=$true)] [string]$Extension,
-        [Parameter(Mandatory=$true)] [string]$Content,
-        [Parameter(Mandatory=$true)] [string]$DisplayName,
-        [Parameter(Mandatory=$true)] [string]$RemoteName,
-        [AllowNull()] [string]$PasswordFile,
-        [switch]$OutputOnlyOnError
+        [Parameter(Mandatory=$true)] [string]$Payload,
+        [AllowNull()] [object[]]$ExtraSshOptions = @(),
+        [string]$RemoteCommand = "bash -s",
+        [string]$DisplayName = "stdin payload"
     )
 
     $ctx = Get-RemoteKitContext
-    $localPath = $null
+    $payloadPath = $null
+
     try {
-        $localPath = New-RemoteKitUploadTextFile $Prefix $Extension $Content $DisplayName
+        $payloadPath = New-RemoteKitUploadTextFile "ssh_payload_" ".sh" $Payload $DisplayName
+        $args = @(Get-RemoteKitOpenSshBaseArgs) + @("-T") + @($ExtraSshOptions) + @(Get-RemoteKitOpenSshTargetArgs) + @($RemoteCommand)
+        Write-RemoteKitInfrastructureLog "[DEBUG] ssh command: $(Format-RemoteKitCommandForLog $ctx.SshExe ($args + @("<", $payloadPath)))"
 
-        if ($Client -eq "openssh") {
-            $args = @("-i", $ctx.SshKeyPath, "-o", "BatchMode=yes") + $ctx.SshCommonOpts + @("-P", $ctx.Port, $localPath, "$($ctx.RemoteTarget):$RemoteName")
-            return Invoke-RemoteKitLoggedCommand "scp command" $ctx.ScpExe $args -OutputOnlyOnError:$OutputOnlyOnError.IsPresent
-        }
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo.FileName = $ctx.SshExe
+        $process.StartInfo.Arguments = Join-RemoteKitProcessArguments $args
+        $process.StartInfo.UseShellExecute = $false
+        $process.StartInfo.CreateNoWindow = $false
+        $process.StartInfo.RedirectStandardInput = $true
+        $process.StartInfo.RedirectStandardOutput = $false
+        $process.StartInfo.RedirectStandardError = $false
 
-        $args = @("-batch", "-P", $ctx.Port, "-pwfile", $PasswordFile, $localPath, "$($ctx.RemoteTarget):$RemoteName")
-        return Invoke-RemoteKitLoggedCommand "pscp command" $ctx.PscpPath $args -OutputOnlyOnError:$OutputOnlyOnError.IsPresent
+        $process.Start() | Out-Null
+        $bytes = [System.IO.File]::ReadAllBytes($payloadPath)
+        $process.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
+        $process.StandardInput.Close()
+        $process.WaitForExit()
+        return $process.ExitCode
     } finally {
-        Remove-RemoteKitTempPath $localPath
+        Remove-RemoteKitTempPath $payloadPath
     }
-}
-
-function Invoke-RemoteKitOpenSshRemote {
-    param(
-        [Parameter(Mandatory=$true)] [string]$Command,
-        [AllowNull()] [string]$CommandForLog = $null,
-        [switch]$UseCommandOptions,
-        [switch]$OutputOnlyOnError
-    )
-
-    $ctx = Get-RemoteKitContext
-    $args = @("-i", $ctx.SshKeyPath) + $ctx.SshCommonOpts
-    if ($UseCommandOptions.IsPresent) {
-        $args += $ctx.SshCommandOpts
-    }
-    $args += @("-p", $ctx.Port, $ctx.RemoteTarget, $Command)
-
-    $logArgs = $null
-    if (-not [string]::IsNullOrWhiteSpace($CommandForLog)) {
-        $logArgs = @("-i", $ctx.SshKeyPath) + $ctx.SshCommonOpts
-        if ($UseCommandOptions.IsPresent) {
-            $logArgs += $ctx.SshCommandOpts
-        }
-        $logArgs += @("-p", $ctx.Port, $ctx.RemoteTarget, $CommandForLog)
-    }
-
-    return Invoke-RemoteKitLoggedCommand "ssh command" $ctx.SshExe $args $logArgs -OutputOnlyOnError:$OutputOnlyOnError.IsPresent
-}
-
-function Invoke-RemoteKitPuttyRemote {
-    param(
-        [Parameter(Mandatory=$true)] [string]$Command,
-        [Parameter(Mandatory=$true)] [string]$PasswordFile,
-        [AllowNull()] [string]$CommandForLog = $null,
-        [switch]$OutputOnlyOnError
-    )
-
-    $ctx = Get-RemoteKitContext
-    $args = @("-batch", "-ssh", "-P", $ctx.Port, "-pwfile", $PasswordFile, $ctx.RemoteTarget, $Command)
-
-    $logArgs = $null
-    if (-not [string]::IsNullOrWhiteSpace($CommandForLog)) {
-        $logArgs = @("-batch", "-ssh", "-P", $ctx.Port, "-pwfile", $PasswordFile, $ctx.RemoteTarget, $CommandForLog)
-    }
-
-    return Invoke-RemoteKitLoggedCommand "plink command" $ctx.PlinkPath $args $logArgs -OutputOnlyOnError:$OutputOnlyOnError.IsPresent
 }
 
 function Test-RemoteKitOpenSshKeyLogin {
     param([switch]$OutputOnlyOnError)
 
     $ctx = Get-RemoteKitContext
-    $testArgs = @("-i", $ctx.SshKeyPath, "-o", "BatchMode=yes") + $ctx.SshCommonOpts + @("-p", $ctx.Port, $ctx.RemoteTarget, "echo OK")
+    $testArgs = @(Get-RemoteKitOpenSshBaseArgs) + @("-o", "BatchMode=yes") + @(Get-RemoteKitOpenSshTargetArgs) + @("echo OK")
     return Invoke-RemoteKitLoggedCommand "ssh command" $ctx.SshExe $testArgs -OutputOnlyOnError:$OutputOnlyOnError.IsPresent
-}
-
-function Assert-RemoteKitPuttyTools {
-    $ctx = Get-RemoteKitContext
-
-    if (-not (Test-Path -LiteralPath $ctx.PlinkPath -PathType Leaf)) {
-        Write-Host "[ERROR] plink.exe not found: $($ctx.PlinkPath)"
-        exit 1
-    }
-
-    if (-not (Test-Path -LiteralPath $ctx.PscpPath -PathType Leaf)) {
-        Write-Host "[ERROR] pscp.exe not found: $($ctx.PscpPath)"
-        exit 1
-    }
-}
-
-function Read-RemoteKitSshPassword {
-    $ctx = Get-RemoteKitContext
-
-    do {
-        $password = $env:REMOTE_KIT_SSH_PASSWORD
-        if (-not [string]::IsNullOrWhiteSpace($password)) {
-            Write-RemoteKitInfrastructureLog "[INFO] Using SSH password from REMOTE_KIT_SSH_PASSWORD."
-        } else {
-            $secure = Read-Host -Prompt "Please input the SSH password for $($ctx.RemoteUser)@$($ctx.RemoteHost) (input hidden)" -AsSecureString
-            $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-            $password = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-            [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        }
-
-        if ([string]::IsNullOrWhiteSpace($password)) {
-            Write-Host "Password cannot be empty. Please try again."
-        }
-    } while ([string]::IsNullOrWhiteSpace($password))
-
-    return $password
-}
-
-function Initialize-RemoteKitPuttyHostKeyCache {
-    $ctx = Get-RemoteKitContext
-    $fakeUser = "remote_kit_probe_fe750f81_9419_4787_a836_01b4e0719736"
-    $fakePass = "0f71e8a8_0d43_4fd6_8fd7_7cae82b8c3b1"
-    $fakePassPath = $null
-
-    Write-Host "`n[STEP] Using virtual user '$fakeUser' + fakePassword for an interactive plink connection, to cache hostkey."
-
-    try {
-        $fakePassPath = New-RemoteKitPasswordFile $fakePass
-        $args = @("-ssh", "-P", $ctx.Port, "-pwfile", $fakePassPath, "$fakeUser@$($ctx.RemoteHost)")
-
-        if ($ctx.AutoAcceptPuttyHostKey) {
-            Write-Host "[INFO] StrictHostKeyChecking=no detected; auto-confirming PuTTY host key cache step."
-            [void](Invoke-RemoteKitLoggedCommand "plink command" $ctx.PlinkPath $args $null "y`n")
-        } else {
-            $answer = Read-Host "Continue? [Y/N]"
-            if ($answer -notmatch '^[Yy]$') {
-                Write-Host "User cancelled, script exiting."
-                exit 0
-            }
-
-            [void](Invoke-RemoteKitLoggedCommand "plink command" $ctx.PlinkPath $args)
-        }
-    } finally {
-        Remove-RemoteKitTempPath $fakePassPath
-    }
-
-    Write-Host "`n[INFO] Virtual user connection ended (will report Access denied). If you have already input 'yes', host key has been cached.`n"
-}
-
-function New-RemoteKitRemoteTempSpec {
-    $remoteId = [guid]::NewGuid().ToString("N")
-    $remoteDir = "/tmp/remote_kit_$remoteId"
-
-    return [pscustomobject]@{
-        Id             = $remoteId
-        Dir            = $remoteDir
-        InitCommand    = "umask 077; mkdir $remoteDir && chmod 700 $remoteDir"
-        CleanupCommand = "rm -rf $remoteDir"
-    }
 }
 
 function Quote-RemoteKitPosixArg {

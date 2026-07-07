@@ -22,10 +22,10 @@ $remoteKit = Initialize-RemoteKitContext `
     -ModuleRoot $PSScriptRoot `
     -UploadSubdir "home_reader"
 
-$args = @("-i", $remoteKit.SshKeyPath) +
-    $remoteKit.SshCommonOpts +
+$args = @(Get-RemoteKitOpenSshBaseArgs) +
     $remoteKit.SshCommandOpts +
-    @("-p", $remoteKit.Port, $remoteKit.RemoteTarget, 'echo $HOME')
+    @(Get-RemoteKitOpenSshTargetArgs) +
+    @('echo $HOME')
 
 $process = New-Object System.Diagnostics.Process
 $process.StartInfo.FileName = $remoteKit.SshExe

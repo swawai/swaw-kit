@@ -28,6 +28,11 @@
   {{COMMAND}}  cursor app/       # 用 Cursor 打开远程 $HOME/app/.
 
 
+# SSH config:
+  {{COMMAND}}  config.install  将本入口的 Host 配置安装到当前用户 ~/.ssh/config，供 ssh/Remote-SSH 直接使用.
+  {{COMMAND}}  config.remove   移除本入口安装到当前用户 ~/.ssh/config 的托管 Include，并删除生成的 data/ssh_config 文件.
+
+
 # 密钥管理（会修改远端 ~/.ssh/authorized_keys；key.fix/key.add.fix 还可能修改 sshd 配置）:
   {{COMMAND}}  key.add       将配置的私钥对应的 .pub 公钥添加到远端的 ~/.ssh/authorized_keys（幂等，不会重复添加）
   {{COMMAND}}  key.remove    从远端的 ~/.ssh/authorized_keys 移除该公钥（幂等,若有重复项会一并移除）。
@@ -35,4 +40,3 @@
   {{COMMAND}}  key.add.fix   添加公钥，并检查/修复 PubkeyAuthentication
   # 若配置的私钥和同名 .pub 都不存在，key.add/key.fix 会用 ssh-keygen 默认参数就地生成一对key
   # 若远端机 /etc/ssh/sshd_config.d/*.conf 为空, key.fix 会优先改 /etc/ssh/sshd_config；改前会先就地备份既有文件.
-

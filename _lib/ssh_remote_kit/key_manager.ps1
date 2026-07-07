@@ -3,15 +3,16 @@
   Add/remove the current public key, or repair remote sshd public-key login.
 
 .DESCRIPTION
-  OpenSSH is used when key login already works. PuTTY is kept only as the
-  password-based bootstrap fallback for installing the key.
+  OpenSSH is used for both key login and password-based bootstrap. The
+  password bootstrap path uses one interactive ssh connection and streams the
+  helper script through stdin.
 #>
 
 param(
     [Parameter(Mandatory=$true)] [int]$Port,
     [Parameter(Mandatory=$true)] [string]$RemoteHost,
     [Parameter(Mandatory=$true)] [string]$RemoteUser,
-    [Parameter(Mandatory=$true)] [string]$SshKeyPath,
+    [AllowEmptyString()] [Parameter(Mandatory=$true)] [string]$SshKeyPath,
     [ValidateSet("add","remove","fix")] [string]$Action = "add",
     [switch]$FixSshdConfig
 )
@@ -19,6 +20,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 . (Join-Path $PSScriptRoot "ps_common.ps1")
+. (Join-Path $PSScriptRoot "key_manager.openssh.ps1")
 
 $remoteKit = Initialize-RemoteKitContext `
     -Port $Port `
@@ -29,6 +31,12 @@ $remoteKit = Initialize-RemoteKitContext `
     -UploadSubdir "key_manager"
 
 $helperScriptPath = Join-Path $PSScriptRoot "authorized_keys.sh"
+
+if ($remoteKit.UseSshConfigHost -and ([string]::IsNullOrWhiteSpace($SshKeyPath) -or $SshKeyPath -eq "__REMOTE_KIT_SSH_CONFIG_IDENTITY__")) {
+    $SshKeyPath = Resolve-RemoteKitOpenSshIdentityFile
+    $remoteKit.SshKeyPath = $SshKeyPath
+}
+
 $pubKeyPath = "$SshKeyPath.pub"
 
 if ($FixSshdConfig.IsPresent -and $Action -ne "add") {
@@ -124,7 +132,7 @@ function Show-Overview {
     Write-Host "Action      = $Action"
     Write-Host "FixSshd     = $willFixSshd"
     Write-Host "OpenSshOpts = $($remoteKit.SshCommonOpts -join ' ')"
-    Write-Host "PuttyHostKey= $(if ($remoteKit.AutoAcceptPuttyHostKey) { 'auto-accept' } else { 'manual-confirm' })"
+    Write-Host "PasswordBoot= OpenSSH interactive stdin payload"
     Write-Host "==============================================="
 }
 
@@ -133,46 +141,23 @@ Show-Overview
 Assert-LocalInputs
 $pubKeyLine = if ($needsPublicKey) { Get-PublicKeyLine } else { $null }
 
-Write-Host "[STEP] Trying to use OpenSSH client (ssh.exe / scp.exe) with key: $SshKeyPath"
+Write-Host "[STEP] Trying to use OpenSSH client (ssh.exe) with key: $SshKeyPath"
 $sshExitCode = Test-RemoteKitOpenSshKeyLogin
 Write-Host "[INFO] ssh test exit code = $sshExitCode"
 
-$remoteTemp = New-RemoteKitRemoteTempSpec
-$remoteScriptName = "$($remoteTemp.Dir)/authorized_keys.sh"
-$remotePubKeyName = "$($remoteTemp.Dir)/key.pub"
 $remoteSshdMode = if ($willFixSshd) { "fix-sshd" } elseif ($Action -eq "add") { "check-sshd" } else { "skip-sshd" }
-$remoteRunCommand = "code=0; chmod +x $remoteScriptName && bash $remoteScriptName $Action $remotePubKeyName $remoteSshdMode || code=`$?; rm -rf $($remoteTemp.Dir); exit `$code"
+$helperContent = [System.IO.File]::ReadAllText($helperScriptPath)
+$payload = New-RemoteKitKeyManagerOpenSshPayload `
+    -Action $Action `
+    -SshdMode $remoteSshdMode `
+    -HelperContent $helperContent `
+    -PublicKeyLine $pubKeyLine
 
 if ($sshExitCode -eq 0) {
-    Write-Host "[INFO] => OpenSSH-based key login successful, will use ssh/scp."
-
-    $code = Invoke-RemoteKitOpenSshRemote $remoteTemp.InitCommand -UseCommandOptions
+    Write-Host "[INFO] => OpenSSH-based key login successful, will use one ssh stdin payload."
+    $code = Invoke-RemoteKitKeyManagerOpenSshPayload $payload
     if ($code -ne 0) {
-        Write-Host "[ERROR] ssh remote temp directory creation failed, exit code = $code"
-        exit $code
-    }
-
-    if ($needsPublicKey) {
-        $code = Copy-RemoteKitPreparedFile "openssh" "key_" ".pub" $pubKeyLine "public key" $remotePubKeyName $null
-        if ($code -ne 0) {
-            [void](Invoke-RemoteKitOpenSshRemote $remoteTemp.CleanupCommand -UseCommandOptions)
-            Write-Host "[ERROR] scp public key upload failed, exit code = $code"
-            exit $code
-        }
-    }
-
-    $helperContent = [System.IO.File]::ReadAllText($helperScriptPath)
-    $code = Copy-RemoteKitPreparedFile "openssh" "authorized_keys_" ".sh" $helperContent "authorized_keys.sh" $remoteScriptName $null
-    if ($code -ne 0) {
-        [void](Invoke-RemoteKitOpenSshRemote $remoteTemp.CleanupCommand -UseCommandOptions)
-        Write-Host "[ERROR] scp helper script upload failed, exit code = $code"
-        exit $code
-    }
-
-    $code = Invoke-RemoteKitOpenSshRemote $remoteRunCommand -UseCommandOptions
-    if ($code -ne 0) {
-        [void](Invoke-RemoteKitOpenSshRemote $remoteTemp.CleanupCommand -UseCommandOptions)
-        Write-Host "[ERROR] ssh failed, exit code = $code"
+        Write-Host "[ERROR] OpenSSH key manager payload failed, exit code = $code"
         exit $code
     }
 
@@ -180,51 +165,15 @@ if ($sshExitCode -eq 0) {
     exit 0
 }
 
-Write-Host "[WARN] => OpenSSH failed to use private key, will use PuTTY (plink/pscp)."
-Assert-RemoteKitPuttyTools
-Initialize-RemoteKitPuttyHostKeyCache
-
-$password = Read-RemoteKitSshPassword
-$passwordFile = $null
-try {
-    $passwordFile = New-RemoteKitPasswordFile $password
-
-    $code = Invoke-RemoteKitPuttyRemote $remoteTemp.InitCommand $passwordFile
-    if ($code -ne 0) {
-        Write-Host "[ERROR] plink remote temp directory creation failed, exit code=$code"
-        exit $code
-    }
-
-    if ($needsPublicKey) {
-        $code = Copy-RemoteKitPreparedFile "putty" "key_" ".pub" $pubKeyLine "public key" $remotePubKeyName $passwordFile
-        if ($code -ne 0) {
-            [void](Invoke-RemoteKitPuttyRemote $remoteTemp.CleanupCommand $passwordFile)
-            Write-Host "[ERROR] pscp public key upload failed, exit code=$code"
-            exit $code
-        }
-    }
-
-    $helperContent = [System.IO.File]::ReadAllText($helperScriptPath)
-    $code = Copy-RemoteKitPreparedFile "putty" "authorized_keys_" ".sh" $helperContent "authorized_keys.sh" $remoteScriptName $passwordFile
-    if ($code -ne 0) {
-        [void](Invoke-RemoteKitPuttyRemote $remoteTemp.CleanupCommand $passwordFile)
-        Write-Host "[ERROR] pscp helper script upload failed, exit code=$code"
-        exit $code
-    }
-
-    $code = Invoke-RemoteKitPuttyRemote $remoteRunCommand $passwordFile
-    if ($code -ne 0) {
-        [void](Invoke-RemoteKitPuttyRemote $remoteTemp.CleanupCommand $passwordFile)
-    }
-} finally {
-    Remove-RemoteKitTempPath $passwordFile
-    $password = $null
-}
+Write-Host "[WARN] => OpenSSH failed to use private key."
+Write-Host "[STEP] Trying OpenSSH password bootstrap with one ssh connection."
+Write-Host "[INFO] You may be prompted once per SSH hop; ProxyJump hosts with password auth can add prompts."
+$code = Invoke-RemoteKitKeyManagerOpenSshPayload $payload -PasswordBootstrap
 
 if ($code -ne 0) {
-    Write-Host "[ERROR] plink failed, exit code=$code"
+    Write-Host "[ERROR] OpenSSH password bootstrap failed, exit code=$code"
     exit $code
 }
 
-Write-Host "`n[INFO] Done via PuTTY. exit 0"
+Write-Host "`n[INFO] Done via OpenSSH password bootstrap. exit 0"
 exit 0
