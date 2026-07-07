@@ -15,11 +15,11 @@ Windows 开发/运维常见痛点工具箱。可一键：
 ## 示例
 
 ```cmd
-porttask.cmd 80*     # 查询80* 端口占用程序
-taskport.cmd chrome  # 查询chrome进程占用端口
-tcpview.exe          # GUI 程序, 查看系统 TCP 端口/进程 (微软sysinternals组件)
+porttask.cmd 80*     # 查询 80* 端口占用程序
+taskport.cmd chrome  # 查询 chrome 进程占用端口
+tcpview.exe          # GUI 程序, 总览系统 TCP/UDP 端口/进程 (微软 sysinternals 组件)
 portrule.cmd         # 交互式管理防火墙入站规则
-psping qq.com:80     # TCP ping                (微软sysinternals组件)
+psping qq.com:80     # TCP ping 80 端口 (微软 sysinternals 组件)
 vps2.cmd --help      # 管理指定 SSH 主机（copy vps1.cmd vps2.cmd   后修改 vps2.cmd  中主机信息）
 wsl02.cmd --help     # 管理指定 WSL 实例（copy wsl01.cmd wsl02.cmd 后修改 wsl02.cmd 中实例信息）
 git2.cmd --help      # 应用指定 Git 身份（copy git1.cmd git2.cmd   后修改 git2.cmd  中账号信息）
@@ -38,7 +38,7 @@ git2.cmd --help      # 应用指定 Git 身份（copy git1.cmd git2.cmd   后修
 
     pathhereadd.cmd
 
-它会将当前工具箱目录，幂等加入当前用户的 `PATH`。之后打开新的终端或 `Win + R`，即可直接运行仓库中的 `.cmd`、`.exe` 工具。
+它会将当前工具箱目录，幂等加入当前用户的 `PATH`。
 
 撤销：
 
@@ -69,7 +69,7 @@ git2.cmd --help      # 应用指定 Git 身份（copy git1.cmd git2.cmd   后修
 
 1. 修改环境变量后，已经打开的终端不会自动刷新。
 
-2. 勿随意把目录都加入 `PATH`，容易命令名冲突。如系统本来有`cmd`命令，你追加的目录中若有此命令，会被你覆盖。
+2. 目录都加入 `PATH`，可能带来命令名冲突。如：系统本来有`cmd`命令，你追加的目录中若同名命令，系统的会被你覆盖。
 
 
 ## Docs
