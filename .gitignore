@@ -13,6 +13,7 @@ data/
 !vps1.cmd
 !wsl01.cmd
 !git1.cmd
+!proj1.cmd
 !_lib/git_identity_kit/kit.cmd
 
 

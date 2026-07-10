@@ -130,8 +130,7 @@ if defined GIT_IDENTITY_GPG_FORMAT call :AddGitConfig "gpg.format" "%GIT_IDENTIT
 
 if defined GIT_SSH_COMMAND exit /b 0
 if not defined GIT_IDENTITY_SSH_KEY exit /b 0
-if not defined GIT_IDENTITY_SSH_OPTS set "GIT_IDENTITY_SSH_OPTS=-o IdentityAgent=none -o IdentitiesOnly=yes"
-set "GIT_SSH_COMMAND=ssh %GIT_IDENTITY_SSH_OPTS% -i '%GIT_IDENTITY_SSH_KEY%'"
+set "GIT_SSH_COMMAND=ssh -o IdentityAgent=none -o IdentitiesOnly=yes -i '%GIT_IDENTITY_SSH_KEY%'"
 exit /b 0
 
 :AddGitConfig
