@@ -175,16 +175,25 @@ function Test-HelpUsesWrapperHelp {
         $output = Invoke-Captured $EntryPath @("--help") 0 "wrapper help"
         Assert-True ($output.Contains("Git identity")) "help should describe the wrapper instead of raw git help."
         Assert-True ($output.Contains($commandName)) "help should use the entry command name."
+        Assert-True ($output.Contains(".help zh")) "English help should document the Chinese help entry."
+        Assert-True ($output.Contains(".help en")) "English help should document the English help entry."
         Assert-True ($output.Contains(".info")) "help should document the identity diagnostic command."
         Assert-True (-not $output.Contains(".info --verbose")) "help should not document removed .info --verbose command."
         Assert-True ($output.Contains(".sync --dry-run")) "help should document sync dry-run."
         Assert-True ($output.Contains(".sync --clear")) "help should document conservative sync clear."
         Assert-True ($output.Contains(".code")) "help should document editor launchers."
         Assert-True (-not $output.Contains(" whoami")) "help should not advertise bare custom commands."
-        Assert-True ($output.Contains("# Git passthrough:")) "help should have a dedicated passthrough section."
+        Assert-True ($output.Contains("# Sync to the current repository:")) "English help should mirror the Chinese sync section."
+        Assert-True ($output.Contains("# Editor and terminal launchers:")) "English help should mirror the Chinese launcher section."
+        Assert-True ($output.Contains("# Custom commands start with a dot.")) "English help should mirror the Chinese passthrough rule."
+        Assert-True ($output.Contains("# Create an identity:")) "English help should keep identity creation on one line."
+        Assert-True ($output.Contains("copy git1.cmd git2.cmd")) "English help should show the same identity-copy example as Chinese help."
+        Assert-True (-not $output.Contains("This wrapper injects process-local Git config")) "English help should not add implementation details missing from Chinese help."
+        Assert-True (-not $output.Contains("If an editor is already running")) "English help should not add editor caveats missing from Chinese help."
+        Assert-True (-not $output.Contains("Then edit these lines")) "English help should not expand the one-line identity creation instruction."
 
-        $launcherIndex = $output.IndexOf("# Editor and shell launchers:")
-        $passthroughIndex = $output.IndexOf("# Git passthrough:")
+        $launcherIndex = $output.IndexOf("# Editor and terminal launchers:")
+        $passthroughIndex = $output.IndexOf("# Custom commands start with a dot.")
         Assert-True ($launcherIndex -ge 0) "help should include the launcher section."
         Assert-True ($passthroughIndex -gt $launcherIndex) "help should explain passthrough after custom dot commands."
 
@@ -412,6 +421,33 @@ function Test-SyncDryRunDoesNotWriteLocalConfig {
     Assert-True ($null -eq (Get-LocalGitConfig $repoPath "swaw-kit-git.managed")) "sync --dry-run should not write the marker."
 }
 
+function Test-SyncOutsideRepositoryShowsCleanError {
+    param(
+        [string]$EntryPath,
+        [string]$TempRoot
+    )
+
+    $nonRepoPath = Join-Path $TempRoot ("non-repo-" + [guid]::NewGuid().ToString("N"))
+    $oldCeilingDirectories = $env:GIT_CEILING_DIRECTORIES
+    New-Item -ItemType Directory -Path $nonRepoPath | Out-Null
+    try {
+        $env:GIT_CEILING_DIRECTORIES = $TempRoot
+        Invoke-InDirectory $nonRepoPath {
+            $oldErrorActionPreference = $ErrorActionPreference
+            try {
+                $ErrorActionPreference = "Continue"
+                $output = Invoke-Captured $EntryPath @(".sync", "--dry-run") 1 ".sync outside repository"
+            } finally {
+                $ErrorActionPreference = $oldErrorActionPreference
+            }
+
+            Assert-True ($output.Trim() -eq "[ERROR] sync must be run inside a Git repository.") "sync outside a repository should show only the wrapper error."
+        }
+    } finally {
+        $env:GIT_CEILING_DIRECTORIES = $oldCeilingDirectories
+    }
+}
+
 function Test-SyncWritesLocalConfigAndSwawMarker {
     param(
         [string]$EntryPath,
@@ -510,6 +546,7 @@ try {
     Test-EmptyArgsLaunchBoundCmd $smokeEntry $tempRoot
     Test-EmptyArgsLaunchConfiguredTerminal $smokeEntry $tempRoot
     Test-SyncDryRunDoesNotWriteLocalConfig $smokeEntry $tempRoot
+    Test-SyncOutsideRepositoryShowsCleanError $smokeEntry $tempRoot
     Test-SyncWritesLocalConfigAndSwawMarker $smokeEntry $tempRoot
     Test-SyncClearRemovesUnchangedManagedValues $smokeEntry $tempRoot
     Test-SyncClearRefusesChangedValues $smokeEntry $tempRoot

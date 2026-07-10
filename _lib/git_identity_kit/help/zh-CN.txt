@@ -1,8 +1,9 @@
 # Git 身份包装器:
-  {{COMMAND}}               用当前 Git 身份打开配置的默认终端
+  {{COMMAND}}               用当前 Git 身份打开默认终端
   {{COMMAND}} .help zh      显示中文版帮助
   {{COMMAND}} .help en      Show English help, output
-  {{COMMAND}} .info         显示此入口身份和原始 Git 诊断
+  {{COMMAND}} .info         显示当前配置，和已生效的 Git 身份信息
+
 
 # 同步到当前仓库:
   {{COMMAND}} .sync              将当前身份持久写入当前仓库的 .git/config

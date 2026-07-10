@@ -1,54 +1,26 @@
-
 # Git identity wrapper:
-  {{COMMAND}}               Open the configured default terminal with this Git identity.
-  {{COMMAND}} --help        Show this help.
-  {{COMMAND}} .help         Show this help.
-  {{COMMAND}} .info         Show this entry's identity and raw Git diagnostics.
-
-This wrapper injects process-local Git config before running git:
-  user.name
-  user.email
-  optional user.signingkey / gpg.format
-  optional GIT_SSH_COMMAND override, otherwise one assembled from the configured SSH private key
+  {{COMMAND}}               Open the default terminal with the current Git identity.
+  {{COMMAND}} .help zh      Show Chinese help.
+  {{COMMAND}} .help en      Show English help.
+  {{COMMAND}} .info         Show the current configuration and effective Git identity.
 
 
-# Sync into the current repository:
-  {{COMMAND}} .sync              Persist this identity into the current repo's .git/config.
+# Sync to the current repository:
+  {{COMMAND}} .sync              Persist the current identity to the current repository's .git/config.
   {{COMMAND}} .sync --dry-run    Show what would be written without changing .git/config.
-  {{COMMAND}} .sync --clear      Clear unchanged values managed by the last SWAW Kit Git sync.
+  {{COMMAND}} .sync --clear      Clear values written by the last .sync if they have not been changed.
 
-.sync writes normal local Git config such as user.name, user.email, and core.sshCommand.
-It also records a marker under [swaw-kit-git] so --clear knows which values were managed.
-If a managed value changed after .sync, --clear refuses and leaves the config untouched.
---clear removes managed values; it does not restore values that existed before .sync.
+# Editor and terminal launchers:
+  {{COMMAND}}               Open the configured default terminal with the current Git identity.
+  {{COMMAND}} .code .       Open the current directory in VS Code with the current Git identity.
+  {{COMMAND}} .cursor .     Start Cursor with the current Git identity.
+  {{COMMAND}} .cmd          Open cmd.exe with the current Git identity.
+  {{COMMAND}} .ps           Open Windows PowerShell 5 with the current Git identity (legacy version included with Windows).
+  {{COMMAND}} .pwsh         Open PowerShell 7+ with the current Git identity (installation required).
 
-
-# Editor and shell launchers:
-  {{COMMAND}}               Open the configured default terminal with this Git identity.
-  {{COMMAND}} .code .       Start VS Code with this Git identity in its environment.
-  {{COMMAND}} .cursor .     Start Cursor with this Git identity in its environment.
-  {{COMMAND}} .cmd          Open cmd.exe with this Git identity in its environment.
-  {{COMMAND}} .ps           Open Windows PowerShell with this Git identity in its environment.
-  {{COMMAND}} .pwsh         Open PowerShell 7 with this Git identity in its environment.
-
-If an editor is already running and reuses an old process, its Git extension may keep the old environment.
-Close the editor first when you need a strict identity switch.
-
-
-# Git passthrough:
-Custom wrapper commands start with a dot. Other commands are passed through to git after identity injection.
-For example:
+# Custom commands start with a dot. Other commands are passed through to git after identity injection, for example:
   {{COMMAND}} status
   {{COMMAND}} commit -m "message"
   {{COMMAND}} push
 
-
-# Create another identity:
-  copy git1.cmd git2.cmd
-
-Then edit these lines near the top of git2.cmd:
-  set "GIT_IDENTITY_NAME=Your Name"
-  set "GIT_IDENTITY_EMAIL=you@example.com"
-  set "GIT_IDENTITY_SSH_KEY=%USERPROFILE%\.ssh\id_ed25519"
-
-After that, use git2 instead of git for repositories that should use that identity.
+# Create an identity: ① copy git1.cmd git2.cmd ② edit the identity settings in git2.cmd ③ git2 --help
