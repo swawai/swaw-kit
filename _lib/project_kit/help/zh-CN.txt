@@ -1,0 +1,37 @@
+Project Kit: 项目目录绑定的便携工作台
+
+当前阶段:
+  仅帮助命令已实现；以下其他命令是后续实现的功能契约。
+
+帮助:
+  {{COMMAND}} --help                  显示中文帮助
+  {{COMMAND}} -h                      显示中文帮助
+  {{COMMAND}} /?                      显示中文帮助
+  {{COMMAND}} .help [zh|zh-CN]        显示指定语言的帮助
+
+项目管理:
+  {{COMMAND}}                         在 PROJECT_DIR 中打开默认项目 shell
+  {{COMMAND}} .info                   显示入口、项目目录、数据目录和关键配置
+  {{COMMAND}} .doctor                 检查目录、工具、环境和 GitHub 状态
+  {{COMMAND}} .dir                    用资源管理器打开 PROJECT_DIR
+  {{COMMAND}} .code                   用默认 IDE 打开 PROJECT_DIR
+  {{COMMAND}} .shell                  打开默认项目 shell
+
+环境管理:
+  {{COMMAND}} .env status             显示项目环境状态
+  {{COMMAND}} .env ensure             创建项目数据目录并生成环境文件
+  {{COMMAND}} .env modules            列出配置的环境模块
+  {{COMMAND}} .env module gh install  安装此项目的便携 gh
+  {{COMMAND}} .env module gh use      启用已安装的 gh 模块
+
+项目命令:
+  {{COMMAND}} git ...                 在 PROJECT_DIR 中运行 git
+  {{COMMAND}} gh ...                  使用项目级 GH_CONFIG_DIR 运行 gh
+  {{COMMAND}} bun ...                 在 PROJECT_DIR 中运行 bun
+  {{COMMAND}} python ...              使用项目环境中的 python
+  {{COMMAND}} <其他命令> ...          在项目目录和项目环境中原样执行
+
+规则:
+  点号命令由 Project Kit 管理。
+  非点号命令后续将在 PROJECT_DIR 和项目环境中原样执行。
+  Project Kit 不修改系统 PATH、全局 Git 配置或全局 GitHub CLI 配置。

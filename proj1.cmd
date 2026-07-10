@@ -38,7 +38,12 @@ exit /b 1
 :ProjectKitFound
 set "PROJECT_ENTRY_COMMAND=%~n0"
 set "PROJECT_ENTRY_FILE=%~f0"
+if "%~1"=="/?" goto :ProjectKitSlashHelp
 call "%PROJECT_KIT%" %*
+exit /b %ERRORLEVEL%
+
+:ProjectKitSlashHelp
+call "%PROJECT_KIT%" "/?"
 exit /b %ERRORLEVEL%
 
 :WriteError
