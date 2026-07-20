@@ -1,26 +1,36 @@
-# Git identity wrapper:
-  {{COMMAND}}               Open the default terminal with the current Git identity.
-  {{COMMAND}} .help zh      Show Chinese help.
-  {{COMMAND}} .help en      Show English help.
-  {{COMMAND}} .info         Show the current configuration and effective Git identity.
+Help and status:
+  {{COMMAND}} .help zh             显示中文帮助
+  {{COMMAND}} .help en             Show English help.
+  {{COMMAND}} .info                Show the entry configuration, access status, and the name and email Git actually reads.
 
+Rewrite the current repository's single origin URL (identity and credentials are unchanged):
+  {{COMMAND}} .origin ssh          Rewrite the origin URL as git@host:path.git.
+  {{COMMAND}} .origin https        Rewrite the origin URL as https://host/path.git.
 
-# Sync to the current repository:
-  {{COMMAND}} .sync              Persist the current identity to the current repository's .git/config.
-  {{COMMAND}} .sync --dry-run    Show what would be written without changing .git/config.
-  {{COMMAND}} .sync --clear      Clear values written by the last .sync if they have not been changed.
+HTTPS login (credentials are saved by the system credential manager):
+  {{COMMAND}} .https login         Sign in through a browser and verify the GitHub or GitLab account selected by GIT_ID_ACCESS.
 
-# Editor and terminal launchers:
-  {{COMMAND}}               Open the configured default terminal with the current Git identity.
-  {{COMMAND}} .code .       Open the current directory in VS Code with the current Git identity.
-  {{COMMAND}} .cursor .     Start Cursor with the current Git identity.
-  {{COMMAND}} .cmd          Open cmd.exe with the current Git identity.
-  {{COMMAND}} .ps           Open Windows PowerShell 5 with the current Git identity (legacy version included with Windows).
-  {{COMMAND}} .pwsh         Open PowerShell 7+ with the current Git identity (installation required).
+Editor and terminal launchers:
+  {{COMMAND}}                      Open the configured default terminal with the current Git identity.
+  {{COMMAND}} .code [directory]    Open a directory in VS Code with the current Git identity; defaults to the current directory.
+  {{COMMAND}} .cursor [directory]  Open a directory in Cursor with the current Git identity; defaults to the current directory.
+  {{COMMAND}} .cmd                 Start cmd.exe with the current Git identity.
+  {{COMMAND}} .powershell          Start Windows PowerShell 5 with the current Git identity (included with Windows).
+  {{COMMAND}} .pwsh                Start PowerShell 7+ with the current Git identity (installation required).
+  {{COMMAND}} .gitbash             Start Git Bash with the current Git identity.
 
-# Custom commands start with a dot. Other commands are passed through to git after identity injection, for example:
+Persist the bound identity to the current repository (for other tools):
+  {{COMMAND}} .sync                Persist the current identity to the current repository's .git/config.
+  {{COMMAND}} .sync --dry-run      Show what would be written without changing .git/config.
+  {{COMMAND}} .sync --clear        Clear values written by the last .sync if they have not been changed.
+
+Custom commands start with a dot. Except for Git global options that change the repository or config boundary, other commands are passed unchanged after injecting the current identity.
+To ensure the inspected repository is the repository Git actually uses, only known value-free Git global options are accepted before the subcommand. Overrides such as -C, -c, --git-dir, --config-env, and clone -c/--config are not supported; change to the target directory first. For example:
   {{COMMAND}} status
   {{COMMAND}} commit -m "message"
   {{COMMAND}} push
 
-# Create an identity: ① copy git1.cmd git2.cmd ② edit the identity settings in git2.cmd ③ git2 --help
+Create another identity command (using git2.cmd as an example):
+  ① copy git1.cmd git2.cmd
+  ② Edit the identity configuration in git2.cmd
+  ③ git2 --help

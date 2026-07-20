@@ -1,26 +1,37 @@
-# Git 身份包装器:
-  {{COMMAND}}               用当前 Git 身份打开默认终端
-  {{COMMAND}} .help zh      显示中文版帮助
-  {{COMMAND}} .help en      Show English help, output
-  {{COMMAND}} .info         显示当前配置，和已生效的 Git 身份信息
+帮助和状态:
+  {{COMMAND}} .help en             Show English help.
+  {{COMMAND}} .help zh             显示中文帮助
+  {{COMMAND}} .info                显示入口配置、访问状态，以及 Git 实际读取的姓名和邮箱
 
+重写当前仓库唯一的 origin URL（不修改身份或凭据）:
+  {{COMMAND}} .origin ssh          将 origin URL 重写为 git@host:path.git  格式
+  {{COMMAND}} .origin https        将 origin URL 重写为 https://host/path.git  格式
 
-# 同步到当前仓库:
-  {{COMMAND}} .sync              将当前身份持久写入当前仓库的 .git/config
-  {{COMMAND}} .sync --dry-run    只显示将写入什么，不修改 .git/config
-  {{COMMAND}} .sync --clear      清理上次 .sync 写入且未被改动的值。
+HTTPS 登录（凭据由系统凭据管理器保存）:
+  {{COMMAND}} .https login         通过浏览器登录并核验 GIT_ID_ACCESS 指定的 GitHub 或 GitLab 账号
 
-# 编辑器和终端启动器:
-  {{COMMAND}}               用当前 Git 身份打开配置的默认终端
-  {{COMMAND}} .code .       用当前 Git 身份启动 VS Code 打开当前目录
-  {{COMMAND}} .cursor .     用当前 Git 身份启动 Cursor
-  {{COMMAND}} .cmd          用当前 Git 身份打开 cmd.exe
-  {{COMMAND}} .ps           用当前 Git 身份打开 PowerShell 5  （系统自带的老版本）
-  {{COMMAND}} .pwsh         用当前 Git 身份打开 PowerShell 7+ （需自行安装）
+编辑器和终端启动器:
+  {{COMMAND}}                      用当前 Git 身份打开配置的默认终端
+  {{COMMAND}} .code [目录]         用当前 Git 身份在 VS Code 中打开目录；默认当前目录
+  {{COMMAND}} .cursor [目录]       用当前 Git 身份在 Cursor 中打开目录；默认当前目录
+  {{COMMAND}} .cmd                 用当前 Git 身份启动 cmd.exe
+  {{COMMAND}} .powershell          用当前 Git 身份启动 Windows PowerShell 5（系统自带版本）
+  {{COMMAND}} .pwsh                用当前 Git 身份启动 PowerShell 7+（需自行安装）
+  {{COMMAND}} .gitbash             用当前 Git 身份启动 Git Bash
 
-# 自定义命令参数都以点号开头，其他命令会在注入身份后直接透传给 git 例如:
+把绑定身份写入当前仓库（供其他工具使用）:
+  {{COMMAND}} .sync                将当前身份持久写入当前仓库的 .git/config
+  {{COMMAND}} .sync --dry-run      只显示将写入的内容，不修改 .git/config
+  {{COMMAND}} .sync --clear        清理上次 .sync 写入且未被改动的值
+
+自定义命令均以点号开头。除会改变仓库或配置边界的 Git 全局参数外，其他命令会在注入当前身份后原样传给 Git。
+为确保预检仓库就是实际仓库，子命令前只接受已知且不带值的 Git 全局参数；
+不支持 -C、-c、--git-dir、--config-env，以及 clone -c/--config 等覆盖参数，请先切换到目标目录。例如:
   {{COMMAND}} status
   {{COMMAND}} commit -m "message"
   {{COMMAND}} push
 
-# 新建身份：① 如 copy git1.cmd git2.cmd ② 修改 git2.cmd 中定义的身份信息 ③ git2 --help
+新建身份命令（以 git2.cmd 为例）:
+  ① copy git1.cmd git2.cmd
+  ② 修改 git2.cmd 中的身份配置
+  ③ git2 --help

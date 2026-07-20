@@ -25,11 +25,11 @@ function Convert-ToKnownHelpLanguage {
     }
 
     $normalized = $Value.Trim()
-    if ($normalized -match '^(zh|zh[-_])') {
+    if ($normalized -match '^zh(?:$|[-_])') {
         return "zh-CN"
     }
 
-    if ($normalized -match '^(en|en[-_])') {
+    if ($normalized -match '^en(?:$|[-_])') {
         return "en"
     }
 
@@ -37,14 +37,14 @@ function Convert-ToKnownHelpLanguage {
 }
 
 function Get-PreferredHelpLanguage {
-    foreach ($override in @($Language, $env:GIT_IDENTITY_HELP_LANG, $env:GIT_IDENTITY_LANG)) {
+    foreach ($override in @($Language, $env:GIT_ID_HELP_LANG)) {
         if (-not [string]::IsNullOrWhiteSpace($override)) {
             $language = Convert-ToKnownHelpLanguage $override
             if ($language) {
                 return $language
             }
 
-            return "en"
+            throw "Unsupported help language '$override'. Use zh or en."
         }
     }
 
@@ -86,12 +86,13 @@ function Get-PreferredHelpLanguage {
 }
 
 $helpDir = Join-Path $PSScriptRoot "help"
-$language = Get-PreferredHelpLanguage
-$helpPath = Join-Path $helpDir "$language.txt"
-
-if (-not (Test-Path -LiteralPath $helpPath -PathType Leaf)) {
-    $helpPath = Join-Path $helpDir "en.txt"
+try {
+    $language = Get-PreferredHelpLanguage
+} catch {
+    Write-Host "[ERROR] $($_.Exception.Message)"
+    exit 1
 }
+$helpPath = Join-Path $helpDir "$language.txt"
 
 if (-not (Test-Path -LiteralPath $helpPath -PathType Leaf)) {
     Write-Host "[ERROR] Help template not found: $helpPath"

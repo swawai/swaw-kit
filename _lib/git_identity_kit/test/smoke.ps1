@@ -5,6 +5,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $entryFile = Join-Path $repoRoot "git1.cmd"
+$tempBase = Join-Path $repoRoot "temp_workspace"
 
 function Assert-True {
     param(
@@ -38,7 +39,9 @@ function Invoke-Captured {
     )
 
     $output = (& $File @CommandArgs 2>&1 | Out-String)
-    Assert-ExitCode $LASTEXITCODE $ExpectedExitCode $Label
+    if ($LASTEXITCODE -ne $ExpectedExitCode) {
+        throw "$Label failed: expected exit code $ExpectedExitCode, got $LASTEXITCODE.`n$output"
+    }
     return $output
 }
 
@@ -60,14 +63,15 @@ function New-GitSmokeEntryFile {
     param([string]$TempRoot)
 
     $entryName = "git.smoke-" + [guid]::NewGuid().ToString("N")
-    $path = Join-Path $repoRoot "$entryName.cmd"
+    $path = Join-Path $TempRoot "$entryName.cmd"
     $keyPath = Join-Path $TempRoot "smoke id_ed25519"
     [System.IO.File]::WriteAllText($keyPath, "not a real private key`r`n", [System.Text.UTF8Encoding]::new($false))
 
     $content = [System.IO.File]::ReadAllText($entryFile)
-    $content = Set-EntryLine $content "GIT_IDENTITY_NAME" "Smoke User"
-    $content = Set-EntryLine $content "GIT_IDENTITY_EMAIL" "smoke@example.invalid"
-    $content = Set-EntryLine $content "GIT_IDENTITY_SSH_KEY" $keyPath
+    $content = Set-EntryLine $content "GIT_ID_NAME" "Smoke User"
+    $content = Set-EntryLine $content "GIT_ID_EMAIL" "smoke@example.invalid"
+    $content = Set-EntryLine $content "GIT_ID_ACCESS" "ssh:ssh -o IdentitiesOnly=yes -i '$keyPath'"
+    $content = Set-EntryLine $content "GIT_ID_KIT" (Join-Path $repoRoot "_lib\git_identity_kit\kit.cmd")
     $content = $content -replace "`r?`n", "`r`n"
     [System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))
     return $path
@@ -137,11 +141,14 @@ function Get-LocalGitConfig {
 
 function Test-EntryTemplateShape {
     $content = [System.IO.File]::ReadAllText($entryFile)
-    Assert-True ($content.Contains("GIT_IDENTITY_NAME")) "entry template should expose GIT_IDENTITY_NAME."
-    Assert-True ($content.Contains("GIT_IDENTITY_EMAIL")) "entry template should expose GIT_IDENTITY_EMAIL."
-    Assert-True ($content.Contains("GIT_IDENTITY_SSH_KEY")) "entry template should expose GIT_IDENTITY_SSH_KEY."
-    Assert-True ($content.Contains("GIT_IDENTITY_DEFAULT_TERMINAL")) "entry template should expose GIT_IDENTITY_DEFAULT_TERMINAL."
-    Assert-True ($content.Contains("GIT_SSH_COMMAND")) "entry template should expose advanced GIT_SSH_COMMAND override."
+    Assert-True ($content.Contains("GIT_ID_NAME")) "entry template should expose GIT_ID_NAME."
+    Assert-True ($content.Contains("GIT_ID_EMAIL")) "entry template should expose GIT_ID_EMAIL."
+    Assert-True ($content.Contains("GIT_ID_ACCESS")) "entry template should expose one access descriptor."
+    Assert-True ($content.Contains("GIT_ID_SIGNING_KEY")) "entry template should expose the signing key setting."
+    Assert-True ($content.Contains("openpgp / ssh / x509")) "entry template should document the complete signing format set."
+    Assert-True (-not $content.Contains('set "GIT_SSH_COMMAND=')) "entry template should derive native GIT_SSH_COMMAND internally."
+    Assert-True (-not $content.Contains('set "GIT_SSH_VARIANT=')) "entry template should keep the OpenSSH variant internal."
+    Assert-True ($content.Contains("GIT_ID_DEFAULT_TERMINAL")) "entry template should expose GIT_ID_DEFAULT_TERMINAL."
     Assert-True ($content.Contains("_lib\git_identity_kit\kit.cmd")) "entry template should dispatch to git_identity_kit."
 }
 
@@ -165,55 +172,109 @@ function Test-CommandLineEndings {
     }
 }
 
+function Get-HelpCommandSignatures {
+    param([string]$Template)
+
+    $commands = foreach ($line in @($Template -split "`r?`n")) {
+        $match = [regex]::Match($line, '^\s+\{\{COMMAND\}\}(?<tail>.*)$')
+        if (-not $match.Success) { continue }
+
+        $tail = $match.Groups["tail"].Value
+        if ($tail -match '^\s{2,}') {
+            '<default>'
+            continue
+        }
+
+        $signature = ($tail.TrimStart() -split '\s{2,}', 2)[0]
+        # Argument labels are prose and may be localized; their position in
+        # the command grammar is what must stay aligned across translations.
+        $signature -replace '\[[^\]]+\]', '[ARG]'
+    }
+    return @($commands | Sort-Object)
+}
+
 function Test-HelpUsesWrapperHelp {
     param([string]$EntryPath)
 
     $commandName = [System.IO.Path]::GetFileNameWithoutExtension($EntryPath)
-    $oldLanguage = $env:GIT_IDENTITY_HELP_LANG
     try {
-        $env:GIT_IDENTITY_HELP_LANG = "en"
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_HELP_LANG" "en"
         $output = Invoke-Captured $EntryPath @("--help") 0 "wrapper help"
         Assert-True ($output.Contains("Git identity")) "help should describe the wrapper instead of raw git help."
         Assert-True ($output.Contains($commandName)) "help should use the entry command name."
         Assert-True ($output.Contains(".help zh")) "English help should document the Chinese help entry."
         Assert-True ($output.Contains(".help en")) "English help should document the English help entry."
+        Assert-True ($output.IndexOf(".help zh") -lt $output.IndexOf(".help en")) "English help should list the non-current Chinese language first."
+        $englishTemplate = [System.IO.File]::ReadAllText((Join-Path $repoRoot "_lib\git_identity_kit\help\en.txt"), [System.Text.Encoding]::UTF8)
+        $chineseTemplate = [System.IO.File]::ReadAllText((Join-Path $repoRoot "_lib\git_identity_kit\help\zh-CN.txt"), [System.Text.Encoding]::UTF8)
+        $signatureDiff = @(Compare-Object (Get-HelpCommandSignatures $englishTemplate) (Get-HelpCommandSignatures $chineseTemplate))
+        Assert-True ($signatureDiff.Count -eq 0) "English and Chinese help should expose the same command signatures."
+        Assert-True ($englishTemplate -match '(?m)^  \{\{COMMAND\}\} \.help zh\s+[^\x00-\x7F]+$') "the Chinese help switch should describe itself in Chinese."
+        Assert-True ($chineseTemplate.Contains("{{COMMAND}} .help en             Show English help.")) "the English help switch should describe itself in English."
         Assert-True ($output.Contains(".info")) "help should document the identity diagnostic command."
-        Assert-True (-not $output.Contains(".info --verbose")) "help should not document removed .info --verbose command."
         Assert-True ($output.Contains(".sync --dry-run")) "help should document sync dry-run."
         Assert-True ($output.Contains(".sync --clear")) "help should document conservative sync clear."
+        Assert-True ($output.Contains(".origin ssh")) "help should document origin conversion to SSH."
+        Assert-True ($output.Contains(".origin https")) "help should document origin conversion to HTTPS."
+        Assert-True ($output.Contains("Rewrite the current repository's single origin URL (identity and credentials are unchanged):")) "English help should define .origin as URL-only rewriting."
         Assert-True ($output.Contains(".code")) "help should document editor launchers."
+        Assert-True ($output.Contains(".powershell")) "help should document the canonical Windows PowerShell launcher."
+        Assert-True ($output.Contains(".gitbash")) "help should document the Git Bash launcher."
         Assert-True (-not $output.Contains(" whoami")) "help should not advertise bare custom commands."
-        Assert-True ($output.Contains("# Sync to the current repository:")) "English help should mirror the Chinese sync section."
-        Assert-True ($output.Contains("# Editor and terminal launchers:")) "English help should mirror the Chinese launcher section."
-        Assert-True ($output.Contains("# Custom commands start with a dot.")) "English help should mirror the Chinese passthrough rule."
-        Assert-True ($output.Contains("# Create an identity:")) "English help should keep identity creation on one line."
+        Assert-True ($output.Contains("Persist the bound identity to the current repository (for other tools):")) "English help should mirror the Chinese sync section."
+        Assert-True ($output.Contains("Editor and terminal launchers:")) "English help should mirror the Chinese launcher section."
+        Assert-True ($output.Contains("Custom commands start with a dot.")) "English help should mirror the Chinese passthrough rule."
+        Assert-True ($output.Contains("Create another identity command (using git2.cmd as an example):")) "English help should mirror the Chinese identity-creation section."
         Assert-True ($output.Contains("copy git1.cmd git2.cmd")) "English help should show the same identity-copy example as Chinese help."
         Assert-True (-not $output.Contains("This wrapper injects process-local Git config")) "English help should not add implementation details missing from Chinese help."
         Assert-True (-not $output.Contains("If an editor is already running")) "English help should not add editor caveats missing from Chinese help."
-        Assert-True (-not $output.Contains("Then edit these lines")) "English help should not expand the one-line identity creation instruction."
+        Assert-True (-not $output.Contains("Then edit these lines")) "English help should not add identity setup details missing from Chinese help."
 
-        $launcherIndex = $output.IndexOf("# Editor and terminal launchers:")
-        $passthroughIndex = $output.IndexOf("# Custom commands start with a dot.")
+        $launcherIndex = $output.IndexOf("Editor and terminal launchers:")
+        $passthroughIndex = $output.IndexOf("Custom commands start with a dot.")
         Assert-True ($launcherIndex -ge 0) "help should include the launcher section."
         Assert-True ($passthroughIndex -gt $launcherIndex) "help should explain passthrough after custom dot commands."
 
-        $env:GIT_IDENTITY_HELP_LANG = "zh-CN"
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_HELP_LANG" "zh-CN"
+        $zhOutput = Invoke-Captured $EntryPath @("--help") 0 "Chinese wrapper help"
+        Assert-True ($zhOutput.Contains("Show English help.")) "the English help switch should describe itself in English."
+        Assert-True ($zhOutput -match '\u91cd\u5199\u5f53\u524d\u4ed3\u5e93\u552f\u4e00\u7684 origin URL\uFF08\u4e0d\u4fee\u6539\u8eab\u4efd\u6216\u51ed\u636e\uFF09:') "Chinese help should define .origin as URL-only rewriting."
+        Assert-True ($zhOutput.IndexOf(".help en") -lt $zhOutput.IndexOf(".help zh")) "Chinese help should list the non-current English language first."
         $enOutput = Invoke-Captured $EntryPath @(".help", "en") 0 ".help en"
-        Assert-True ($enOutput.Contains("Git identity wrapper")) ".help en should force English help."
+        Assert-True ($enOutput.Contains("Help and status:")) ".help en should force English help."
+
+        $invalidLanguage = Invoke-Captured $EntryPath @(".help", "invalid") 1 ".help invalid language"
+        Assert-True ($invalidLanguage.Contains("Use")) "an invalid explicit help language should show the supported syntax."
+        $extraArgument = Invoke-Captured $EntryPath @(".help", "en", "extra") 1 ".help extra argument"
+        Assert-True ($extraArgument.Contains("Use")) "help should reject extra arguments."
+
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_HELP_LANG" "invalid"
+        $invalidConfiguredLanguage = Invoke-Captured $EntryPath @("--help") 1 "invalid configured help language"
+        Assert-True ($invalidConfiguredLanguage.Contains("[ERROR] Unsupported help language")) "an invalid configured help language should fail clearly."
+        foreach ($prefixCollision in @("english", "zhorse")) {
+            Set-GitSmokeEntryValue $EntryPath "GIT_ID_HELP_LANG" $prefixCollision
+            $prefixCollisionOutput = Invoke-Captured $EntryPath @("--help") 1 "invalid prefixed help language"
+            Assert-True ($prefixCollisionOutput.Contains("[ERROR] Unsupported help language")) "help language matching must accept complete language tags, not arbitrary en/zh prefixes."
+        }
     } finally {
-        $env:GIT_IDENTITY_HELP_LANG = $oldLanguage
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_HELP_LANG" ""
     }
 }
 
 function Test-GitCommandsUseBoundIdentity {
     param([string]$EntryPath)
 
-    $workDir = Join-Path ([System.IO.Path]::GetTempPath()) ("git-id-work-" + [guid]::NewGuid().ToString("N"))
+    $workDir = Join-Path $tempBase ("git-id-work-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $workDir | Out-Null
     try {
-        $name = (Invoke-Captured $EntryPath @("-C", $workDir, "config", "--get", "user.name") 0 "git config user.name").Trim()
-        $email = (Invoke-Captured $EntryPath @("-C", $workDir, "config", "--get", "user.email") 0 "git config user.email").Trim()
-        $ident = Invoke-Captured $EntryPath @("-C", $workDir, "var", "GIT_AUTHOR_IDENT") 0 "git author ident"
+        Push-Location $workDir
+        try {
+            $name = (Invoke-Captured $EntryPath @("config", "--get", "user.name") 0 "git config user.name").Trim()
+            $email = (Invoke-Captured $EntryPath @("config", "--get", "user.email") 0 "git config user.email").Trim()
+            $ident = Invoke-Captured $EntryPath @("var", "GIT_AUTHOR_IDENT") 0 "git author ident"
+        } finally {
+            Pop-Location
+        }
 
         Assert-True ($name -eq "Smoke User") "git config should see the bound user.name."
         Assert-True ($email -eq "smoke@example.invalid") "git config should see the bound user.email."
@@ -223,7 +284,73 @@ function Test-GitCommandsUseBoundIdentity {
     }
 }
 
-function Test-GitSshCommandOverrideWins {
+function Test-SigningRuntimeBoundary {
+    param(
+        [string]$EntryPath,
+        [string]$TempRoot
+    )
+
+    $repoPath = New-TempGitRepo $TempRoot
+    git -C $repoPath config --local commit.gpgSign true
+    Assert-ExitCode $LASTEXITCODE 0 "set inherited commit signing"
+    git -C $repoPath config --local tag.gpgSign true
+    Assert-ExitCode $LASTEXITCODE 0 "set inherited tag signing"
+    git -C $repoPath config --local user.signingkey "foreign-signing-key"
+    Assert-ExitCode $LASTEXITCODE 0 "set inherited signing key"
+    git -C $repoPath config --local gpg.format x509
+    Assert-ExitCode $LASTEXITCODE 0 "set inherited signing format"
+
+    try {
+        $disabledCommit = Invoke-InDirectory $repoPath { (Invoke-Captured $EntryPath @("config", "--get", "commit.gpgSign") 0 "disabled commit signing").Trim() }
+        $disabledTag = Invoke-InDirectory $repoPath { (Invoke-Captured $EntryPath @("config", "--get", "tag.gpgSign") 0 "disabled tag signing").Trim() }
+        $disabledInfo = Invoke-InDirectory $repoPath { Invoke-Captured $EntryPath @(".info") 0 "disabled signing info" }
+        Assert-True ($disabledCommit -eq "false") "empty signing settings should override inherited commit.gpgSign with false."
+        Assert-True ($disabledTag -eq "false") "empty signing settings should override inherited tag.gpgSign with false."
+        Assert-True ($disabledInfo -match '(?m)^  Commit signing:[ ]+disabled\r?$') ".info should report authoritative disabled commit signing."
+        Assert-True (-not $disabledInfo.Contains("Signing key:")) ".info should not display an inherited signing key while signing is disabled."
+
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_SIGNING_KEY" "smoke-signing-key"
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_GPG_FORMAT" ""
+        $keyOnly = Invoke-InDirectory $repoPath { Invoke-Captured $EntryPath @("status") 1 "signing key without format" }
+        Assert-True ($keyOnly.Contains("Incomplete commit signing configuration")) "a signing key without a format should fail before Git dispatch."
+
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_SIGNING_KEY" ""
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_GPG_FORMAT" "ssh"
+        $formatOnly = Invoke-InDirectory $repoPath { Invoke-Captured $EntryPath @("status") 1 "signing format without key" }
+        Assert-True ($formatOnly.Contains("Incomplete commit signing configuration")) "a signing format without a key should fail before Git dispatch."
+
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_SIGNING_KEY" "smoke-signing-key"
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_GPG_FORMAT" "invalid"
+        $invalidFormat = Invoke-InDirectory $repoPath { Invoke-Captured $EntryPath @("status") 1 "invalid signing format" }
+        Assert-True ($invalidFormat.Contains("Invalid GIT_ID_GPG_FORMAT")) "an unsupported signing format should fail before Git dispatch."
+
+        foreach ($formatCase in @(
+            [pscustomobject]@{ EntryValue = "openpgp"; EffectiveValue = "openpgp" },
+            [pscustomobject]@{ EntryValue = "SSH"; EffectiveValue = "ssh" },
+            [pscustomobject]@{ EntryValue = "x509"; EffectiveValue = "x509" }
+        )) {
+            Set-GitSmokeEntryValue $EntryPath "GIT_ID_SIGNING_KEY" "smoke-signing-key"
+            Set-GitSmokeEntryValue $EntryPath "GIT_ID_GPG_FORMAT" $formatCase.EntryValue
+            $effectiveKey = Invoke-InDirectory $repoPath { (Invoke-Captured $EntryPath @("config", "--get", "user.signingkey") 0 "enabled signing key").Trim() }
+            $effectiveFormat = Invoke-InDirectory $repoPath { (Invoke-Captured $EntryPath @("config", "--get", "gpg.format") 0 "enabled signing format").Trim() }
+            $enabledCommit = Invoke-InDirectory $repoPath { (Invoke-Captured $EntryPath @("config", "--get", "commit.gpgSign") 0 "enabled commit signing").Trim() }
+            $enabledTag = Invoke-InDirectory $repoPath { (Invoke-Captured $EntryPath @("config", "--get", "tag.gpgSign") 0 "enabled tag signing").Trim() }
+            Assert-True ($effectiveKey -eq "smoke-signing-key") "enabled signing should override an inherited signing key."
+            Assert-True ($effectiveFormat -ceq $formatCase.EffectiveValue) "enabled signing should normalize and inject the selected format."
+            Assert-True ($enabledCommit -eq "true") "enabled signing should force commit.gpgSign=true."
+            Assert-True ($enabledTag -eq "false") "enabled signing should keep automatic tag signing disabled."
+        }
+
+        $enabledInfo = Invoke-InDirectory $repoPath { Invoke-Captured $EntryPath @(".info") 0 "enabled signing info" }
+        Assert-True ($enabledInfo -match '(?m)^  Commit signing:[ ]+enabled \(x509\)\r?$') ".info should report the enabled signing format."
+        Assert-True ($enabledInfo -match '(?m)^  Signing key:[ ]+smoke-signing-key\r?$') ".info should retain the configured signing key when enabled."
+    } finally {
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_SIGNING_KEY" ""
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_GPG_FORMAT" ""
+    }
+}
+
+function Test-EntryGitSshCommandWins {
     param(
         [string]$EntryPath,
         [string]$TempRoot
@@ -231,23 +358,28 @@ function Test-GitSshCommandOverrideWins {
 
     $binDir = Join-Path $TempRoot "git-ssh-override-bin"
     $oldGitSshCommand = $env:GIT_SSH_COMMAND
+    $oldGitSshVariant = $env:GIT_SSH_VARIANT
     $oldPath = $env:PATH
     New-Item -ItemType Directory -Path $binDir | Out-Null
     $fakeGitContent = @'
 @echo off
 echo SSH:%GIT_SSH_COMMAND%
+echo SSH_VARIANT:%GIT_SSH_VARIANT%
 exit /b 0
 '@ -replace "`n", "`r`n"
     [System.IO.File]::WriteAllText((Join-Path $binDir "git.cmd"), $fakeGitContent, [System.Text.UTF8Encoding]::new($false))
     try {
         $env:GIT_SSH_COMMAND = "ssh -F C:\tmp\custom-ssh-config"
+        $env:GIT_SSH_VARIANT = "plink"
         $env:PATH = "$binDir;$oldPath"
-        $output = Invoke-Captured $EntryPath @("status") 0 "git ssh command override"
+        $output = Invoke-Captured $EntryPath @("status") 0 "entry git ssh command"
 
-        Assert-True ($output.Contains("SSH:$($env:GIT_SSH_COMMAND)")) "explicit GIT_SSH_COMMAND should override assembled SSH key command."
-        Assert-True (-not $output.Contains("IdentitiesOnly=yes")) "explicit GIT_SSH_COMMAND should not append default identity options."
+        Assert-True ($output.Contains("SSH:ssh -o IdentitiesOnly=yes -i '$TempRoot\smoke id_ed25519'")) "the entry GIT_SSH_COMMAND should override an inherited value."
+        Assert-True (-not $output.Contains("custom-ssh-config")) "the entry command should not inherit an external GIT_SSH_COMMAND."
+        Assert-True ($output.Contains("SSH_VARIANT:ssh")) "the kit should force OpenSSH semantics instead of inheriting an external variant."
     } finally {
         $env:GIT_SSH_COMMAND = $oldGitSshCommand
+        $env:GIT_SSH_VARIANT = $oldGitSshVariant
         $env:PATH = $oldPath
     }
 }
@@ -255,16 +387,18 @@ exit /b 0
 function Test-InfoShowsIdentityStatus {
     param([string]$EntryPath, [string]$TempRoot)
     $output = Invoke-Captured $EntryPath @(".info") 0 ".info"
-    Assert-True ($output.Contains("Entry: $EntryPath")) ".info should show the entry file."
-    Assert-True ($output.Contains("Name: Smoke User")) ".info should show the configured name."
-    Assert-True ($output.Contains("Email: smoke@example.invalid")) ".info should show the configured email."
-    Assert-True ($output.Contains("SSH Key:")) ".info should show the configured SSH key."
-    Assert-True ($output.Contains("Git sees:")) ".info should include Git config diagnostics."
-    Assert-True (-not $output.Contains("Command:")) ".info should omit the redundant command name."
-    Assert-True (-not $output.Contains("Git sees: OK")) ".info should not use the removed OK/MISMATCH summary."
-
-    $verbose = Invoke-Captured $EntryPath @(".info", "--verbose") 1 ".info verbose removed"
-    Assert-True ($verbose.Contains("Unrecognized .info option: --verbose")) ".info --verbose should be rejected after removal."
+    Assert-True ($output -match '(?m)^Config:\r?$') ".info should start the configured identity section."
+    Assert-True ($output -match "(?m)^  Entry:[ ]+$([regex]::Escape($EntryPath))\r?$") ".info should show the indented entry file row."
+    Assert-True ($output -match '(?m)^  Name:[ ]+Smoke User\r?$') ".info should show the configured name row."
+    Assert-True ($output -match '(?m)^  Email:[ ]+smoke@example\.invalid\r?$') ".info should show the configured email row."
+    Assert-True ($output -match '(?m)^  Access:[ ]+ssh\r?$') ".info should show the canonical SSH access tag."
+    Assert-True ($output -match '(?m)^  SSH command:[ ]+configured\r?$') ".info should confirm SSH command configuration without printing a free-form command that may contain secrets."
+    Assert-True ($output -match '(?m)^  Commit signing:[ ]+disabled\r?$') ".info should show that empty signing settings authoritatively disable commit signing."
+    Assert-True (-not $output.Contains("IdentitiesOnly=yes")) ".info should not copy SSH command arguments into terminal logs."
+    Assert-True (-not $output.Contains("HTTPS authorization:")) ".info should not show HTTPS status for an SSH identity."
+    Assert-True ($output -match '(?m)^Git sees:\r?\n  Name:[ ]+Smoke User\r?\n  Email:[ ]+smoke@example\.invalid\r?$') "Git diagnostics should retain the aligned name and email labels."
+    $invalid = Invoke-Captured $EntryPath @(".info", "--unexpected") 1 ".info invalid option"
+    Assert-True ($invalid.Contains("Unrecognized .info option: --unexpected")) ".info should reject unexpected options."
 }
 
 function Test-BareCustomWordsPassThroughToGit {
@@ -298,29 +432,63 @@ function Test-EditorLauncherInheritsBoundIdentity {
         [string]$TempRoot
     )
 
-    $binDir = Join-Path $TempRoot "bin"
+    $binDir = Join-Path $TempRoot "editor-dispatch-bin"
     New-Item -ItemType Directory -Path $binDir | Out-Null
-    $fakeCode = Join-Path $binDir "code.cmd"
-    $fakeCodeContent = @'
+    $fakePowerShell = Join-Path $binDir "PowerShell.cmd"
+    $fakePowerShellContent = @'
 @echo off
-echo NAME:
-git config --get user.name
-echo EMAIL:
-git config --get user.email
+echo POWERSHELL_ARGS:%*
+echo AUTHOR:%GIT_AUTHOR_NAME%
 echo SSH:%GIT_SSH_COMMAND%
-echo ARGS:%*
+exit /b 0
 '@ -replace "`n", "`r`n"
-    [System.IO.File]::WriteAllText($fakeCode, $fakeCodeContent, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::WriteAllText($fakePowerShell, $fakePowerShellContent, [System.Text.UTF8Encoding]::new($false))
 
     $oldPath = $env:PATH
     try {
         $env:PATH = "$binDir;$oldPath"
-        $output = Invoke-Captured $EntryPath @(".code", "--reuse-window", $TempRoot) 0 ".code launcher"
+        $codeOutput = Invoke-Captured $EntryPath @(".code", $TempRoot) 0 ".code dispatch"
+        Assert-True ($codeOutput.Contains("editor-launch.ps1")) ".code should dispatch through the identity-aware editor launcher."
+        Assert-True ($codeOutput -match '-Tool\s+"?code"?') ".code should select VS Code."
+        Assert-True ($codeOutput.Contains("AUTHOR:Smoke User")) ".code should receive the bound author identity."
+        Assert-True ($codeOutput.Contains("IdentitiesOnly=yes")) ".code should receive the bound SSH command."
+        Assert-True ($codeOutput.Contains($TempRoot)) ".code should forward the target directory."
 
-        Assert-True ($output.Contains("Smoke User")) "code launcher should inherit bound user.name."
-        Assert-True ($output.Contains("smoke@example.invalid")) "code launcher should inherit bound user.email."
-        Assert-True ($output.Contains("IdentitiesOnly=yes")) "code launcher should inherit GIT_SSH_COMMAND."
-        Assert-True ($output.Contains("ARGS:--reuse-window")) "code launcher should forward editor args without the launcher verb."
+        $cursorOutput = Invoke-Captured $EntryPath @(".cursor", $TempRoot) 0 ".cursor dispatch"
+        Assert-True ($cursorOutput.Contains("editor-launch.ps1")) ".cursor should use the same identity-aware editor launcher."
+        Assert-True ($cursorOutput -match '-Tool\s+"?cursor"?') ".cursor should select Cursor."
+    } finally {
+        $env:PATH = $oldPath
+    }
+}
+
+function Test-GitBashLauncherDispatchesWithBoundIdentity {
+    param(
+        [string]$EntryPath,
+        [string]$TempRoot
+    )
+
+    $binDir = Join-Path $TempRoot "gitbash-dispatch-bin"
+    New-Item -ItemType Directory -Path $binDir | Out-Null
+    $fakePowerShell = Join-Path $binDir "PowerShell.cmd"
+    $fakePowerShellContent = @'
+@echo off
+echo POWERSHELL_ARGS:%*
+echo AUTHOR:%GIT_AUTHOR_NAME%
+echo SSH:%GIT_SSH_COMMAND%
+exit /b 0
+'@ -replace "`n", "`r`n"
+    [System.IO.File]::WriteAllText($fakePowerShell, $fakePowerShellContent, [System.Text.UTF8Encoding]::new($false))
+
+    $oldPath = $env:PATH
+    try {
+        $env:PATH = "$binDir;$oldPath"
+        $output = Invoke-Captured $EntryPath @(".gitbash") 0 ".gitbash launcher"
+
+        Assert-True ($output.Contains("launch.ps1")) ".gitbash should dispatch through the shared launcher."
+        Assert-True ($output -match '-Tool\s+"?gitbash"?') ".gitbash should select the Git Bash launcher."
+        Assert-True ($output.Contains("AUTHOR:Smoke User")) ".gitbash should inherit the bound author identity."
+        Assert-True ($output.Contains("IdentitiesOnly=yes")) ".gitbash should inherit the bound SSH access command."
     } finally {
         $env:PATH = $oldPath
     }
@@ -369,7 +537,7 @@ function Test-EmptyArgsLaunchConfiguredTerminal {
         [string]$TempRoot
     )
 
-    Set-GitSmokeEntryValue $EntryPath "GIT_IDENTITY_DEFAULT_TERMINAL" "pwsh"
+    Set-GitSmokeEntryValue $EntryPath "GIT_ID_DEFAULT_TERMINAL" "pwsh"
 
     $binDir = Join-Path $TempRoot "empty-args-configured-terminal-bin"
     New-Item -ItemType Directory -Path $binDir | Out-Null
@@ -399,138 +567,11 @@ exit /b 0
         Assert-True ($output.Contains("IdentitiesOnly=yes")) "configured empty args launcher should inherit GIT_SSH_COMMAND."
     } finally {
         $env:PATH = $oldPath
-        Set-GitSmokeEntryValue $EntryPath "GIT_IDENTITY_DEFAULT_TERMINAL" ""
+        Set-GitSmokeEntryValue $EntryPath "GIT_ID_DEFAULT_TERMINAL" ""
     }
 }
 
-function Test-SyncDryRunDoesNotWriteLocalConfig {
-    param(
-        [string]$EntryPath,
-        [string]$TempRoot
-    )
-
-    $repoPath = New-TempGitRepo $TempRoot
-    Invoke-InDirectory $repoPath {
-        $output = Invoke-Captured $EntryPath @(".sync", "--dry-run") 0 ".sync dry-run"
-        Assert-True ($output.Contains("DRY RUN")) "sync --dry-run should announce that it will not write."
-        Assert-True ($output.Contains("user.name")) "sync --dry-run should show user.name."
-        Assert-True ($output.Contains("swaw-kit-git.managed")) "sync --dry-run should show the SWAW Kit Git marker."
-    }
-
-    Assert-True ($null -eq (Get-LocalGitConfig $repoPath "user.name")) "sync --dry-run should not write user.name."
-    Assert-True ($null -eq (Get-LocalGitConfig $repoPath "swaw-kit-git.managed")) "sync --dry-run should not write the marker."
-}
-
-function Test-SyncOutsideRepositoryShowsCleanError {
-    param(
-        [string]$EntryPath,
-        [string]$TempRoot
-    )
-
-    $nonRepoPath = Join-Path $TempRoot ("non-repo-" + [guid]::NewGuid().ToString("N"))
-    $oldCeilingDirectories = $env:GIT_CEILING_DIRECTORIES
-    New-Item -ItemType Directory -Path $nonRepoPath | Out-Null
-    try {
-        $env:GIT_CEILING_DIRECTORIES = $TempRoot
-        Invoke-InDirectory $nonRepoPath {
-            $oldErrorActionPreference = $ErrorActionPreference
-            try {
-                $ErrorActionPreference = "Continue"
-                $output = Invoke-Captured $EntryPath @(".sync", "--dry-run") 1 ".sync outside repository"
-            } finally {
-                $ErrorActionPreference = $oldErrorActionPreference
-            }
-
-            Assert-True ($output.Trim() -eq "[ERROR] sync must be run inside a Git repository.") "sync outside a repository should show only the wrapper error."
-        }
-    } finally {
-        $env:GIT_CEILING_DIRECTORIES = $oldCeilingDirectories
-    }
-}
-
-function Test-SyncWritesLocalConfigAndSwawMarker {
-    param(
-        [string]$EntryPath,
-        [string]$TempRoot
-    )
-
-    $repoPath = New-TempGitRepo $TempRoot
-    Invoke-InDirectory $repoPath {
-        $null = Invoke-Captured $EntryPath @(".sync") 0 ".sync"
-    }
-
-    $commandName = [System.IO.Path]::GetFileNameWithoutExtension($EntryPath)
-    Assert-True ((Get-LocalGitConfig $repoPath "user.name") -eq "Smoke User") "sync should write local user.name."
-    Assert-True ((Get-LocalGitConfig $repoPath "user.email") -eq "smoke@example.invalid") "sync should write local user.email."
-    $sshCommand = Get-LocalGitConfig $repoPath "core.sshCommand"
-    Assert-True ($sshCommand.Contains("IdentitiesOnly=yes")) "sync should write local core.sshCommand."
-    Assert-True ($sshCommand.Contains("smoke id_ed25519")) "sync should preserve spaces in the configured SSH key path."
-    Assert-True ((Get-LocalGitConfig $repoPath "swaw-kit-git.managed") -eq "true") "sync should write the SWAW Kit Git marker."
-    Assert-True ((Get-LocalGitConfig $repoPath "swaw-kit-git.entry") -eq $commandName) "sync should record the entry command."
-    Assert-True ((Get-LocalGitConfig $repoPath "swaw-kit-git.user-name") -eq "Smoke User") "sync should snapshot the managed user.name."
-}
-
-function Test-SyncClearRemovesUnchangedManagedValues {
-    param(
-        [string]$EntryPath,
-        [string]$TempRoot
-    )
-
-    $repoPath = New-TempGitRepo $TempRoot
-    Invoke-InDirectory $repoPath {
-        $null = Invoke-Captured $EntryPath @(".sync") 0 ".sync before clear"
-        $null = Invoke-Captured $EntryPath @(".sync", "--clear") 0 ".sync clear"
-    }
-
-    Assert-True ($null -eq (Get-LocalGitConfig $repoPath "user.name")) "sync --clear should remove managed user.name."
-    Assert-True ($null -eq (Get-LocalGitConfig $repoPath "user.email")) "sync --clear should remove managed user.email."
-    Assert-True ($null -eq (Get-LocalGitConfig $repoPath "core.sshCommand")) "sync --clear should remove managed core.sshCommand."
-    Assert-True ($null -eq (Get-LocalGitConfig $repoPath "swaw-kit-git.managed")) "sync --clear should remove the marker."
-}
-
-function Test-SyncClearRefusesChangedValues {
-    param(
-        [string]$EntryPath,
-        [string]$TempRoot
-    )
-
-    $repoPath = New-TempGitRepo $TempRoot
-    Invoke-InDirectory $repoPath {
-        $null = Invoke-Captured $EntryPath @(".sync") 0 ".sync before changed clear"
-        git config --local user.email "manual@example.invalid"
-        Assert-ExitCode $LASTEXITCODE 0 "manual local config change"
-
-        $output = Invoke-Captured $EntryPath @(".sync", "--clear") 1 ".sync clear changed value"
-        Assert-True ($output.Contains("Refusing to clear")) "sync --clear should refuse when a managed value changed."
-    }
-
-    Assert-True ((Get-LocalGitConfig $repoPath "user.email") -eq "manual@example.invalid") "sync --clear should keep changed user.email."
-    Assert-True ((Get-LocalGitConfig $repoPath "swaw-kit-git.managed") -eq "true") "sync --clear should keep the marker after refusing."
-}
-
-function Test-SyncRemovesStaleManagedOptionalValues {
-    param(
-        [string]$EntryPath,
-        [string]$TempRoot
-    )
-
-    $repoPath = New-TempGitRepo $TempRoot
-    Invoke-InDirectory $repoPath {
-        $null = Invoke-Captured $EntryPath @(".sync") 0 ".sync before removing key"
-    }
-
-    Assert-True ($null -ne (Get-LocalGitConfig $repoPath "core.sshCommand")) "first sync should write core.sshCommand."
-    Set-GitSmokeEntryValue $EntryPath "GIT_IDENTITY_SSH_KEY" ""
-
-    Invoke-InDirectory $repoPath {
-        $null = Invoke-Captured $EntryPath @(".sync") 0 ".sync after removing key"
-    }
-
-    Assert-True ($null -eq (Get-LocalGitConfig $repoPath "core.sshCommand")) "sync should remove stale managed core.sshCommand when the entry no longer configures a key."
-    Assert-True ($null -eq (Get-LocalGitConfig $repoPath "swaw-kit-git.ssh-command")) "sync should remove the stale managed ssh marker."
-}
-
-$tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("git-id-smoke-" + [guid]::NewGuid().ToString("N"))
+$tempRoot = Join-Path $tempBase ("git-id-smoke-" + [guid]::NewGuid().ToString("N"))
 $smokeEntry = $null
 try {
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
@@ -539,18 +580,14 @@ try {
     $smokeEntry = New-GitSmokeEntryFile $tempRoot
     Test-HelpUsesWrapperHelp $smokeEntry
     Test-GitCommandsUseBoundIdentity $smokeEntry
-    Test-GitSshCommandOverrideWins $smokeEntry $tempRoot
+    Test-SigningRuntimeBoundary $smokeEntry $tempRoot
+    Test-EntryGitSshCommandWins $smokeEntry $tempRoot
     Test-InfoShowsIdentityStatus $smokeEntry $tempRoot
     Test-BareCustomWordsPassThroughToGit $smokeEntry $tempRoot
     Test-EditorLauncherInheritsBoundIdentity $smokeEntry $tempRoot
+    Test-GitBashLauncherDispatchesWithBoundIdentity $smokeEntry $tempRoot
     Test-EmptyArgsLaunchBoundCmd $smokeEntry $tempRoot
     Test-EmptyArgsLaunchConfiguredTerminal $smokeEntry $tempRoot
-    Test-SyncDryRunDoesNotWriteLocalConfig $smokeEntry $tempRoot
-    Test-SyncOutsideRepositoryShowsCleanError $smokeEntry $tempRoot
-    Test-SyncWritesLocalConfigAndSwawMarker $smokeEntry $tempRoot
-    Test-SyncClearRemovesUnchangedManagedValues $smokeEntry $tempRoot
-    Test-SyncClearRefusesChangedValues $smokeEntry $tempRoot
-    Test-SyncRemovesStaleManagedOptionalValues $smokeEntry $tempRoot
 } finally {
     if ($smokeEntry -and (Test-Path -LiteralPath $smokeEntry)) {
         Remove-Item -LiteralPath $smokeEntry -Force -ErrorAction SilentlyContinue
