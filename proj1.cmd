@@ -10,9 +10,10 @@ set "PROJECT_DEFAULT_IDE=code"
 
 
 :: Optional Git identity
-set "GIT_IDENTITY_NAME=user1"
-set "GIT_IDENTITY_EMAIL=user1@example.com"
-set "GIT_IDENTITY_SSH_KEY=%USERPROFILE%\.ssh\id_ed25519"
+set "GIT_ID_NAME=user1"
+set "GIT_ID_EMAIL=user1@example.com"
+set "GIT_SSH_COMMAND=ssh -i '%USERPROFILE%/.ssh/id_ed25519' -o IdentitiesOnly=yes"
+set "GIT_SSH_VARIANT=ssh"
 :: Optional GitHub context
 :: set "GH_REPO=owner/repo"
 
