@@ -1,20 +1,19 @@
 .env
 .vscode/
 data/
+temp_workspace/
 
 
-
-*.cmd
-!pathhereadd.cmd
-!pathhereremove.cmd
-!portrule.cmd
-!porttask.cmd
-!taskport.cmd
-!vps1.cmd
-!wsl01.cmd
-!git1.cmd
-!proj1.cmd
-!_lib/git_identity_kit/kit.cmd
+/*.cmd
+!/pathhereadd.cmd
+!/pathhereremove.cmd
+!/portrule.cmd
+!/porttask.cmd
+!/taskport.cmd
+!/vps1.cmd
+!/wsl01.cmd
+!/git1.cmd
+!/proj1.cmd
 
 
 .xvenv/
