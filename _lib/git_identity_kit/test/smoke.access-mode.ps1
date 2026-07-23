@@ -44,6 +44,7 @@ function New-AccessEntry {
     $content = [regex]::Replace($content, $pattern, ('set "GIT_ID_ACCESS=' + $Access + '"'))
     $kitPath = Join-Path $repoRoot "_lib\git_identity_kit\kit.cmd"
     $content = [regex]::Replace($content, '(?m)^set "GIT_ID_KIT=.*"\r?$', [Text.RegularExpressions.MatchEvaluator]{ param($match) 'set "GIT_ID_KIT=' + $kitPath + '"' })
+    $content = $content.Replace("%~dp0_lib\editor_kit\entry-bootstrap.cmd", (Join-Path $repoRoot "_lib\editor_kit\entry-bootstrap.cmd"))
     $content = $content -replace "`r?`n", "`r`n"
     [IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($false))
     return $path
@@ -386,7 +387,7 @@ $sshEntry = $null
 try {
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
     $entryRoot = Join-Path $tempRoot "entries"
-    $httpsEntry = New-AccessEntry "https.github:github.example.com/github-smoke" $entryRoot
+    $httpsEntry = New-AccessEntry "https.github:host=github.example.com;account=github-smoke" $entryRoot
     $sshEntry = New-AccessEntry "ssh:ssh -o IdentitiesOnly=yes -i '$tempRoot\id_ed25519'" $entryRoot
     Test-HttpsModeRejectsSshTransport $httpsEntry
     Test-HiddenHttpsAuthorizationIsRejected $httpsEntry $tempRoot

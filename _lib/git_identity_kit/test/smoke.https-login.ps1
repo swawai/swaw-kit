@@ -157,7 +157,7 @@ function Invoke-WithFakeGcm {
 . $authScript
 
 function Test-LoginRequiresDeclaredAccount {
-    Assert-Throws { Invoke-HttpsLogin -Provider github -AccountHost "github.example.com" -ExpectedUser "" -Namespace "swaw-kit-git.test" } "GIT_ID_ACCESS" "missing HTTPS account" | Out-Null
+    Assert-Throws { Invoke-HttpsLogin -Provider github -AccountHost "github.example.com" -ExpectedAccount "" -Namespace "swaw-kit-git.test" } "GIT_ID_ACCESS" "missing HTTPS account" | Out-Null
 }
 
 function Test-GitHubLoginAcceptsOnlyExactAccount {
@@ -165,8 +165,8 @@ function Test-GitHubLoginAcceptsOnlyExactAccount {
 
     Invoke-WithFakeGcm $TempRoot {
         $env:FAKE_GITHUB_LOGIN_ACCOUNT = "github-smoke"
-        $output = @(Invoke-HttpsLogin -Provider github -AccountHost "github.example.com" -ExpectedUser "github-smoke" -Namespace "swaw-kit-git.git1" 6>&1) -join "`n"
-        Assert-True ($output -eq "[OK] GitHub HTTPS authorization ready: github.example.com/github-smoke") "GitHub login should return one concise success status."
+        $output = @(Invoke-HttpsLogin -Provider github -AccountHost "github.example.com" -ExpectedAccount "github-smoke" -Namespace "swaw-kit-git.git1" 6>&1) -join "`n"
+        Assert-True ($output -eq "[OK] GitHub HTTPS authorization ready: github.example.com / account github-smoke") "GitHub login should return one concise success status."
         Assert-True ((Get-Content -LiteralPath $env:FAKE_GCM_STATE -Raw).Trim() -eq "github-smoke") "GitHub login should retain the exact expected account."
         $log = Get-Content -LiteralPath $env:FAKE_GCM_LOG -Raw
         Assert-True ($log.Contains("NAMESPACE=swaw-kit-git.git1")) "GitHub login should override the credential namespace."
@@ -178,13 +178,13 @@ function Test-GitHubLoginAcceptsOnlyExactAccount {
         Assert-True ($log.Contains("--url https://github.example.com")) "GitHub login should scope GCM to the configured host."
 
         $env:FAKE_GITHUB_LOGIN_ACCOUNT = "wrong-account"
-        $message = Assert-Throws { Invoke-HttpsLogin -Provider github -AccountHost "github.example.com" -ExpectedUser "github-smoke" -Namespace "swaw-kit-git.git1" } "authorized 'wrong-account'.*expected 'github-smoke'" "GitHub account mismatch"
+        $message = Assert-Throws { Invoke-HttpsLogin -Provider github -AccountHost "github.example.com" -ExpectedAccount "github-smoke" -Namespace "swaw-kit-git.git1" } "authorized 'wrong-account'.*expected 'github-smoke'" "GitHub account mismatch"
         Assert-True (-not (Test-Path -LiteralPath $env:FAKE_GCM_STATE)) "GitHub mismatch should clear the rejected account."
         Assert-True (-not $message.Contains($env:FAKE_GITLAB_PASSWORD)) "GitHub mismatch diagnostics should not contain credentials."
 
         Set-Content -LiteralPath $env:FAKE_GCM_STATE -Value "github-smoke" -Encoding UTF8
         $env:FAKE_GITHUB_LOGIN_EXIT = "1"
-        Assert-Throws { Invoke-HttpsLogin -Provider github -AccountHost "github.example.com" -ExpectedUser "github-smoke" -Namespace "swaw-kit-git.git1" 2>$null } "failed with exit code" "cancelled GitHub login" | Out-Null
+        Assert-Throws { Invoke-HttpsLogin -Provider github -AccountHost "github.example.com" -ExpectedAccount "github-smoke" -Namespace "swaw-kit-git.git1" 2>$null } "failed with exit code" "cancelled GitHub login" | Out-Null
         Assert-True ((Get-Content -LiteralPath $env:FAKE_GCM_STATE -Raw).Trim() -eq "github-smoke") "cancelled GitHub login should preserve the previous account."
     }
 }
@@ -200,15 +200,15 @@ function Test-GitLabLoginVerifiesTokenOwnerAndCleansMismatch {
             Assert-True ($Headers.Authorization -eq "Bearer fixture-credential-value") "current-user lookup should receive the OAuth credential only in the authorization header."
             return [pscustomobject]@{ id = 42; username = "gitlab-smoke" }
         }
-        $output = @(Invoke-HttpsLogin -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedUser "gitlab-smoke" -Namespace "swaw-kit-git.git1" -RestInvoker $successRequest 6>&1) -join "`n"
-        Assert-True ($output -eq "[OK] GitLab HTTPS authorization ready: gitlab.example.com/gitlab-smoke") "GitLab login should return one concise success status."
+        $output = @(Invoke-HttpsLogin -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedAccount "gitlab-smoke" -Namespace "swaw-kit-git.git1" -RestInvoker $successRequest 6>&1) -join "`n"
+        Assert-True ($output -eq "[OK] GitLab HTTPS authorization ready: gitlab.example.com / account gitlab-smoke") "GitLab login should return one concise success status."
         Assert-True ((Get-Content -LiteralPath $env:FAKE_GCM_STATE -Raw).Trim() -eq "fixture-credential-value") "verified GitLab login should retain the OAuth credential."
 
         $mismatchRequest = {
             param([uri]$Uri, [hashtable]$Headers)
             return [pscustomobject]@{ id = 99; username = "wrong-account" }
         }
-        $message = Assert-Throws { Invoke-HttpsLogin -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedUser "gitlab-smoke" -Namespace "swaw-kit-git.git1" -RestInvoker $mismatchRequest } "does not belong to 'gitlab-smoke'" "GitLab account mismatch"
+        $message = Assert-Throws { Invoke-HttpsLogin -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedAccount "gitlab-smoke" -Namespace "swaw-kit-git.git1" -RestInvoker $mismatchRequest } "does not belong to 'gitlab-smoke'" "GitLab account mismatch"
         Assert-True ((Get-Content -LiteralPath $env:FAKE_GCM_STATE -Raw).Trim() -eq "fixture-credential-value") "GitLab mismatch should restore the previous credential after rejecting the new login."
         Assert-True (-not $message.Contains($env:FAKE_GITLAB_PASSWORD)) "GitLab mismatch diagnostics should not contain the OAuth credential."
         $log = Get-Content -LiteralPath $env:FAKE_GCM_LOG -Raw
@@ -224,11 +224,11 @@ function Test-GitHubStatusReportsReadyAndMismatchWithoutInteraction {
 
     Invoke-WithFakeGcm $TempRoot {
         Set-Content -LiteralPath $env:FAKE_GCM_STATE -Value "github-smoke" -Encoding UTF8
-        $status = Invoke-HttpsStatus -Provider github -AccountHost "github.example.com" -ExpectedUser "github-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1"
+        $status = Invoke-HttpsStatus -Provider github -AccountHost "github.example.com" -ExpectedAccount "github-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1"
         Assert-True ($status -eq "  GitHub (github.example.com): stored (github-smoke)") "GitHub status should distinguish a stored account from a live-verified credential."
 
         Set-Content -LiteralPath $env:FAKE_GCM_STATE -Value "wrong-account" -Encoding UTF8
-        $status = Invoke-HttpsStatus -Provider github -AccountHost "github.example.com" -ExpectedUser "github-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1"
+        $status = Invoke-HttpsStatus -Provider github -AccountHost "github.example.com" -ExpectedAccount "github-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1"
         Assert-True ($status.Contains("GitHub (github.example.com): mismatch")) "GitHub status should report an account mismatch."
         Assert-True ($status.Contains("stored: wrong-account; expected: github-smoke")) "GitHub mismatch should identify the stored and expected accounts."
 
@@ -253,7 +253,7 @@ function Test-GitLabStatusVerifiesOwnerWithoutExposingCredential {
             return [pscustomobject]@{ id = 42; username = "gitlab-smoke" }
         }
 
-        $status = Invoke-HttpsStatus -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedUser "gitlab-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1" -RestInvoker $successRequest
+        $status = Invoke-HttpsStatus -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedAccount "gitlab-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1" -RestInvoker $successRequest
         Assert-True ($status -eq "  GitLab (gitlab.example.com): ready (gitlab-smoke)") "GitLab status should report a credential verified for the expected account."
         Assert-True (-not $status.Contains($env:FAKE_GITLAB_PASSWORD)) "GitLab status should never expose the OAuth credential."
 
@@ -261,13 +261,13 @@ function Test-GitLabStatusVerifiesOwnerWithoutExposingCredential {
             param([uri]$Uri, [hashtable]$Headers)
             return [pscustomobject]@{ id = 99; username = "wrong-account" }
         }
-        $status = Invoke-HttpsStatus -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedUser "gitlab-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1" -RestInvoker $mismatchRequest
+        $status = Invoke-HttpsStatus -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedAccount "gitlab-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1" -RestInvoker $mismatchRequest
         Assert-True ($status.Contains("GitLab (gitlab.example.com): mismatch")) "GitLab status should report a credential owned by another account."
         Assert-True (-not $status.Contains($env:FAKE_GITLAB_PASSWORD)) "GitLab mismatch diagnostics should never expose the OAuth credential."
 
         Remove-Item -LiteralPath $env:FAKE_GCM_STATE -Force
         $env:FAKE_GCM_GET_EXIT = "1"
-        $status = Invoke-HttpsStatus -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedUser "gitlab-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1" -RestInvoker $successRequest
+        $status = Invoke-HttpsStatus -Provider gitlab -AccountHost "gitlab.example.com" -ExpectedAccount "gitlab-smoke" -Namespace "swaw-kit-git.git1" -CommandName "git1" -RestInvoker $successRequest
         Assert-True ($status.Contains('GitLab (gitlab.example.com): not ready (run "git1 .https login")')) "GitLab status should show the single explicit recovery command when no credential is available."
         Assert-True (-not $status.Contains($env:FAKE_GITLAB_PASSWORD)) "missing-credential diagnostics should never expose the OAuth credential."
 

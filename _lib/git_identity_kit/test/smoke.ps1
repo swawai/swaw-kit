@@ -72,6 +72,7 @@ function New-GitSmokeEntryFile {
     $content = Set-EntryLine $content "GIT_ID_EMAIL" "smoke@example.invalid"
     $content = Set-EntryLine $content "GIT_ID_ACCESS" "ssh:ssh -o IdentitiesOnly=yes -i '$keyPath'"
     $content = Set-EntryLine $content "GIT_ID_KIT" (Join-Path $repoRoot "_lib\git_identity_kit\kit.cmd")
+    $content = $content.Replace("%~dp0_lib\editor_kit\entry-bootstrap.cmd", (Join-Path $repoRoot "_lib\editor_kit\entry-bootstrap.cmd"))
     $content = $content -replace "`r?`n", "`r`n"
     [System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))
     return $path
@@ -141,6 +142,9 @@ function Get-LocalGitConfig {
 
 function Test-EntryTemplateShape {
     $content = [System.IO.File]::ReadAllText($entryFile)
+    $bootstrapIndex = $content.IndexOf("_lib\editor_kit\entry-bootstrap.cmd", [StringComparison]::OrdinalIgnoreCase)
+    $identityIndex = $content.IndexOf('set "GIT_ID_NAME=', [StringComparison]::OrdinalIgnoreCase)
+    Assert-True ($bootstrapIndex -ge 0 -and $bootstrapIndex -lt $identityIndex) "entry bootstrap should run before the visible identity settings."
     Assert-True ($content.Contains("GIT_ID_NAME")) "entry template should expose GIT_ID_NAME."
     Assert-True ($content.Contains("GIT_ID_EMAIL")) "entry template should expose GIT_ID_EMAIL."
     Assert-True ($content.Contains("GIT_ID_ACCESS")) "entry template should expose one access descriptor."
@@ -221,7 +225,7 @@ function Test-HelpUsesWrapperHelp {
         Assert-True ($output.Contains(".powershell")) "help should document the canonical Windows PowerShell launcher."
         Assert-True ($output.Contains(".gitbash")) "help should document the Git Bash launcher."
         Assert-True (-not $output.Contains(" whoami")) "help should not advertise bare custom commands."
-        Assert-True ($output.Contains("Persist the bound identity to the current repository (for other tools):")) "English help should mirror the Chinese sync section."
+        Assert-True ($output.Contains("Persist the bound identity and remote access settings to the current repository (for other tools):")) "English help should mirror the Chinese sync section."
         Assert-True ($output.Contains("Editor and terminal launchers:")) "English help should mirror the Chinese launcher section."
         Assert-True ($output.Contains("Custom commands start with a dot.")) "English help should mirror the Chinese passthrough rule."
         Assert-True ($output.Contains("Create another identity command (using git2.cmd as an example):")) "English help should mirror the Chinese identity-creation section."
@@ -440,16 +444,27 @@ function Test-EditorLauncherInheritsBoundIdentity {
 echo POWERSHELL_ARGS:%*
 echo AUTHOR:%GIT_AUTHOR_NAME%
 echo SSH:%GIT_SSH_COMMAND%
-exit /b 0
+echo BOOTSTRAP_FLAG:%WIN_RUN_EDITOR_BOOTSTRAP%
+echo %* | findstr /i /c:"entry-bootstrap.ps1" >nul
+if errorlevel 1 exit /b 0
+if defined SMOKE_BOOTSTRAP_EXIT exit /b %SMOKE_BOOTSTRAP_EXIT%
+exit /b 10
 '@ -replace "`n", "`r`n"
     [System.IO.File]::WriteAllText($fakePowerShell, $fakePowerShellContent, [System.Text.UTF8Encoding]::new($false))
 
     $oldPath = $env:PATH
+    $oldBootstrapExit = [Environment]::GetEnvironmentVariable("SMOKE_BOOTSTRAP_EXIT")
     try {
         $env:PATH = "$binDir;$oldPath"
         $codeOutput = Invoke-Captured $EntryPath @(".code", $TempRoot) 0 ".code dispatch"
         Assert-True ($codeOutput.Contains("editor-launch.ps1")) ".code should dispatch through the identity-aware editor launcher."
+        Assert-True ($codeOutput.Contains("entry-bootstrap.ps1")) ".code should run the identity-free editor bootstrap before identity preparation."
+        Assert-True ($codeOutput.Contains('-ForbiddenEnvironmentVariable "GIT_ID_ENTRY_FILE"')) "the Git entry should supply its environment guard to the shared bootstrap."
         Assert-True ($codeOutput -match '-Tool\s+"?code"?') ".code should select VS Code."
+        Assert-True ($codeOutput.Contains("-ReuseBootstrapWindow")) ".code should reuse a clean window created by the entry bootstrap."
+        $authorLines = @([regex]::Matches($codeOutput, '(?m)^AUTHOR:(?<value>.*)\r?$') | ForEach-Object { $_.Groups['value'].Value.Trim() })
+        Assert-True ($authorLines.Count -eq 2 -and $authorLines[0] -eq "" -and $authorLines[1] -eq "Smoke User") "the bootstrap must run before the entry injects its author identity."
+        Assert-True (-not $codeOutput.Contains("BOOTSTRAP_FLAG:code")) "the internal bootstrap result must be consumed before the editor process starts."
         Assert-True ($codeOutput.Contains("AUTHOR:Smoke User")) ".code should receive the bound author identity."
         Assert-True ($codeOutput.Contains("IdentitiesOnly=yes")) ".code should receive the bound SSH command."
         Assert-True ($codeOutput.Contains($TempRoot)) ".code should forward the target directory."
@@ -457,7 +472,13 @@ exit /b 0
         $cursorOutput = Invoke-Captured $EntryPath @(".cursor", $TempRoot) 0 ".cursor dispatch"
         Assert-True ($cursorOutput.Contains("editor-launch.ps1")) ".cursor should use the same identity-aware editor launcher."
         Assert-True ($cursorOutput -match '-Tool\s+"?cursor"?') ".cursor should select Cursor."
+        Assert-True ($cursorOutput.Contains("-ReuseBootstrapWindow")) ".cursor should reuse a clean window created by the entry bootstrap."
+
+        $env:SMOKE_BOOTSTRAP_EXIT = "7"
+        $failureOutput = Invoke-Captured $EntryPath @(".code", $TempRoot) 7 ".code bootstrap failure"
+        Assert-True (-not $failureOutput.Contains("editor-launch.ps1")) "a bootstrap failure must stop before identity preparation and editor launch."
     } finally {
+        [Environment]::SetEnvironmentVariable("SMOKE_BOOTSTRAP_EXIT", $oldBootstrapExit)
         $env:PATH = $oldPath
     }
 }

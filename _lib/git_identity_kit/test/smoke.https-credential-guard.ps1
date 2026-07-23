@@ -18,17 +18,17 @@ function New-Identity {
     param(
         [string]$Provider,
         [string]$HostName,
-        [string]$AccountUser,
+        [string]$Account,
         [string]$CredentialUser
     )
 
     return [pscustomobject]@{
         Provider       = $Provider
         HostName       = $HostName
-        AccountUser    = $AccountUser
+        Account        = $Account
         CredentialUser = $CredentialUser
         EntryCommand   = "git1"
-        Namespace      = "swaw-kit-git.v2@git1@$Provider@$HostName@$AccountUser"
+        Namespace      = "swaw-kit-git.v2@git1@$Provider@$HostName@$Account"
     }
 }
 
@@ -45,9 +45,10 @@ function New-HttpsEntry {
     New-Item -ItemType Directory -Path $entryRoot -Force | Out-Null
     $path = Join-Path $entryRoot "$name.cmd"
     $content = [IO.File]::ReadAllText($entryTemplate)
-    $content = [regex]::Replace($content, '(?m)^set "GIT_ID_ACCESS=.*"\r?$', 'set "GIT_ID_ACCESS=https.github:github.com/alice"')
+    $content = [regex]::Replace($content, '(?m)^set "GIT_ID_ACCESS=.*"\r?$', 'set "GIT_ID_ACCESS=https.github:host=github.com;account=alice"')
     $kitPath = Join-Path $repoRoot "_lib\git_identity_kit\kit.cmd"
     $content = [regex]::Replace($content, '(?m)^set "GIT_ID_KIT=.*"\r?$', [Text.RegularExpressions.MatchEvaluator]{ param($match) 'set "GIT_ID_KIT=' + $kitPath + '"' })
+    $content = $content.Replace("%~dp0_lib\editor_kit\entry-bootstrap.cmd", (Join-Path $repoRoot "_lib\editor_kit\entry-bootstrap.cmd"))
     $content = $content -replace "`r?`n", "`r`n"
     [IO.File]::WriteAllText($path, $content, [Text.UTF8Encoding]::new($false))
     return $path
@@ -158,7 +159,7 @@ echo.
 '@ -replace "`n", "`r`n"
     [IO.File]::WriteAllText($fakeGit, $fakeGitContent, [Text.UTF8Encoding]::new($false))
 
-    $names = @("GIT_ID_HTTPS_PROVIDER", "GIT_ID_HTTPS_HOST", "GIT_ID_HTTPS_USER", "GIT_ID_HTTPS_CREDENTIAL_USER", "GIT_ID_ENTRY_COMMAND", "GIT_ID_CREDENTIAL_NAMESPACE", "GIT_CONFIG_COUNT")
+    $names = @("GIT_ID_HTTPS_PROVIDER", "GIT_ID_HTTPS_HOST", "GIT_ID_HTTPS_ACCOUNT", "GIT_ID_HTTPS_CREDENTIAL_USER", "GIT_ID_ENTRY_COMMAND", "GIT_ID_CREDENTIAL_NAMESPACE", "GIT_CONFIG_COUNT")
     $oldValues = @{}
     foreach ($name in $names) { $oldValues[$name] = [Environment]::GetEnvironmentVariable($name) }
     $oldPath = $env:PATH
@@ -167,7 +168,7 @@ echo.
         $env:PATH = "$binDir;$oldPath"
         $env:GIT_ID_HTTPS_PROVIDER = "github"
         $env:GIT_ID_HTTPS_HOST = "github.com"
-        $env:GIT_ID_HTTPS_USER = "alice"
+        $env:GIT_ID_HTTPS_ACCOUNT = "alice"
         $env:GIT_ID_HTTPS_CREDENTIAL_USER = "alice"
         $env:GIT_ID_ENTRY_COMMAND = "git1"
         $env:GIT_ID_CREDENTIAL_NAMESPACE = "swaw-kit-git.v2@git1@github@github.com@alice"
@@ -228,6 +229,98 @@ function Test-SyncedRepositoryStopsCredentialHelperChain {
     }
 }
 
+function Test-SyncedRepositoryDelegatesMatchingRequestToCredentialManager {
+    param([string]$EntryPath)
+
+    $repoPath = Join-Path $tempBase ("credential-guard-success-repo-" + [guid]::NewGuid().ToString("N"))
+    $binDir = Join-Path $tempBase ("credential-manager-success-bin-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $repoPath, $binDir | Out-Null
+
+    $environmentNames = @(
+        "GIT_EXEC_PATH",
+        "GIT_ID_ACCESS",
+        "GIT_ID_TRANSPORT",
+        "GIT_ID_HTTPS_PROVIDER",
+        "GIT_ID_HTTPS_HOST",
+        "GIT_ID_HTTPS_ACCOUNT",
+        "GIT_ID_HTTPS_CREDENTIAL_USER",
+        "GIT_ID_ENTRY_COMMAND",
+        "GIT_ID_CREDENTIAL_NAMESPACE",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS"
+    )
+    $oldEnvironment = @{}
+    foreach ($name in $environmentNames) {
+        $oldEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+    }
+
+    try {
+        & git -C $repoPath init --quiet
+        Assert-True ($LASTEXITCODE -eq 0) "temporary Git repository should initialize."
+
+        Push-Location $repoPath
+        try {
+            $syncOutput = @(& $EntryPath .sync 2>&1 | ForEach-Object { $_.ToString() }) -join "`n"
+            $syncExitCode = $LASTEXITCODE
+        } finally {
+            Pop-Location
+        }
+        Assert-True ($syncExitCode -eq 0) ".sync should persist the guarded HTTPS identity. Output: $syncOutput"
+        $syncedHelpers = @(& git -C $repoPath config --local --get-all credential.helper)
+        Assert-True ($syncedHelpers.Count -eq 2 -and $syncedHelpers[0] -eq "" -and $syncedHelpers[1].Contains("https-credential-guard.cmd")) ".sync should persist only the helper reset and guarded HTTPS helper."
+
+        $fakeCredentialManager = Join-Path $binDir "git-credential-manager.exe"
+        $typeName = "GitCredentialManagerSmoke" + [guid]::NewGuid().ToString("N")
+        $fakeCredentialManagerSource = @'
+using System;
+
+public static class __TYPE_NAME__
+{
+    public static int Main(string[] args)
+    {
+        if (args.Length != 1 || !string.Equals(args[0], "get", StringComparison.OrdinalIgnoreCase))
+        {
+            return 42;
+        }
+
+        Console.In.ReadToEnd();
+        Console.Error.WriteLine("namespace=" + Environment.GetEnvironmentVariable("GCM_NAMESPACE"));
+        Console.Error.WriteLine("provider=" + Environment.GetEnvironmentVariable("GCM_PROVIDER"));
+        Console.Error.WriteLine("identity-account=" + Environment.GetEnvironmentVariable("GIT_ID_HTTPS_ACCOUNT"));
+        Console.Error.WriteLine("config-count=" + Environment.GetEnvironmentVariable("GIT_CONFIG_COUNT"));
+        Console.WriteLine("username=alice");
+        Console.WriteLine("password=fake-token");
+        Console.WriteLine();
+        return 0;
+    }
+}
+'@ -replace '__TYPE_NAME__', $typeName
+        Add-Type -TypeDefinition $fakeCredentialManagerSource -Language CSharp -OutputAssembly $fakeCredentialManager -OutputType ConsoleApplication
+
+        foreach ($name in $environmentNames | Where-Object { $_ -ne "GIT_EXEC_PATH" }) {
+            [Environment]::SetEnvironmentVariable($name, $null)
+        }
+        $env:GIT_EXEC_PATH = $binDir
+
+        $entryCommand = [IO.Path]::GetFileNameWithoutExtension($EntryPath)
+        $expectedNamespace = "swaw-kit-git.v2@$entryCommand@github@github.com@alice"
+        $result = Invoke-CredentialFill "git" "protocol=https`nhost=github.com`nusername=alice`n`n" $repoPath
+
+        Assert-True ($result.ExitCode -eq 0) "external Git should resolve a matching synced HTTPS credential. Output: $($result.Output)"
+        Assert-True ($result.Output.Contains("username=alice")) "the synced helper should return GCM's matching account."
+        Assert-True ($result.Output.Contains("password=fake-token")) "the synced helper should pass GCM's credential through."
+        Assert-True ($result.Output.Contains("namespace=$expectedNamespace")) "the synced helper should reconstruct the entry-bound namespace from local config."
+        Assert-True ($result.Output.Contains("provider=github")) "the synced helper should reconstruct the provider from local config."
+        Assert-True ($result.Output -match '(?m)^identity-account=\s*$') "the synced helper must not depend on inherited GIT_ID_HTTPS_ACCOUNT."
+        Assert-True ($result.Output -match '(?m)^config-count=\s*$') "the synced helper should clear injected Git config before delegating to GCM."
+    } finally {
+        foreach ($name in $environmentNames) {
+            [Environment]::SetEnvironmentVariable($name, $oldEnvironment[$name])
+        }
+        Remove-Item -LiteralPath $repoPath, $binDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Assert-True (Test-Path -LiteralPath $guard -PathType Leaf) "HTTPS credential guard is missing."
 Assert-True (Test-Path -LiteralPath $guardScript -PathType Leaf) "HTTPS credential guard script is missing."
 . $guardScript
@@ -243,6 +336,7 @@ try {
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
     $entry = New-HttpsEntry $tempRoot
     Test-EntryStopsCredentialHelperChain $entry
+    Test-SyncedRepositoryDelegatesMatchingRequestToCredentialManager $entry
     Test-SyncedRepositoryStopsCredentialHelperChain $entry
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue

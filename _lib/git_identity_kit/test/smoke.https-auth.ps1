@@ -66,8 +66,9 @@ function New-HttpsSmokeEntry {
     $content = [System.IO.File]::ReadAllText($entryFile)
     $content = Set-EntryLine $content "GIT_ID_NAME" "HTTPS Smoke User"
     $content = Set-EntryLine $content "GIT_ID_EMAIL" "https-smoke@example.invalid"
-    $content = Set-EntryLine $content "GIT_ID_ACCESS" "https.github:github.example.com/github-smoke"
+    $content = Set-EntryLine $content "GIT_ID_ACCESS" "https.github:host=github.example.com;account=github-smoke"
     $content = Set-EntryLine $content "GIT_ID_KIT" (Join-Path $repoRoot "_lib\git_identity_kit\kit.cmd")
+    $content = $content.Replace("%~dp0_lib\editor_kit\entry-bootstrap.cmd", (Join-Path $repoRoot "_lib\editor_kit\entry-bootstrap.cmd"))
     $content = $content -replace "`r?`n", "`r`n"
     [System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))
     return $path
@@ -187,8 +188,8 @@ function Assert-InjectedConfigPair {
 function Test-EntryTemplateDeclaresOneAccessDescriptor {
     $content = [System.IO.File]::ReadAllText($entryFile)
     Assert-True ($content.Contains('set "GIT_ID_ACCESS=')) "entry template should declare GIT_ID_ACCESS."
-    Assert-True ($content.Contains("https.github:host/user")) "entry template should document the explicit GitHub HTTPS descriptor."
-    Assert-True ($content.Contains("https.gitlab:host/user")) "entry template should document the explicit GitLab HTTPS descriptor."
+    Assert-True ($content -match '(?m)^:: set "GIT_ID_ACCESS=https\.github:host=[^;"]+;account=[^"]+"\r?$') "entry template should document an explicit GitHub HTTPS descriptor."
+    Assert-True ($content -match '(?m)^:: set "GIT_ID_ACCESS=https\.gitlab:host=[^;"]+;account=[^"]+"\r?$') "entry template should document an explicit GitLab HTTPS descriptor."
     Assert-True (-not $content.Contains('set "GIT_SSH_VARIANT=')) "entry template should not expose the internally fixed OpenSSH variant."
 }
 
@@ -219,7 +220,7 @@ echo ACCESS:%GIT_ID_ACCESS%
 echo TRANSPORT:%GIT_ID_TRANSPORT%
 echo HTTPS_PROVIDER:%GIT_ID_HTTPS_PROVIDER%
 echo HTTPS_HOST:%GIT_ID_HTTPS_HOST%
-echo HTTPS_USER:%GIT_ID_HTTPS_USER%
+echo HTTPS_ACCOUNT:%GIT_ID_HTTPS_ACCOUNT%
 echo GIT_CONFIG_PARAMETERS:%GIT_CONFIG_PARAMETERS%
 set GIT_CONFIG_KEY_
 set GIT_CONFIG_VALUE_
@@ -258,11 +259,11 @@ set GIT_CONFIG_VALUE_
         Assert-True ($output.Contains("deny-ssh.cmd")) "HTTPS mode should explicitly block inherited SSH access."
         Assert-True (-not $output.Contains("inherited-ssh-config")) "HTTPS mode should not inherit an external SSH command."
         Assert-True ($output.Contains("GIT_SSH_VARIANT:ssh")) "the kit should force OpenSSH semantics instead of inheriting an external variant."
-        Assert-True ($output.Contains("ACCESS:https.github:github.example.com/github-smoke")) "entry should retain the canonical explicit HTTPS descriptor."
+        Assert-True ($output.Contains("ACCESS:https.github:host=github.example.com;account=github-smoke")) "entry should retain the canonical explicit HTTPS descriptor."
         Assert-True ($output.Contains("TRANSPORT:https")) "entry should expose HTTPS as the parsed transport."
         Assert-True ($output.Contains("HTTPS_PROVIDER:github")) "entry should parse the HTTPS provider."
         Assert-True ($output.Contains("HTTPS_HOST:github.example.com")) "entry should parse the HTTPS host."
-        Assert-True ($output.Contains("HTTPS_USER:github-smoke")) "entry should parse the HTTPS account user."
+        Assert-True ($output.Contains("HTTPS_ACCOUNT:github-smoke")) "entry should parse the HTTPS account separately from the credential username."
 
         $expectedGuard = (Join-Path $repoRoot "_lib\git_identity_kit\https-credential-guard.cmd") -replace '\\', '/'
         $expectedHelper = '!"{0}"' -f $expectedGuard
@@ -319,7 +320,7 @@ function Test-SyncDryRunShowsHttpsBindingWithoutWriting {
         Assert-True ($output.Contains("credential.namespace")) "sync dry-run should show the credential namespace."
         Assert-True ($output.Contains("credential.helper")) "sync dry-run should show the credential helper chain."
         Assert-True ($output.Contains("credential.https://github.example.com.username")) "sync dry-run should show the configured host account binding."
-        Assert-True ($output.Contains("swaw-kit-git.access = https.github:github.example.com/github-smoke")) "sync dry-run should show the single access marker."
+        Assert-True ($output.Contains("swaw-kit-git.access = https.github:host=github.example.com;account=github-smoke")) "sync dry-run should show the single access marker."
         Assert-True (-not $output.Contains("credential.https://gitlab.com")) "sync dry-run should not write an unrelated provider."
     }
 
@@ -350,7 +351,7 @@ function Test-SyncWritesAndClearsHttpsBindingWithoutChangingOrigin {
     Assert-True ((Get-LocalGitConfig $repoPath "credential.https://github.example.com.provider") -eq "github") "sync should persist the configured provider."
     Assert-True ((Get-LocalGitConfig $repoPath "credential.https://github.example.com.username") -eq "github-smoke") "sync should persist the configured account user."
     Assert-True ($null -eq (Get-LocalGitConfig $repoPath "credential.https://gitlab.com.provider")) "sync should not persist an unrelated provider."
-    Assert-True ((Get-LocalGitConfig $repoPath "swaw-kit-git.access") -eq "https.github:github.example.com/github-smoke") "sync should record the single access descriptor."
+    Assert-True ((Get-LocalGitConfig $repoPath "swaw-kit-git.access") -eq "https.github:host=github.example.com;account=github-smoke") "sync should record the single access descriptor."
     Assert-True ((Get-LocalGitConfig $repoPath "core.sshCommand").Contains("deny-ssh.cmd")) "HTTPS sync should make SSH remotes fail closed."
     Assert-True ((Get-LocalGitConfig $repoPath "remote.origin.url") -eq "https://github.com/example/example.git") "sync should never modify origin."
 
@@ -396,7 +397,7 @@ function Test-SyncReplacesChangedHttpsHostWithoutLeavingStaleBindings {
             $null = Invoke-Captured $EntryPath @(".sync") 0 "initial HTTPS host sync"
         }
 
-        Set-HttpsSmokeAccess $EntryPath "https.gitlab:gitlab.example.com/gitlab-smoke"
+        Set-HttpsSmokeAccess $EntryPath "https.gitlab:host=gitlab.example.com;account=gitlab-smoke"
         Invoke-InDirectory $repoPath {
             $null = Invoke-Captured $EntryPath @(".sync") 0 "changed HTTPS host sync"
         }
@@ -407,9 +408,9 @@ function Test-SyncReplacesChangedHttpsHostWithoutLeavingStaleBindings {
         Assert-True ((Get-LocalGitConfig $repoPath "credential.https://gitlab.example.com.username") -eq "oauth2") "GitLab OAuth should persist its credential protocol username."
         $expectedNamespace = Get-ExpectedCredentialNamespace $entryCommand "gitlab" "gitlab.example.com" "gitlab-smoke"
         Assert-True ((Get-LocalGitConfig $repoPath "credential.namespace") -eq $expectedNamespace) "changing the account should move external tools to a new credential namespace."
-        Assert-True ((Get-LocalGitConfig $repoPath "swaw-kit-git.access") -eq "https.gitlab:gitlab.example.com/gitlab-smoke") "sync should replace the access marker."
+        Assert-True ((Get-LocalGitConfig $repoPath "swaw-kit-git.access") -eq "https.gitlab:host=gitlab.example.com;account=gitlab-smoke") "sync should replace the access marker."
     } finally {
-        Set-HttpsSmokeAccess $EntryPath "https.github:github.example.com/github-smoke"
+        Set-HttpsSmokeAccess $EntryPath "https.github:host=github.example.com;account=github-smoke"
     }
 }
 
@@ -417,27 +418,36 @@ function Test-InvalidHttpsDescriptorFailsBeforeGitDispatch {
     param([string]$EntryPath)
 
     foreach ($invalidAccess in @(
-        "github:github.example.com/github-smoke",
-        "gitlab:gitlab.example.com/gitlab-smoke",
-        "https:github.example.com/github-smoke",
-        "https.bitbucket:bitbucket.example.com/bitbucket-smoke"
+        "github:host=github.example.com;account=github-smoke",
+        "gitlab:host=gitlab.example.com;account=gitlab-smoke",
+        "https:host=github.example.com;account=github-smoke",
+        "https.bitbucket:host=bitbucket.example.com;account=bitbucket-smoke",
+        "https.github:github.example.com/github-smoke",
+        "https.github:host=github.example.com/account=github-smoke",
+        "https.github:account=github-smoke;host=github.example.com",
+        "https.github:host=;account=github-smoke",
+        "https.github:host=github.example.com;account=",
+        "https.github:host=github.example.com;user=github-smoke",
+        "https.github:host=github.example.com;;account=github-smoke",
+        "https.github:host=github.example.com;account=github-smoke;",
+        "https.github:host=github.example.com;account=github-smoke;extra=value"
     )) {
         try {
             Set-HttpsSmokeAccess $EntryPath $invalidAccess
             $output = Invoke-Captured $EntryPath @("status") 1 "invalid HTTPS descriptor rejection"
-            Assert-True ($output.Contains("https.github:host/user")) "invalid access diagnostics should show the canonical explicit HTTPS formats."
+            Assert-True ($output.Contains("https.github:host=HOST;account=ACCOUNT")) "invalid access diagnostics should show the canonical explicit HTTPS formats."
         } finally {
-            Set-HttpsSmokeAccess $EntryPath "https.github:github.example.com/github-smoke"
+            Set-HttpsSmokeAccess $EntryPath "https.github:host=github.example.com;account=github-smoke"
         }
     }
 
     try {
-        Set-HttpsSmokeAccess $EntryPath "github.example.com/github-smoke"
+        Set-HttpsSmokeAccess $EntryPath "host=github.example.com;account=github-smoke"
         $output = Invoke-Captured $EntryPath @("status") 1 "invalid HTTPS account descriptor"
         Assert-True ($output.Contains("GIT_ID_ACCESS")) "invalid access diagnostics should name the entry setting."
         Assert-True ($output.Contains("ssh:command")) "invalid access diagnostics should show all supported formats."
     } finally {
-        Set-HttpsSmokeAccess $EntryPath "https.github:github.example.com/github-smoke"
+        Set-HttpsSmokeAccess $EntryPath "https.github:host=github.example.com;account=github-smoke"
     }
 
     try {
@@ -445,7 +455,7 @@ function Test-InvalidHttpsDescriptorFailsBeforeGitDispatch {
         $output = Invoke-Captured $EntryPath @(".https", "login") 1 "missing HTTPS account login"
         Assert-True ($output.Contains("Set GIT_ID_ACCESS")) "missing access diagnostics should identify the required setting."
     } finally {
-        Set-HttpsSmokeAccess $EntryPath "https.github:github.example.com/github-smoke"
+        Set-HttpsSmokeAccess $EntryPath "https.github:host=github.example.com;account=github-smoke"
     }
 }
 
@@ -476,7 +486,7 @@ exit /b 0
         Assert-True ($loginOutput.Contains("https-auth.ps1")) ".https login should dispatch to https-auth.ps1."
         Assert-True ($loginOutput -match '-Provider\s+"?github"?') ".https login should pass the parsed provider."
         Assert-True ($loginOutput -match '-AccountHost\s+"?github\.example\.com"?') ".https login should pass the parsed host."
-        Assert-True ($loginOutput -match '-ExpectedUser\s+"?github-smoke"?') ".https login should pass the parsed account user."
+        Assert-True ($loginOutput -match '-ExpectedAccount\s+"?github-smoke"?') ".https login should pass the parsed platform account."
         Assert-True ($loginOutput -match ('-Namespace\s+"?' + [regex]::Escape($expectedNamespace) + '"?')) ".https login should pass the exact account-bound namespace."
 
         $invalidOutput = Invoke-Captured $EntryPath @(".https", "login", "extra") 1 ".https login extra argument"
@@ -494,6 +504,7 @@ function Test-HelpDocumentsOriginUrlRewriteCommands {
         Assert-True ($help.Contains("{{COMMAND}} .https login")) "help should document the single explicit HTTPS login command."
         Assert-True ($help.Contains("{{COMMAND}} .origin ssh")) "help should document the provider-independent SSH URL rewrite command."
         Assert-True ($help.Contains("{{COMMAND}} .origin https")) "help should document the provider-independent HTTPS URL rewrite command."
+        Assert-True ($help.Contains("SSH/HTTPS")) "help should state that .sync persists remote access routing for external Git tools."
     }
     Assert-True ($zhHelp.Contains("{{COMMAND}} .origin ssh")) "Chinese help should document SSH conversion."
     Assert-True ($zhHelp.Contains("{{COMMAND}} .origin https")) "Chinese help should document HTTPS conversion."

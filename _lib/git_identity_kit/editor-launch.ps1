@@ -6,11 +6,14 @@ param(
 
     [switch]$DropFirst,
 
+    [switch]$ReuseBootstrapWindow,
+
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RemainingArgs
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "..\editor_kit\launch.ps1")
 . (Join-Path $PSScriptRoot "editor-window-state.ps1")
 
 function Get-NormalizedDirectory {
@@ -131,51 +134,6 @@ function Invoke-Editor {
     }
 }
 
-function Find-NewEditorWindow {
-    param(
-        [string]$EditorTool,
-        [long[]]$PreviousHandles,
-        [scriptblock]$GetWindows = {
-            param([string]$SelectedTool)
-            Get-EditorWindows $SelectedTool
-        }
-    )
-
-    [long]$candidateHandle = 0
-    $stableSamples = 0
-    for ($attempt = 0; $attempt -lt 50; $attempt++) {
-        if ($attempt -gt 0) {
-            Start-Sleep -Milliseconds 200
-        }
-
-        $windows = @(& $GetWindows $EditorTool)
-        $newWindows = @($windows | Where-Object { $PreviousHandles -notcontains $_.Hwnd })
-        if ($newWindows.Count -gt 1) {
-            throw "Multiple editor windows appeared during launch; ownership cannot be determined."
-        }
-        if ($newWindows.Count -ne 1) {
-            $candidateHandle = 0
-            $stableSamples = 0
-            continue
-        }
-
-        # Do not claim the first transient HWND immediately: another editor
-        # launch may still be appearing in the same sampling window.
-        $handle = [long]$newWindows[0].Hwnd
-        if ($handle -eq $candidateHandle) {
-            $stableSamples += 1
-        } else {
-            $candidateHandle = $handle
-            $stableSamples = 1
-        }
-        if ($stableSamples -ge 4) {
-            return $newWindows[0]
-        }
-    }
-
-    return $null
-}
-
 function Invoke-IdentityEditorLaunch {
     [CmdletBinding()]
     param(
@@ -184,6 +142,8 @@ function Invoke-IdentityEditorLaunch {
         [string]$EditorTool,
 
         [switch]$DropCommandArgument,
+
+        [switch]$ReuseBootstrapWindow,
 
         [string[]]$Arguments = @(),
 
@@ -207,6 +167,11 @@ function Invoke-IdentityEditorLaunch {
             Invoke-Editor $Command $LaunchArguments
         },
 
+        [scriptblock]$AssertCommandSupported = {
+            param([string]$SelectedTool, [string]$Command)
+            Assert-EditorKitCommandSupported -Tool $SelectedTool -EditorCommand $Command
+        },
+
         [scriptblock]$MarkWindow = {
             param([long]$Handle)
             Set-EditorWindowMarker $Handle
@@ -224,6 +189,7 @@ function Invoke-IdentityEditorLaunch {
     if ($Arguments.Count -gt 1 -or ($Arguments.Count -eq 1 -and $Arguments[0].StartsWith("-"))) {
         throw "Use '$($env:GIT_ID_ENTRY_COMMAND) .$EditorTool [directory]'. Editor options are not supported."
     }
+    & $AssertCommandSupported $EditorTool $EditorCommand
 
     $targetArgument = if ($Arguments.Count -eq 1) { $Arguments[0] } else { "." }
     $target = Get-NormalizedDirectory $targetArgument
@@ -254,8 +220,16 @@ function Invoke-IdentityEditorLaunch {
 
         Remove-OrphanedEntryStates $stateDirectory $EditorTool
         $windows = @(& $GetWindows $EditorTool)
+        if ($ReuseBootstrapWindow -and $windows.Count -ne 1) {
+            throw "The identity-free bootstrap window is no longer the only $displayName window. Close the empty window and retry."
+        }
+        if (-not $ReuseBootstrapWindow -and $windows.Count -eq 0) {
+            throw "$displayName exited before the identity window could be opened. Retry from a normal shell or File Explorer."
+        }
+
         $records = @(Read-EditorRecords $statePath $entryFile)
-        $verifiedState = Resolve-EditorWindowState $storagePath $records $windows $target $identity $displayName $env:GIT_ID_ENTRY_COMMAND
+        $stateWindows = if ($ReuseBootstrapWindow) { @() } else { $windows }
+        $verifiedState = Resolve-EditorWindowState $storagePath $records $stateWindows $target $identity $displayName $env:GIT_ID_ENTRY_COMMAND
         $records = @($verifiedState.Records)
         $snapshot = $verifiedState.Snapshot
 
@@ -274,16 +248,26 @@ function Invoke-IdentityEditorLaunch {
             }
 
             Write-EditorRecords $statePath $entryFile $records
-            $launchArguments = @($target)
+            $launchArguments = @(Get-EditorKitOpenTargetArguments -Tool $EditorTool -Target $target)
             & $RunEditor $EditorCommand $launchArguments
             return
         }
 
         $records = @($records | Where-Object { -not (Test-EditorTextEqual ([string]$_.target) $target) })
-        $previousHandles = @($windows | ForEach-Object { [long]$_.Hwnd })
-        $launchArguments = @("--new-window", $target)
-        & $RunEditor $EditorCommand $launchArguments
-        $newWindow = Find-NewEditorWindow $EditorTool $previousHandles $GetWindows
+        if ($ReuseBootstrapWindow) {
+            Write-Host "[INFO] Reusing the identity-free $displayName bootstrap window."
+            $newWindow = $windows[0]
+            $launchArguments = @(Get-EditorKitReuseWindowArguments -Tool $EditorTool -Target $target)
+            & $RunEditor $EditorCommand $launchArguments
+        } else {
+            $previousHandles = @($windows | ForEach-Object { [long]$_.Hwnd })
+            $launchArguments = @(Get-EditorKitNewWindowArguments -Tool $EditorTool -Target $target)
+            & $RunEditor $EditorCommand $launchArguments
+            $newWindow = Wait-EditorNewWindow `
+                -EditorTool $EditorTool `
+                -PreviousHandles $previousHandles `
+                -GetWindows $GetWindows
+        }
         if (-not $newWindow) {
             throw "Close the newly opened $displayName window and retry.`n        $($env:GIT_ID_ENTRY_COMMAND) could not verify ownership of '$(Split-Path $target -Leaf)'."
         }
@@ -321,6 +305,7 @@ if ($MyInvocation.InvocationName -ne ".") {
         Invoke-IdentityEditorLaunch `
             -EditorTool $Tool `
             -DropCommandArgument:$DropFirst `
+            -ReuseBootstrapWindow:$ReuseBootstrapWindow `
             -Arguments @($RemainingArgs) `
             -EditorCommand $editor.Source `
             -StoragePath (Get-EditorStoragePath $Tool)

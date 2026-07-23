@@ -1,18 +1,29 @@
 @echo off & chcp 65001 >nul <nul & setlocal DisableDelayedExpansion
+call "%~dp0_lib\editor_kit\entry-bootstrap.cmd" "%~1" "GIT_ID_ENTRY_FILE"
+if errorlevel 1 exit /b %ERRORLEVEL%
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: Copy this file as, for example, git2.cmd, then customize the Git identity settings below.
-:: 复制本文件为(例如): git2.cmd，然后自定义下面的 Git 身份配置.
+:: Commit author identity (required)
+:: 提交时的署名信息(必填)
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: Remote access identity (choose one): ssh:command / https.github:host/user / https.gitlab:host/user. Before using HTTPS, run `git1 .https login`.
-:: 远端访问身份（三选一）：ssh:command / https.github:host/user / https.gitlab:host/user。HTTPS 模式使用前需执行如 `git1 .https login`。
-set "GIT_ID_ACCESS=ssh:ssh -o IdentitiesOnly=yes -i '%USERPROFILE%/.ssh/id_ed25519'"
-:: set "GIT_ID_ACCESS=https.github:github.com/swawai"
-:: set "GIT_ID_ACCESS=https.gitlab:gitlab.example.com/alice"
-
-:: 提交信息.
 set "GIT_ID_NAME=user1"
 set "GIT_ID_EMAIL=user1@example.com"
 
+
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+:: Remote access method (choose one of three modes; required)
+:: 远端访问方式(模式三选一，必填)
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+:: https.github mode:
+:: https.github 模式:
+:: set "GIT_ID_ACCESS=https.github:host=github.com;account=swawai"
+
+:: https.gitlab mode:
+:: https.gitlab 模式:
+:: set "GIT_ID_ACCESS=https.gitlab:host=gitlab.example.com;account=alice"
+
+:: ssh mode (platform-independent; configures sshCommand):
+:: ssh 模式(不用区分平台，实际上就是配置 sshCommand):
+set "GIT_ID_ACCESS=ssh:ssh -o IdentitiesOnly=yes -i '%USERPROFILE%/.ssh/id_ed25519'"
 
 
 
@@ -23,8 +34,8 @@ set "GIT_ID_EMAIL=user1@example.com"
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: cmd / powershell / pwsh / gitbash
 set "GIT_ID_DEFAULT_TERMINAL=cmd"
-:: Commit signing (authoritative): leave both empty to disable, or set both to enable. Format: openpgp / ssh / x509.
-:: 提交签名（权威配置）：两项都留空即禁用；两项都填写才启用。格式：openpgp / ssh / x509。
+:: Commit signing (authoritative): leave both empty to disable, or set both to enable. Format: openpgp / ssh / x509
+:: 提交签名（权威配置）：两项都留空即禁用；两项都填写才启用。格式：openpgp / ssh / x509
 set "GIT_ID_SIGNING_KEY="
 set "GIT_ID_GPG_FORMAT="
 :: Optional: force help language: zh-CN / en. Auto-detect when unset:

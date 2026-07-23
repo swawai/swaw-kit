@@ -162,12 +162,12 @@ if not "%~3"=="" goto :InvalidHttpsCommand
 call :PrepareIdentity
 if errorlevel 1 exit /b %ERRORLEVEL%
 if not defined GIT_ID_HTTPS_PROVIDER goto :MissingHttpsAccess
-PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0https-auth.ps1" -Provider "%GIT_ID_HTTPS_PROVIDER%" -AccountHost "%GIT_ID_HTTPS_HOST%" -ExpectedUser "%GIT_ID_HTTPS_USER%" -Namespace "%GIT_ID_CREDENTIAL_NAMESPACE%"
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0https-auth.ps1" -Provider "%GIT_ID_HTTPS_PROVIDER%" -AccountHost "%GIT_ID_HTTPS_HOST%" -ExpectedAccount "%GIT_ID_HTTPS_ACCOUNT%" -Namespace "%GIT_ID_CREDENTIAL_NAMESPACE%"
 exit /b %ERRORLEVEL%
 
 :MissingHttpsAccess
 echo [ERROR] "%GIT_ID_ENTRY_COMMAND% .https login" requires HTTPS access.
-echo Set GIT_ID_ACCESS to https.github:host/user or https.gitlab:host/user.
+echo Set GIT_ID_ACCESS to https.github:host=HOST;account=ACCOUNT or https.gitlab:host=HOST;account=ACCOUNT.
 exit /b 1
 
 :InvalidHttpsCommand
@@ -193,13 +193,27 @@ exit /b 1
 :LaunchCode
 call :PrepareIdentity
 if errorlevel 1 exit /b %ERRORLEVEL%
+if /i "%WIN_RUN_EDITOR_BOOTSTRAP%"=="code" goto :LaunchCodeWithBootstrap
+set "WIN_RUN_EDITOR_BOOTSTRAP="
 PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0editor-launch.ps1" -Tool "code" -DropFirst %*
+exit /b %ERRORLEVEL%
+
+:LaunchCodeWithBootstrap
+set "WIN_RUN_EDITOR_BOOTSTRAP="
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0editor-launch.ps1" -Tool "code" -DropFirst -ReuseBootstrapWindow %*
 exit /b %ERRORLEVEL%
 
 :LaunchCursor
 call :PrepareIdentity
 if errorlevel 1 exit /b %ERRORLEVEL%
+if /i "%WIN_RUN_EDITOR_BOOTSTRAP%"=="cursor" goto :LaunchCursorWithBootstrap
+set "WIN_RUN_EDITOR_BOOTSTRAP="
 PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0editor-launch.ps1" -Tool "cursor" -DropFirst %*
+exit /b %ERRORLEVEL%
+
+:LaunchCursorWithBootstrap
+set "WIN_RUN_EDITOR_BOOTSTRAP="
+PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0editor-launch.ps1" -Tool "cursor" -DropFirst -ReuseBootstrapWindow %*
 exit /b %ERRORLEVEL%
 
 :LaunchGitBash
@@ -306,12 +320,14 @@ exit /b 0
 set "GIT_ID_TRANSPORT="
 set "GIT_ID_HTTPS_PROVIDER="
 set "GIT_ID_HTTPS_HOST="
-set "GIT_ID_HTTPS_USER="
+set "GIT_ID_HTTPS_ACCOUNT="
 set "GIT_ID_HTTPS_CREDENTIAL_USER="
 set "GIT_ID_HTTPS_CREDENTIAL_GUARD="
 set "GIT_ID_HTTPS_CREDENTIAL_HELPER="
 set "GIT_ID_ACCESS_TAG="
 set "GIT_ID_ACCESS_TARGET="
+set "GIT_ID_HTTPS_HOST_FIELD="
+set "GIT_ID_HTTPS_ACCOUNT_FIELD="
 set "GIT_ID_ACCESS_EXTRA="
 set "GIT_SSH="
 set "GIT_SSH_COMMAND="
@@ -341,21 +357,32 @@ goto :PrepareHttpsAccess
 set "GIT_ID_TRANSPORT=https"
 if not "%GIT_ID_ACCESS%"=="%GIT_ID_ACCESS: =%" goto :InvalidAccess
 
-for /f "tokens=1,2,* delims=/" %%A in ("%GIT_ID_ACCESS_TARGET%") do (
-    set "GIT_ID_HTTPS_HOST=%%A"
-    set "GIT_ID_HTTPS_USER=%%B"
+for /f "tokens=1,2,* delims=;" %%A in ("%GIT_ID_ACCESS_TARGET%") do (
+    set "GIT_ID_HTTPS_HOST_FIELD=%%A"
+    set "GIT_ID_HTTPS_ACCOUNT_FIELD=%%B"
     set "GIT_ID_ACCESS_EXTRA=%%C"
 )
-if not defined GIT_ID_HTTPS_HOST goto :InvalidAccess
-if not defined GIT_ID_HTTPS_USER goto :InvalidAccess
+if not defined GIT_ID_HTTPS_HOST_FIELD goto :InvalidAccess
+if not defined GIT_ID_HTTPS_ACCOUNT_FIELD goto :InvalidAccess
 if defined GIT_ID_ACCESS_EXTRA goto :InvalidAccess
-if /i "%GIT_ID_HTTPS_PROVIDER%"=="github" set "GIT_ID_HTTPS_CREDENTIAL_USER=%GIT_ID_HTTPS_USER%"
+if /i not "%GIT_ID_HTTPS_HOST_FIELD:~0,5%"=="host=" goto :InvalidAccess
+if /i not "%GIT_ID_HTTPS_ACCOUNT_FIELD:~0,8%"=="account=" goto :InvalidAccess
+set "GIT_ID_HTTPS_HOST=%GIT_ID_HTTPS_HOST_FIELD:~5%"
+set "GIT_ID_HTTPS_ACCOUNT=%GIT_ID_HTTPS_ACCOUNT_FIELD:~8%"
+if not defined GIT_ID_HTTPS_HOST goto :InvalidAccess
+if not defined GIT_ID_HTTPS_ACCOUNT goto :InvalidAccess
+if /i not "%GIT_ID_ACCESS_TARGET%"=="host=%GIT_ID_HTTPS_HOST%;account=%GIT_ID_HTTPS_ACCOUNT%" goto :InvalidAccess
+if not "%GIT_ID_HTTPS_HOST%"=="%GIT_ID_HTTPS_HOST:/=%" goto :InvalidAccess
+if not "%GIT_ID_HTTPS_HOST%"=="%GIT_ID_HTTPS_HOST:\=%" goto :InvalidAccess
+if not "%GIT_ID_HTTPS_ACCOUNT%"=="%GIT_ID_HTTPS_ACCOUNT:/=%" goto :InvalidAccess
+if not "%GIT_ID_HTTPS_ACCOUNT%"=="%GIT_ID_HTTPS_ACCOUNT:\=%" goto :InvalidAccess
+if /i "%GIT_ID_HTTPS_PROVIDER%"=="github" set "GIT_ID_HTTPS_CREDENTIAL_USER=%GIT_ID_HTTPS_ACCOUNT%"
 if /i "%GIT_ID_HTTPS_PROVIDER%"=="gitlab" set "GIT_ID_HTTPS_CREDENTIAL_USER=oauth2"
 set "GIT_ID_HTTPS_CREDENTIAL_GUARD=%~dp0https-credential-guard.cmd"
 if not exist "%GIT_ID_HTTPS_CREDENTIAL_GUARD%" goto :MissingCredentialGuard
 set "GIT_ID_HTTPS_CREDENTIAL_HELPER=%GIT_ID_HTTPS_CREDENTIAL_GUARD:\=/%"
 set GIT_ID_HTTPS_CREDENTIAL_HELPER=!"%GIT_ID_HTTPS_CREDENTIAL_HELPER%"
-set "GIT_ID_ACCESS=https.%GIT_ID_HTTPS_PROVIDER%:%GIT_ID_HTTPS_HOST%/%GIT_ID_HTTPS_USER%"
+set "GIT_ID_ACCESS=https.%GIT_ID_HTTPS_PROVIDER%:host=%GIT_ID_HTTPS_HOST%;account=%GIT_ID_HTTPS_ACCOUNT%"
 set "GIT_SSH_COMMAND="%~dp0deny-ssh.cmd""
 set "GIT_ASKPASS="%~dp0deny-credential-prompt.cmd""
 exit /b 0
@@ -405,13 +432,13 @@ exit /b 1
 
 :MissingAccess
 echo [ERROR] Git access is not configured in "%GIT_ID_ENTRY_COMMAND%.cmd".
-echo Set GIT_ID_ACCESS to ssh:command, https.github:host/user, or https.gitlab:host/user.
+echo Set GIT_ID_ACCESS to ssh:command, https.github:host=HOST;account=ACCOUNT, or https.gitlab:host=HOST;account=ACCOUNT.
 exit /b 1
 
 :InvalidAccess
 echo [ERROR] Invalid GIT_ID_ACCESS in "%GIT_ID_ENTRY_COMMAND%.cmd".
-echo Expected: ssh:command, https.github:host/user, or https.gitlab:host/user
-echo Example: https.github:github.com/alice
+echo Expected: ssh:command, https.github:host=HOST;account=ACCOUNT, or https.gitlab:host=HOST;account=ACCOUNT
+echo Example: https.github:host=github.com;account=alice
 exit /b 1
 
 :MissingCredentialGuard
@@ -428,8 +455,8 @@ exit /b 0
 if not "%GIT_ID_ENTRY_COMMAND%"=="%GIT_ID_ENTRY_COMMAND:@=%" goto :InvalidCredentialNamespace
 if not "%GIT_ID_HTTPS_PROVIDER%"=="%GIT_ID_HTTPS_PROVIDER:@=%" goto :InvalidCredentialNamespace
 if not "%GIT_ID_HTTPS_HOST%"=="%GIT_ID_HTTPS_HOST:@=%" goto :InvalidCredentialNamespace
-if not "%GIT_ID_HTTPS_USER%"=="%GIT_ID_HTTPS_USER:@=%" goto :InvalidCredentialNamespace
-set "GIT_ID_CREDENTIAL_NAMESPACE=swaw-kit-git.v2@%GIT_ID_ENTRY_COMMAND%@%GIT_ID_HTTPS_PROVIDER%@%GIT_ID_HTTPS_HOST%@%GIT_ID_HTTPS_USER%"
+if not "%GIT_ID_HTTPS_ACCOUNT%"=="%GIT_ID_HTTPS_ACCOUNT:@=%" goto :InvalidCredentialNamespace
+set "GIT_ID_CREDENTIAL_NAMESPACE=swaw-kit-git.v2@%GIT_ID_ENTRY_COMMAND%@%GIT_ID_HTTPS_PROVIDER%@%GIT_ID_HTTPS_HOST%@%GIT_ID_HTTPS_ACCOUNT%"
 exit /b 0
 
 :InvalidCredentialNamespace

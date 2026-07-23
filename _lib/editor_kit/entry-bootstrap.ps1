@@ -46,11 +46,22 @@ function Invoke-EditorBootstrap {
             }
         },
 
+        [scriptblock]$AssertCommandSupported = {
+            param([string]$SelectedTool, [string]$Command)
+            Assert-EditorKitCommandSupported -Tool $SelectedTool -EditorCommand $Command
+        },
+
         [scriptblock]$AssertEnvironment = {
             param([string]$VariableName)
             Assert-EditorBootstrapEnvironmentVariableAbsent $VariableName
         }
     )
+
+    if ([string]::IsNullOrWhiteSpace($EditorCommand)) {
+        $editor = Get-Command $EditorTool -CommandType Application -ErrorAction Stop | Select-Object -First 1
+        $EditorCommand = $editor.Source
+    }
+    & $AssertCommandSupported $EditorTool $EditorCommand
 
     $previousWindows = @(& $GetWindows $EditorTool)
     if ($previousWindows.Count -gt 0) {
@@ -58,12 +69,8 @@ function Invoke-EditorBootstrap {
     }
 
     & $AssertEnvironment $ForbiddenEnvironmentVariable
-    if ([string]::IsNullOrWhiteSpace($EditorCommand)) {
-        $editor = Get-Command $EditorTool -CommandType Application -ErrorAction Stop | Select-Object -First 1
-        $EditorCommand = $editor.Source
-    }
-
-    & $RunEditor $EditorCommand @("--new-window")
+    $launchArguments = @(Get-EditorKitNewWindowArguments -Tool $EditorTool)
+    & $RunEditor $EditorCommand $launchArguments
     $newWindow = Wait-EditorNewWindow `
         -EditorTool $EditorTool `
         -PreviousHandles @() `

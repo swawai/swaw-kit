@@ -8,19 +8,19 @@ Rewrite the current repository's single origin URL (identity and credentials are
   {{COMMAND}} .origin https        Rewrite the origin URL as https://host/path.git.
 
 HTTPS login (credentials are saved by the system credential manager):
-  {{COMMAND}} .https login         Sign in through a browser and verify the GitHub or GitLab account selected by GIT_ID_ACCESS.
+  {{COMMAND}} .https login         Authorize interactively in a browser; run this command once when {{COMMAND}} is configured with an https.* GIT_ID_ACCESS mode.
 
 Editor and terminal launchers:
   {{COMMAND}}                      Open the configured default terminal with the current Git identity.
   {{COMMAND}} .code [directory]    Open a directory in VS Code with the current Git identity; defaults to the current directory.
-  {{COMMAND}} .cursor [directory]  Open a directory in Cursor with the current Git identity; defaults to the current directory.
+  {{COMMAND}} .cursor [directory]  Open a directory in the Cursor 3+ classic IDE with the current Git identity; defaults to the current directory.
   {{COMMAND}} .cmd                 Start cmd.exe with the current Git identity.
   {{COMMAND}} .powershell          Start Windows PowerShell 5 with the current Git identity (included with Windows).
   {{COMMAND}} .pwsh                Start PowerShell 7+ with the current Git identity (installation required).
   {{COMMAND}} .gitbash             Start Git Bash with the current Git identity.
 
-Persist the bound identity to the current repository (for other tools):
-  {{COMMAND}} .sync                Persist the current identity to the current repository's .git/config.
+Persist the bound identity and remote access settings to the current repository (for other tools):
+  {{COMMAND}} .sync                Persist the identity and SSH/HTTPS access routing to the current repository's .git/config.
   {{COMMAND}} .sync --dry-run      Show what would be written without changing .git/config.
   {{COMMAND}} .sync --clear        Clear values written by the last .sync if they have not been changed.
 

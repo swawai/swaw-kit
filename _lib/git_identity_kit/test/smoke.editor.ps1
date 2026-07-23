@@ -2,7 +2,9 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $editorLaunchPath = Join-Path $repoRoot "_lib\git_identity_kit\editor-launch.ps1"
+$editorBootstrapPath = Join-Path $repoRoot "_lib\editor_kit\entry-bootstrap.ps1"
 . $editorLaunchPath -Tool code
+. $editorBootstrapPath -Tool code
 
 function Assert-EditorTest {
     param([bool]$Condition, [string]$Message)
@@ -71,6 +73,99 @@ $tempRoot = Join-Path $repoRoot "temp_workspace\smoke-editor-$([guid]::NewGuid()
 New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
 
 try {
+    $bootstrapWindow = New-TestEditorWindow 90 0 10 10
+    $bootstrapSnapshots = [pscustomobject]@{ Calls = 0 }
+    $getBootstrapWindows = {
+        param([string]$SelectedTool)
+        $bootstrapSnapshots.Calls++
+        if ($bootstrapSnapshots.Calls -eq 1) { return @() }
+        return @($bootstrapWindow)
+    }.GetNewClosure()
+    $bootstrapLaunches = [Collections.Generic.List[object]]::new()
+    $runBootstrapEditor = {
+        param([string]$Command, [string[]]$Arguments)
+        [void]$bootstrapLaunches.Add([pscustomobject]@{ Command = $Command; Arguments = @($Arguments) })
+    }.GetNewClosure()
+    $bootstrapResult = Invoke-EditorBootstrap `
+        -EditorTool code `
+        -EditorCommand "fake-code.exe" `
+        -GetWindows $getBootstrapWindows `
+        -RunEditor $runBootstrapEditor `
+        -AssertEnvironment { param([string]$VariableName) }
+    Assert-EditorTest ($bootstrapResult -eq "created") "the shared bootstrap should report a newly created window"
+    Assert-EditorTest ($bootstrapLaunches.Count -eq 1 -and $bootstrapLaunches[0].Arguments[0] -eq "--new-window") "the shared bootstrap should start exactly one empty editor window"
+
+    $existingBootstrapState = [pscustomobject]@{ LaunchCalled = $false }
+    $existingResult = Invoke-EditorBootstrap `
+        -EditorTool code `
+        -EditorCommand "fake-code.exe" `
+        -GetWindows { param([string]$SelectedTool) @($bootstrapWindow) } `
+        -RunEditor { $existingBootstrapState.LaunchCalled = $true } `
+        -AssertEnvironment { throw "the environment guard should not run for an existing editor" }
+    Assert-EditorTest ($existingResult -eq "existing" -and -not $existingBootstrapState.LaunchCalled) "an existing editor should bypass the bootstrap launch"
+
+    Assert-EditorKitCommandSupported `
+        -Tool code `
+        -EditorCommand "fake-code.exe" `
+        -ReadHelp { throw "VS Code should not need a Cursor capability check" }
+    Assert-EditorKitCommandSupported `
+        -Tool cursor `
+        -EditorCommand "fake-cursor.exe" `
+        -ReadHelp { param([string]$Command) @("Usage: cursor [options]", "  --classic  Force classic windows") }
+
+    $legacyCursorRejected = $false
+    try {
+        Assert-EditorKitCommandSupported `
+            -Tool cursor `
+            -EditorCommand "legacy-cursor.exe" `
+            -ReadHelp { param([string]$Command) @("Usage: cursor [options]", "  --new-window") }
+    } catch {
+        $legacyCursorRejected = $_.Exception.Message -match "--classic"
+    }
+    Assert-EditorTest $legacyCursorRejected "Cursor without the --classic capability should fail closed"
+
+    $cursorNewArguments = @(Get-EditorKitNewWindowArguments -Tool cursor -Target "C:\repo")
+    $cursorReuseArguments = @(Get-EditorKitReuseWindowArguments -Tool cursor -Target "C:\repo")
+    $cursorOpenArguments = @(Get-EditorKitOpenTargetArguments -Tool cursor -Target "C:\repo")
+    Assert-EditorTest (($cursorNewArguments -join "|") -eq "--classic|--new-window|C:\repo") "a new Cursor window should explicitly use the classic IDE"
+    Assert-EditorTest (($cursorReuseArguments -join "|") -eq "--classic|--reuse-window|C:\repo") "a reused Cursor window should explicitly use the classic IDE"
+    Assert-EditorTest (($cursorOpenArguments -join "|") -eq "--classic|C:\repo") "Cursor target activation should explicitly use the classic IDE"
+
+    $cursorBootstrapSnapshots = [pscustomobject]@{ Calls = 0; SupportChecks = 0 }
+    $getCursorBootstrapWindows = {
+        param([string]$SelectedTool)
+        $cursorBootstrapSnapshots.Calls++
+        if ($cursorBootstrapSnapshots.Calls -eq 1) { return @() }
+        return @($bootstrapWindow)
+    }.GetNewClosure()
+    $cursorBootstrapLaunches = [Collections.Generic.List[object]]::new()
+    $cursorBootstrapResult = Invoke-EditorBootstrap `
+        -EditorTool cursor `
+        -EditorCommand "fake-cursor.exe" `
+        -GetWindows $getCursorBootstrapWindows `
+        -RunEditor {
+            param([string]$Command, [string[]]$Arguments)
+            [void]$cursorBootstrapLaunches.Add([pscustomobject]@{ Command = $Command; Arguments = @($Arguments) })
+        } `
+        -AssertCommandSupported {
+            param([string]$SelectedTool, [string]$Command)
+            $cursorBootstrapSnapshots.SupportChecks++
+        } `
+        -AssertEnvironment { param([string]$VariableName) }
+    Assert-EditorTest ($cursorBootstrapResult -eq "created" -and $cursorBootstrapSnapshots.SupportChecks -eq 1) "the Cursor bootstrap should verify classic IDE support"
+    Assert-EditorTest ($cursorBootstrapLaunches.Count -eq 1 -and (($cursorBootstrapLaunches[0].Arguments -join "|") -eq "--classic|--new-window")) "the Cursor bootstrap should start one empty classic IDE window"
+
+    $guardVariable = "EDITOR_SMOKE_SCOPED_ENVIRONMENT"
+    $guardValueBeforeTest = [Environment]::GetEnvironmentVariable($guardVariable)
+    try {
+        [Environment]::SetEnvironmentVariable($guardVariable, "inherited-scope")
+        $dirtyBootstrapRejected = $false
+        try { Assert-EditorBootstrapEnvironmentVariableAbsent $guardVariable } catch { $dirtyBootstrapRejected = $_.Exception.Message -match [regex]::Escape($guardVariable) }
+        Assert-EditorTest $dirtyBootstrapRejected "a cold bootstrap should reject the caller-selected scoped environment"
+    } finally {
+        [Environment]::SetEnvironmentVariable($guardVariable, $guardValueBeforeTest)
+    }
+
     $targetA = Join-Path $tempRoot "account-a\same-repo"
     $targetB = Join-Path $tempRoot "account-b\same-repo"
     New-Item -ItemType Directory -Path $targetA,$targetB -Force | Out-Null
@@ -246,7 +341,8 @@ try {
     $oldIdentityEnvironment = @{}
     foreach ($name in @(
         "GIT_ID_ENTRY_FILE", "GIT_ID_ENTRY_COMMAND", "GIT_ID_NAME", "GIT_ID_EMAIL",
-        "GIT_ID_ACCESS", "GIT_ID_SIGNING_KEY", "GIT_ID_GPG_FORMAT", "GIT_ID_FINGERPRINT"
+        "GIT_ID_ACCESS", "GIT_ID_SIGNING_KEY", "GIT_ID_GPG_FORMAT", "GIT_ID_FINGERPRINT",
+        "GIT_AUTHOR_NAME", "GIT_SSH_COMMAND", "GCM_NAMESPACE", "EDITOR_SMOKE_UNRELATED"
     )) {
         $oldIdentityEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
     }
@@ -259,19 +355,30 @@ try {
         $env:GIT_ID_ACCESS = "ssh:ssh -i test-key"
         $env:GIT_ID_SIGNING_KEY = ""
         $env:GIT_ID_GPG_FORMAT = ""
+        $env:GIT_AUTHOR_NAME = "Editor Test"
+        $env:GIT_SSH_COMMAND = "ssh -i test-key"
+        $env:GCM_NAMESPACE = "editor-smoke"
+        $env:EDITOR_SMOKE_UNRELATED = "keep-me"
 
         $fakeWindow = New-TestEditorWindow 901 0 92 100
-        $windowSnapshotState = [pscustomobject]@{ Calls = 0 }
         $getWindowsForNewLaunch = {
             param([string]$SelectedTool)
-            $windowSnapshotState.Calls++
-            if ($windowSnapshotState.Calls -eq 1) { return @() }
             return @($fakeWindow)
         }.GetNewClosure()
         $launches = [Collections.Generic.List[object]]::new()
         $runEditor = {
             param([string]$Command, [string[]]$LaunchArguments)
-            [void]$launches.Add([pscustomobject]@{ Command = $Command; Arguments = @($LaunchArguments) })
+            [void]$launches.Add([pscustomobject]@{
+                Command = $Command
+                Arguments = @($LaunchArguments)
+                Environment = [pscustomobject]@{
+                    GitIdName = $env:GIT_ID_NAME
+                    GitAuthorName = $env:GIT_AUTHOR_NAME
+                    GitSshCommand = $env:GIT_SSH_COMMAND
+                    GcmNamespace = $env:GCM_NAMESPACE
+                    Unrelated = $env:EDITOR_SMOKE_UNRELATED
+                }
+            })
         }.GetNewClosure()
         $markWindow = {
             param([long]$Handle)
@@ -280,10 +387,28 @@ try {
         }
         $unmarkWindow = { param([long]$Handle) }
 
+        $missingBootstrapRejected = $false
+        try {
+            Invoke-IdentityEditorLaunch `
+                -EditorTool code `
+                -Arguments @($orchestrationTarget) `
+                -EditorCommand "fake-code.exe" `
+                -StoragePath $orchestrationStorage `
+                -MutexName $testMutexName `
+                -GetWindows { param([string]$SelectedTool) @() } `
+                -RunEditor { throw "an identity launch must not cold-start the editor" } `
+                -MarkWindow $markWindow `
+                -UnmarkWindow $unmarkWindow
+        } catch {
+            $missingBootstrapRejected = $_.Exception.Message -match "exited before the identity window could be opened"
+        }
+        Assert-EditorTest $missingBootstrapRejected "the identity phase must fail closed when the clean entry bootstrap is missing"
+
         $pendingInformation = @()
         Invoke-IdentityEditorLaunch `
             -EditorTool code `
             -DropCommandArgument `
+            -ReuseBootstrapWindow `
             -Arguments @(".code", $orchestrationTarget) `
             -EditorCommand "fake-code.exe" `
             -StoragePath $orchestrationStorage `
@@ -294,10 +419,18 @@ try {
             -UnmarkWindow $unmarkWindow `
             -InformationVariable pendingInformation
 
-        Assert-EditorTest ($launches.Count -eq 1) "the orchestrator should invoke the editor once for a new target"
-        Assert-EditorTest ($launches[0].Arguments.Count -eq 2 -and $launches[0].Arguments[0] -eq "--new-window" -and (Test-EditorTextEqual $launches[0].Arguments[1] $orchestrationTarget)) "a new target should use --new-window and its complete path"
+        Assert-EditorTest ($launches.Count -eq 1) "the identity phase should not start a second bootstrap window"
+        Assert-EditorTest ($launches[0].Arguments.Count -eq 2 -and $launches[0].Arguments[0] -eq "--reuse-window" -and (Test-EditorTextEqual $launches[0].Arguments[1] $orchestrationTarget)) "the identity launch should reuse the identity-free window for the complete target path"
+        Assert-EditorTest (
+            $launches[0].Environment.GitIdName -eq "Editor Test" -and
+            $launches[0].Environment.GitAuthorName -eq "Editor Test" -and
+            $launches[0].Environment.GitSshCommand -eq "ssh -i test-key" -and
+            $launches[0].Environment.GcmNamespace -eq "editor-smoke" -and
+            $launches[0].Environment.Unrelated -eq "keep-me"
+        ) "the reused target window should receive the restored identity environment"
+        Assert-EditorTest ($env:GIT_ID_NAME -eq "Editor Test" -and $env:GIT_AUTHOR_NAME -eq "Editor Test") "the caller identity environment should remain restored after cold launch"
         $pendingText = @($pendingInformation | ForEach-Object { $_.MessageData.ToString() }) -join "`n"
-        Assert-EditorTest ($pendingText.Contains("[PENDING] Window ownership is recorded") -and $pendingText.Contains("awaits full-path confirmation")) "new-window success should disclose that its ownership is still pending"
+        Assert-EditorTest ($pendingText.Contains("[INFO] Reusing the identity-free VS Code bootstrap window") -and $pendingText.Contains("[PENDING] Window ownership is recorded") -and $pendingText.Contains("awaits full-path confirmation")) "cold-launch success should disclose both bootstrap reuse and pending ownership"
 
         $pendingState = [IO.File]::ReadAllText($orchestrationState, [Text.Encoding]::UTF8) | ConvertFrom-Json
         Assert-EditorTest ($pendingState.version -eq 3 -and @($pendingState.windows).Count -eq 1) "the orchestrator should persist one v3 window lease"
@@ -321,7 +454,38 @@ try {
         $activeState = [IO.File]::ReadAllText($orchestrationState, [Text.Encoding]::UTF8) | ConvertFrom-Json
         Assert-EditorTest ($activeState.windows[0].state -eq "active") "the main orchestration should promote the exact pending HWND after full-path confirmation"
 
-        $throwingRunEditor = { param([string]$Command, [string[]]$LaunchArguments) throw "injected editor launch failure" }
+        $cursorIdentityLaunches = [Collections.Generic.List[object]]::new()
+        $cursorIdentityChecks = [pscustomobject]@{ Count = 0 }
+        Invoke-IdentityEditorLaunch `
+            -EditorTool cursor `
+            -ReuseBootstrapWindow `
+            -Arguments @($orchestrationTarget) `
+            -EditorCommand "fake-cursor.exe" `
+            -StoragePath (Join-Path $tempRoot "cursor-orchestration-storage.json") `
+            -MutexName "Local\swaw-kit-git-editor-cursor-smoke-$([guid]::NewGuid().ToString('N'))" `
+            -GetWindows { param([string]$SelectedTool) @($fakeWindow) } `
+            -RunEditor {
+                param([string]$Command, [string[]]$LaunchArguments)
+                [void]$cursorIdentityLaunches.Add([pscustomobject]@{
+                    Command = $Command
+                    Arguments = @($LaunchArguments)
+                })
+            } `
+            -AssertCommandSupported {
+                param([string]$SelectedTool, [string]$Command)
+                $cursorIdentityChecks.Count++
+            } `
+            -MarkWindow $markWindow `
+            -UnmarkWindow $unmarkWindow
+        Assert-EditorTest ($cursorIdentityChecks.Count -eq 1) "the identity phase should verify Cursor classic IDE support"
+        Assert-EditorTest ($cursorIdentityLaunches.Count -eq 1 -and (($cursorIdentityLaunches[0].Arguments -join "|") -eq "--classic|--reuse-window|$orchestrationTarget")) "the identity phase should reuse the clean Cursor classic IDE window"
+
+        $failedLaunchState = [pscustomobject]@{ Arguments = @() }
+        $throwingRunEditor = {
+            param([string]$Command, [string[]]$LaunchArguments)
+            $failedLaunchState.Arguments = @($LaunchArguments)
+            throw "injected editor launch failure"
+        }.GetNewClosure()
         $launchFailurePropagated = $false
         $stateBytesBeforeLaunchFailure = [IO.File]::ReadAllBytes($orchestrationState)
         try {
@@ -339,6 +503,7 @@ try {
             $launchFailurePropagated = $_.Exception.Message -match "injected editor launch failure"
         }
         Assert-EditorTest $launchFailurePropagated "the injectable orchestration boundary must propagate editor failures"
+        Assert-EditorTest ($failedLaunchState.Arguments.Count -eq 2 -and $failedLaunchState.Arguments[0] -eq "--new-window") "a hot identity launch should continue opening the target in a new window"
         $stateBytesAfterLaunchFailure = [IO.File]::ReadAllBytes($orchestrationState)
         Assert-EditorTest ([Convert]::ToBase64String($stateBytesAfterLaunchFailure) -ceq [Convert]::ToBase64String($stateBytesBeforeLaunchFailure)) "an editor launch failure must leave the state file byte-for-byte unchanged"
         $stateAfterLaunchFailure = [IO.File]::ReadAllText($orchestrationState, [Text.Encoding]::UTF8) | ConvertFrom-Json
@@ -353,11 +518,8 @@ try {
         $markerFailureStorage = Join-Path $tempRoot "marker-failure-storage.json"
         $markerFailureState = Join-Path $markerFailureRoot "data\swaw-kit-git\git-marker-failure.code.json"
         $markerFailureWindow = New-TestEditorWindow 902 0 192 200
-        $markerFailureSnapshots = [pscustomobject]@{ Calls = 0 }
         $getWindowsForMarkerFailure = {
             param([string]$SelectedTool)
-            $markerFailureSnapshots.Calls++
-            if ($markerFailureSnapshots.Calls -eq 1) { return @() }
             return @($markerFailureWindow)
         }.GetNewClosure()
         $markWindowForFailure = { param([long]$Handle) return 9902 }
@@ -378,6 +540,7 @@ try {
             }
             Invoke-IdentityEditorLaunch `
                 -EditorTool code `
+                -ReuseBootstrapWindow `
                 -Arguments @($markerFailureTarget) `
                 -EditorCommand "fake-code.exe" `
                 -StoragePath $markerFailureStorage `

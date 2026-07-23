@@ -408,7 +408,7 @@ function Assert-ManagedMarkerSchema {
     }
 
     $access = Get-LocalConfigValue "swaw-kit-git.access"
-    $httpsMatch = [regex]::Match($access, '^https\.(?<provider>github|gitlab):(?<host>[^/\s]+)/(?<user>[^/\s]+)$', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $httpsMatch = [regex]::Match($access, '^https\.(?<provider>github|gitlab):host=(?<host>[^;/\s]+);account=(?<account>[^;/\s]+)$', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
     $httpsOnlyKeys = @(
         "swaw-kit-git.credential-namespace",
         "swaw-kit-git.credential-store",
@@ -430,7 +430,7 @@ function Assert-ManagedMarkerSchema {
 
         $provider = $httpsMatch.Groups["provider"].Value.ToLowerInvariant()
         $hostName = $httpsMatch.Groups["host"].Value
-        $account = $httpsMatch.Groups["user"].Value
+        $account = $httpsMatch.Groups["account"].Value
         $credentialUser = if ($provider -eq "gitlab") { "oauth2" } else { $account }
         if ((Get-LocalConfigValue "swaw-kit-git.https-provider") -ine $provider -or
             (Get-LocalConfigValue "swaw-kit-git.https-provider-config-key") -ine "credential.https://$hostName.provider" -or

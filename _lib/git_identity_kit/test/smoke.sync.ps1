@@ -73,6 +73,7 @@ function New-SyncEntry {
     $content = Set-EntryLine $content "GIT_ID_EMAIL" "sync-smoke@example.invalid"
     $content = Set-EntryLine $content "GIT_ID_ACCESS" "ssh:ssh -o IdentitiesOnly=yes -i '$keyPath'"
     $content = Set-EntryLine $content "GIT_ID_KIT" (Join-Path $repoRoot "_lib\git_identity_kit\kit.cmd")
+    $content = $content.Replace("%~dp0_lib\editor_kit\entry-bootstrap.cmd", (Join-Path $repoRoot "_lib\editor_kit\entry-bootstrap.cmd"))
     $content = $content -replace "`r?`n", "`r`n"
     [System.IO.File]::WriteAllText($path, $content, [System.Text.UTF8Encoding]::new($false))
     return $path
@@ -145,9 +146,10 @@ function Set-DirectSyncIdentity {
         return
     }
 
-    $env:GIT_ID_ACCESS = "https.github:github.example.com/sync-smoke"
+    $env:GIT_ID_ACCESS = "https.github:host=github.example.com;account=sync-smoke"
     $env:GIT_ID_TRANSPORT = "https"
     $env:GIT_ID_HTTPS_HOST = "github.example.com"
+    $env:GIT_ID_HTTPS_ACCOUNT = "sync-smoke"
     $env:GIT_ID_HTTPS_CREDENTIAL_HELPER = "test-credential-helper"
     $env:GIT_ID_CREDENTIAL_NAMESPACE = "sync-smoke.namespace"
     $env:GIT_ID_HTTPS_PROVIDER = "github"
@@ -373,7 +375,7 @@ function Test-ClearRejectsIncompleteHttpsMarkerSchema {
 
     $repoPath = New-TempGitRepo $TempRoot
     try {
-        Set-EntryValue $EntryPath "GIT_ID_ACCESS" "https.github:github.example.com/sync-smoke"
+        Set-EntryValue $EntryPath "GIT_ID_ACCESS" "https.github:host=github.example.com;account=sync-smoke"
         Invoke-InDirectory $repoPath { $null = Invoke-Captured $EntryPath @(".sync") 0 "HTTPS sync before marker damage" }
         git -C $repoPath config --local --unset-all swaw-kit-git.https-username
         Assert-ExitCode $LASTEXITCODE 0 "damage HTTPS username marker"
@@ -517,7 +519,7 @@ function Test-SyncMutationRollback {
 
     $identityEnvironmentNames = @(
         "GIT_ID_NAME", "GIT_ID_EMAIL", "GIT_ID_ACCESS", "GIT_ID_TRANSPORT",
-        "GIT_ID_HTTPS_HOST", "GIT_ID_HTTPS_CREDENTIAL_HELPER", "GIT_ID_CREDENTIAL_NAMESPACE",
+        "GIT_ID_HTTPS_HOST", "GIT_ID_HTTPS_ACCOUNT", "GIT_ID_HTTPS_CREDENTIAL_HELPER", "GIT_ID_CREDENTIAL_NAMESPACE",
         "GIT_ID_HTTPS_PROVIDER", "GIT_ID_HTTPS_CREDENTIAL_USER", "GIT_SSH_COMMAND",
         "GIT_ID_SIGNING_KEY", "GIT_ID_GPG_FORMAT"
     )

@@ -4,7 +4,7 @@ param(
     [string]$Action = "login",
     [string]$Provider = "",
     [string]$AccountHost = "",
-    [string]$ExpectedUser = "",
+    [string]$ExpectedAccount = "",
     [string]$Namespace = "",
     [string]$CommandName = "git_identity"
 )
@@ -90,7 +90,7 @@ function Assert-LoginInput {
         throw "Invalid HTTPS account host: '$CredentialHost'."
     }
     if ([string]::IsNullOrWhiteSpace($Account)) {
-        throw "Set GIT_ID_ACCESS to https.github:host/user or https.gitlab:host/user before HTTPS login."
+        throw "Set GIT_ID_ACCESS to https.github:host=HOST;account=ACCOUNT or https.gitlab:host=HOST;account=ACCOUNT before HTTPS login."
     }
 
     $valid = if ($LoginProvider -eq "github") {
@@ -299,7 +299,7 @@ function Invoke-HttpsLogin {
     param(
         [string]$Provider,
         [string]$AccountHost,
-        [string]$ExpectedUser,
+        [string]$ExpectedAccount,
         [string]$Namespace,
         [scriptblock]$RestInvoker = {
             param([uri]$Uri, [hashtable]$Headers)
@@ -307,18 +307,18 @@ function Invoke-HttpsLogin {
         }
     )
 
-    Assert-LoginInput $Provider $AccountHost $ExpectedUser $Namespace
+    Assert-LoginInput $Provider $AccountHost $ExpectedAccount $Namespace
     Set-AuthoritativeGcmEnvironment $Provider $Namespace $true
     Assert-GcmAvailable
 
     if ($Provider -eq "github") {
-        Invoke-GitHubLogin $AccountHost $ExpectedUser
+        Invoke-GitHubLogin $AccountHost $ExpectedAccount
     } else {
-        Invoke-GitLabLogin $AccountHost $ExpectedUser $RestInvoker
+        Invoke-GitLabLogin $AccountHost $ExpectedAccount $RestInvoker
     }
 
     $providerLabel = if ($Provider -eq "github") { "GitHub" } else { "GitLab" }
-    Write-Host "[OK] $providerLabel HTTPS authorization ready: $AccountHost/$ExpectedUser"
+    Write-Host "[OK] $providerLabel HTTPS authorization ready: $AccountHost / account $ExpectedAccount"
 }
 
 function Invoke-HttpsStatus {
@@ -326,7 +326,7 @@ function Invoke-HttpsStatus {
     param(
         [string]$Provider,
         [string]$AccountHost,
-        [string]$ExpectedUser,
+        [string]$ExpectedAccount,
         [string]$Namespace,
         [string]$CommandName = "git_identity",
         [scriptblock]$RestInvoker = {
@@ -338,12 +338,12 @@ function Invoke-HttpsStatus {
     $label = if ($Provider -eq "github") { "GitHub" } else { "GitLab" }
     $display = "$label ($AccountHost)"
     $loginCommand = "$CommandName .https login"
-    if ([string]::IsNullOrWhiteSpace($ExpectedUser)) {
-        return "  Not configured (set GIT_ID_ACCESS to https.github:host/user or https.gitlab:host/user)"
+    if ([string]::IsNullOrWhiteSpace($ExpectedAccount)) {
+        return "  Not configured (set GIT_ID_ACCESS to https.github:host=HOST;account=ACCOUNT or https.gitlab:host=HOST;account=ACCOUNT)"
     }
 
     try {
-        Assert-LoginInput $Provider $AccountHost $ExpectedUser $Namespace
+        Assert-LoginInput $Provider $AccountHost $ExpectedAccount $Namespace
     } catch {
         return "  ${display}: invalid configuration ($($_.Exception.Message))"
     }
@@ -364,11 +364,11 @@ function Invoke-HttpsStatus {
         if ($accounts.Count -eq 0) {
             return "  ${display}: not ready (run `"$loginCommand`")"
         }
-        if ($accounts.Count -eq 1 -and $accounts[0] -ieq $ExpectedUser) {
-            return "  ${display}: stored ($ExpectedUser)"
+        if ($accounts.Count -eq 1 -and $accounts[0] -ieq $ExpectedAccount) {
+            return "  ${display}: stored ($ExpectedAccount)"
         }
 
-        return "  ${display}: mismatch (stored: $($accounts -join ', '); expected: $ExpectedUser; run `"$loginCommand`")"
+        return "  ${display}: mismatch (stored: $($accounts -join ', '); expected: $ExpectedAccount; run `"$loginCommand`")"
     }
 
     $credential = $null
@@ -384,11 +384,11 @@ function Invoke-HttpsStatus {
         }
 
         try {
-            Assert-GitLabCredentialOwner $AccountHost $ExpectedUser $credential $RestInvoker
-            return "  ${display}: ready ($ExpectedUser)"
+            Assert-GitLabCredentialOwner $AccountHost $ExpectedAccount $credential $RestInvoker
+            return "  ${display}: ready ($ExpectedAccount)"
         } catch {
             if ($_.Exception.Message -like "GitLab OAuth credential does not belong to*") {
-                return "  ${display}: mismatch (credential does not belong to $ExpectedUser; run `"$loginCommand`")"
+                return "  ${display}: mismatch (credential does not belong to $ExpectedAccount; run `"$loginCommand`")"
             }
             return "  ${display}: unavailable (credential found, but account ownership could not be verified)"
         }
@@ -402,9 +402,9 @@ function Invoke-HttpsStatus {
 if ($MyInvocation.InvocationName -ne ".") {
     try {
         if ($Action -eq "status") {
-            Write-Output (Invoke-HttpsStatus -Provider $Provider -AccountHost $AccountHost -ExpectedUser $ExpectedUser -Namespace $Namespace -CommandName $CommandName)
+            Write-Output (Invoke-HttpsStatus -Provider $Provider -AccountHost $AccountHost -ExpectedAccount $ExpectedAccount -Namespace $Namespace -CommandName $CommandName)
         } else {
-            Invoke-HttpsLogin -Provider $Provider -AccountHost $AccountHost -ExpectedUser $ExpectedUser -Namespace $Namespace
+            Invoke-HttpsLogin -Provider $Provider -AccountHost $AccountHost -ExpectedAccount $ExpectedAccount -Namespace $Namespace
         }
         exit 0
     } catch {

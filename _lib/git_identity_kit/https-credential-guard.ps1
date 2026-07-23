@@ -38,14 +38,14 @@ function Get-HttpsIdentityContext {
     if (
         $env:GIT_ID_HTTPS_PROVIDER -in @("github", "gitlab") -and
         -not [string]::IsNullOrWhiteSpace($env:GIT_ID_HTTPS_HOST) -and
-        -not [string]::IsNullOrWhiteSpace($env:GIT_ID_HTTPS_USER) -and
+        -not [string]::IsNullOrWhiteSpace($env:GIT_ID_HTTPS_ACCOUNT) -and
         -not [string]::IsNullOrWhiteSpace($env:GIT_ID_HTTPS_CREDENTIAL_USER) -and
         -not [string]::IsNullOrWhiteSpace($env:GIT_ID_CREDENTIAL_NAMESPACE)
     ) {
         return [pscustomobject]@{
             Provider       = $env:GIT_ID_HTTPS_PROVIDER
             HostName       = $env:GIT_ID_HTTPS_HOST
-            AccountUser    = $env:GIT_ID_HTTPS_USER
+            Account        = $env:GIT_ID_HTTPS_ACCOUNT
             CredentialUser = $env:GIT_ID_HTTPS_CREDENTIAL_USER
             EntryCommand   = $env:GIT_ID_ENTRY_COMMAND
             Namespace      = $env:GIT_ID_CREDENTIAL_NAMESPACE
@@ -54,21 +54,21 @@ function Get-HttpsIdentityContext {
 
     if ((Get-LocalConfigValue "swaw-kit-git.managed") -cne "true") { return $null }
     $access = Get-LocalConfigValue "swaw-kit-git.access"
-    $match = [regex]::Match($access, '^https\.(?<provider>github|gitlab):(?<host>[^/\s]+)/(?<user>[^/\s]+)$', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $match = [regex]::Match($access, '^https\.(?<provider>github|gitlab):host=(?<host>[^;/\s]+);account=(?<account>[^;/\s]+)$', [Text.RegularExpressions.RegexOptions]::IgnoreCase)
     if (-not $match.Success) { return $null }
 
     $provider = $match.Groups["provider"].Value.ToLowerInvariant()
     $hostName = $match.Groups["host"].Value
-    $accountUser = $match.Groups["user"].Value
-    $credentialUser = if ($provider -eq "gitlab") { "oauth2" } else { $accountUser }
+    $account = $match.Groups["account"].Value
+    $credentialUser = if ($provider -eq "gitlab") { "oauth2" } else { $account }
     $entryCommand = Get-LocalConfigValue "swaw-kit-git.entry"
-    $namespaceComponents = @($entryCommand, $provider, $hostName, $accountUser)
+    $namespaceComponents = @($entryCommand, $provider, $hostName, $account)
     if ([string]::IsNullOrWhiteSpace($entryCommand) -or
         @($namespaceComponents | Where-Object { $_.Contains("@") }).Count -gt 0) {
         return $null
     }
 
-    $namespace = "swaw-kit-git.v2@$entryCommand@$provider@$hostName@$accountUser"
+    $namespace = "swaw-kit-git.v2@$entryCommand@$provider@$hostName@$account"
     $providerKey = "credential.https://$hostName.provider"
     $usernameKey = "credential.https://$hostName.username"
     $requiredValues = @(
@@ -96,7 +96,7 @@ function Get-HttpsIdentityContext {
     return [pscustomobject]@{
         Provider       = $provider
         HostName       = $hostName
-        AccountUser    = $accountUser
+        Account        = $account
         CredentialUser = $credentialUser
         EntryCommand   = $entryCommand
         Namespace      = $namespace
@@ -140,13 +140,13 @@ function Get-HttpsCredentialRejection {
         return "HTTPS credential request requests host '$hostName', but $entryLabel is bound to $providerLabel host '$($Identity.HostName)'."
     }
     if ([string]::IsNullOrWhiteSpace($credentialUser)) {
-        return "HTTPS credential request for '$hostName' has no account, but $entryLabel is bound to $providerLabel account '$($Identity.AccountUser)'."
+        return "HTTPS credential request for '$hostName' has no account, but $entryLabel is bound to $providerLabel account '$($Identity.Account)'."
     }
     if ($credentialUser -ine $Identity.CredentialUser) {
         if ($Identity.Provider -eq "gitlab") {
-            return "HTTPS credential request for '$hostName' requests credential username '$credentialUser', but $entryLabel is bound to GitLab account '$($Identity.AccountUser)' and requires credential username '$($Identity.CredentialUser)'. Remove the username from the remote URL."
+            return "HTTPS credential request for '$hostName' requests credential username '$credentialUser', but $entryLabel is bound to GitLab account '$($Identity.Account)' and requires credential username '$($Identity.CredentialUser)'. Remove the username from the remote URL."
         }
-        return "HTTPS credential request for '$hostName' requests account '$credentialUser', but $entryLabel is bound to GitHub account '$($Identity.AccountUser)'. Remove the username from the remote URL."
+        return "HTTPS credential request for '$hostName' requests account '$credentialUser', but $entryLabel is bound to GitHub account '$($Identity.Account)'. Remove the username from the remote URL."
     }
 
     return $null

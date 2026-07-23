@@ -8,19 +8,19 @@
   {{COMMAND}} .origin https        将 origin URL 重写为 https://host/path.git  格式
 
 HTTPS 登录（凭据由系统凭据管理器保存）:
-  {{COMMAND}} .https login         通过浏览器登录并核验 GIT_ID_ACCESS 指定的 GitHub 或 GitLab 账号
+  {{COMMAND}} .https login         浏览器交互授权，若 {{COMMAND}} 中的 GIT_ID_ACCESS 指定了 https.* 模式，需执行一次此命令
 
 编辑器和终端启动器:
   {{COMMAND}}                      用当前 Git 身份打开配置的默认终端
   {{COMMAND}} .code [目录]         用当前 Git 身份在 VS Code 中打开目录；默认当前目录
-  {{COMMAND}} .cursor [目录]       用当前 Git 身份在 Cursor 中打开目录；默认当前目录
+  {{COMMAND}} .cursor [目录]       用当前 Git 身份在 Cursor 3+ 经典 IDE 中打开目录；默认当前目录
   {{COMMAND}} .cmd                 用当前 Git 身份启动 cmd.exe
   {{COMMAND}} .powershell          用当前 Git 身份启动 Windows PowerShell 5（系统自带版本）
   {{COMMAND}} .pwsh                用当前 Git 身份启动 PowerShell 7+（需自行安装）
   {{COMMAND}} .gitbash             用当前 Git 身份启动 Git Bash
 
-把绑定身份写入当前仓库（供其他工具使用）:
-  {{COMMAND}} .sync                将当前身份持久写入当前仓库的 .git/config
+把绑定的身份相关信息写入当前仓库（供其他工具使用）:
+  {{COMMAND}} .sync                将署名信息及 SSH/HTTPS 访问身份持久写入当前仓库的 .git/config
   {{COMMAND}} .sync --dry-run      只显示将写入的内容，不修改 .git/config
   {{COMMAND}} .sync --clear        清理上次 .sync 写入且未被改动的值
 

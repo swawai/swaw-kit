@@ -76,7 +76,7 @@ try {
             Invoke-HttpsStatus `
                 -Provider $env:GIT_ID_HTTPS_PROVIDER `
                 -AccountHost $env:GIT_ID_HTTPS_HOST `
-                -ExpectedUser $env:GIT_ID_HTTPS_USER `
+                -ExpectedAccount $env:GIT_ID_HTTPS_ACCOUNT `
                 -Namespace $env:GIT_ID_CREDENTIAL_NAMESPACE `
                 -CommandName $env:GIT_ID_ENTRY_COMMAND
         }
