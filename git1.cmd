@@ -1,6 +1,5 @@
 @echo off & chcp 65001 >nul <nul & setlocal DisableDelayedExpansion
-call "%~dp0_lib\editor_kit\entry-bootstrap.cmd" "%~1" "GIT_ID_ENTRY_FILE"
-if errorlevel 1 exit /b %ERRORLEVEL%
+call "%~dp0_lib\editor_kit\entry-bootstrap.cmd" "%~1" "GIT_ID_ENTRY_FILE" || call exit /b %%errorlevel%%
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: Commit author identity (required)
 :: 提交时的署名信息(必填)
@@ -24,6 +23,7 @@ set "GIT_ID_ACCESS=https.github:host=github.com;account=user1"
 :: ssh mode (platform-independent; configures sshCommand):
 :: ssh 模式(不用区分平台，实际上就是配置 sshCommand):
 :: set "GIT_ID_ACCESS=ssh:ssh -o IdentitiesOnly=yes -i '%USERPROFILE%/.ssh/id_ed25519'"
+
 
 
 
