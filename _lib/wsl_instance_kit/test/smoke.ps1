@@ -51,6 +51,7 @@ function Assert-ArrayEqual {
 }
 
 . (Join-Path $PSScriptRoot "smoke.entry.ps1")
+. (Join-Path $PSScriptRoot "smoke.editor.ps1")
 . (Join-Path $PSScriptRoot "smoke.json.ps1")
 . (Join-Path $PSScriptRoot "smoke.mock.ps1")
 . (Join-Path $PSScriptRoot "smoke.env-user.ps1")
@@ -197,6 +198,9 @@ try {
     Test-HelpTemplateShape
     Test-GitAttributesCommandLineEndings
     Test-EntryCommandLineEndings @($entryFile, (Join-Path $repoRoot "wsl02.cmd"))
+    Test-EditorBootstrapOrdering @($entryFile)
+    Test-EditorBootstrapFailureStopsEntry $entryFile
+    Test-WslEditorLaunchContract
     Test-LineEndingDiagnosticInvalidPath
     Test-PortInventoryDryRun
     Test-WslAliveHeadlessTaskAction

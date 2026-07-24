@@ -1,4 +1,6 @@
-@echo off & chcp 65001 >nul & setlocal & set "WSL_KIT_PROTOCOL=1"
+@echo off & chcp 65001 >nul <nul & setlocal DisableDelayedExpansion
+call "%~dp0_lib\editor_kit\entry-bootstrap.cmd" "%~1" || call exit /b %%errorlevel%%
+set "WSL_KIT_PROTOCOL=2"
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: Instance basics (required)
 :: 实例基本信息(必填)
@@ -15,6 +17,9 @@ set "WSL_user=john"
 set "WSL_source=Debian"
 
 
+
+
+
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: Optional configuration
 :: 可选配置.
@@ -22,33 +27,38 @@ set "WSL_source=Debian"
 :: Windows install directory for this instance:
 :: 此实例在 Windows 上的安装目录:
 set "WSL_install_dir=%~dp0\data\wsl\%WSL_name%"
+
 :: Default backup directory used by .backup / .backup <path> / .backup list:
 :: 默认备份目录，后续 .backup / .backup <path> / .backup list 命令默认使用此目录:
 set "WSL_backup_dir=%~dp0\data\wsl.backup\%WSL_name%"
+
 :: Default Linux working directory; empty or ~ means the user's home directory:
 :: 默认 Linux 工作目录; 留空或 ~ 表示用户家目录:
 set "WSL_default_workdir=~"
+
 :: Backup export format: tar / tar.gz / tar.xz / vhd, or empty for native default:
 :: 备份格式,支持：.backup fixed format: tar / tar.gz / tar.xz / vhd 或留空:
 set "WSL_export_format=tar"
+
 :: WSL version. Usually 2; empty lets the system default decide:
 :: WSL 版本。通常使用 2; 留空时可由系统默认值决定:
 set "WSL_version=2"
+
 :: Public key imported by ".sshd enable" when configured:
 :: .sshd enable 时会顺便导入下面设置的公钥:
 :: set "WSL_SSH_public_key=%USERPROFILE%\.ssh\id_rsa.pub"
+
 :: Optional env file loaded into this command process only:
 :: 要加载的 .env 格式的环境变量文件(不会覆盖已存在的变量):
 :: set "WSL_env_file=%userprofile%\secrets\%WSL_name%.env"
+
 :: Debug switch; set to 1 / true / yes / on / debug to print kit debug output:
 :: 调试开关，设置为 1 / true / yes / on / debug 时，后续 kit 可输出调试信息:
 set "WSL_KIT_verbose="
+
 :: Optional: force help language zh-CN / en; leave empty to auto-detect:
 :: 可选：指定 help 语言 zh-CN / en；留空自动检测:
 :: set "WSL_KIT_HELP_LANG=zh-CN"
-
-
-
 
 
 

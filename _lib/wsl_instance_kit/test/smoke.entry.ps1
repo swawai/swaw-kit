@@ -54,6 +54,68 @@ function Test-EntryCommandLineEndings {
     }
 }
 
+function Test-EditorBootstrapOrdering {
+    param([string[]]$Paths)
+
+    foreach ($path in @($Paths)) {
+        $content = [System.IO.File]::ReadAllText($path)
+        $bootstrapIndex = $content.IndexOf(
+            "_lib\editor_kit\entry-bootstrap.cmd",
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+        $protocolIndex = $content.IndexOf(
+            'set "WSL_KIT_PROTOCOL=2"',
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+        $configIndex = $content.IndexOf(
+            'set "WSL_name=',
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+
+        Assert-True ($bootstrapIndex -ge 0) "$path should call the shared editor bootstrap."
+        Assert-True ($protocolIndex -gt $bootstrapIndex) "$path should bootstrap before setting the kit protocol."
+        Assert-True ($configIndex -gt $bootstrapIndex) "$path should bootstrap before preparing WSL configuration."
+    }
+}
+
+function Test-EditorBootstrapFailureStopsEntry {
+    param([string]$EntryPath)
+
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("wsl-editor-entry-" + [guid]::NewGuid().ToString("N"))
+    $fakePowerShell = Join-Path $tempRoot "PowerShell.cmd"
+    $fakePowerShellContent = @'
+@echo off
+echo BOOTSTRAP_PROTOCOL:%WSL_KIT_PROTOCOL%
+echo BOOTSTRAP_NAME:%WSL_name%
+exit /b 7
+'@ -replace "`n", "`r`n"
+
+    $previousPath = $env:PATH
+    $previousProtocol = $env:WSL_KIT_PROTOCOL
+    $previousName = $env:WSL_name
+    try {
+        New-Item -ItemType Directory -Path $tempRoot | Out-Null
+        [System.IO.File]::WriteAllText(
+            $fakePowerShell,
+            $fakePowerShellContent,
+            [System.Text.UTF8Encoding]::new($false)
+        )
+
+        $env:PATH = "$tempRoot;$previousPath"
+        Remove-Item Env:WSL_KIT_PROTOCOL -ErrorAction SilentlyContinue
+        Remove-Item Env:WSL_name -ErrorAction SilentlyContinue
+
+        $output = Invoke-Captured $EntryPath @(".code") 7 "entry editor bootstrap failure"
+        Assert-True ($output.Contains("BOOTSTRAP_PROTOCOL:`r`n")) "the clean bootstrap must run before WSL_KIT_PROTOCOL is set."
+        Assert-True ($output.Contains("BOOTSTRAP_NAME:`r`n")) "the clean bootstrap must run before WSL instance settings are loaded."
+    } finally {
+        $env:PATH = $previousPath
+        [Environment]::SetEnvironmentVariable("WSL_KIT_PROTOCOL", $previousProtocol)
+        [Environment]::SetEnvironmentVariable("WSL_name", $previousName)
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Test-LineEndingDiagnosticInvalidPath {
     . (Join-Path $kitRoot "lib\common.ps1")
 

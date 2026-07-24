@@ -1,3 +1,34 @@
+. (Join-Path $PSScriptRoot "..\..\editor_kit\launch.ps1")
+
+function Get-WslEditorLaunchArguments {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("code", "cursor")]
+        [string]$Editor,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$RemoteAuthority,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNullOrEmpty()]
+        [string]$TargetPath,
+
+        [switch]$ReuseBootstrapWindow
+    )
+
+    $arguments = [System.Collections.Generic.List[string]]::new()
+    if ($Editor -eq "cursor") {
+        $arguments.Add("--classic")
+    }
+    if ($ReuseBootstrapWindow) {
+        $arguments.Add("--reuse-window")
+    }
+    $arguments.Add("--remote=$RemoteAuthority")
+    $arguments.Add($TargetPath)
+    return @($arguments)
+}
+
 function Get-WslHome {
     $nativeArgs = Get-WslBaseArgs -NoCd
     $nativeArgs += @("--", "sh", "-lc", 'printf "%s" "$HOME"')
@@ -94,15 +125,55 @@ function Open-Editor {
         return 1
     }
 
-    if (-not (Get-Command -Name $Editor -ErrorAction SilentlyContinue)) {
+    if (Test-Truthy (Get-EnvOrEmpty "WSL_KIT_PARSE_ENTRY_FILE")) {
+        Write-Fail ".$Editor cannot run through kit.cmd --entry-file because that mode only reads the entry configuration."
+        Write-Fail "Run $($script:Config.EntryFileName) .$Editor so its clean editor bootstrap executes."
+        return 1
+    }
+
+    if ((Get-EnvOrEmpty "WSL_KIT_ARGS_READY") -ne "1") {
+        Write-Fail ".$Editor must run through the configured WSL entry, not the internal kit directly."
+        Write-Fail "Run $($script:Config.EntryFileName) .$Editor so its clean editor bootstrap executes."
+        return 1
+    }
+
+    if ((Get-WslKitProtocolMajor $script:Config.Protocol) -ne "2") {
+        Write-Fail "This WSL entry uses protocol $($script:Config.Protocol), which predates the clean editor bootstrap."
+        Write-Fail "Update its header from wsl01.cmd before using .$Editor."
+        return 1
+    }
+
+    $editorCommand = Get-Command `
+        -Name $Editor `
+        -CommandType Application `
+        -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $editorCommand) {
         Write-Fail "Editor command not found: $Editor"
+        return 1
+    }
+
+    try {
+        Assert-EditorKitCommandSupported `
+            -Tool $Editor `
+            -EditorCommand ([string]$editorCommand.Source)
+    } catch {
+        Write-Fail $_.Exception.Message
         return 1
     }
 
     $targetPath = if ($EditorArgs.Count -eq 0) { Resolve-LinuxRemotePath "" } else { Resolve-LinuxRemotePath $EditorArgs[0] }
     $remoteAuthority = "wsl+$($script:Config.Name)"
-    $nativeArgs = @("--remote=$remoteAuthority", $targetPath)
-    return Start-ExternalDetached $Editor $nativeArgs
+    $reuseBootstrapWindow = ([string]$env:WIN_RUN_EDITOR_BOOTSTRAP).Equals(
+        $Editor,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )
+    $nativeArgs = Get-WslEditorLaunchArguments `
+        -Editor $Editor `
+        -RemoteAuthority $remoteAuthority `
+        -TargetPath $targetPath `
+        -ReuseBootstrapWindow:$reuseBootstrapWindow
+    return Start-ExternalDetached ([string]$editorCommand.Source) $nativeArgs
 }
 
 function Open-WindowsFolder {

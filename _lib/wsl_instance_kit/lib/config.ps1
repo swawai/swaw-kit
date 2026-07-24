@@ -215,7 +215,7 @@ function New-WslKitConfig {
 }
 
 function Get-SupportedWslKitProtocolMajors {
-    return @("1")
+    return @("1", "2")
 }
 
 function Get-WslKitProtocolMajor {
@@ -242,7 +242,7 @@ function Test-WslKitConfig {
     param([pscustomobject]$Config)
 
     if ([string]::IsNullOrWhiteSpace($Config.Protocol)) {
-        Write-Fail "WSL_KIT_PROTOCOL is required in the entry file. Add: set ""WSL_KIT_PROTOCOL=1"""
+        Write-Fail "WSL_KIT_PROTOCOL is required in the entry file. Add: set ""WSL_KIT_PROTOCOL=2"""
         return $false
     }
 
