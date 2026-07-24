@@ -29,8 +29,7 @@ set "arg1=%~6"
 set "arg2=%~7"
 set "arg3=%~8"
 set "useSshConfigHost="
-if not defined REMOTE_SSH_HOST if defined HOST set "REMOTE_SSH_HOST=%HOST%"
-if not defined REMOTE_SSH_CONFIG if defined REMOTE_SSH_HOST set "REMOTE_SSH_CONFIG=embedded"
+if defined REMOTE_KIT_ENTRY_FILE goto :InitEmbeddedSshConfigHost
 if defined REMOTE_SSH_HOST set "useSshConfigHost=1"
 if defined useSshConfigHost goto :InitSshConfigHost
 if not defined sshKeyPath set "sshKeyPath=%USERPROFILE%\.ssh\id_rsa"
@@ -39,6 +38,10 @@ if not defined host goto :InvalidArgs
 if not defined remoteUser goto :InvalidArgs
 for /f "delims=0123456789" %%a in ("%port%") do goto :InvalidArgs
 goto :InitDirectHost
+:InitEmbeddedSshConfigHost
+set "REMOTE_SSH_HOST="
+set "REMOTE_SSH_CONFIG=embedded"
+set "useSshConfigHost=1"
 :InitSshConfigHost
 if not defined REMOTE_SSH_CONFIG (
     echo REMOTE_SSH_CONFIG must be set when REMOTE_SSH_HOST is set.
@@ -50,11 +53,13 @@ if not defined REMOTE_KIT_ENTRY_FILE (
     echo REMOTE_KIT_ENTRY_FILE must be set when REMOTE_SSH_CONFIG=embedded.
     exit /b 1
 )
-for /f "delims=" %%a in ('PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ssh_config.ps1" -Action write -EntryFile "%REMOTE_KIT_ENTRY_FILE%" -HostAlias "%REMOTE_SSH_HOST%" -RepoRoot "%~dp0..\.." -UserProfile "%USERPROFILE%"') do set "REMOTE_KIT_SSH_CONFIG_PATH=%%a"
+set "REMOTE_KIT_SSH_CONFIG_PATH="
+for /f "delims=" %%a in ('PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ssh_config.ps1" -Action write -EntryFile "%REMOTE_KIT_ENTRY_FILE%" -RepoRoot "%~dp0..\.." -UserProfile "%USERPROFILE%"') do set "REMOTE_KIT_SSH_CONFIG_PATH=%%a"
 if not defined REMOTE_KIT_SSH_CONFIG_PATH (
     echo Failed to generate embedded SSH config.
     exit /b 1
 )
+for %%a in ("%REMOTE_KIT_SSH_CONFIG_PATH%") do set "REMOTE_SSH_HOST=%%~na"
 goto :AfterSshConfigPath
 :UseExternalSshConfig
 set "REMOTE_KIT_SSH_CONFIG_PATH=%REMOTE_SSH_CONFIG%"
@@ -166,8 +171,12 @@ if /i not "%REMOTE_SSH_CONFIG%"=="embedded" (
     echo config.remove is only supported when REMOTE_SSH_CONFIG=embedded.
     exit /b 1
 )
-PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ssh_config.ps1" -Action remove -HostAlias "%REMOTE_SSH_HOST%" -RepoRoot "%~dp0..\.." -UserProfile "%USERPROFILE%"
-if errorlevel 1 exit /b %ERRORLEVEL%
+set "REMOTE_SSH_HOST="
+for /f "delims=" %%a in ('PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ssh_config.ps1" -Action remove -EntryFile "%REMOTE_KIT_ENTRY_FILE%" -RepoRoot "%~dp0..\.." -UserProfile "%USERPROFILE%"') do set "REMOTE_SSH_HOST=%%a"
+if not defined REMOTE_SSH_HOST (
+    echo Failed to remove embedded SSH config.
+    exit /b 1
+)
 set "REMOTE_KIT_SSH_CONFIG_PATH="
 echo SSH config removed for "%REMOTE_SSH_HOST%".
 exit /b 0
@@ -229,7 +238,8 @@ if not defined REMOTE_KIT_ENTRY_FILE (
     echo REMOTE_KIT_ENTRY_FILE must be set when REMOTE_SSH_CONFIG=embedded.
     exit /b 1
 )
-for /f "delims=" %%a in ('PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ssh_config.ps1" -Action install -EntryFile "%REMOTE_KIT_ENTRY_FILE%" -HostAlias "%REMOTE_SSH_HOST%" -RepoRoot "%~dp0..\.." -UserProfile "%USERPROFILE%"') do set "REMOTE_KIT_SSH_CONFIG_PATH=%%a"
+set "REMOTE_KIT_SSH_CONFIG_PATH="
+for /f "delims=" %%a in ('PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0ssh_config.ps1" -Action install -EntryFile "%REMOTE_KIT_ENTRY_FILE%" -RepoRoot "%~dp0..\.." -UserProfile "%USERPROFILE%"') do set "REMOTE_KIT_SSH_CONFIG_PATH=%%a"
 if not defined REMOTE_KIT_SSH_CONFIG_PATH (
     echo Failed to install embedded SSH config.
     exit /b 1

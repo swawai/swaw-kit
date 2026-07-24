@@ -7,15 +7,13 @@ param(
     [ValidateSet("write","install","ensure","remove")]
     [string]$Action = "write",
     [string]$EntryFile,
-    [string]$HostAlias,
     [string]$RepoRoot,
     [string]$UserProfile = $env:USERPROFILE
 )
 
 $script:RemoteKitSshConfigIncludeId = "8f6a9d72-4a7e-4b42-95cb-8bc20d9f5c31"
-$script:RemoteKitSshConfigBegin = "# remote-kit ssh-config begin"
-$script:RemoteKitSshConfigEnd = "# remote-kit ssh-config end"
 $script:RemoteKitSshConfigAfterLabel = "REMOTE_KIT_AFTER_SSH_CONFIG"
+$script:RemoteKitSelfHostToken = "___self___"
 
 function ConvertTo-RemoteKitLfText {
     param([AllowNull()] [string]$Text)
@@ -53,6 +51,29 @@ function ConvertTo-RemoteKitSafeConfigName {
     return $safe
 }
 
+function Get-RemoteKitEntryHostAlias {
+    param([Parameter(Mandatory=$true)] [string]$EntryFile)
+
+    if (-not (Test-Path -LiteralPath $EntryFile -PathType Leaf)) {
+        throw "Entry file not found: $EntryFile"
+    }
+
+    $entryPath = [System.IO.Path]::GetFullPath($EntryFile)
+    $entryName = [System.IO.Path]::GetFileNameWithoutExtension($entryPath)
+    $safeName = ConvertTo-RemoteKitSafeConfigName $entryName
+    $identityText = $entryPath.Replace("\", "/").ToLowerInvariant()
+    $identityBytes = [System.Text.Encoding]::UTF8.GetBytes($identityText)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha256.ComputeHash($identityBytes)
+    } finally {
+        $sha256.Dispose()
+    }
+
+    $hashText = -join @($hashBytes | ForEach-Object { $_.ToString("x2") })
+    return "$safeName-$($hashText.Substring(0, 12))"
+}
+
 function Protect-RemoteKitSshConfigFile {
     param([Parameter(Mandatory=$true)] [string]$Path)
 
@@ -77,62 +98,69 @@ function Get-RemoteKitEmbeddedSshConfigText {
     $text = [System.IO.File]::ReadAllText($EntryFile)
     $text = ConvertTo-RemoteKitLfText $text
     $lines = $text -split "`n"
-    $inside = $false
-    $foundBegin = $false
-    $foundEnd = $false
-    $selected = New-Object System.Collections.Generic.List[string]
+    $escapedLabel = [regex]::Escape($script:RemoteKitSshConfigAfterLabel)
+    $gotoPattern = "(?:^|&)\s*goto\s+:$escapedLabel\s*$"
+    $labelPattern = "^\s*:$escapedLabel\s*$"
+    $startIndex = -1
+    $endIndex = -1
 
-    foreach ($rawLine in $lines) {
-        $line = $rawLine.TrimEnd("`r")
-        if ($line.Trim() -ieq $script:RemoteKitSshConfigBegin) {
-            $inside = $true
-            $foundBegin = $true
+    for ($index = 0; $index -lt $lines.Count; $index++) {
+        $line = $lines[$index].TrimEnd("`r")
+        if ($line -match $gotoPattern) {
+            if ($startIndex -ge 0) {
+                throw "Embedded ssh_config has multiple goto boundaries: $EntryFile"
+            }
+            $startIndex = $index
             continue
         }
 
-        if ($line.Trim() -ieq $script:RemoteKitSshConfigEnd) {
-            $inside = $false
-            $foundEnd = $true
+        if ($startIndex -ge 0 -and $line -match $labelPattern) {
+            $endIndex = $index
             break
         }
-
-        if ($inside) {
-            $selected.Add($line)
-        }
     }
 
-    if (-not $foundBegin -or -not $foundEnd) {
-        $inside = $false
-        $foundBegin = $false
-        $foundEnd = $false
-        $selected.Clear()
-
-        foreach ($rawLine in $lines) {
-            $line = $rawLine.TrimEnd("`r")
-            if (-not $inside -and $line -match "^\s*goto\s+:$script:RemoteKitSshConfigAfterLabel\s*$") {
-                $inside = $true
-                $foundBegin = $true
-                continue
-            }
-
-            if ($inside -and $line -match "^\s*:$script:RemoteKitSshConfigAfterLabel\s*$") {
-                $inside = $false
-                $foundEnd = $true
-                break
-            }
-
-            if ($inside) {
-                $selected.Add($line)
-            }
-        }
-    }
-
-    if (-not $foundBegin -or -not $foundEnd) {
+    if ($startIndex -lt 0 -or $endIndex -lt 0 -or $endIndex -le $startIndex) {
         throw "Embedded ssh_config block not found in entry file: $EntryFile"
     }
 
+    $selected = New-Object System.Collections.Generic.List[string]
+    for ($index = $startIndex + 1; $index -lt $endIndex; $index++) {
+        $line = $lines[$index].TrimEnd("`r")
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        if ($line -match "^\s*::") {
+            continue
+        }
+        if ($line -match "^\s*@?rem(?:\s|$)") {
+            continue
+        }
+        $selected.Add($line)
+    }
+
     $configText = ($selected.ToArray() -join "`n")
-    $configText = [Environment]::ExpandEnvironmentVariables($configText)
+    $tokenCount = ([regex]::Matches($configText, [regex]::Escape($script:RemoteKitSelfHostToken))).Count
+    if ($tokenCount -ne 1) {
+        throw "Embedded ssh_config must contain exactly one '$script:RemoteKitSelfHostToken' token: $EntryFile"
+    }
+
+    $hostAlias = Get-RemoteKitEntryHostAlias -EntryFile $EntryFile
+    $selfHostPattern = "^(\s*Host\s+)$([regex]::Escape($script:RemoteKitSelfHostToken))(\s*(?:#.*)?)$"
+    $selfHostRegex = [regex]::new(
+        $selfHostPattern,
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase -bor
+            [System.Text.RegularExpressions.RegexOptions]::Multiline
+    )
+    if ($selfHostRegex.Matches($configText).Count -ne 1) {
+        throw "The '$script:RemoteKitSelfHostToken' token must be the only Host value on its line: $EntryFile"
+    }
+
+    $configText = $selfHostRegex.Replace(
+        $configText,
+        ('${1}' + $hostAlias + '${2}'),
+        1
+    )
     return (ConvertTo-RemoteKitLfText $configText)
 }
 
@@ -235,13 +263,12 @@ function Remove-RemoteKitSshConfigInclude {
 function Write-RemoteKitEmbeddedSshConfig {
     param(
         [Parameter(Mandatory=$true)] [string]$EntryFile,
-        [Parameter(Mandatory=$true)] [string]$HostAlias,
         [Parameter(Mandatory=$true)] [string]$RepoRoot,
         [Parameter(Mandatory=$true)] [string]$UserProfile
     )
 
+    $hostAlias = Get-RemoteKitEntryHostAlias -EntryFile $EntryFile
     $configText = Get-RemoteKitEmbeddedSshConfigText -EntryFile $EntryFile
-    $configText = $configText.Replace("%HOST%", $HostAlias).Replace("%REMOTE_SSH_HOST%", $HostAlias)
     $configPath = Get-RemoteKitGeneratedSshConfigPath -RepoRoot $RepoRoot -HostAlias $HostAlias
     $configDir = Split-Path -Parent $configPath
     if (-not (Test-Path -LiteralPath $configDir -PathType Container)) {
@@ -265,45 +292,42 @@ function Write-RemoteKitEmbeddedSshConfig {
 function Install-RemoteKitEmbeddedSshConfig {
     param(
         [Parameter(Mandatory=$true)] [string]$EntryFile,
-        [Parameter(Mandatory=$true)] [string]$HostAlias,
         [Parameter(Mandatory=$true)] [string]$RepoRoot,
         [Parameter(Mandatory=$true)] [string]$UserProfile
     )
 
     $result = Write-RemoteKitEmbeddedSshConfig `
         -EntryFile $EntryFile `
-        -HostAlias $HostAlias `
         -RepoRoot $RepoRoot `
         -UserProfile $UserProfile
     Ensure-RemoteKitSshConfigInclude `
         -UserConfigPath $result.UserConfigPath `
         -IncludeLine $result.IncludeLine `
-        -HostAlias $HostAlias
+        -HostAlias $result.HostAlias
     return $result
 }
 
 function Ensure-RemoteKitEmbeddedSshConfig {
     param(
         [Parameter(Mandatory=$true)] [string]$EntryFile,
-        [Parameter(Mandatory=$true)] [string]$HostAlias,
         [Parameter(Mandatory=$true)] [string]$RepoRoot,
         [Parameter(Mandatory=$true)] [string]$UserProfile
     )
 
     return Install-RemoteKitEmbeddedSshConfig `
         -EntryFile $EntryFile `
-        -HostAlias $HostAlias `
         -RepoRoot $RepoRoot `
         -UserProfile $UserProfile
 }
 
 function Remove-RemoteKitEmbeddedSshConfig {
     param(
-        [Parameter(Mandatory=$true)] [string]$HostAlias,
+        [Parameter(Mandatory=$true)] [string]$EntryFile,
         [Parameter(Mandatory=$true)] [string]$RepoRoot,
         [Parameter(Mandatory=$true)] [string]$UserProfile
     )
 
+    $hostAlias = Get-RemoteKitEntryHostAlias -EntryFile $EntryFile
     $userConfigPath = Join-Path (Join-Path $UserProfile ".ssh") "config"
     Remove-RemoteKitSshConfigInclude -UserConfigPath $userConfigPath -HostAlias $HostAlias
 
@@ -314,24 +338,8 @@ function Remove-RemoteKitEmbeddedSshConfig {
 }
 
 function Invoke-RemoteKitSshConfigCli {
-    if ([string]::IsNullOrWhiteSpace($HostAlias)) {
-        throw "-HostAlias is required."
-    }
-
     if ([string]::IsNullOrWhiteSpace($UserProfile)) {
         throw "-UserProfile is required."
-    }
-
-    if ($Action -eq "remove") {
-        if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
-            throw "-RepoRoot is required for remove."
-        }
-
-        Remove-RemoteKitEmbeddedSshConfig `
-            -HostAlias $HostAlias `
-            -RepoRoot $RepoRoot `
-            -UserProfile $UserProfile
-        return
     }
 
     foreach ($required in @("EntryFile","RepoRoot")) {
@@ -341,16 +349,24 @@ function Invoke-RemoteKitSshConfigCli {
         }
     }
 
+    if ($Action -eq "remove") {
+        $removedHostAlias = Get-RemoteKitEntryHostAlias -EntryFile $EntryFile
+        Remove-RemoteKitEmbeddedSshConfig `
+            -EntryFile $EntryFile `
+            -RepoRoot $RepoRoot `
+            -UserProfile $UserProfile
+        Write-Output $removedHostAlias
+        return
+    }
+
     if ($Action -eq "install" -or $Action -eq "ensure") {
         $result = Install-RemoteKitEmbeddedSshConfig `
             -EntryFile $EntryFile `
-            -HostAlias $HostAlias `
             -RepoRoot $RepoRoot `
             -UserProfile $UserProfile
     } else {
         $result = Write-RemoteKitEmbeddedSshConfig `
             -EntryFile $EntryFile `
-            -HostAlias $HostAlias `
             -RepoRoot $RepoRoot `
             -UserProfile $UserProfile
     }

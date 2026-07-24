@@ -36,278 +36,247 @@ function Assert-NotContains {
     Assert-True (-not $Text.Contains($Unexpected)) $Message
 }
 
-function New-SmokeEntryFile {
-    param([Parameter(Mandatory=$true)] [string]$Root)
-
-    $entry = Join-Path $Root "vps1.cmd"
-    $content = @'
-@echo off
-set "HOST=vps1"
-
-goto :REMOTE_KIT_AFTER_SSH_CONFIG
-# remote-kit ssh-config begin
-Host %HOST%
-  HostName A.example.invalid
-  User userA
-  Port 2222
-  IdentityFile ~/.ssh/id_vps1
-  ProxyCommand ssh -W %h:%p bastion
-# remote-kit ssh-config end
-:REMOTE_KIT_AFTER_SSH_CONFIG
-'@
-
-    [System.IO.File]::WriteAllText($entry, $content, [System.Text.UTF8Encoding]::new($false))
-    return $entry
-}
-
-function New-SmokeMarkerlessEntryFile {
-    param([Parameter(Mandatory=$true)] [string]$Root)
-
-    $entry = Join-Path $Root "vps1.cmd"
-    $content = @'
-@echo off
-set "HOST=vps1"
-
-goto :REMOTE_KIT_AFTER_SSH_CONFIG
-Host %HOST%
-  HostName A.example.invalid
-  User userA
-  Port 2222
-  IdentityFile ~/.ssh/id_vps1
-  ProxyCommand ssh -W %h:%p bastion
-:REMOTE_KIT_AFTER_SSH_CONFIG
-'@
-
-    [System.IO.File]::WriteAllText($entry, $content, [System.Text.UTF8Encoding]::new($false))
-    return $entry
-}
-
-function Test-ExtractEmbeddedConfigExpandsEntryVariables {
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-sshcfg-" + [guid]::NewGuid().ToString("N"))
-    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+function Assert-ThrowsLike {
+    param(
+        [Parameter(Mandatory=$true)] [scriptblock]$Action,
+        [Parameter(Mandatory=$true)] [string]$Pattern,
+        [Parameter(Mandatory=$true)] [string]$Message
+    )
 
     try {
-        $entry = New-SmokeEntryFile $tempRoot
-        $oldHost = $env:HOST
-        $oldUserProfile = $env:USERPROFILE
-        $env:HOST = "vps1"
-        $env:USERPROFILE = "C:\Users\Smoke User"
+        & $Action
+    } catch {
+        Assert-True ($_.Exception.Message -like $Pattern) $Message
+        return
+    }
 
-        $text = Get-RemoteKitEmbeddedSshConfigText -EntryFile $entry
+    throw $Message
+}
 
-        Assert-Contains $text "Host vps1" "embedded config should expand %HOST%."
-        Assert-Contains $text "IdentityFile ~/.ssh/id_vps1" "embedded config should preserve native ssh_config home syntax."
-        Assert-Contains $text "ProxyCommand ssh -W %h:%p bastion" "embedded config should preserve OpenSSH percent tokens."
-        Assert-True (-not $text.Contains("remote-kit ssh-config begin")) "embedded config output should not include markers."
+function New-SmokeEntryFile {
+    param(
+        [Parameter(Mandatory=$true)] [string]$Root,
+        [string]$Name = "vps1.cmd",
+        [string]$HostName = "A.example.invalid"
+    )
+
+    if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
+        New-Item -ItemType Directory -Path $Root -Force | Out-Null
+    }
+
+    $entry = Join-Path $Root $Name
+    $content = @"
+@echo off & chcp 65001 >nul & setlocal & goto :REMOTE_KIT_AFTER_SSH_CONFIG
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+:: ignored cmd decoration
+rem ignored cmd comment
+  @REM ignored cmd comment too
+
+# preserved OpenSSH comment
+Host ___self___ # managed entry identity
+  HostName $HostName
+  User userA
+  Port 2222
+  IdentityFile ~/.ssh/id_vps1
+  ProxyCommand ssh -W %h:%p bastion
+  LocalCommand echo %USERPROFILE%
+
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+:: ignored lower decoration
+REM ignored lower comment
+:REMOTE_KIT_AFTER_SSH_CONFIG
+"@
+
+    [System.IO.File]::WriteAllText($entry, $content, [System.Text.UTF8Encoding]::new($false))
+    return $entry
+}
+
+function New-InvalidSmokeEntryFile {
+    param(
+        [Parameter(Mandatory=$true)] [string]$Root,
+        [Parameter(Mandatory=$true)] [string[]]$HostLines
+    )
+
+    New-Item -ItemType Directory -Path $Root -Force | Out-Null
+    $entry = Join-Path $Root "invalid.cmd"
+    $content = @(
+        "@echo off & goto :REMOTE_KIT_AFTER_SSH_CONFIG"
+        $HostLines
+        ":REMOTE_KIT_AFTER_SSH_CONFIG"
+    ) -join "`r`n"
+    [System.IO.File]::WriteAllText($entry, $content, [System.Text.UTF8Encoding]::new($false))
+    return $entry
+}
+
+function Test-EntryIdentityIsStableAndPathScoped {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-identity-" + [guid]::NewGuid().ToString("N"))
+    try {
+        $entryA = New-SmokeEntryFile (Join-Path $tempRoot "a")
+        $entryB = New-SmokeEntryFile (Join-Path $tempRoot "b")
+        $aliasA = Get-RemoteKitEntryHostAlias $entryA
+        $aliasAAgain = Get-RemoteKitEntryHostAlias $entryA
+        $aliasB = Get-RemoteKitEntryHostAlias $entryB
+
+        Assert-True ($aliasA -match "^vps1-[0-9a-f]{12}$") "entry alias should be readable and use a 12-character lowercase hex suffix."
+        Assert-True ($aliasA -eq $aliasAAgain) "the same entry path should always produce the same alias."
+        Assert-True ($aliasA -ne $aliasB) "same-named entries in different directories should have different aliases."
+
+        $changed = [System.IO.File]::ReadAllText($entryA).Replace("A.example.invalid", "B.example.invalid")
+        [System.IO.File]::WriteAllText($entryA, $changed, [System.Text.UTF8Encoding]::new($false))
+        Assert-True ((Get-RemoteKitEntryHostAlias $entryA) -eq $aliasA) "connection config changes should not change entry identity."
     } finally {
-        $env:HOST = $oldHost
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-ExtractPrettyEmbeddedConfig {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-extract-" + [guid]::NewGuid().ToString("N"))
+    $oldUserProfile = $env:USERPROFILE
+    try {
+        $entry = New-SmokeEntryFile $tempRoot
+        $env:USERPROFILE = "C:\Users\Must Not Expand"
+        $alias = Get-RemoteKitEntryHostAlias $entry
+        $text = Get-RemoteKitEmbeddedSshConfigText $entry
+
+        Assert-Contains $text "Host $alias # managed entry identity" "self token should resolve to the derived entry alias."
+        Assert-Contains $text "# preserved OpenSSH comment" "OpenSSH comments should be preserved."
+        Assert-Contains $text "ProxyCommand ssh -W %h:%p bastion" "OpenSSH percent tokens should be preserved."
+        Assert-Contains $text "LocalCommand echo %USERPROFILE%" "Windows environment variables should not be expanded implicitly."
+        Assert-NotContains $text "___self___" "generated config should not retain the self token."
+        Assert-NotContains $text "::" "CMD decoration comments should be omitted."
+        Assert-NotContains $text "ignored cmd comment" "REM comments should be omitted."
+        Assert-NotContains $text "REMOTE_KIT_AFTER_SSH_CONFIG" "container boundaries should be omitted."
+        Assert-True (-not $text.Contains("`n`n")) "blank container lines should be omitted."
+    } finally {
         $env:USERPROFILE = $oldUserProfile
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-function Test-ExtractMarkerlessGotoHereDocConfig {
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-sshcfg-" + [guid]::NewGuid().ToString("N"))
-    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-
+function Test-SelfTokenValidation {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-self-" + [guid]::NewGuid().ToString("N"))
     try {
-        $entry = New-SmokeMarkerlessEntryFile $tempRoot
-        $oldHost = $env:HOST
-        $env:HOST = "vps1"
+        $missing = New-InvalidSmokeEntryFile (Join-Path $tempRoot "missing") @(
+            "Host other"
+            "  HostName A.example.invalid"
+        )
+        Assert-ThrowsLike {
+            Get-RemoteKitEmbeddedSshConfigText $missing
+        } "*exactly one '___self___' token*" "missing self token should fail clearly."
 
-        $text = Get-RemoteKitEmbeddedSshConfigText -EntryFile $entry
+        $duplicate = New-InvalidSmokeEntryFile (Join-Path $tempRoot "duplicate") @(
+            "Host ___self___"
+            "  HostName A.example.invalid"
+            "Host ___self___"
+            "  HostName B.example.invalid"
+        )
+        Assert-ThrowsLike {
+            Get-RemoteKitEmbeddedSshConfigText $duplicate
+        } "*exactly one '___self___' token*" "duplicate self tokens should fail clearly."
 
-        Assert-Contains $text "Host vps1" "markerless goto here-doc should expand %HOST%."
-        Assert-Contains $text "IdentityFile ~/.ssh/id_vps1" "markerless goto here-doc should preserve IdentityFile."
-        Assert-Contains $text "ProxyCommand ssh -W %h:%p bastion" "markerless goto here-doc should preserve OpenSSH percent tokens."
-        Assert-True (-not $text.Contains("goto :REMOTE_KIT_AFTER_SSH_CONFIG")) "markerless output should not include the goto line."
-        Assert-True (-not $text.Contains(":REMOTE_KIT_AFTER_SSH_CONFIG")) "markerless output should not include the label line."
+        $misplaced = New-InvalidSmokeEntryFile (Join-Path $tempRoot "misplaced") @(
+            "Host other ___self___"
+            "  HostName A.example.invalid"
+        )
+        Assert-ThrowsLike {
+            Get-RemoteKitEmbeddedSshConfigText $misplaced
+        } "*only Host value on its line*" "self token mixed with other Host values should fail clearly."
     } finally {
-        if ($null -eq $oldHost) {
-            Remove-Item Env:HOST -ErrorAction SilentlyContinue
-        } else {
-            $env:HOST = $oldHost
-        }
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-function Test-RepoTemplateUsesHostOnlyPublicConfig {
+function Test-RepoTemplateUsesSelfContract {
     $entry = Join-Path $script:SmokeRepoRoot "vps1.cmd"
-    $text = [System.IO.File]::ReadAllText($entry)
+    $source = [System.IO.File]::ReadAllText($entry)
+    $generated = Get-RemoteKitEmbeddedSshConfigText $entry
+    $alias = Get-RemoteKitEntryHostAlias $entry
 
-    Assert-Contains $text 'set "HOST=vps1"' "vps1 template should keep HOST as the public entry knob."
-    Assert-True (-not $text.Contains("REMOTE_SSH_HOST")) "vps1 template should not require REMOTE_SSH_HOST."
-    Assert-True (-not $text.Contains("REMOTE_SSH_CONFIG")) "vps1 template should not require REMOTE_SSH_CONFIG."
-    Assert-True (-not $text.Contains("REMOTE_KEY")) "vps1 template should not require REMOTE_KEY."
-    Assert-Contains $text "IdentityFile ~/.ssh/id_rsa" "vps1 template should keep IdentityFile inside ssh_config."
-    Assert-True (-not $text.Contains("remote-kit ssh-config begin")) "vps1 template should not need a begin marker."
-    Assert-True (-not $text.Contains("remote-kit ssh-config end")) "vps1 template should not need an end marker."
+    Assert-Contains $source "Host ___self___" "vps1 template should expose the self token instead of a user-managed alias."
+    Assert-NotContains $source "%HOST%" "vps1 template should not maintain a second host identity."
+    Assert-NotContains $source "remote-kit ssh-config begin" "vps1 template should not require visual parser markers."
+    Assert-NotContains $source "remote-kit ssh-config end" "vps1 template should not require visual parser markers."
+    Assert-Contains $generated "Host $alias" "the real vps1 template should be parseable."
+    Assert-Contains $generated "IdentityFile ~/.ssh/id_rsa" "vps1 template should keep IdentityFile inside ssh_config."
 }
 
 function Test-WriteEmbeddedConfigDoesNotInstallManagedInclude {
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-sshcfg-" + [guid]::NewGuid().ToString("N"))
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-write-" + [guid]::NewGuid().ToString("N"))
     $fakeProfile = Join-Path $tempRoot "profile"
-    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-    New-Item -ItemType Directory -Path $fakeProfile -Force | Out-Null
-
     try {
+        New-Item -ItemType Directory -Path $fakeProfile -Force | Out-Null
         $entry = New-SmokeEntryFile $tempRoot
-        $oldHost = $env:HOST
-        $oldUserProfile = $env:USERPROFILE
-        Remove-Item Env:HOST -ErrorAction SilentlyContinue
-        $env:USERPROFILE = $fakeProfile
-
-        $first = Write-RemoteKitEmbeddedSshConfig `
-            -EntryFile $entry `
-            -HostAlias "vps1" `
-            -RepoRoot $tempRoot `
-            -UserProfile $fakeProfile
-
-        $second = Write-RemoteKitEmbeddedSshConfig `
-            -EntryFile $entry `
-            -HostAlias "vps1" `
-            -RepoRoot $tempRoot `
-            -UserProfile $fakeProfile
+        $first = Write-RemoteKitEmbeddedSshConfig $entry $tempRoot $fakeProfile
+        $second = Write-RemoteKitEmbeddedSshConfig $entry $tempRoot $fakeProfile
 
         Assert-True (Test-Path -LiteralPath $first.ConfigPath -PathType Leaf) "generated config should exist."
-        Assert-True ($first.ConfigPath -eq $second.ConfigPath) "ensure should be idempotent for config path."
+        Assert-True ($first.ConfigPath -eq $second.ConfigPath) "write should be idempotent for config path."
+        Assert-True ([System.IO.Path]::GetFileName($first.ConfigPath) -eq "$($first.HostAlias).config") "config filename should carry the derived alias."
 
         $generated = [System.IO.File]::ReadAllText($first.ConfigPath)
-        Assert-Contains $generated "Host vps1" "generated config should contain host alias."
+        Assert-Contains $generated "Host $($first.HostAlias)" "generated config should contain the derived alias."
         Assert-Contains $generated "HostName A.example.invalid" "generated config should contain HostName."
-        Assert-True (-not (Test-Path -LiteralPath $first.UserConfigPath -PathType Leaf)) "write should not create user ssh config."
+        Assert-True (-not (Test-Path -LiteralPath $first.UserConfigPath -PathType Leaf)) "write should not install a user SSH Include."
     } finally {
-        if ($null -eq $oldHost) {
-            Remove-Item Env:HOST -ErrorAction SilentlyContinue
-        } else {
-            $env:HOST = $oldHost
-        }
-        $env:USERPROFILE = $oldUserProfile
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-function Test-InstallEmbeddedConfigWritesGeneratedConfigAndManagedInclude {
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-sshcfg-" + [guid]::NewGuid().ToString("N"))
-    $fakeProfile = Join-Path $tempRoot "profile"
-    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-    New-Item -ItemType Directory -Path $fakeProfile -Force | Out-Null
-
-    try {
-        $entry = New-SmokeEntryFile $tempRoot
-        $oldHost = $env:HOST
-        $oldUserProfile = $env:USERPROFILE
-        Remove-Item Env:HOST -ErrorAction SilentlyContinue
-        $env:USERPROFILE = $fakeProfile
-
-        $first = Install-RemoteKitEmbeddedSshConfig `
-            -EntryFile $entry `
-            -HostAlias "vps1" `
-            -RepoRoot $tempRoot `
-            -UserProfile $fakeProfile
-
-        $second = Install-RemoteKitEmbeddedSshConfig `
-            -EntryFile $entry `
-            -HostAlias "vps1" `
-            -RepoRoot $tempRoot `
-            -UserProfile $fakeProfile
-
-        Assert-True (Test-Path -LiteralPath $first.ConfigPath -PathType Leaf) "generated config should exist."
-        Assert-True ($first.ConfigPath -eq $second.ConfigPath) "install should be idempotent for config path."
-
-        $userConfig = [System.IO.File]::ReadAllText($first.UserConfigPath)
-        $markerCount = ([regex]::Matches($userConfig, [regex]::Escape($script:RemoteKitSshConfigIncludeId))).Count
-        Assert-True ($markerCount -eq 1) "managed Include marker should be written once."
-        Assert-Contains $userConfig 'Include "' "managed Include should quote the generated config path."
-        Assert-Contains $userConfig "host=vps1" "managed Include should record the host alias."
-    } finally {
-        if ($null -eq $oldHost) {
-            Remove-Item Env:HOST -ErrorAction SilentlyContinue
-        } else {
-            $env:HOST = $oldHost
-        }
-        $env:USERPROFILE = $oldUserProfile
-        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
-function Test-ManagedIncludeIsPrependedAndHostMatchIsExact {
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-sshcfg-" + [guid]::NewGuid().ToString("N"))
+function Test-InstallEmbeddedConfigIsExactAndIdempotent {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-install-" + [guid]::NewGuid().ToString("N"))
     $fakeProfile = Join-Path $tempRoot "profile"
     $sshDir = Join-Path $fakeProfile ".ssh"
-    New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
-
     try {
+        New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
         $entry = New-SmokeEntryFile $tempRoot
-        $oldUserProfile = $env:USERPROFILE
-        $env:USERPROFILE = $fakeProfile
-
+        $alias = Get-RemoteKitEntryHostAlias $entry
+        $otherAlias = "$alias-extra"
         $existingConfig = @"
-Include "D:/old/vps10.config" # win-run-toolbox host=vps10 id=$script:RemoteKitSshConfigIncludeId
+Include "D:/old/other.config" # win-run-toolbox host=$otherAlias id=$script:RemoteKitSshConfigIncludeId
 Host github.com
   User git
 "@
         [System.IO.File]::WriteAllText((Join-Path $sshDir "config"), $existingConfig, [System.Text.UTF8Encoding]::new($false))
 
-        $result = Install-RemoteKitEmbeddedSshConfig `
-            -EntryFile $entry `
-            -HostAlias "vps1" `
-            -RepoRoot $tempRoot `
-            -UserProfile $fakeProfile
+        $first = Install-RemoteKitEmbeddedSshConfig $entry $tempRoot $fakeProfile
+        $second = Install-RemoteKitEmbeddedSshConfig $entry $tempRoot $fakeProfile
+        $userConfig = [System.IO.File]::ReadAllText($first.UserConfigPath)
+        $markerCount = ([regex]::Matches($userConfig, [regex]::Escape($script:RemoteKitSshConfigIncludeId))).Count
+        $aliasCount = ([regex]::Matches($userConfig, "host=$([regex]::Escape($alias))(?=\s|$)")).Count
 
-        $userConfig = [System.IO.File]::ReadAllText($result.UserConfigPath)
-        $includeIndex = $userConfig.IndexOf("host=vps1")
-        $hostBlockIndex = $userConfig.IndexOf("Host github.com")
-
-        Assert-True ($includeIndex -ge 0) "managed Include for vps1 should be present."
-        Assert-True ($includeIndex -lt $hostBlockIndex) "managed Include should be before existing Host blocks."
-        Assert-Contains $userConfig "host=vps10" "managed Include removal should not treat vps1 as matching vps10."
+        Assert-True ($first.ConfigPath -eq $second.ConfigPath) "install should be idempotent for config path."
+        Assert-True ($markerCount -eq 2) "install should add one managed Include while preserving the other entry."
+        Assert-True ($aliasCount -eq 1) "install should write the current alias once."
+        Assert-Contains $userConfig "host=$otherAlias" "managed Include matching should be exact."
+        Assert-True ($userConfig.IndexOf("host=$alias ") -lt $userConfig.IndexOf("Host github.com")) "managed Include should precede existing Host blocks."
     } finally {
-        $env:USERPROFILE = $oldUserProfile
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-function Test-RemoveEmbeddedConfigRemovesManagedIncludeAndGeneratedFile {
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-sshcfg-" + [guid]::NewGuid().ToString("N"))
+function Test-RemoveEmbeddedConfigRemovesManagedState {
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("remote-kit-remove-" + [guid]::NewGuid().ToString("N"))
     $fakeProfile = Join-Path $tempRoot "profile"
-    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-    New-Item -ItemType Directory -Path $fakeProfile -Force | Out-Null
-
     try {
+        New-Item -ItemType Directory -Path $fakeProfile -Force | Out-Null
         $entry = New-SmokeEntryFile $tempRoot
-        $oldUserProfile = $env:USERPROFILE
-        $env:USERPROFILE = $fakeProfile
+        $installed = Install-RemoteKitEmbeddedSshConfig $entry $tempRoot $fakeProfile
 
-        $installed = Install-RemoteKitEmbeddedSshConfig `
-            -EntryFile $entry `
-            -HostAlias "vps1" `
-            -RepoRoot $tempRoot `
-            -UserProfile $fakeProfile
+        Remove-RemoteKitEmbeddedSshConfig $entry $tempRoot $fakeProfile
 
-        Remove-RemoteKitEmbeddedSshConfig `
-            -HostAlias "vps1" `
-            -RepoRoot $tempRoot `
-            -UserProfile $fakeProfile
-
-        Assert-True (-not (Test-Path -LiteralPath $installed.ConfigPath -PathType Leaf)) "remove should delete generated config file."
+        Assert-True (-not (Test-Path -LiteralPath $installed.ConfigPath -PathType Leaf)) "remove should delete the generated config."
         $userConfig = [System.IO.File]::ReadAllText($installed.UserConfigPath)
-        Assert-NotContains $userConfig "host=vps1" "remove should delete the managed Include for vps1."
+        Assert-NotContains $userConfig "host=$($installed.HostAlias)" "remove should delete the matching managed Include."
     } finally {
-        $env:USERPROFILE = $oldUserProfile
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-try {
-    Test-ExtractEmbeddedConfigExpandsEntryVariables
-    Test-ExtractMarkerlessGotoHereDocConfig
-    Test-WriteEmbeddedConfigDoesNotInstallManagedInclude
-    Test-InstallEmbeddedConfigWritesGeneratedConfigAndManagedInclude
-    Test-ManagedIncludeIsPrependedAndHostMatchIsExact
-    Test-RemoveEmbeddedConfigRemovesManagedIncludeAndGeneratedFile
-    Test-RepoTemplateUsesHostOnlyPublicConfig
-    Write-Host "ssh remote kit ssh-config smoke ok" -ForegroundColor Green
-} finally {
-}
+Test-EntryIdentityIsStableAndPathScoped
+Test-ExtractPrettyEmbeddedConfig
+Test-SelfTokenValidation
+Test-RepoTemplateUsesSelfContract
+Test-WriteEmbeddedConfigDoesNotInstallManagedInclude
+Test-InstallEmbeddedConfigIsExactAndIdempotent
+Test-RemoveEmbeddedConfigRemovesManagedState
+Write-Host "ssh remote kit ssh-config smoke ok" -ForegroundColor Green

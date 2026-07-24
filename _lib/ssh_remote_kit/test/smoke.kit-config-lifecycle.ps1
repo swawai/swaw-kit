@@ -1,9 +1,12 @@
 $ErrorActionPreference = "Stop"
 
-$script:RepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-$script:Entry = Join-Path $script:RepoRoot "vps1.cmd"
-$script:DataSshConfig = Join-Path $script:RepoRoot "data\ssh_config"
-$script:GeneratedConfig = Join-Path $script:DataSshConfig "vps1.config"
+$script:LifecycleRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+$script:KitRoot = Join-Path $script:LifecycleRepoRoot "_lib\ssh_remote_kit"
+$script:Entry = Join-Path $script:LifecycleRepoRoot "vps1.cmd"
+$script:DataSshConfig = Join-Path $script:LifecycleRepoRoot "data\ssh_config"
+. (Join-Path $script:KitRoot "ssh_config.ps1")
+$script:EntryHostAlias = Get-RemoteKitEntryHostAlias $script:Entry
+$script:GeneratedConfig = Get-RemoteKitGeneratedSshConfigPath $script:LifecycleRepoRoot $script:EntryHostAlias
 
 function Assert-True {
     param(
@@ -45,7 +48,7 @@ function Assert-ManagedIncludeState {
     )
 
     $text = Get-UserConfigText $Profile
-    $installed = $text.Contains("win-run-toolbox host=vps1")
+    $installed = $text.Contains("win-run-toolbox host=$script:EntryHostAlias")
     Assert-True ($installed -eq $ExpectedInstalled) $Message
 }
 
@@ -57,7 +60,7 @@ function Assert-ManagedIncludeCount {
     )
 
     $text = Get-UserConfigText $Profile
-    $count = ([regex]::Matches($text, [regex]::Escape("win-run-toolbox host=vps1"))).Count
+    $count = ([regex]::Matches($text, [regex]::Escape("win-run-toolbox host=$script:EntryHostAlias"))).Count
     Assert-True ($count -eq $ExpectedCount) $Message
 }
 
