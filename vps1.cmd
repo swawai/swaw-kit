@@ -1,24 +1,22 @@
 @echo off & chcp 65001 >nul & setlocal
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: Copy this file as vps2.cmd / vps1.userA.cmd, then edit HOST and the
-:: embedded ssh_config block below.
+:: Use the full .ssh/config format.
+:: 使用完整的 .ssh/config 格式配置.
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-set "HOST=vps1"
-
-
-goto :REMOTE_KIT_AFTER_SSH_CONFIG
+set "HOST=vps1" & goto :REMOTE_KIT_AFTER_SSH_CONFIG
 Host %HOST%
-  HostName myvps1.example.com
-  User root
-  Port 22
-  IdentityFile ~/.ssh/id_rsa
+  HostName myvps1.example.com       # 必填(are required)
+  User root                         # 必填(are required)
+  Port 22                           # 必填(are required)
+  IdentityFile ~/.ssh/id_rsa        # 必填(are required)
   StrictHostKeyChecking accept-new
+
+
+
 :REMOTE_KIT_AFTER_SSH_CONFIG
-
-
-
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: Do not edit anything below:
+:: 以下任何内容请勿编辑：
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 if /i "%~1"=="-h" goto :ShowRemoteKitHelp
 if /i "%~1"=="--help" goto :ShowRemoteKitHelp
