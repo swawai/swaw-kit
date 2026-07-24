@@ -15,7 +15,7 @@ set "GIT_ID_EMAIL=user1@example.com"
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 :: https.github mode:
 :: https.github 模式:
-:: set "GIT_ID_ACCESS=https.github:host=github.com;account=swawai"
+set "GIT_ID_ACCESS=https.github:host=github.com;account=user1"
 
 :: https.gitlab mode:
 :: https.gitlab 模式:
@@ -23,7 +23,7 @@ set "GIT_ID_EMAIL=user1@example.com"
 
 :: ssh mode (platform-independent; configures sshCommand):
 :: ssh 模式(不用区分平台，实际上就是配置 sshCommand):
-set "GIT_ID_ACCESS=ssh:ssh -o IdentitiesOnly=yes -i '%USERPROFILE%/.ssh/id_ed25519'"
+:: set "GIT_ID_ACCESS=ssh:ssh -o IdentitiesOnly=yes -i '%USERPROFILE%/.ssh/id_ed25519'"
 
 
 
