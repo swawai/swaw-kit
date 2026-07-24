@@ -1,0 +1,28 @@
+Portable project environments
+
+Help and status:
+  {{COMMAND}} help zh{{ALIGN}}显示中文帮助。
+  {{COMMAND}} help en{{ALIGN}}Show English help.
+  {{COMMAND}} help default=en{{ALIGN}}Persist English as the default; use "default=zh" for Chinese.
+  {{COMMAND}} status [--json]{{ALIGN}}Show configuration and installation readiness; this command is read-only.
+  {{COMMAND}} tools [--json]{{ALIGN}}List the public tools accepted by "xvenv set".
+
+Configure and use the environment:
+  {{COMMAND}}{{ALIGN}}Open an interactive terminal with this project's configured environment.
+  {{SET_COMMAND}}{{ALIGN}}Replace this project's complete desired tool set.
+  {{COMMAND}} exec <program> [args...]{{ALIGN}}Run one program in the configured environment and forward its exit code.
+  {{COMMAND}} link{{ALIGN}}Create or refresh a machine-local xvenv.link.cmd in the project root.
+
+Important behavior:
+  "xvenv set" is declarative: tools omitted from the command are removed from the project's xvenv configuration.
+  Generated environments live under the toolbox data directory; xvenv does not create project configuration files.
+  Only an explicit "xvenv link" writes xvenv.link.cmd to the project root; it pins this toolbox and project location and should not be committed.
+  "status --json" exits successfully even when "configured" or "ready" is false; inspect those JSON fields.
+  Bare "xvenv" is the interactive human entry. Automation should use "status --json", "tools --json", and "exec".
+
+Examples:
+  {{COMMAND}} set bun pwsh
+  {{COMMAND}} status --json
+  {{COMMAND}} exec bun --version
+  {{COMMAND}} exec python -m pytest
+  {{COMMAND}} link

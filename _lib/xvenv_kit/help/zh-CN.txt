@@ -1,0 +1,28 @@
+项目级便携开发环境
+
+帮助和状态:
+  {{COMMAND}} help en{{ALIGN}}Show English help.
+  {{COMMAND}} help zh{{ALIGN}}显示中文帮助
+  {{COMMAND}} help default=en{{ALIGN}}持久设置默认帮助语言为英文；中文使用 "default=zh"
+  {{COMMAND}} status [--json]{{ALIGN}}查看配置及安装就绪状态；此命令只读
+  {{COMMAND}} tools [--json]{{ALIGN}}列出 "xvenv set" 接受的公开工具
+
+环境配置和使用:
+  {{COMMAND}}{{ALIGN}}在当前项目已配置的环境中打开交互式终端
+  {{SET_COMMAND}}{{ALIGN}}用这份完整工具列表替换当前项目期望的工具集合
+  {{COMMAND}} exec <program> [args...]{{ALIGN}}在已配置环境中运行一个程序，并原样返回其退出码
+  {{COMMAND}} link{{ALIGN}}在项目根目录创建或刷新供双击使用的本机 xvenv.link.cmd
+
+重要行为:
+  "xvenv set" 是声明式命令：命令中省略的工具会从当前项目的 xvenv 配置中移除。
+  生成的环境存放在工具箱 data 目录；xvenv 不会在项目中创建配置文件。
+  只有显式执行 "xvenv link" 才会在项目根目录写入 xvenv.link.cmd；它固定关联当前工具箱及项目位置，不应提交。
+  即使 "configured" 或 "ready" 为 false，"status --json" 查询本身仍会成功退出；请检查这些 JSON 字段。
+  裸 "xvenv" 是面向人的交互入口；自动化应使用 "status --json"、"tools --json" 和 "exec"。
+
+示例:
+  {{COMMAND}} set bun pwsh
+  {{COMMAND}} status --json
+  {{COMMAND}} exec bun --version
+  {{COMMAND}} exec python -m pytest
+  {{COMMAND}} link

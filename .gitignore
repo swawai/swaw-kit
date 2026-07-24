@@ -14,6 +14,7 @@ temp_workspace/
 !/wsl01.cmd
 !/git1.cmd
 !/proj1.cmd
+!/xvenv.cmd
 
 
 .xvenv/

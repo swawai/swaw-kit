@@ -1,0 +1,4 @@
+interface:
+  display_name: "Xvenv"
+  short_description: "Run project-scoped Windows toolchains"
+  default_prompt: "Use $xvenv to inspect this repository's portable environment and run the requested command inside it."
