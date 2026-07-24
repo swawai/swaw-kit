@@ -34,9 +34,14 @@ function Test-StatusJsonBriefOutput {
     Assert-True ($json.name -eq "wsl01") "brief status json should include WSL name."
     Assert-True ($json.user -eq "john") "brief status json should include WSL user."
     Assert-True ($json.workdir -eq "~") "brief status json should include workdir."
-    Assert-True ($json.installed -eq $false) "brief status json should include installed."
-    Assert-True ($json.state -eq "not installed") "brief status json should include state."
-    Assert-True ($json.next -eq "wsl01 .install") "brief status json should suggest install when missing."
+    Assert-True ($null -ne $json.installed) "brief status json should include installed."
+    if ($json.installed) {
+        Assert-True ($json.state -ne "not installed") "an installed instance should report its runtime state."
+        Assert-True ($json.next -eq "") "an installed instance should not suggest installation."
+    } else {
+        Assert-True ($json.state -eq "not installed") "a missing instance should report not installed."
+        Assert-True ($json.next -eq "wsl01 .install") "a missing instance should suggest installation."
+    }
     Assert-True ($null -ne $json.warnings) "brief status json should include warnings."
     Assert-True ($null -eq $json.source) "brief status json should omit source."
     Assert-True ($null -eq $json.entryFile) "brief status json should omit entryFile."

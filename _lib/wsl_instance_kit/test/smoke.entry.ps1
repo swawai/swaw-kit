@@ -22,6 +22,8 @@ function Test-EntryTemplateShape {
     Assert-True ($EntryTemplate.Contains("WSL_SSH_public_key")) "entry template should declare WSL_SSH_public_key."
     Assert-True ($EntryTemplate.Contains("WSL_env_file")) "entry template should declare WSL_env_file."
     Assert-True (-not ($EntryTemplate -match '(?m)^\s*set\s+"WSL_env_file=')) "entry template should leave WSL_env_file disabled by default."
+    Assert-True ($EntryTemplate -match '(?m)^"%WSL_KIT%"[ \t]*$') "entry template should tail-call the WSL Kit."
+    Assert-True (-not $EntryTemplate.Contains('call "%WSL_KIT%"')) "entry template must not CALL the WSL Kit."
 }
 
 function Test-GitAttributesCommandLineEndings {

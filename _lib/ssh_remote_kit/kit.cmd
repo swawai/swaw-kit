@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-setlocal
+setlocal DisableDelayedExpansion
 if "%~1"=="-h" goto :ShowHelp
 if "%~1"=="--help" goto :ShowHelp
 if "%~1"=="/?" goto :ShowHelp
@@ -28,6 +28,8 @@ set "verb=%~5"
 set "arg1=%~6"
 set "arg2=%~7"
 set "arg3=%~8"
+if /i "%verb%"=="code" if not "%REMOTE_KIT_PROTOCOL%"=="2" goto :EditorEntryProtocolRequired
+if /i "%verb%"=="cursor" if not "%REMOTE_KIT_PROTOCOL%"=="2" goto :EditorEntryProtocolRequired
 set "useSshConfigHost="
 if defined REMOTE_KIT_ENTRY_FILE goto :InitEmbeddedSshConfigHost
 if defined REMOTE_SSH_HOST set "useSshConfigHost=1"
@@ -229,8 +231,9 @@ call :ResolveRemotePath "%remoteArg%"
 if errorlevel 1 exit /b 1
 call :InstallSshConfig
 if errorlevel 1 exit /b 1
-echo %editorExe% --remote=%VSCODE_REMOTE% "%remotePath%"
-call %editorExe% --remote=%VSCODE_REMOTE% "%remotePath%"
+set "editorTarget=%remotePath%"
+set "editorRemoteAuthority=%VSCODE_REMOTE%"
+call :LaunchEditor
 exit /b %ERRORLEVEL%
 :InstallSshConfig
 if /i not "%REMOTE_SSH_CONFIG%"=="embedded" exit /b 0
@@ -332,7 +335,9 @@ if errorlevel 1 (
 echo SFTP config written: "%sftpFile%"
 :OpenSftpWorkspace
 echo SFTP config is ready. Required extension: SFTP by Natizyskunk
-call %editorExe% "%localPath%"
+set "editorTarget=%localPath%"
+set "editorRemoteAuthority="
+call :LaunchEditor
 exit /b %ERRORLEVEL%
 :ScpRemoteToRemote
 set "src=%copySrc:~1%"
@@ -387,6 +392,25 @@ if "%remoteHome%"=="$HOME" (
     exit /b 1
 )
 exit /b 0
+:EditorEntryProtocolRequired
+echo [ERROR] This remote entry predates the clean editor bootstrap.
+echo [ERROR] Update its header from vps1.cmd before using %verb%.
+exit /b 1
+:LaunchEditor
+set "editorReuseFlag="
+if /i "%WIN_RUN_EDITOR_BOOTSTRAP%"=="%editorExe%" set "editorReuseFlag=1"
+set "WIN_RUN_EDITOR_BOOTSTRAP="
+set "WIN_RUN_REMOTE_EDITOR_TARGET=%editorTarget%"
+set "WIN_RUN_REMOTE_EDITOR_AUTHORITY=%editorRemoteAuthority%"
+if defined editorReuseFlag (
+    PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0editor-launch.ps1" -Tool "%editorExe%" -ReuseBootstrapWindow
+) else (
+    PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0editor-launch.ps1" -Tool "%editorExe%"
+)
+set "editorLaunchResult=%ERRORLEVEL%"
+set "WIN_RUN_REMOTE_EDITOR_TARGET="
+set "WIN_RUN_REMOTE_EDITOR_AUTHORITY="
+exit /b %editorLaunchResult%
 :InvalidArgs
 echo Unrecognized argument combination. Run -h to view usage.
 exit /b 1

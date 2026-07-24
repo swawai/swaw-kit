@@ -72,7 +72,12 @@ function Initialize-FakeTools {
     [System.IO.File]::WriteAllText((Join-Path $BinDir "ssh.cmd"), "@echo off`r`necho FAKE_SSH %*>>`"%REMOTE_KIT_FAKE_LOG%`"`r`necho /home/root`r`nexit /b 0`r`n", $encoding)
     [System.IO.File]::WriteAllText((Join-Path $BinDir "scp.cmd"), "@echo off`r`necho FAKE_SCP %*>>`"%REMOTE_KIT_FAKE_LOG%`"`r`nexit /b 0`r`n", $encoding)
     [System.IO.File]::WriteAllText((Join-Path $BinDir "code.cmd"), "@echo off`r`necho FAKE_CODE %*>>`"%REMOTE_KIT_FAKE_LOG%`"`r`nexit /b 0`r`n", $encoding)
-    [System.IO.File]::WriteAllText((Join-Path $BinDir "cursor.cmd"), "@echo off`r`necho FAKE_CURSOR %*>>`"%REMOTE_KIT_FAKE_LOG%`"`r`nexit /b 0`r`n", $encoding)
+    [System.IO.File]::WriteAllText((Join-Path $BinDir "cursor.cmd"), "@echo off`r`nif /i `"%~1`"==`"--help`" (`r`n  echo   --classic  Open the classic IDE`r`n  exit /b 0`r`n)`r`necho FAKE_CURSOR %*>>`"%REMOTE_KIT_FAKE_LOG%`"`r`nexit /b 0`r`n", $encoding)
+    [System.IO.File]::WriteAllText(
+        (Join-Path $BinDir "PowerShell.cmd"),
+        "@echo off`r`necho %* | findstr /i /c:`"entry-bootstrap.ps1`" >nul`r`nif not errorlevel 1 exit /b 0`r`n`"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`" %*`r`nexit /b %ERRORLEVEL%`r`n",
+        $encoding
+    )
 }
 
 function Invoke-Entry {

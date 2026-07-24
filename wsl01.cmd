@@ -95,8 +95,7 @@ shift /1
 goto :ArgLoop
 
 :RunWslKit
-call "%WSL_KIT%"
-exit /b %ERRORLEVEL%
+"%WSL_KIT%"
 
 :WriteError
 for /F "delims=" %%E in ('echo prompt $E^| cmd') do set "ESC=%%E"
