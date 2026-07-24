@@ -188,8 +188,8 @@ function Assert-InjectedConfigPair {
 function Test-EntryTemplateDeclaresOneAccessDescriptor {
     $content = [System.IO.File]::ReadAllText($entryFile)
     Assert-True ($content.Contains('set "GIT_ID_ACCESS=')) "entry template should declare GIT_ID_ACCESS."
-    Assert-True ($content -match '(?m)^:: set "GIT_ID_ACCESS=https\.github:host=[^;"]+;account=[^"]+"\r?$') "entry template should document an explicit GitHub HTTPS descriptor."
-    Assert-True ($content -match '(?m)^:: set "GIT_ID_ACCESS=https\.gitlab:host=[^;"]+;account=[^"]+"\r?$') "entry template should document an explicit GitLab HTTPS descriptor."
+    Assert-True ($content -match '(?m)^(?::: )?set "GIT_ID_ACCESS=https\.github:host=[^;"]+;account=[^"]+"\r?$') "entry template should document an explicit GitHub HTTPS descriptor."
+    Assert-True ($content -match '(?m)^(?::: )?set "GIT_ID_ACCESS=https\.gitlab:host=[^;"]+;account=[^"]+"\r?$') "entry template should document an explicit GitLab HTTPS descriptor."
     Assert-True (-not $content.Contains('set "GIT_SSH_VARIANT=')) "entry template should not expose the internally fixed OpenSSH variant."
 }
 
