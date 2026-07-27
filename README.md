@@ -1,4 +1,6 @@
-# win-run-toolbox
+# swaw-kit
+
+（仓库原名 win-run-toolbox，现已改名 swaw-kit）
 
 Windows 开发/运维常见痛点工具箱。目标是一键：
 
@@ -12,23 +14,34 @@ Windows 开发/运维常见痛点工具箱。目标是一键：
 以及，一键将仓库目录加入用户 PATH
 
 
-## 示例
+## 开始使用
 
-```cmd
-porttask.cmd 80*     # 查询 80* 端口占用程序
-taskport.cmd chrome  # 查询 chrome 进程占用端口
-tcpview.exe          # GUI 程序, 总览系统 TCP/UDP 端口/进程 (微软 sysinternals 组件)
-portrule.cmd         # 交互式管理防火墙入站规则
-psping qq.com:80     # TCP ping 80 端口 (微软 sysinternals 组件)
-vps2.cmd  --help     # 管理指定 SSH 主机，copy vps1.cmd   vps2.cmd   后修改其中主机信息）
-wsl02.cmd --help     # 管理指定 WSL 实例，copy wsl01.cmd  wsl02.cmd  后修改其中实例信息）
-git2.cmd  --help     # 应用指定 Git 身份，copy git1.cmd  git2.cmd   后修改其中账号信息）
+工具和入口模板，默认收纳在：`Favorites/`，请按需复制到仓库根目录，例如：
+
+```powershell
+copy Favorites\porttask.cmd .\
+copy Favorites\taskport.cmd .\
+copy Favorites\portrule.cmd .\
+
+copy Favorites\template.vps1.cmd   vps2.cmd   # 复制后修改 vps2.cmd  中定义的 VPS 主机信息
+copy Favorites\template.wsl01.cmd  wsl02.cmd  # 复制后修改 wsl02.cmd 中定义的子系统实例信息
+copy Favorites\template.git1.cmd   git2.cmd   # 复制后修改 git2.cmd  中定义的 Git 身份信息
 ```
 
->命令脚本名，如带点号，如 vps.2.cmd，在 Win+R 中执行 vps.2 可能会报错。
+根目录已设置.gitignore，.cmd 等文件会被忽略提交。
 
+## 示例
 
+| 命令 | 用途 |
+| --- | --- |
+| `porttask.cmd 80*` | 查询 `80*` 端口占用程序 |
+| `taskport.cmd chrome` | 查询 `chrome` 进程占用端口 |
+| `portrule.cmd` | 交互式管理防火墙入站规则 |
+| `vps2.cmd --help` | 管理复制并配置好的 SSH 主机入口 |
+| `wsl02.cmd --help` | 管理复制并配置好的 WSL 实例入口 |
+| `git2.cmd --help` | 应用复制并配置好的 Git 身份入口 |
 
+> 命令脚本名如带点号，例如 `vps.2.cmd`，在 Win+R 中执行 `vps.2` 可能会报错。
 
 
 
@@ -36,15 +49,17 @@ git2.cmd  --help     # 应用指定 Git 身份，copy git1.cmd  git2.cmd   后�
 
 克隆仓库后，双击：
 
-    pathhereadd.cmd
+    PathHereAdd.cmd
 
-它会将当前工具箱目录，幂等加入当前用户的 `PATH`。
+它会将脚本自身所在（也就是仓库根目录），幂等加入当前用户的 `PATH`。
+
+所以 `Favorites/` 中的工具脚本，要按需复制到仓库根目录。
 
 撤销：
 
-    pathhereremove.cmd
+    PathHereRemove.cmd
 
-它会把该目录从当前用户 `PATH` 中安全移除。
+它会把自身所在目录从当前用户 `PATH` 中安全移除。
 
 
 ## 会不会改坏 PATH？
@@ -59,26 +74,32 @@ git2.cmd  --help     # 应用指定 Git 身份，copy git1.cmd  git2.cmd   后�
 5. 支持空格、中文、&、%、!、括号等路径字符
 6. 删除时把 `PATH` 按分号拆成一个个目录项，再做完整项匹配；所以删除如 `C:\Tools` 时，不会误伤 `C:\ToolsExtra`。
 7. 如果同一个目录重复出现，删除脚本会把所有匹配项都清掉。
-8. 脚本同目录的 `pathhere.backup.log`，里面有每次操作前备份的原始用户 `PATH`，可做最后保障。
+8. `data/PathHere.backup.log` 中保存每次操作前的原始用户 `PATH`，可做最后保障。
 ```
 
-> `PATH` 本身用分号分隔目录项，所以切勿吧仓库克隆到路径带`;`号的位置。
+> `PATH` 本身用分号分隔目录项，所以切勿把仓库克隆到路径带 `;` 号的位置。
 
 
 ## 边界和风险
 
 1. 修改环境变量后，已经打开的终端不会自动刷新。
 
-2. 目录都加入 `PATH`，可能带来命令名冲突。如：系统本来有`cmd`命令，你追加的目录中若同名命令，系统的会被你覆盖。
+2. 目录都加入 `PATH`，可能带来命令名冲突。如：系统本来有`cmd`命令，你追加的目录中若有同名命令，系统的会被你覆盖。
 
 
 ## Docs
+
 WSL 实例管理：https://swaw.com/zh/p/swaw-kit-wsl-release/  
 SSH 主机管理：https://swaw.com/zh/p/ssh-remote-kit-windows/  
 Git 多身份管理：https://swaw.com/zh/p/swaw-kit-git/
 
-## 微软 sysinternals
-
-含有许多强大工具，可以自行下载，按需加入：
+## 微软 Sysinternals
 
 https://learn.microsoft.com/en-us/sysinternals/
+
+含有许多强大工具（按协议，本仓库不能内置），可以自行下载，按需加入，例如：
+
+```powershell
+tcpview.exe          # GUI 程序, 总览系统 TCP/UDP 端口/进程
+psping qq.com:80     # TCP ping 80 端口
+```

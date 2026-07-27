@@ -1,14 +1,10 @@
 .env
 .vscode/
-data/
-temp_workspace/
+/data/
+/temp_workspace/
 
 # Root CMD files are user-local copies unless explicitly kept.
 /*.cmd
-!/pathhereadd.cmd
-!/pathhereremove.cmd
+!/PathHereAdd.cmd
+!/PathHereRemove.cmd
 !/xvenv.cmd
-
-
-.xvenv/
-pathhere.backup.log
