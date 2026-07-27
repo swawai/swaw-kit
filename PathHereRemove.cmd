@@ -1,11 +1,21 @@
 <# :
-@echo off&chcp 65001>nul&set "WIN_RUN_TOOLBOX_SELF=%~f0"&set "WIN_RUN_TOOLBOX_TARGET=%~1"&powershell -nop -ep bypass -c "&{&([scriptblock]::create([IO.File]::ReadAllText($env:WIN_RUN_TOOLBOX_SELF)))}"&&exit /b 0||exit /b 1
+@echo off
+chcp 65001 >nul
+if not "%~1"=="" (
+    echo [ERROR] PathHereRemove.cmd does not accept arguments.
+    exit /b 64
+)
+setlocal DisableDelayedExpansion
+set "SWAW_KIT_SELF=%~f0"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& { & ([scriptblock]::Create([IO.File]::ReadAllText($env:SWAW_KIT_SELF))) }"
+exit /b %ERRORLEVEL%
 #>$ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 
-$ScriptFile = $env:WIN_RUN_TOOLBOX_SELF
+$ScriptFile = $env:SWAW_KIT_SELF
 $ScriptDir = Split-Path -Parent $ScriptFile
-$BackupFile = Join-Path $ScriptDir 'pathhere.backup.log'
+$DataDir = Join-Path $ScriptDir 'data'
+$BackupFile = Join-Path $DataDir 'PathHere.backup.log'
 
 function Trim-PathTail {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -91,9 +101,9 @@ function Set-UserPathRecord {
 }
 
 function Send-EnvironmentChanged {
-    $TypeName = 'WinRunToolbox.NativeMethods'
+    $TypeName = 'SwawKit.NativeMethods'
     if (-not ($TypeName -as [type])) {
-        Add-Type -Namespace WinRunToolbox -Name NativeMethods -MemberDefinition @'
+        Add-Type -Namespace SwawKit -Name NativeMethods -MemberDefinition @'
 [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError=true, CharSet=System.Runtime.InteropServices.CharSet.Auto)]
 public static extern System.IntPtr SendMessageTimeout(
     System.IntPtr hWnd,
@@ -107,7 +117,7 @@ public static extern System.IntPtr SendMessageTimeout(
     }
 
     $Result = [UIntPtr]::Zero
-    [void][WinRunToolbox.NativeMethods]::SendMessageTimeout(
+    [void][SwawKit.NativeMethods]::SendMessageTimeout(
         [IntPtr]0xffff,
         0x001A,
         [UIntPtr]::Zero,
@@ -118,73 +128,45 @@ public static extern System.IntPtr SendMessageTimeout(
     )
 }
 
-if (-not [string]::IsNullOrWhiteSpace($env:WIN_RUN_TOOLBOX_TARGET)) {
-    $TargetInput = $env:WIN_RUN_TOOLBOX_TARGET
-}
-else {
-    $TargetInput = (Get-Location).Path
-}
-
-try {
-    $TargetItem = Get-Item -LiteralPath $TargetInput -ErrorAction Stop
-}
-catch {
-    Write-Host "[ERROR] Directory does not exist: $TargetInput" -ForegroundColor Red
-    exit 1
-}
-
-if (-not $TargetItem.PSIsContainer) {
-    Write-Host "[ERROR] Target is not a directory: $TargetInput" -ForegroundColor Red
-    exit 1
-}
-
-$TargetPath = Trim-PathTail $TargetItem.FullName
+$TargetPath = Trim-PathTail ([IO.Path]::GetFullPath($ScriptDir))
 $TargetKey = Get-PathKey $TargetPath
 $PathRecord = Get-UserPathRecord
 $CurrentUserPath = $PathRecord.Value
-
-$Entries = Get-UserPathEntries $CurrentUserPath
-$Exists = $false
-foreach ($Entry in $Entries) {
-    if ([string]::IsNullOrWhiteSpace($Entry)) {
-        continue
-    }
-    if ((Get-PathKey $Entry) -eq $TargetKey) {
-        $Exists = $true
-        break
-    }
+if ([string]::IsNullOrWhiteSpace($CurrentUserPath)) {
+    Write-Host "[SKIP] Current user PATH is empty." -ForegroundColor Yellow
+    exit 0
 }
 
-Write-Host "Add this path to your user PATH"
+$Entries = Get-UserPathEntries $CurrentUserPath
+$Remaining = @()
+$RemovedCount = 0
+
+foreach ($Entry in $Entries) {
+    if (-not [string]::IsNullOrWhiteSpace($Entry) -and (Get-PathKey $Entry) -eq $TargetKey) {
+        $RemovedCount++
+        continue
+    }
+    $Remaining += $Entry
+}
+
+Write-Host "Remove this path from your user PATH"
 Write-Host $TargetPath
 Write-Host
 
-if ($Exists) {
-    Write-Host "[SKIP] Target path already exists in user PATH." -ForegroundColor Yellow
+if ($RemovedCount -eq 0) {
+    Write-Host "[SKIP] Target path was not found in current user PATH." -ForegroundColor Yellow
     exit 0
 }
 
 $Stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'
-Add-Content -LiteralPath $BackupFile -Encoding UTF8 -Value "USER-PATH_PRE-ADD [$Stamp] $CurrentUserPath"
+[IO.Directory]::CreateDirectory($DataDir) | Out-Null
+Add-Content -LiteralPath $BackupFile -Encoding UTF8 -Value "USER-PATH_PRE-DEL [$Stamp] $CurrentUserPath"
 
-if ([string]::IsNullOrWhiteSpace($CurrentUserPath)) {
-    $NewUserPath = $TargetPath
-}
-else {
-    $BaseUserPath = $CurrentUserPath.TrimEnd(';')
-    $TrailingSeparators = $CurrentUserPath.Substring($BaseUserPath.Length)
-    if ([string]::IsNullOrWhiteSpace($BaseUserPath)) {
-        $NewUserPath = $TargetPath + $TrailingSeparators
-    }
-    else {
-        $NewUserPath = $BaseUserPath + ';' + $TargetPath + $TrailingSeparators
-    }
-}
-
+$NewUserPath = [string]::Join(';', $Remaining)
 Set-UserPathRecord -Record $PathRecord -Value $NewUserPath
 Send-EnvironmentChanged
 
-Write-Host "[OK] Added to current user PATH." -ForegroundColor Green
+Write-Host "[OK] Removed $RemovedCount matching entries from current user PATH." -ForegroundColor Green
 Write-Host "Backup: $BackupFile"
-Write-Host "Tip: Reopen terminals or Win+R before using the new PATH."
+Write-Host "Tip: Reopen terminals or Win+R before relying on the updated PATH."
 
