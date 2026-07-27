@@ -139,7 +139,7 @@ function Open-Editor {
 
     if ((Get-WslKitProtocolMajor $script:Config.Protocol) -ne "2") {
         Write-Fail "This WSL entry uses protocol $($script:Config.Protocol), which predates the clean editor bootstrap."
-        Write-Fail "Update its header from wsl01.cmd before using .$Editor."
+        Write-Fail "Update its header from Favorites\template.wsl01.cmd before using .$Editor."
         return 1
     }
 

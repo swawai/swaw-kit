@@ -1,10 +1,10 @@
-if (-not ("WinRunToolbox.EditorKit.NativeWindows" -as [type])) {
+if (-not ("SwawKit.EditorKit.NativeWindows" -as [type])) {
     Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace WinRunToolbox.EditorKit {
+namespace SwawKit.EditorKit {
     public static class NativeWindows {
         public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -99,35 +99,35 @@ function Get-EditorKitWindows {
     }
 
     $windows = [Collections.Generic.List[object]]::new()
-    $callback = [WinRunToolbox.EditorKit.NativeWindows+EnumWindowsProc]{
+    $callback = [SwawKit.EditorKit.NativeWindows+EnumWindowsProc]{
         param([IntPtr]$handle, [IntPtr]$unused)
 
-        if (-not [WinRunToolbox.EditorKit.NativeWindows]::IsWindowVisible($handle)) {
+        if (-not [SwawKit.EditorKit.NativeWindows]::IsWindowVisible($handle)) {
             return $true
         }
 
         [uint32]$ownerPid = 0
-        [void][WinRunToolbox.EditorKit.NativeWindows]::GetWindowThreadProcessId($handle, [ref]$ownerPid)
+        [void][SwawKit.EditorKit.NativeWindows]::GetWindowThreadProcessId($handle, [ref]$ownerPid)
         $process = $processes[[int]$ownerPid]
         if (-not $process) {
             return $true
         }
 
         $className = [Text.StringBuilder]::new(256)
-        [void][WinRunToolbox.EditorKit.NativeWindows]::GetClassName($handle, $className, $className.Capacity)
+        [void][SwawKit.EditorKit.NativeWindows]::GetClassName($handle, $className, $className.Capacity)
         if (-not $className.ToString().StartsWith("Chrome_WidgetWin_", [StringComparison]::Ordinal)) {
             return $true
         }
 
-        $placement = New-Object WinRunToolbox.EditorKit.NativeWindows+WINDOWPLACEMENT
+        $placement = New-Object SwawKit.EditorKit.NativeWindows+WINDOWPLACEMENT
         $placement.length = [Runtime.InteropServices.Marshal]::SizeOf($placement)
-        $hasPlacement = [WinRunToolbox.EditorKit.NativeWindows]::GetWindowPlacement($handle, [ref]$placement)
+        $hasPlacement = [SwawKit.EditorKit.NativeWindows]::GetWindowPlacement($handle, [ref]$placement)
         $normal = $placement.rcNormalPosition
-        $frame = New-Object WinRunToolbox.EditorKit.NativeWindows+RECT
+        $frame = New-Object SwawKit.EditorKit.NativeWindows+RECT
         $frameSize = [Runtime.InteropServices.Marshal]::SizeOf($frame)
-        $hasFrame = [WinRunToolbox.EditorKit.NativeWindows]::DwmGetWindowAttribute($handle, 9, [ref]$frame, $frameSize) -eq 0
+        $hasFrame = [SwawKit.EditorKit.NativeWindows]::DwmGetWindowAttribute($handle, 9, [ref]$frame, $frameSize) -eq 0
         if (-not $hasFrame) {
-            $hasFrame = [WinRunToolbox.EditorKit.NativeWindows]::GetWindowRect($handle, [ref]$frame)
+            $hasFrame = [SwawKit.EditorKit.NativeWindows]::GetWindowRect($handle, [ref]$frame)
         }
 
         $windows.Add([pscustomobject]@{
@@ -148,6 +148,6 @@ function Get-EditorKitWindows {
         return $true
     }
 
-    [void][WinRunToolbox.EditorKit.NativeWindows]::EnumWindows($callback, [IntPtr]::Zero)
+    [void][SwawKit.EditorKit.NativeWindows]::EnumWindows($callback, [IntPtr]::Zero)
     return @($windows)
 }

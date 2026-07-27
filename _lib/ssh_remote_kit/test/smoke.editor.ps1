@@ -2,7 +2,11 @@ $ErrorActionPreference = "Stop"
 
 $script:EditorRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $script:EditorKitRoot = Join-Path $script:EditorRepoRoot "_lib\ssh_remote_kit"
-$script:EditorEntry = Join-Path $script:EditorRepoRoot "vps1.cmd"
+. (Join-Path $script:EditorRepoRoot "_lib\test_support\template-entry.ps1")
+$script:EditorEntry = New-SwawKitTestTemplateEntry `
+    -RepoRoot $script:EditorRepoRoot `
+    -TemplateName "template.vps1.cmd" `
+    -EntryName "test.template.vps1.cmd"
 $script:EditorKitCmd = Join-Path $script:EditorKitRoot "kit.cmd"
 $script:EditorLaunch = Join-Path $script:EditorKitRoot "editor-launch.ps1"
 
@@ -306,9 +310,15 @@ function Test-RemoteEditorKitContract {
     }
 }
 
-Test-RemoteEditorArgumentContract
-Test-RemoteEditorEntryContract
-Test-RemoteEditorCmdLineEndings
-Test-RemoteEditorBootstrapFailure
-Test-RemoteEditorKitContract
-Write-Host "ssh remote kit editor smoke ok" -ForegroundColor Green
+try {
+    Test-RemoteEditorArgumentContract
+    Test-RemoteEditorEntryContract
+    Test-RemoteEditorCmdLineEndings
+    Test-RemoteEditorBootstrapFailure
+    Test-RemoteEditorKitContract
+    Write-Host "ssh remote kit editor smoke ok" -ForegroundColor Green
+} finally {
+    Remove-SwawKitTestTemplateEntry `
+        -RepoRoot $script:EditorRepoRoot `
+        -EntryPath $script:EditorEntry
+}

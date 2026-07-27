@@ -43,7 +43,7 @@ function Get-WslAliveMinimumSeconds {
 }
 
 function Get-WslAliveTaskPath {
-    return "\win-run-toolbox\wsl_instance_kit\"
+    return "\swaw-kit\wsl_instance_kit\"
 }
 
 function Get-WslAliveTaskIdentity {
@@ -163,7 +163,7 @@ function Get-WslAliveCurrentUser {
 function Get-WslAliveDescription {
     param([pscustomobject]$Spec)
 
-    return "win-run-toolbox WSL alive; mode=$($Spec.Mode); seconds=$($Spec.Seconds); command=$($script:Config.CommandName); wsl=$($script:Config.Name)"
+    return "swaw-kit WSL alive; mode=$($Spec.Mode); seconds=$($Spec.Seconds); command=$($script:Config.CommandName); wsl=$($script:Config.Name)"
 }
 
 function New-WslAliveTaskXml {

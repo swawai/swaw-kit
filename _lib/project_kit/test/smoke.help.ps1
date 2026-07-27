@@ -4,7 +4,7 @@ param()
 $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryFile = Join-Path $repoRoot "proj1.cmd"
+. (Join-Path $repoRoot "_lib\test_support\template-entry.ps1")
 
 function Assert-True {
     param(
@@ -50,16 +50,20 @@ function Set-EntryLine {
 }
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("project-kit-help-" + [guid]::NewGuid().ToString("N"))
-$entryName = "proj1.help-smoke-" + [guid]::NewGuid().ToString("N")
-$smokeEntry = Join-Path $repoRoot "$entryName.cmd"
+$entryName = "test.template.proj1"
+$smokeEntry = $null
 $oldLanguage = $env:PROJECT_HELP_LANG
 
 try {
+    $smokeEntry = New-SwawKitTestTemplateEntry `
+        -RepoRoot $repoRoot `
+        -TemplateName "template.proj1.cmd" `
+        -EntryName "$entryName.cmd"
     New-Item -ItemType Directory -Path $tempRoot | Out-Null
     $missingProject = Join-Path $tempRoot "missing-project"
     $dataRoot = Join-Path $tempRoot "data"
 
-    $content = [System.IO.File]::ReadAllText($entryFile)
+    $content = [System.IO.File]::ReadAllText($smokeEntry)
     $content = Set-EntryLine $content "PROJECT_DIR" $missingProject
     $content = Set-EntryLine $content "PROJECT_DATA_ROOT" $dataRoot
     $crlf = [string][char]13 + [char]10
@@ -122,6 +126,6 @@ try {
     Assert-True ($notImplemented.Contains("$entryName --help")) "non-help errors should point to the actual entry command."
 } finally {
     $env:PROJECT_HELP_LANG = $oldLanguage
-    Remove-Item -LiteralPath $smokeEntry -Force -ErrorAction SilentlyContinue
+    Remove-SwawKitTestTemplateEntry -RepoRoot $repoRoot -EntryPath $smokeEntry
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }

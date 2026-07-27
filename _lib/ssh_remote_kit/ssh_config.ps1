@@ -182,7 +182,7 @@ function New-RemoteKitSshConfigIncludeLine {
     )
 
     $sshPath = ConvertTo-RemoteKitSshConfigPath $ConfigPath
-    return "Include `"$sshPath`" # win-run-toolbox host=$HostAlias id=$script:RemoteKitSshConfigIncludeId"
+    return "Include `"$sshPath`" # swaw-kit host=$HostAlias id=$script:RemoteKitSshConfigIncludeId"
 }
 
 function Test-RemoteKitManagedIncludeLine {

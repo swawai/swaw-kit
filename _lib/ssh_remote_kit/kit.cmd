@@ -394,7 +394,7 @@ if "%remoteHome%"=="$HOME" (
 exit /b 0
 :EditorEntryProtocolRequired
 echo [ERROR] This remote entry predates the clean editor bootstrap.
-echo [ERROR] Update its header from vps1.cmd before using %verb%.
+echo [ERROR] Update its header from Favorites\template.vps1.cmd before using %verb%.
 exit /b 1
 :LaunchEditor
 set "editorReuseFlag="

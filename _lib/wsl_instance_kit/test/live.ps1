@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "live.lib.ps1")
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryTemplate = Join-Path $repoRoot "wsl01.cmd"
+$entryTemplate = Join-Path $repoRoot "Favorites\template.wsl01.cmd"
 $liveRoot = Join-Path $repoRoot "data\wsl.live"
 $liveBackupRoot = Join-Path $repoRoot "data\wsl.live.backup"
 

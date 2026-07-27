@@ -7,7 +7,7 @@ function Get-EditorWindows {
 
     return @(Get-EditorKitWindows $Tool | ForEach-Object {
         $_ | Add-Member -NotePropertyName Marker -NotePropertyValue (
-            [WinRunToolbox.EditorKit.NativeWindows]::GetProp(
+            [SwawKit.EditorKit.NativeWindows]::GetProp(
                 [IntPtr]::new([long]$_.Hwnd),
                 $script:EditorLeasePropertyName
             ).ToInt64()
@@ -29,7 +29,7 @@ function Set-EditorWindowMarker {
         $random.Dispose()
     }
 
-    $written = [WinRunToolbox.EditorKit.NativeWindows]::SetProp(
+    $written = [SwawKit.EditorKit.NativeWindows]::SetProp(
         [IntPtr]::new($Handle),
         $script:EditorLeasePropertyName,
         [IntPtr]::new($marker)
@@ -42,7 +42,7 @@ function Set-EditorWindowMarker {
 
 function Clear-EditorWindowMarker {
     param([long]$Handle)
-    [void][WinRunToolbox.EditorKit.NativeWindows]::RemoveProp(
+    [void][SwawKit.EditorKit.NativeWindows]::RemoveProp(
         [IntPtr]::new($Handle),
         $script:EditorLeasePropertyName
     )

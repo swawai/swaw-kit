@@ -14,6 +14,8 @@ function Test-WslAliveHeadlessTaskAction {
             Mode    = "duration"
             Seconds = 123
         }
+        $task = Get-WslAliveTaskIdentity
+        Assert-True ($task.Path -ceq "\swaw-kit\wsl_instance_kit\") "alive tasks should use the swaw-kit task folder."
         $durationAction = Get-WslAliveTaskAction $duration
         Assert-True ($durationAction.Command -ieq "conhost.exe") "duration alive task should use the headless console host."
         Assert-True ($durationAction.Arguments.StartsWith("--headless powershell.exe")) "duration alive task should run PowerShell inside a headless console."

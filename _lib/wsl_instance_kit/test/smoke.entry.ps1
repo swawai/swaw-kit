@@ -22,7 +22,7 @@ function Test-EntryTemplateShape {
     Assert-True ($EntryTemplate.Contains("WSL_SSH_public_key")) "entry template should declare WSL_SSH_public_key."
     Assert-True ($EntryTemplate.Contains("WSL_env_file")) "entry template should declare WSL_env_file."
     Assert-True (-not ($EntryTemplate -match '(?m)^\s*set\s+"WSL_env_file=')) "entry template should leave WSL_env_file disabled by default."
-    Assert-True ($EntryTemplate -match '(?m)^"%WSL_KIT%"[ \t]*$') "entry template should tail-call the WSL Kit."
+    Assert-True ($EntryTemplate -match '(?m)^"%WSL_KIT%"[ \t]*\r?$') "entry template should tail-call the WSL Kit."
     Assert-True (-not $EntryTemplate.Contains('call "%WSL_KIT%"')) "entry template must not CALL the WSL Kit."
 }
 
@@ -31,6 +31,7 @@ function Test-GitAttributesCommandLineEndings {
     Assert-True (Test-Path -LiteralPath $attributesPath -PathType Leaf) ".gitattributes should declare command-script line endings."
 
     $attributesText = [System.IO.File]::ReadAllText($attributesPath)
+    Assert-True ($attributesText -match '(?m)^\*\s+text=auto\s+eol=lf\r?$') ".gitattributes should force non-command text files to LF."
     Assert-True ($attributesText -match '(?m)^\*\.cmd\s+.*\btext\b.*\beol=crlf\b') ".gitattributes should force .cmd files to CRLF."
     Assert-True ($attributesText -match '(?m)^\*\.bat\s+.*\btext\b.*\beol=crlf\b') ".gitattributes should force .bat files to CRLF."
 }

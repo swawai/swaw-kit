@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
 $guard = Join-Path $repoRoot "_lib\git_identity_kit\https-credential-guard.cmd"
 $guardScript = Join-Path $repoRoot "_lib\git_identity_kit\https-credential-guard.ps1"
-$entryTemplate = Join-Path $repoRoot "git1.cmd"
+. (Join-Path $repoRoot "_lib\test_support\template-entry.ps1")
 $tempBase = Join-Path $repoRoot "temp_workspace"
 
 function Assert-True {
@@ -330,9 +330,14 @@ Test-HttpsHostMismatchQuits
 Test-GitLabRequiresOAuthCredentialUser
 Test-MatchingRequestDelegatesToCredentialManager
 
+$entryTemplate = $null
 $entry = $null
 $tempRoot = Join-Path $tempBase ("credential-guard-smoke-" + [guid]::NewGuid().ToString("N"))
 try {
+    $entryTemplate = New-SwawKitTestTemplateEntry `
+        -RepoRoot $repoRoot `
+        -TemplateName "template.git1.cmd" `
+        -EntryName "test.template.git1.cmd"
     New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
     $entry = New-HttpsEntry $tempRoot
     Test-EntryStopsCredentialHelperChain $entry
@@ -340,4 +345,5 @@ try {
     Test-SyncedRepositoryStopsCredentialHelperChain $entry
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SwawKitTestTemplateEntry -RepoRoot $repoRoot -EntryPath $entryTemplate
 }

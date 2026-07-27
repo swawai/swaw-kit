@@ -2,9 +2,14 @@
 param()
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryFile = Join-Path $repoRoot "git1.cmd"
+. (Join-Path $repoRoot "_lib\test_support\template-entry.ps1")
+$entryFile = New-SwawKitTestTemplateEntry `
+    -RepoRoot $repoRoot `
+    -TemplateName "template.git1.cmd" `
+    -EntryName "test.template.git1.cmd"
 $tempBase = Join-Path $repoRoot "temp_workspace"
 
 function Assert-True {
@@ -213,7 +218,7 @@ function Test-HelpUsesWrapperHelp {
         $chineseTemplate = [System.IO.File]::ReadAllText((Join-Path $repoRoot "_lib\git_identity_kit\help\zh-CN.txt"), [System.Text.Encoding]::UTF8)
         $signatureDiff = @(Compare-Object (Get-HelpCommandSignatures $englishTemplate) (Get-HelpCommandSignatures $chineseTemplate))
         Assert-True ($signatureDiff.Count -eq 0) "English and Chinese help should expose the same command signatures."
-        Assert-True ($englishTemplate -match '(?m)^  \{\{COMMAND\}\} \.help zh\s+[^\x00-\x7F]+$') "the Chinese help switch should describe itself in Chinese."
+        Assert-True ($englishTemplate -match '(?m)^  \{\{COMMAND\}\} \.help zh\s+[^\x00-\x7F]+\r?$') "the Chinese help switch should describe itself in Chinese."
         Assert-True ($chineseTemplate.Contains("{{COMMAND}} .help en             Show English help.")) "the English help switch should describe itself in English."
         Assert-True ($output.Contains(".info")) "help should document the identity diagnostic command."
         Assert-True ($output.Contains(".sync --dry-run")) "help should document sync dry-run."
@@ -615,4 +620,5 @@ try {
     }
 
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SwawKitTestTemplateEntry -RepoRoot $repoRoot -EntryPath $entryFile
 }

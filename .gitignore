@@ -3,17 +3,10 @@
 data/
 temp_workspace/
 
-
+# Root CMD files are user-local copies unless explicitly kept.
 /*.cmd
 !/pathhereadd.cmd
 !/pathhereremove.cmd
-!/portrule.cmd
-!/porttask.cmd
-!/taskport.cmd
-!/vps1.cmd
-!/wsl01.cmd
-!/git1.cmd
-!/proj1.cmd
 !/xvenv.cmd
 
 

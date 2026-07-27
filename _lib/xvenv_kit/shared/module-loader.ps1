@@ -149,7 +149,7 @@ function Assert-XvenvModuleHandlers {
 function Import-XvenvModuleCatalog {
     param([Parameter(Mandatory = $true)][string]$ModuleRoot)
 
-    # This loader is for trusted modules shipped with win-run-toolbox.
+    # This loader is for trusted modules shipped with swaw-kit.
     # Project directories and third-party plugin roots must never be passed here.
     $Root = Get-XvenvFullPath $ModuleRoot
     if (-not [IO.Directory]::Exists($Root)) {

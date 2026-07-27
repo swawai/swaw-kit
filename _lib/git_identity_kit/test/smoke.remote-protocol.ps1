@@ -4,7 +4,11 @@ param()
 $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryFile = Join-Path $repoRoot "git1.cmd"
+. (Join-Path $repoRoot "_lib\test_support\template-entry.ps1")
+$entryFile = New-SwawKitTestTemplateEntry `
+    -RepoRoot $repoRoot `
+    -TemplateName "template.git1.cmd" `
+    -EntryName "test.template.git1.cmd"
 $tempBase = Join-Path $repoRoot "temp_workspace"
 
 function Assert-True {
@@ -291,7 +295,7 @@ function Test-InvalidOriginCommandDoesNotMutate {
 function Test-NonRepositoryIsRejected {
     # A directory below temp_workspace is still part of the source repository.
     # Use a short-lived sibling for a genuine no-repository boundary test.
-    $path = Join-Path (Split-Path $repoRoot -Parent) ("win-run-toolbox-remote-non-repo-" + [guid]::NewGuid().ToString("N"))
+    $path = Join-Path (Split-Path $repoRoot -Parent) ("swaw-kit-remote-non-repo-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $path | Out-Null
     try {
         Invoke-InRepository $path {
@@ -321,4 +325,5 @@ try {
     Test-NonRepositoryIsRejected
 } finally {
     Remove-TestDirectory $tempRoot
+    Remove-SwawKitTestTemplateEntry -RepoRoot $repoRoot -EntryPath $entryFile
 }

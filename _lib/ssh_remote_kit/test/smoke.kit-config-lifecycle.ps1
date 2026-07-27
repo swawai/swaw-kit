@@ -2,7 +2,11 @@ $ErrorActionPreference = "Stop"
 
 $script:LifecycleRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $script:KitRoot = Join-Path $script:LifecycleRepoRoot "_lib\ssh_remote_kit"
-$script:Entry = Join-Path $script:LifecycleRepoRoot "vps1.cmd"
+. (Join-Path $script:LifecycleRepoRoot "_lib\test_support\template-entry.ps1")
+$script:Entry = New-SwawKitTestTemplateEntry `
+    -RepoRoot $script:LifecycleRepoRoot `
+    -TemplateName "template.vps1.cmd" `
+    -EntryName "test.template.vps1.cmd"
 $script:DataSshConfig = Join-Path $script:LifecycleRepoRoot "data\ssh_config"
 . (Join-Path $script:KitRoot "ssh_config.ps1")
 $script:EntryHostAlias = Get-RemoteKitEntryHostAlias $script:Entry
@@ -48,7 +52,7 @@ function Assert-ManagedIncludeState {
     )
 
     $text = Get-UserConfigText $Profile
-    $installed = $text.Contains("win-run-toolbox host=$script:EntryHostAlias")
+    $installed = $text.Contains("swaw-kit host=$script:EntryHostAlias")
     Assert-True ($installed -eq $ExpectedInstalled) $Message
 }
 
@@ -60,7 +64,7 @@ function Assert-ManagedIncludeCount {
     )
 
     $text = Get-UserConfigText $Profile
-    $count = ([regex]::Matches($text, [regex]::Escape("win-run-toolbox host=$script:EntryHostAlias"))).Count
+    $count = ([regex]::Matches($text, [regex]::Escape("swaw-kit host=$script:EntryHostAlias"))).Count
     Assert-True ($count -eq $ExpectedCount) $Message
 }
 
@@ -191,4 +195,7 @@ try {
     if (-not $hadDataSshConfig -and (Test-Path -LiteralPath $script:DataSshConfig)) {
         Remove-Item -LiteralPath $script:DataSshConfig -Recurse -Force -ErrorAction SilentlyContinue
     }
+    Remove-SwawKitTestTemplateEntry `
+        -RepoRoot $script:LifecycleRepoRoot `
+        -EntryPath $script:Entry
 }

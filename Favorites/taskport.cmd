@@ -2,19 +2,19 @@
 @echo off
 setlocal
 chcp 65001>nul
-set "WIN_RUN_TOOLBOX_SELF=%~f0"
-set "WIN_RUN_TOOLBOX_PROCESS_NAME=%~1"
-PowerShell.exe -NoProfile -ExecutionPolicy Bypass -Command "&{&([scriptblock]::Create([IO.File]::ReadAllText($env:WIN_RUN_TOOLBOX_SELF)))}"
-set "WIN_RUN_TOOLBOX_EXIT=%ERRORLEVEL%"
-set "WIN_RUN_TOOLBOX_SELF="
-set "WIN_RUN_TOOLBOX_PROCESS_NAME="
+set "SWAW_KIT_SELF=%~f0"
+set "SWAW_KIT_PROCESS_NAME=%~1"
+PowerShell.exe -NoProfile -ExecutionPolicy Bypass -Command "&{&([scriptblock]::Create([IO.File]::ReadAllText($env:SWAW_KIT_SELF)))}"
+set "SWAW_KIT_EXIT=%ERRORLEVEL%"
+set "SWAW_KIT_SELF="
+set "SWAW_KIT_PROCESS_NAME="
 pause
-exit /b %WIN_RUN_TOOLBOX_EXIT%
+exit /b %SWAW_KIT_EXIT%
 #>
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
-$name = $env:WIN_RUN_TOOLBOX_PROCESS_NAME
+$name = $env:SWAW_KIT_PROCESS_NAME
 if ([string]::IsNullOrWhiteSpace($name)) {
     Write-Host 'Please specify a process name.' -ForegroundColor Yellow
     exit 64

@@ -4,7 +4,11 @@ param()
 $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryTemplate = Join-Path $repoRoot "git1.cmd"
+. (Join-Path $repoRoot "_lib\test_support\template-entry.ps1")
+$entryTemplate = New-SwawKitTestTemplateEntry `
+    -RepoRoot $repoRoot `
+    -TemplateName "template.git1.cmd" `
+    -EntryName "test.template.git1.cmd"
 $tempBase = Join-Path $repoRoot "temp_workspace"
 $syncScript = Join-Path $repoRoot "_lib\git_identity_kit\sync.ps1"
 $windowsPowerShell = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
@@ -206,7 +210,7 @@ function Test-SyncDryRunAndRepositoryBoundary {
 
     # A child of temp_workspace is still inside the source repository. Use a
     # short-lived sibling solely for the real "outside any repository" case.
-    $nonRepoPath = Join-Path (Split-Path $repoRoot -Parent) ("win-run-toolbox-non-repo-" + [guid]::NewGuid().ToString("N"))
+    $nonRepoPath = Join-Path (Split-Path $repoRoot -Parent) ("swaw-kit-non-repo-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $nonRepoPath | Out-Null
     try {
         Invoke-InDirectory $nonRepoPath {
@@ -590,4 +594,5 @@ try {
     Test-SyncMutationRollback $entryPath $tempRoot
 } finally {
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SwawKitTestTemplateEntry -RepoRoot $repoRoot -EntryPath $entryTemplate
 }

@@ -4,7 +4,13 @@ param()
 $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryFile = Join-Path $repoRoot "wsl01.cmd"
+. (Join-Path $repoRoot "_lib\test_support\template-entry.ps1")
+$entryFile = New-SwawKitTestTemplateEntry `
+    -RepoRoot $repoRoot `
+    -TemplateName "template.wsl01.cmd" `
+    -EntryName "test.template.wsl01.cmd"
+$entryCommand = [System.IO.Path]::GetFileNameWithoutExtension($entryFile)
+$entryFileName = [System.IO.Path]::GetFileName($entryFile)
 $kitCmd = Join-Path $repoRoot "_lib\wsl_instance_kit\kit.cmd"
 $kitRoot = Join-Path $repoRoot "_lib\wsl_instance_kit"
 . (Join-Path $PSScriptRoot "smoke.relocate.ps1")
@@ -197,7 +203,7 @@ try {
     Test-PowerShellSyntax
     Test-HelpTemplateShape
     Test-GitAttributesCommandLineEndings
-    Test-EntryCommandLineEndings @($entryFile, (Join-Path $repoRoot "wsl02.cmd"))
+    Test-EntryCommandLineEndings @($entryFile)
     Test-EditorBootstrapOrdering @($entryFile)
     Test-EditorBootstrapFailureStopsEntry $entryFile
     Test-WslEditorLaunchContract
@@ -212,17 +218,17 @@ try {
 
     Invoke-Checked $entryFile @(".help") 0 "entry dot help"
     $defaultHelpOutput = Invoke-Captured $entryFile @(".help", "en") 0 "entry dot help includes doctor"
-    Assert-True ($defaultHelpOutput.Contains("wsl01 .doctor")) "help should show dotted doctor."
-    Assert-True ($defaultHelpOutput.Contains("wsl01.cmd")) "help should show the entry file name."
+    Assert-True ($defaultHelpOutput.Contains("$entryCommand .doctor")) "help should show dotted doctor."
+    Assert-True ($defaultHelpOutput.Contains($entryFileName)) "help should show the entry file name."
     Assert-True (-not $defaultHelpOutput.Contains("{{ENTRY_FILE}}")) "help should replace the entry-file placeholder."
-    Assert-True ($defaultHelpOutput.Contains("wsl01 .help en")) "help should show dotted help."
-    Assert-True (-not $defaultHelpOutput.Contains("wsl01 --help")) "help should not promote bare help flags."
-    Assert-True ($defaultHelpOutput -match '(?m)^\s*wsl01 \.t\s{2,}') "help should show short terminate command."
-    Assert-True ($defaultHelpOutput -match '(?m)^\s*wsl01 \.relocate\s{2,}') "help should show relocate command."
-    Assert-True ($defaultHelpOutput.Contains("wsl01 .sshd enable 2222")) "help should show dotted sshd service management."
-    Assert-True ($defaultHelpOutput -match '(?m)^\s*wsl01 \.port del 8080\s{2,}') "help should show port del."
-    Assert-True (-not $defaultHelpOutput.Contains("wsl01 doctor")) "help should not show bare doctor."
-    Assert-True (-not $defaultHelpOutput.Contains("wsl01 ssh enable")) "help should not show bare ssh service management."
+    Assert-True ($defaultHelpOutput.Contains("$entryCommand .help en")) "help should show dotted help."
+    Assert-True (-not $defaultHelpOutput.Contains("$entryCommand --help")) "help should not promote bare help flags."
+    Assert-True ($defaultHelpOutput -match "(?m)^\s*$([regex]::Escape($entryCommand)) \.t\s{2,}") "help should show short terminate command."
+    Assert-True ($defaultHelpOutput -match "(?m)^\s*$([regex]::Escape($entryCommand)) \.relocate\s{2,}") "help should show relocate command."
+    Assert-True ($defaultHelpOutput.Contains("$entryCommand .sshd enable 2222")) "help should show dotted sshd service management."
+    Assert-True ($defaultHelpOutput -match "(?m)^\s*$([regex]::Escape($entryCommand)) \.port del 8080\s{2,}") "help should show port del."
+    Assert-True (-not $defaultHelpOutput.Contains("$entryCommand doctor")) "help should not show bare doctor."
+    Assert-True (-not $defaultHelpOutput.Contains("$entryCommand ssh enable")) "help should not show bare ssh service management."
     $oldHelpLang = $env:WSL_KIT_HELP_LANG
     try {
         $helpCases = @(
@@ -291,7 +297,7 @@ try {
         Assert-True ($natDryRunOutput.Contains("listenaddress=0.0.0.0")) "nat dry-run should use the fixed 0.0.0.0 listen address."
         Assert-True ($natDryRunOutput.Contains("connectaddress=<WSL-IP>")) "nat dry-run should not require a live WSL IP."
         Assert-True ($natDryRunOutput.Contains("wsl_instance_kit-")) "nat dry-run should use the wsl_instance_kit rule prefix."
-        Assert-True ($natDryRunOutput.Contains("wsl01 .port sync")) "nat dry-run should tell users to refresh mappings after WSL IP changes."
+        Assert-True ($natDryRunOutput.Contains("$entryCommand .port sync")) "nat dry-run should tell users to refresh mappings after WSL IP changes."
         $natDelDryRunOutput = Invoke-Captured $entryFile @(".port", "del", "8080", "--dry-run") 0 "nat port del dry-run"
         Assert-True ($natDelDryRunOutput.Contains("portproxy delete")) "nat del dry-run should delete the NAT portproxy."
         Assert-True ($natDelDryRunOutput.Contains("Remove-NetFirewallRule")) "nat del dry-run should remove the firewall rule."
@@ -518,7 +524,7 @@ try {
         Assert-True ($aliveLogonDryRunOutput.Contains("while :; do sleep 3600; done")) "bare alive dry-run should use a logon keep-alive loop."
 
         $aliveStatusOutput = Invoke-Captured $entryFile @(".alive", "status") 0 "alive status"
-        Assert-True ($aliveStatusOutput.Contains("WSL alive: wsl01")) "alive status should show heading."
+        Assert-True ($aliveStatusOutput.Contains("WSL alive: $entryCommand")) "alive status should show heading."
         Assert-True ($aliveStatusOutput.Contains("Alive task:")) "alive status should show the scheduled task name."
         Assert-True ($aliveStatusOutput.Contains("Alive setting:")) "alive status should show the configured mode."
         Assert-True ($aliveStatusOutput.Contains("Task State:")) "alive status should show the scheduled task state."
@@ -610,7 +616,7 @@ try {
 
         $systemdEnableOutput = Invoke-Captured $entryFile @(".systemd", "enable") 0 "systemd enable success message"
         Assert-True ($systemdEnableOutput.Contains("Systemd enabled in /etc/wsl.conf.")) "systemd enable should print success."
-        Assert-True ($systemdEnableOutput.Contains("wsl01 .vm -s")) "systemd enable should suggest restart command."
+        Assert-True ($systemdEnableOutput.Contains("$entryCommand .vm -s")) "systemd enable should suggest restart command."
         Invoke-Checked $entryFile @(".sshd", "enable") 1 "reject ssh enable without port"
         Invoke-Checked $entryFile @(".sshd", "enable", "abc") 1 "reject non-numeric ssh port"
         Invoke-Checked $entryFile @(".sshd", "enable", "2222", "extra") 1 "reject ssh enable extra args"
@@ -687,5 +693,6 @@ try {
     if (Test-Path -LiteralPath $smokeUserProfileRoot) {
         Remove-Item -LiteralPath $smokeUserProfileRoot -Recurse -Force
     }
+    Remove-SwawKitTestTemplateEntry -RepoRoot $repoRoot -EntryPath $entryFile
     Pop-Location
 }

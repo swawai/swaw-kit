@@ -4,7 +4,11 @@ param()
 $ErrorActionPreference = "Stop"
 
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\.."))
-$entryFile = Join-Path $repoRoot "git1.cmd"
+. (Join-Path $repoRoot "_lib\test_support\template-entry.ps1")
+$entryFile = New-SwawKitTestTemplateEntry `
+    -RepoRoot $repoRoot `
+    -TemplateName "template.git1.cmd" `
+    -EntryName "test.template.git1.cmd"
 $tempBase = Join-Path $repoRoot "temp_workspace"
 
 function Assert-True {
@@ -535,4 +539,5 @@ try {
         Remove-Item -LiteralPath $smokeEntry -Force -ErrorAction SilentlyContinue
     }
     Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-SwawKitTestTemplateEntry -RepoRoot $repoRoot -EntryPath $entryFile
 }

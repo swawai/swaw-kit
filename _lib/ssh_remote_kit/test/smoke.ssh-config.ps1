@@ -187,7 +187,7 @@ function Test-SelfTokenValidation {
 }
 
 function Test-RepoTemplateUsesSelfContract {
-    $entry = Join-Path $script:SmokeRepoRoot "vps1.cmd"
+    $entry = Join-Path $script:SmokeRepoRoot "Favorites\template.vps1.cmd"
     $source = [System.IO.File]::ReadAllText($entry)
     $generated = Get-RemoteKitEmbeddedSshConfigText $entry
     $alias = Get-RemoteKitEntryHostAlias $entry
@@ -232,7 +232,7 @@ function Test-InstallEmbeddedConfigIsExactAndIdempotent {
         $alias = Get-RemoteKitEntryHostAlias $entry
         $otherAlias = "$alias-extra"
         $existingConfig = @"
-Include "D:/old/other.config" # win-run-toolbox host=$otherAlias id=$script:RemoteKitSshConfigIncludeId
+Include "D:/old/other.config" # swaw-kit host=$otherAlias id=$script:RemoteKitSshConfigIncludeId
 Host github.com
   User git
 "@
