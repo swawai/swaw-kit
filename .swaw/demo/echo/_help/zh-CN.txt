@@ -1,0 +1,9 @@
+回显 Action 上下文和收到的动态参数。
+
+用法:
+  {{INVOCATION}} [value ...]
+
+示例:
+  {{INVOCATION}} hello "A B"
+
+该演示 Action 不写入项目数据，只打印命令地址、项目根、调用目录和参数。

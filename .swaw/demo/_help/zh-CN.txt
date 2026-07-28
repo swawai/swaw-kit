@@ -1,0 +1,6 @@
+演示真实 .swaw 目录 Action 的自动发现和分层帮助。
+
+用法:
+  {{INVOCATION}} .help
+
+该目录本身是命令组；可执行 Action 位于它的子目录中。
