@@ -1,0 +1,11 @@
+显示项目开发环境的安装状态和来源校验等级。
+
+用法:
+  {{INVOCATION}}
+
+Bun 校验等级:
+  pinned      项目通过 SWAWKIT_PROJ_BUN_SHA256 锁定安装包
+  upstream    安装时使用 GitHub Release digest 校验
+  unpinned    上游与项目均未提供可比较的 SHA-256
+
+该命令只读取本地声明和安装元数据，不访问网络、不写入项目数据。

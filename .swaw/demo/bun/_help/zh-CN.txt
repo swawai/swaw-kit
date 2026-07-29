@@ -1,0 +1,9 @@
+使用项目管理的 Bun 执行一个真实的 run.ts Action。
+
+用法:
+  {{INVOCATION}} [value ...]
+
+示例:
+  {{INVOCATION}} hello "A B"
+
+该模块用于演示 .swaw/demo/bun 目录如何映射为 demo.bun 命令。

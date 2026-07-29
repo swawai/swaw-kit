@@ -57,6 +57,7 @@ function Invoke-ProjConsoleProcess {
         [Parameter(Mandatory = $true)][string]$Executable,
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
+        [AllowEmptyString()]
         [string[]]$Arguments,
         [Parameter(Mandatory = $true)][string]$WorkingDirectory
     )

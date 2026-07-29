@@ -263,6 +263,7 @@ exit /b 37
         $CmdExitCode = Invoke-ProjResolvedCommand `
             -Command $CmdCommand `
             -ProjectContext $SmokeProjectContext `
+            -KernelRoot $KernelRoot `
             -InvocationDirectory $KernelRoot `
             -Arguments @()
         Assert-ProjSmoke `
@@ -276,6 +277,7 @@ exit /b 37
             $CmdHelpExitCode = Invoke-ProjResolvedCommand `
                 -Command $CmdCommand `
                 -ProjectContext $SmokeProjectContext `
+                -KernelRoot $KernelRoot `
                 -InvocationDirectory $KernelRoot `
                 -Arguments @($HelpMarker)
             Assert-ProjSmoke `
@@ -295,6 +297,7 @@ exit /b 37
             [void](Invoke-ProjResolvedCommand `
                 -Command $CmdCommand `
                 -ProjectContext $SmokeProjectContext `
+                -KernelRoot $KernelRoot `
                 -InvocationDirectory $KernelRoot `
                 -Arguments @('dynamic'))
         } catch {
@@ -336,6 +339,7 @@ exit 23
         $ProbeExitCode = Invoke-ProjResolvedCommand `
             -Command $ProbeCommand `
             -ProjectContext $SmokeProjectContext `
+            -KernelRoot $KernelRoot `
             -InvocationDirectory $KernelRoot `
             -Arguments $RoundTripArguments
         Assert-ProjSmoke `

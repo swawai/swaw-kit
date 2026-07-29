@@ -7,14 +7,6 @@ function Get-ProjRuntimePath {
         'powershell' {
             return [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
         }
-        'bun' {
-            $Command = Get-Command bun -CommandType Application -ErrorAction SilentlyContinue |
-                Select-Object -First 1
-            if ($null -eq $Command) {
-                throw "The Bun runtime is not ready for the selected run.ts entry."
-            }
-            return $Command.Source
-        }
         'python' {
             $Command = Get-Command python -CommandType Application -ErrorAction SilentlyContinue |
                 Select-Object -First 1
@@ -31,18 +23,27 @@ function Invoke-ProjResolvedCommand {
     param(
         [Parameter(Mandatory = $true)][object]$Command,
         [Parameter(Mandatory = $true)][object]$ProjectContext,
+        [Parameter(Mandatory = $true)][string]$KernelRoot,
         [Parameter(Mandatory = $true)][string]$InvocationDirectory,
-        [AllowEmptyCollection()][string[]]$Arguments = @(),
+        [AllowEmptyCollection()]
+        [AllowEmptyString()]
+        [string[]]$Arguments = @(),
         [bool]$UseProjHelp = $false,
-        [AllowEmptyString()][string]$HelpTargetAddress = ''
+        [AllowEmptyString()][string]$HelpTargetAddress = '',
+        [AllowNull()][object]$ProtocolCommand = $null,
+        [AllowNull()][string]$RuntimeWorkingDirectory = $null
     )
 
+    if ($null -eq $ProtocolCommand) {
+        $ProtocolCommand = $Command
+    }
     $ProjectRoot = [string]$ProjectContext.ProjectRoot
     $SavedEnvironment = @{}
     foreach ($Name in @(
         'SWAWKIT_COMMAND_PROTOCOL',
         'SWAWKIT_COMMAND_ADDRESS',
         'SWAWKIT_COMMAND_DIR',
+        'SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR',
         'SWAWKIT_INVOCATION_DIR',
         'SWAWKIT_HELP_TARGET_ADDRESS',
         'SWAWKIT_PROJ_PROTOCOL',
@@ -58,8 +59,18 @@ function Invoke-ProjResolvedCommand {
 
     try {
         $env:SWAWKIT_COMMAND_PROTOCOL = '1'
-        $env:SWAWKIT_COMMAND_ADDRESS = $Command.Address
-        $env:SWAWKIT_COMMAND_DIR = $Command.Directory
+        $env:SWAWKIT_COMMAND_ADDRESS = $ProtocolCommand.Address
+        $env:SWAWKIT_COMMAND_DIR = $ProtocolCommand.Directory
+        if ([string]::IsNullOrWhiteSpace($RuntimeWorkingDirectory)) {
+            [Environment]::SetEnvironmentVariable(
+                'SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR',
+                $null,
+                'Process'
+            )
+        } else {
+            $env:SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR =
+                [IO.Path]::GetFullPath($RuntimeWorkingDirectory)
+        }
         $env:SWAWKIT_INVOCATION_DIR = $InvocationDirectory
         if (-not $UseProjHelp) {
             [Environment]::SetEnvironmentVariable(
@@ -126,12 +137,24 @@ function Invoke-ProjResolvedCommand {
                     -WorkingDirectory $ProjectRoot
             }
             'bun' {
-                $Runtime = Get-ProjRuntimePath -Adapter bun
-                [string[]]$RuntimeArguments = @($Command.Entry.Path) + $Arguments
-                $ExitCode = Invoke-ProjConsoleProcess `
-                    -Executable $Runtime `
-                    -Arguments $RuntimeArguments `
-                    -WorkingDirectory $ProjectRoot
+                $BunCommand = Resolve-ProjCommand `
+                    -KernelRoot $KernelRoot `
+                    -ActionRoot ([string]$ProjectContext.ActionRoot) `
+                    -Address '.bun'
+                if ([string]$BunCommand.Entry.Adapter -ceq 'bun') {
+                    throw (
+                        "The '.bun' runtime bridge cannot itself use run.ts."
+                    )
+                }
+                [string[]]$BunArguments = @($Command.Entry.Path) + $Arguments
+                $ExitCode = Invoke-ProjResolvedCommand `
+                    -Command $BunCommand `
+                    -ProjectContext $ProjectContext `
+                    -KernelRoot $KernelRoot `
+                    -InvocationDirectory $InvocationDirectory `
+                    -Arguments $BunArguments `
+                    -ProtocolCommand $ProtocolCommand `
+                    -RuntimeWorkingDirectory $ProjectRoot
             }
             'python' {
                 $Runtime = Get-ProjRuntimePath -Adapter python
@@ -161,7 +184,9 @@ function Invoke-ProjResolvedCommand {
 function Invoke-ProjMain {
     param(
         [Parameter(Mandatory = $true)][string]$KernelRoot,
-        [AllowEmptyCollection()][string[]]$Arguments = @()
+        [AllowEmptyCollection()]
+        [AllowEmptyString()]
+        [string[]]$Arguments = @()
     )
 
     $InvocationDirectory = (Get-Location).ProviderPath
@@ -200,6 +225,7 @@ function Invoke-ProjMain {
     return Invoke-ProjResolvedCommand `
         -Command $Command `
         -ProjectContext $ProjectContext `
+        -KernelRoot $KernelRoot `
         -InvocationDirectory $InvocationDirectory `
         -Arguments $TailArguments `
         -UseProjHelp $UseProjHelp `

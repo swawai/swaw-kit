@@ -14,6 +14,8 @@ set "SWAWKIT_PROJ_DEFAULT_IDE=code"
 :: Optional portable development environment
 set "SWAWKIT_PROJ_BUN_MODE=managed"
 set "SWAWKIT_PROJ_BUN_VERSION=1.2.15"
+:: Optional: pin the exact Bun release archive.
+set "SWAWKIT_PROJ_BUN_SHA256="
 
 set "SWAWKIT_PROJ_UV_MODE=managed"
 set "SWAWKIT_PROJ_UV_VERSION=0.10.2"
