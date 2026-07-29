@@ -1,0 +1,67 @@
+SSH Access（协议开发阶段）
+
+# 先在 {{ENTRY_FILE}} 中修改定义：密钥路径、绑定的用户名
+
+# 基本用法:
+  {{COMMAND}} .help en                Show English help.
+  {{COMMAND}} .help zh                显示中文帮助
+  {{COMMAND}} .status key             查看公、私钥文件、指纹和匹配状态
+  {{COMMAND}} .status private         查看私钥，及应用状态（关联 ssh-agent 服务）
+  {{COMMAND}} .status public          查看公钥，及应用状态
+  {{COMMAND}} .status ssh             查看 SSH Client、Server，及默认 Shell 状态
+  {{COMMAND}} .status                 查看完整状态（打印信息≈2.5KB）
+  {{COMMAND}} .status --uac           同上，但请求 UAC 提权
+
+
+# 密钥对:
+  {{COMMAND}} .key status              查看公、私钥文件、指纹和匹配状态
+  {{COMMAND}} .key gen                 按定义，生成密钥对，文件已存在则报错
+  {{COMMAND}} .key fp                  显示公钥的 SHA256 指纹
+  {{COMMAND}} .key delete --yes        删除公私钥文件（私钥在应用的会自动取消，公钥在应用的会拒绝删除）
+  {{COMMAND}} .key delete --yes --uac  同上，但请求 UAC 提权
+
+
+# 应用私钥，方便用私钥登录别的机器:
+  {{COMMAND}} .private status          查看私钥，及应用状态（关联 ssh-agent 服务）
+  {{COMMAND}} .private load            应用私钥（将私钥加载到当前用户的 ssh-agent）
+  {{COMMAND}} .private load --uac      同上，但请求 UAC 提权
+  {{COMMAND}} .private unload          罢免私钥（从 ssh-agent 的密钥名单中移除）
+  {{COMMAND}} .private unload --uac    同上，但请求 UAC 提权
+
+
+# 应用公钥，方便你从别处用私钥登录本机:
+  {{COMMAND}} .public grant            应用公钥，普通用户写入：%USERPROFILE%\.ssh\authorized_keys
+                                                    管理员用户写入：C:\ProgramData\ssh\administrators_authorized_keys
+  {{COMMAND}} .public grant --uac      同上，但请求 UAC 提权
+  {{COMMAND}} .public revoke           罢免公钥（grant 的反向操作）
+  {{COMMAND}} .public revoke --uac     同上，但请求 UAC 提权
+
+
+# 全局管理命令（会影响其它 Windows 用户）:
+  {{COMMAND}} .global client status                  显示 OpenSSH Client 的可用状态；受限状态标为 unknown
+  {{COMMAND}} .global client install --uac           安装 OpenSSH Client
+  {{COMMAND}} .global server status                  显示 sshd 服务、启动方式、防火墙和 TCP/22 监听状态
+  {{COMMAND}} .global server install --uac           安装并初始化 sshd（Windows OpenSSH Server）
+  {{COMMAND}} .global server start --uac             启动 sshd 服务（不改变服务启动方式和防火墙）
+  {{COMMAND}} .global server stop --uac              停止 sshd 服务（不改变服务启动方式和防火墙，例如不会关开机启动）
+  {{COMMAND}} .global server uninstall --yes --uac   卸载 sshd（Windows OpenSSH Server），并清理本工具创建的防火墙规则
+  {{COMMAND}} .global server shell status            显示当前默认 Shell（ssh 登录本机时应用的终端：CMD 或 PowerShell）
+  {{COMMAND}} .global server shell cmd --uac         设置默认 Shell 为 CMD
+  {{COMMAND}} .global server shell powershell --uac  设置默认 Shell 为 PowerShell
+
+
+# 语义与安全边界:
+  - 私钥路径、密钥类型、公钥注释和具体登录用户由 {{COMMAND}} 的入口文件声明；公钥路径固定为私钥路径追加 .pub
+  - SSH_ACCESS_USER 必须是真实的 Windows 本机用户；Administrators 是组，不能作为登录用户
+  - .private unload 只卸载当前入口绑定的密钥，不清空 ssh-agent 中的其他密钥
+  - v1 只允许普通用户本人运行入口并修改自己的 profile；--uac 不能绕过此边界
+  - 管理员用户的授权写入机器共享的 administrators_authorized_keys；该公钥可用于请求任一管理员账户
+  - 管理员授权增删要求 sshd_config 已存在，且能确认其使用标准的共享授权文件映射
+  - plain 授权重复 grant 时保持幂等；已有 option-bound 引用时不会静默追加更宽松的 plain 授权，必须先 revoke 或人工明确编辑
+  - 首版授权管理只支持 Windows OpenSSH 默认 AuthorizedKeysFile 布局；检测到自定义路径或 Include 时拒绝写入
+  - --uac 对变更命令表示需要时允许提升；对 .status 表示显式请求提升；它不扩大可管理的目标范围
+  - .global 明确表示机器全局状态，不归某一个 SSH Access 入口独占
+  - Server Capability 未安装时，uninstall 不会停止同名的独立 sshd 服务；移除失败时尽量恢复原运行状态
+  - Server 卸载不会删除 ProgramData\ssh 下的配置、主机密钥或授权文件；注册表 Shell 修改只影响新会话
+  - 状态查询默认不提权；受限信息显示 unknown，并提示可用 .status ... --uac 重试
+  - 入口不透传任意命令；所有支持的操作都在本帮助中明确列出

@@ -1,0 +1,66 @@
+SSH Access (protocol development stage)
+
+
+# Basic usage:
+  {{COMMAND}} .help en                Show English help.
+  {{COMMAND}} .help zh                Show Chinese help.
+  {{COMMAND}} .status                 Show all SSH Access state
+  {{COMMAND}} .status key             Show only the bound-key state
+  {{COMMAND}} .status private         Show only ssh-agent and bound-private-key application state
+  {{COMMAND}} .status public          Show only the target user's public-key authorization state
+  {{COMMAND}} .status ssh             Show only OpenSSH Client, Server, and Server default-shell state
+  {{COMMAND}} .status --uac           Show all state in an explicitly elevated process
+
+
+# Bound key:
+  {{COMMAND}} .key status              Show key paths, presence, fingerprints, and pair consistency
+  {{COMMAND}} .key gen                 Generate the declared key pair; refuse if either target already exists (generate is also accepted)
+  {{COMMAND}} .key fp                  Show the bound public key SHA256 fingerprint (fingerprint is also accepted)
+  {{COMMAND}} .key delete --yes        Delete both key files; unload first, and refuse while the authorization file still references the key
+  {{COMMAND}} .key delete --yes --uac  Elevate authorization checks or agent startup, then let the original user unload and delete
+
+
+# Apply the private key for outbound SSH:
+  {{COMMAND}} .private status          Show ssh-agent service and bound-key loading state
+  {{COMMAND}} .private load            Verify the key pair, then load it into the current user's ssh-agent
+  {{COMMAND}} .private load --uac      Explicitly elevate agent setup when enabling or starting it requires UAC
+  {{COMMAND}} .private unload          Unload only the bound key from ssh-agent
+  {{COMMAND}} .private unload --uac    Explicitly start the agent when UAC is required to inspect and unload persistent identities
+
+
+# Apply the public key for inbound SSH:
+  {{COMMAND}} .public grant            Add the bound public key to the target user's effective authorization file
+  {{COMMAND}} .public grant --uac      Same operation; permit a UAC retry only when administrator rights are required
+  {{COMMAND}} .public revoke           Remove every plain or option-bound reference to the bound public-key identity
+  {{COMMAND}} .public revoke --uac     Same operation; permit a UAC retry only when administrator rights are required
+
+
+# Windows OpenSSH (machine-global state):
+  {{COMMAND}} .global client status                  Show Windows OpenSSH Client availability; restricted state is unknown
+  {{COMMAND}} .global client install --uac           Install Windows OpenSSH Client
+  {{COMMAND}} .global server status                  Show Server, sshd, startup, firewall, and TCP/22 listener state
+  {{COMMAND}} .global server install --uac           Install and initialize Windows OpenSSH Server
+  {{COMMAND}} .global server start --uac             Start sshd without changing startup or firewall configuration
+  {{COMMAND}} .global server stop --uac              Stop sshd without disabling automatic startup
+  {{COMMAND}} .global server uninstall --yes --uac   Uninstall Server and remove only this tool's firewall rule
+  {{COMMAND}} .global server shell status            Show the default shell; an absent setting means cmd.exe
+  {{COMMAND}} .global server shell cmd --uac         Select cmd.exe as the default shell
+  {{COMMAND}} .global server shell powershell --uac  Select Windows PowerShell as the default shell
+
+
+# Semantics and safety boundaries:
+  - The entry file declares the private key path, key type, public key comment, and local login user; the public path is always the private path plus .pub
+  - SSH_ACCESS_USER must identify a real local Windows user; Administrators is a group, not a login user
+  - .private unload removes only this entry's key and never clears other ssh-agent identities
+  - Version 1 mutates an ordinary user's profile only when that user runs the entry; --uac does not bypass this boundary
+  - Administrator authorization uses the machine-shared administrators_authorized_keys; the key can request any administrator account
+  - Administrator grant/revoke requires an existing sshd_config with the standard shared-file mapping
+  - A plain grant is idempotent; an option-bound reference is never silently weakened into a plain grant, and must be revoked or edited deliberately
+  - The first release manages only the default Windows OpenSSH AuthorizedKeysFile layout and refuses custom paths or Include directives
+  - --uac permits elevation when a mutation requires it; with .status it explicitly requests elevation; it never expands the supported target scope
+  - .global explicitly denotes machine-global state and is not owned by one SSH Access entry
+  - If the Server capability is absent, uninstall does not stop an independent service named sshd; failed removal attempts restore the prior running state when possible
+  - Server uninstall preserves ProgramData\ssh configuration, host keys, and authorization files; shell changes affect new sessions only
+  - Shell switching treats DefaultShell and its two command-option values as one configuration aggregate, preventing stale arguments from leaking into the new shell
+  - Status commands do not auto-elevate; denied details are unknown and suggest an explicit .status ... --uac retry
+  - The entry does not pass arbitrary commands through; every supported operation is listed above
