@@ -225,6 +225,7 @@ function Invoke-ProjDevMsvcAdministrativeInstall {
     try {
         if (-not $Process.WaitForExit(600000)) {
             try { $Process.Kill() } catch {}
+            try { [void]$Process.WaitForExit(5000) } catch {}
             throw "Windows Installer timed out for: $MsiPath"
         }
         if ($Process.ExitCode -ne 0) {

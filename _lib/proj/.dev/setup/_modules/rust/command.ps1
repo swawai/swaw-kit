@@ -10,6 +10,14 @@ function Invoke-ProjDevRustCommand {
         [string[]]$Arguments
     )
 
+    if ($Arguments.Count -gt 0 -and
+        [string]$Arguments[0] -cmatch '^\+') {
+        throw (
+            'Swaw Kit owns the Rust toolchain selection; +toolchain ' +
+            'overrides are not allowed. Change SWAWKIT_PROJ_RUST_TOOLCHAIN ' +
+            "and run 'swawkit .dev.setup'."
+        )
+    }
     $Context = New-ProjDevContextFromEnvironment
     $Definition = Get-ProjDevRustDefinition
     if ($null -eq $Definition) {
@@ -50,7 +58,10 @@ function Invoke-ProjDevRustCommand {
         -Definition $Definition
     $Executable = Resolve-ProjDevChildPath `
         -Root $InstallRoot `
-        -RelativePath "cargo\bin\$ExecutableName" `
+        -RelativePath (
+            "rustup\toolchains\$($Definition.ToolchainName)\" +
+            "bin\$ExecutableName"
+        ) `
         -Description 'Rust command executable'
     return Invoke-ProjConsoleProcess `
         -Executable $Executable `

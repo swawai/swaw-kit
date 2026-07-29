@@ -175,9 +175,23 @@ function Install-ProjDevMsvc {
     )
 
     Assert-ProjDevWindowsX64 -ToolName 'MSVC'
-    if (Test-ProjDevMsvcInstalled `
+    $Target = Get-ProjDevMsvcInstallRoot `
         -Context $Context `
-        -Definition $Definition) {
+        -Definition $Definition
+    $ValidateInstalled = {
+        param($ValidationContext, $ValidationDefinition, $InstallRoot)
+
+        return Test-ProjDevMsvcInstalled `
+            -Context $ValidationContext `
+            -Definition $ValidationDefinition `
+            -InstallRoot $InstallRoot
+    }
+    $Recovery = Repair-ProjDevInstallState `
+        -Context $Context `
+        -Definition $Definition `
+        -TargetPath $Target `
+        -ValidateCandidate $ValidateInstalled
+    if ($Recovery.Ready) {
         return $false
     }
 
@@ -192,14 +206,11 @@ function Install-ProjDevMsvc {
         "SDK $($Recipe.SdkPackageId)"
     ) -ForegroundColor DarkGray
 
-    $Target = Get-ProjDevMsvcInstallRoot `
-        -Context $Context `
-        -Definition $Definition
     $Parent = Split-Path -Path $Target -Parent
     [void][IO.Directory]::CreateDirectory($Parent)
-    $StagedRoot = Join-Path $Parent (
-        ".partial-$([Guid]::NewGuid().ToString('N'))"
-    )
+    $StagedRoot = New-ProjDevInstallWorkPath `
+        -TargetPath $Target `
+        -Kind 'partial'
     [void][IO.Directory]::CreateDirectory($StagedRoot)
     try {
         foreach ($Payload in [object[]]$Recipe.ToolPayloads) {
@@ -267,28 +278,17 @@ function Install-ProjDevMsvc {
             -InstallRoot $StagedRoot)) {
             throw 'Staged MSVC installation failed validation.'
         }
-        $ValidatePublished = {
-            param($ValidationContext, $ValidationDefinition, $InstallRoot)
-
-            return Test-ProjDevMsvcInstalled `
-                -Context $ValidationContext `
-                -Definition $ValidationDefinition `
-                -InstallRoot $InstallRoot
-        }
         Publish-ProjDevInstallDirectory `
             -Context $Context `
             -Definition $Definition `
             -StagedPath $StagedRoot `
             -TargetPath $Target `
-            -ValidatePublished $ValidatePublished
+            -ValidatePublished $ValidateInstalled
         return $true
     } finally {
-        if ([IO.Directory]::Exists($StagedRoot) -or
-            [IO.File]::Exists($StagedRoot)) {
-            Remove-ProjDevControlledPath `
-                -Path $StagedRoot `
-                -DataRoot $Context.DataRoot `
-                -Activity 'cleaning MSVC installation work data'
-        }
+        Remove-ProjDevInstallResidues `
+            -Context $Context `
+            -Paths @($StagedRoot) `
+            -Activity 'cleaning MSVC installation work data'
     }
 }

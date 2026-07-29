@@ -51,22 +51,33 @@ function Install-ProjDevRust {
     )
 
     Assert-ProjDevWindowsX64 -ToolName 'Rust'
-    if (Test-ProjDevRustInstalled `
+    $Target = Get-ProjDevRustInstallRoot `
         -Context $Context `
-        -Definition $Definition) {
+        -Definition $Definition
+    $ValidateInstalled = {
+        param($ValidationContext, $ValidationDefinition, $InstallRoot)
+
+        return Test-ProjDevRustInstalled `
+            -Context $ValidationContext `
+            -Definition $ValidationDefinition `
+            -InstallRoot $InstallRoot
+    }
+    $Recovery = Repair-ProjDevInstallState `
+        -Context $Context `
+        -Definition $Definition `
+        -TargetPath $Target `
+        -ValidateCandidate $ValidateInstalled
+    if ($Recovery.Ready) {
         return $false
     }
     $Installer = Get-ProjDevVerifiedRustupInstaller `
         -Context $Context `
         -Definition $Definition
-    $Target = Get-ProjDevRustInstallRoot `
-        -Context $Context `
-        -Definition $Definition
     $Parent = Split-Path -Path $Target -Parent
     [void][IO.Directory]::CreateDirectory($Parent)
-    $StagedRoot = Join-Path $Parent (
-        ".partial-$([Guid]::NewGuid().ToString('N'))"
-    )
+    $StagedRoot = New-ProjDevInstallWorkPath `
+        -TargetPath $Target `
+        -Kind 'partial'
     [void][IO.Directory]::CreateDirectory($StagedRoot)
     [void][IO.Directory]::CreateDirectory((Join-Path $StagedRoot 'cargo'))
     [void][IO.Directory]::CreateDirectory((Join-Path $StagedRoot 'rustup'))
@@ -93,28 +104,17 @@ function Install-ProjDevRust {
             -InstallRoot $StagedRoot)) {
             throw 'Staged Rust installation failed validation.'
         }
-        $ValidatePublished = {
-            param($ValidationContext, $ValidationDefinition, $InstallRoot)
-
-            return Test-ProjDevRustInstalled `
-                -Context $ValidationContext `
-                -Definition $ValidationDefinition `
-                -InstallRoot $InstallRoot
-        }
         Publish-ProjDevInstallDirectory `
             -Context $Context `
             -Definition $Definition `
             -StagedPath $StagedRoot `
             -TargetPath $Target `
-            -ValidatePublished $ValidatePublished
+            -ValidatePublished $ValidateInstalled
         return $true
     } finally {
-        if ([IO.Directory]::Exists($StagedRoot) -or
-            [IO.File]::Exists($StagedRoot)) {
-            Remove-ProjDevControlledPath `
-                -Path $StagedRoot `
-                -DataRoot $Context.DataRoot `
-                -Activity 'cleaning Rust installation work data'
-        }
+        Remove-ProjDevInstallResidues `
+            -Context $Context `
+            -Paths @($StagedRoot) `
+            -Activity 'cleaning Rust installation work data'
     }
 }

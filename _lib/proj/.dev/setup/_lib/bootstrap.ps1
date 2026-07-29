@@ -4,6 +4,7 @@ foreach ($File in @(
     'foundation.ps1',
     'state.ps1',
     'artifact.ps1',
+    'recovery.ps1',
     'install.ps1',
     'environment.ps1',
     'activation.ps1'

@@ -25,6 +25,8 @@ set "SWAWKIT_PROJ_PYTHON_MODE=disabled"
 :: set "SWAWKIT_PROJ_PYTHON_VERSION=3.13"
 
 set "SWAWKIT_PROJ_RUST_MODE=rustup"
+:: Toolchain examples: stable | beta | nightly | nightly-2025-06-01 | 1.97 | 1.97.1 | 1.98.0-beta.1
+:: This declaration is authoritative. After changing it, run: swawkit .dev.setup
 set "SWAWKIT_PROJ_RUST_TOOLCHAIN=stable"
 set "SWAWKIT_PROJ_RUST_PROFILE=minimal"
 set "SWAWKIT_PROJ_RUST_HOST=x86_64-pc-windows-msvc"

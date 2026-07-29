@@ -283,7 +283,9 @@ try {
                 (Join-Path $TargetRoot 'cargo\bin')
         ) `
         -Message 'generated Rust environment lost isolation or override clearing'
-    foreach ($Name in Get-ProjDevRustAmbientOverrideNames) {
+    $ClearedOverrides = @(Get-ProjDevRustAmbientOverrideNames |
+        Where-Object { $_ -cne 'RUSTUP_TOOLCHAIN' })
+    foreach ($Name in $ClearedOverrides) {
         Assert-ProjRustTest `
             -Condition (
                 $Scripts.Cmd -like "*set `"$Name=`"*" -and
@@ -291,6 +293,16 @@ try {
             ) `
             -Message "generated environment retained ambient $Name"
     }
+    Assert-ProjRustTest `
+        -Condition (
+            $Scripts.Cmd -like (
+                "*RUSTUP_TOOLCHAIN=$($Definition.ToolchainName)*"
+            ) -and
+            $Scripts.Ps1 -like (
+                "*RUSTUP_TOOLCHAIN*'$($Definition.ToolchainName)'*"
+            )
+        ) `
+        -Message 'generated environment did not pin the Rust toolchain'
     Assert-ProjRustTest `
         -Condition (Publish-ProjDevEnvironmentScripts `
             -Context $Context `
@@ -308,7 +320,7 @@ try {
         -Context $Context `
         -Definition $Definition
     $RetainedOverrides = @(foreach (
-        $Name in Get-ProjDevRustAmbientOverrideNames
+        $Name in $ClearedOverrides
     ) {
         if (-not [string]::IsNullOrWhiteSpace(
             [Environment]::GetEnvironmentVariable($Name, 'Process')
@@ -317,7 +329,14 @@ try {
         }
     })
     Assert-ProjRustTest `
-        -Condition ($RetainedOverrides.Count -eq 0) `
+        -Condition (
+            $RetainedOverrides.Count -eq 0 -and
+            [string]$env:RUSTUP_TOOLCHAIN -ceq
+                [string]$Definition.ToolchainName -and
+            [string]$env:RUSTC -ceq (Join-Path $TargetRoot (
+                "rustup\toolchains\$($Definition.ToolchainName)\bin\rustc.exe"
+            ))
+        ) `
         -Message "generated environment retained: $RetainedOverrides"
 
     $ProcessInfo = [Diagnostics.ProcessStartInfo]::new()

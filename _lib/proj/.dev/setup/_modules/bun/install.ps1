@@ -29,6 +29,7 @@ function Invoke-ProjDevBunVersionProbe {
             } catch {
                 # Preserve the timeout as the primary error.
             }
+            try { [void]$Process.WaitForExit(5000) } catch {}
             throw 'The staged Bun version probe timed out after 30 seconds.'
         }
         $Process.WaitForExit()
@@ -49,7 +50,14 @@ function Install-ProjDevBun {
     )
 
     Assert-ProjDevWindowsX64 -ToolName 'Bun'
-    if (Test-ProjDevInstalled -Context $Context -Definition $Definition) {
+    $Target = Get-ProjDevInstallRoot `
+        -Context $Context `
+        -Definition $Definition
+    $Recovery = Repair-ProjDevInstallState `
+        -Context $Context `
+        -Definition $Definition `
+        -TargetPath $Target
+    if ($Recovery.Ready) {
         return $false
     }
     if ([string]$Definition.Release.Provider -ceq 'github') {

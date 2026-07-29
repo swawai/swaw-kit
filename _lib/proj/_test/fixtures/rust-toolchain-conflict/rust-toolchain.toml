@@ -1,0 +1,3 @@
+[toolchain]
+channel = "nightly-1900-01-01"
+profile = "minimal"

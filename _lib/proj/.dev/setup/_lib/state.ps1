@@ -203,13 +203,16 @@ function Write-ProjDevInstallMetadata {
 function Get-ProjDevValidInstallMetadata {
     param(
         [Parameter(Mandatory = $true)][object]$Context,
-        [Parameter(Mandatory = $true)][object]$Definition
+        [Parameter(Mandatory = $true)][object]$Definition,
+        [AllowNull()][string]$InstallRoot = $null
     )
 
     Assert-ProjDevArchiveDefinition -Definition $Definition
-    $InstallRoot = Get-ProjDevInstallRoot `
-        -Context $Context `
-        -Definition $Definition
+    if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
+        $InstallRoot = Get-ProjDevInstallRoot `
+            -Context $Context `
+            -Definition $Definition
+    }
     if (-not [IO.Directory]::Exists($InstallRoot)) {
         return $null
     }
@@ -286,18 +289,22 @@ function Test-ProjDevRunnable {
 function Test-ProjDevInstalled {
     param(
         [Parameter(Mandatory = $true)][object]$Context,
-        [Parameter(Mandatory = $true)][object]$Definition
+        [Parameter(Mandatory = $true)][object]$Definition,
+        [AllowNull()][string]$InstallRoot = $null
     )
 
     $Metadata = Get-ProjDevValidInstallMetadata `
         -Context $Context `
-        -Definition $Definition
+        -Definition $Definition `
+        -InstallRoot $InstallRoot
     if ($null -eq $Metadata) {
         return $false
     }
-    $InstallRoot = Get-ProjDevInstallRoot `
-        -Context $Context `
-        -Definition $Definition
+    if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
+        $InstallRoot = Get-ProjDevInstallRoot `
+            -Context $Context `
+            -Definition $Definition
+    }
     foreach ($Record in @($Metadata.files)) {
         $FilePath = Resolve-ProjDevChildPath `
             -Root $InstallRoot `

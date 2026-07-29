@@ -152,6 +152,49 @@ try {
         ) `
         -Message 'unpinned installation did not record its downloaded SHA-256'
 
+    $UnpinnedInstallRoot = Get-ProjDevInstallRoot `
+        -Context $UnpinnedContext `
+        -Definition $UnpinnedDefinition
+    [IO.File]::AppendAllText(
+        (Join-Path $UnpinnedInstallRoot 'bun.exe'),
+        'damage'
+    )
+    $WrongArchiveRoot = Join-Path $FixtureRoot 'wrong-archive'
+    $WrongBunRoot = Join-Path $WrongArchiveRoot 'bun-windows-x64'
+    [void][IO.Directory]::CreateDirectory($WrongBunRoot)
+    New-ProjBunFixtureExecutable `
+        -Path (Join-Path $WrongBunRoot 'bun.exe') `
+        -Version '9.9.9'
+    $WrongArchive = Join-Path $FixtureRoot 'wrong-bun.zip'
+    [IO.Compression.ZipFile]::CreateFromDirectory(
+        $WrongArchiveRoot,
+        $WrongArchive
+    )
+    $UnpinnedCacheRoot = Get-ProjDevArtifactCacheRoot `
+        -Context $UnpinnedContext `
+        -Definition $UnpinnedDefinition
+    [IO.File]::Copy(
+        $WrongArchive,
+        (Join-Path $UnpinnedCacheRoot 'bun-windows-x64.zip'),
+        $true
+    )
+    $RetryDefinition = New-ProjBunTestDefinition `
+        -ArchivePath $ArchivePath `
+        -Sha256 (Get-ProjDevFileSha256 -Path $ArchivePath)
+    $RetryDefinition.ProjectSha256 = ''
+    $RetryDefinition.Sha256 = ''
+    $RetryDefinition.Verification = 'unverified'
+    Assert-ProjBunTest `
+        -Condition (Install-ProjDevBun `
+            -Context $UnpinnedContext `
+            -Definition $RetryDefinition) `
+        -Message 'staged payload failure did not reset and retry the cache'
+    Assert-ProjBunTest `
+        -Condition (Test-ProjDevInstalled `
+            -Context $UnpinnedContext `
+            -Definition $RetryDefinition) `
+        -Message 'clean artifact retry did not produce a valid installation'
+
     $BadDataRoot = Join-Path $TemporaryRoot 'bad-data'
     $BadContext = New-ProjDevContext `
         -ProjectId 'bun-bad' `

@@ -187,6 +187,7 @@ function Get-ProjDevRustRequiredPaths {
         'rustup\settings.toml'
         "rustup\toolchains\$ToolchainName\bin\rustc.exe"
         "rustup\toolchains\$ToolchainName\bin\cargo.exe"
+        "rustup\toolchains\$ToolchainName\bin\rustdoc.exe"
         (
             "rustup\toolchains\$ToolchainName\lib\rustlib\" +
             "manifest-rust-std-$HostTriple"
