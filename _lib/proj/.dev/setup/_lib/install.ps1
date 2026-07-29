@@ -128,11 +128,24 @@ function Publish-ProjDevInstallDirectory {
             }
         }
         if ($null -ne $RollbackError) {
+            $TargetRemains = Test-ProjDevPathExists -Path $TargetPath
+            $BackupRemains = Test-ProjDevPathExists -Path $BackupPath
+            $RecoveryDetail = if ($TargetRemains -and $BackupRemains) {
+                "The failed target remains at '$TargetPath', and the " +
+                "previous installation backup is preserved at '$BackupPath'."
+            } elseif ($BackupRemains) {
+                "The previous installation backup is preserved at " +
+                "'$BackupPath'."
+            } elseif ($TargetRemains) {
+                "No previous installation backup was available; the failed " +
+                "target remains at '$TargetPath'."
+            } else {
+                'No recoverable installation path could be confirmed.'
+            }
             throw (
                 "Publishing $($Definition.Name) failed and rollback is " +
-                "pending because the new installation is locked. The valid " +
-                "backup is preserved at '$BackupPath'. Release related " +
-                "processes and run .dev.setup again. Original error: " +
+                "pending. $RecoveryDetail Release related processes and run " +
+                ".dev.setup again. Original error: " +
                 "$($PublishError.Exception.Message). Rollback error: " +
                 $RollbackError.Exception.Message
             )

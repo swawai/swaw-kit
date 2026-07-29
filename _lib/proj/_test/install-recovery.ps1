@@ -222,6 +222,76 @@ try {
         -Condition ($RecoveredPublish.Ready -and $RecoveredPublish.Restored) `
         -Message 'a rollback-pending publish was not recovered'
 
+    $MoveDestination = Join-Path $Parent 'move-destination'
+    Write-ProjRecoveryCandidate -Path $MoveDestination -Identity 'existing'
+    $MissingMoveSourceRejected = $false
+    try {
+        Move-ProjDevControlledPathWithRetry `
+            -Source (Join-Path $Parent 'missing-move-source') `
+            -Destination $MoveDestination `
+            -DataRoot $Context.DataRoot `
+            -Activity 'testing a missing move source'
+    } catch {
+        $MissingMoveSourceRejected =
+            $_.Exception.Message -like '*source is missing*'
+    }
+    Assert-ProjRecoveryTest `
+        -Condition $MissingMoveSourceRejected `
+        -Message 'a missing move source was mistaken for an existing target'
+    Remove-ProjDevControlledPathWithRetry `
+        -Path $MoveDestination `
+        -DataRoot $Context.DataRoot `
+        -Activity 'cleaning the move contract test'
+
+    Remove-ProjDevControlledPathWithRetry `
+        -Path $Target `
+        -DataRoot $Context.DataRoot `
+        -Activity 'preparing the first-install rollback test'
+    $FirstInstallStaged = New-ProjDevInstallWorkPath `
+        -TargetPath $Target `
+        -Kind 'partial'
+    Write-ProjRecoveryCandidate -Path $FirstInstallStaged -Identity 'new'
+    $FirstInstallMessageCorrect = $false
+    try {
+        Publish-ProjDevInstallDirectory `
+            -Context $Context `
+            -Definition $Definition `
+            -StagedPath $FirstInstallStaged `
+            -TargetPath $Target `
+            -ValidatePublished $LockingValidator
+    } catch {
+        $FirstInstallMessageCorrect =
+            $_.Exception.Message -like (
+                '*No previous installation backup was available*'
+            ) -and
+            $_.Exception.Message -notlike '*valid backup*'
+    } finally {
+        if ($null -ne $LockHolder.Stream) {
+            $LockHolder.Stream.Dispose()
+            $LockHolder.Stream = $null
+        }
+    }
+    $FirstInstallPaths = Get-ProjDevInstallRecoveryPaths -TargetPath $Target
+    Assert-ProjRecoveryTest `
+        -Condition (
+            $FirstInstallMessageCorrect -and
+            (Test-ProjDevPathExists -Path $Target) -and
+            @($FirstInstallPaths.Backups).Count -eq 0
+        ) `
+        -Message 'first-install rollback reported a nonexistent backup'
+    $RecoveredFirstInstall = Repair-ProjDevInstallState `
+        -Context $Context `
+        -Definition $Definition `
+        -TargetPath $Target `
+        -ValidateCandidate $Validate
+    Assert-ProjRecoveryTest `
+        -Condition (
+            -not $RecoveredFirstInstall.Ready -and
+            -not $RecoveredFirstInstall.Restored -and
+            -not (Test-ProjDevPathExists -Path $Target)
+        ) `
+        -Message 'first-install failure was not reset after its lock released'
+
     Write-Host '[PASS] Proj install recovery test' -ForegroundColor Green
 } finally {
     if ($null -ne $LockHolder.Stream) {

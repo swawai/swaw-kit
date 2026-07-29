@@ -70,9 +70,8 @@ function Move-ProjDevControlledPathWithRetry {
 
     $LastError = $null
     for ($Attempt = 1; $Attempt -le $Attempts; $Attempt++) {
-        if (-not (Test-ProjDevPathExists -Path $Source) -and
-            (Test-ProjDevPathExists -Path $Destination)) {
-            return
+        if (-not (Test-ProjDevPathExists -Path $Source)) {
+            throw "Cannot $Activity because the source is missing: $Source"
         }
         if (Test-ProjDevPathExists -Path $Destination) {
             throw "Cannot $Activity because the destination exists: $Destination"
