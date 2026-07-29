@@ -46,7 +46,8 @@ function Publish-ProjDevInstallDirectory {
         [Parameter(Mandatory = $true)][object]$Context,
         [Parameter(Mandatory = $true)][object]$Definition,
         [Parameter(Mandatory = $true)][string]$StagedPath,
-        [Parameter(Mandatory = $true)][string]$TargetPath
+        [Parameter(Mandatory = $true)][string]$TargetPath,
+        [AllowNull()][scriptblock]$ValidatePublished = $null
     )
 
     $TargetPath = Get-ProjDevFullPath -Path $TargetPath
@@ -68,10 +69,21 @@ function Publish-ProjDevInstallDirectory {
         }
         [IO.Directory]::Move($StagedPath, $TargetPath)
         $Published = $true
-        if (-not (Test-ProjDevInstalled `
-            -Context $Context `
-            -Definition $Definition
-        )) {
+        $ValidationResult = @(if ($null -eq $ValidatePublished) {
+            Test-ProjDevInstalled `
+                -Context $Context `
+                -Definition $Definition
+        } else {
+            & $ValidatePublished $Context $Definition $TargetPath
+        })
+        if ($ValidationResult.Count -ne 1 -or
+            $ValidationResult[0] -isnot [bool]) {
+            throw (
+                "The published $($Definition.Name) validator must return " +
+                'exactly one Boolean.'
+            )
+        }
+        if (-not [bool]$ValidationResult[0]) {
             throw "Published $($Definition.Name) installation failed validation."
         }
     } catch {

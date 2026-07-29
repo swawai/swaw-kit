@@ -17,7 +17,12 @@ $ModuleRoot = [IO.Path]::GetFullPath(
 foreach ($File in @(
     'bun\module.ps1',
     'bun\release.ps1',
-    'bun\install.ps1'
+    'bun\install.ps1',
+    'msvc\module.ps1',
+    'msvc\payload.ps1',
+    'msvc\manifest.ps1',
+    'msvc\install.ps1',
+    'msvc\environment.ps1'
 )) {
     . (Join-Path $ModuleRoot $File)
 }

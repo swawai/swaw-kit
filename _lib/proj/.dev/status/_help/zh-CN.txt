@@ -8,4 +8,7 @@ Bun 校验等级:
   upstream    安装时使用 GitHub Release digest 校验
   unpinned    上游与项目均未提供可比较的 SHA-256
 
+MSVC 固定显示 microsoft-manifest；工具链的每个下载制品均使用
+Visual Studio manifest 提供的 SHA-256 校验。
+
 该命令只读取本地声明和安装元数据，不访问网络、不写入项目数据。

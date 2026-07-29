@@ -92,6 +92,9 @@ function Invoke-ProjDevDownload {
                         '--retry', '3',
                         '--retry-delay', '2',
                         '--connect-timeout', '30',
+                        '--speed-limit', '1024',
+                        '--speed-time', '60',
+                        '--max-time', '900',
                         '--output', $TemporaryPath,
                         $Source
                     )

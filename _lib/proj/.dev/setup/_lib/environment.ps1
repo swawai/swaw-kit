@@ -23,11 +23,16 @@ function Set-ProjDevEnvironmentVariable {
         [AllowNull()][string]$Value
     )
 
-    if ($Name -cnotmatch '^[A-Z][A-Z0-9_]*$') {
+    if ($Name -cnotmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
         throw "Invalid generated environment variable name: $Name"
     }
-    if ($Plan.Variables.Contains($Name)) {
-        throw "Generated environment variable is already defined: $Name"
+    foreach ($ExistingName in $Plan.Variables.Keys) {
+        if ($Name.Equals(
+            [string]$ExistingName,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            throw "Generated environment variable is already defined: $Name"
+        }
     }
     $Plan.Variables.Add($Name, $Value)
 }

@@ -1,10 +1,11 @@
-安装 Bun 并生成项目开发环境脚本。
+安装已声明的开发工具并生成项目开发环境脚本。
 
 用法:
   {{INVOCATION}}
 
-当前 V0 只处理已经迁移完成的 Bun 模块。安装位置:
+当前 V0 处理 Bun 与 MSVC。安装位置:
   SWAWKIT_PROJ_DATA_ROOT/dev_env/bun/installs/<version>
+  SWAWKIT_PROJ_DATA_ROOT/dev_env/msvc/installs/<channel>
 
 同时生成:
   SWAWKIT_PROJ_DATA_ROOT/dev_env/env.cmd
@@ -15,3 +16,7 @@
 Bun 默认通过 GitHub Release API 解析指定版本并使用可用的 digest 校验。
 可在 swawkit.cmd 中设置 SWAWKIT_PROJ_BUN_SHA256 进一步锁定安装包；
 未设置时只给出黄色提示，不阻塞安装。
+
+MSVC 通过 Visual Studio channel 自动解析最新版 x64 工具链和 Windows SDK。
+所有 VSIX、MSI、CAB 均使用微软 manifest 提供的 SHA-256 校验，
+项目只需声明 SWAWKIT_PROJ_MSVC_CHANNEL，不维护版本链接或 hash。

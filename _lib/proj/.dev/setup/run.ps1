@@ -10,8 +10,9 @@ if (@($args).Count -gt 0) {
 
 $Context = New-ProjDevContextFromEnvironment
 $BunDefinition = Get-ProjDevBunDefinition
-if ($null -ne $BunDefinition) {
-    Assert-ProjDevWindowsX64 -ToolName 'Bun'
+$MsvcDefinition = Get-ProjDevMsvcDefinition
+if ($null -ne $BunDefinition -or $null -ne $MsvcDefinition) {
+    Assert-ProjDevWindowsX64 -ToolName 'Managed development tools'
 }
 $ActiveGenerationId = [string]$env:SWAWKIT_DEV_GENERATION_ID
 $ActiveEnvironment = Assert-ProjDevActiveEnvironmentCompatible `
@@ -22,7 +23,6 @@ $PendingModules = foreach ($Pending in @(
     [pscustomobject]@{ Name = 'uv'; Variable = 'SWAWKIT_PROJ_UV_MODE' },
     [pscustomobject]@{ Name = 'python'; Variable = 'SWAWKIT_PROJ_PYTHON_MODE' },
     [pscustomobject]@{ Name = 'rust'; Variable = 'SWAWKIT_PROJ_RUST_MODE' },
-    [pscustomobject]@{ Name = 'msvc'; Variable = 'SWAWKIT_PROJ_MSVC_MODE' },
     [pscustomobject]@{ Name = 'pwsh'; Variable = 'SWAWKIT_PROJ_PWSH_MODE' },
     [pscustomobject]@{ Name = 'go'; Variable = 'SWAWKIT_PROJ_GO_MODE' }
 )) {
@@ -37,8 +37,8 @@ $PendingModules = foreach ($Pending in @(
 }
 if (@($PendingModules).Count -gt 0) {
     Write-Warning (
-        '.dev.setup currently configures Bun only; enabled declarations ' +
-        "not handled in this slice: $([string]::Join(', ', $PendingModules))."
+        '.dev.setup does not yet handle these enabled declarations: ' +
+        "$([string]::Join(', ', $PendingModules))."
     )
 }
 
@@ -46,6 +46,7 @@ $SetupLock = Enter-ProjDevFileLock -Path $Context.SetupLockPath
 try {
     $Plan = New-ProjDevEnvironmentPlan -Context $Context
     $BunChanged = $false
+    $MsvcChanged = $false
     if ($null -ne $BunDefinition) {
         $BunChanged = Install-ProjDevBun `
             -Context $Context `
@@ -55,20 +56,39 @@ try {
             -Definition $BunDefinition `
             -Plan $Plan
     }
+    if ($null -ne $MsvcDefinition) {
+        $MsvcChanged = Install-ProjDevMsvc `
+            -Context $Context `
+            -Definition $MsvcDefinition
+        Add-ProjDevMsvcEnvironment `
+            -Context $Context `
+            -Definition $MsvcDefinition `
+            -Plan $Plan
+    }
 
     $Scripts = ConvertTo-ProjDevEnvironmentScripts -Plan $Plan
     $EnvironmentChanged = Publish-ProjDevEnvironmentScripts `
         -Context $Context `
         -Scripts $Scripts
 
-    if ($null -eq $BunDefinition) {
-        Write-Host '[OK] Bun is disabled; the base development environment is ready.' `
-            -ForegroundColor Green
-    } elseif ($BunChanged) {
+    if ($null -ne $BunDefinition -and $BunChanged) {
         Write-Host "[OK] Bun $($BunDefinition.Version) installed and configured." `
             -ForegroundColor Green
-    } else {
+    } elseif ($null -ne $BunDefinition) {
         Write-Host "[OK] Bun $($BunDefinition.Version) is ready." `
+            -ForegroundColor Green
+    }
+    if ($null -ne $MsvcDefinition -and $MsvcChanged) {
+        Write-Host (
+            "[OK] MSVC channel $($MsvcDefinition.Channel) installed and configured."
+        ) -ForegroundColor Green
+    } elseif ($null -ne $MsvcDefinition) {
+        Write-Host (
+            "[OK] MSVC channel $($MsvcDefinition.Channel) is ready."
+        ) -ForegroundColor Green
+    }
+    if ($null -eq $BunDefinition -and $null -eq $MsvcDefinition) {
+        Write-Host '[OK] The base development environment is ready.' `
             -ForegroundColor Green
     }
     if ($null -ne $BunDefinition) {
