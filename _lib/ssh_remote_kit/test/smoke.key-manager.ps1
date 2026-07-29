@@ -69,6 +69,7 @@ function Test-PayloadEmbedsHelperAndPubkeyForSingleSshConnection {
     Assert-Contains $payload "cat > `"`$pubkey_path`" <<'REMOTE_KIT_SMOKE_TOKEN_PUBKEY'" "payload should write public key via heredoc."
     Assert-Contains $payload $pubkey "payload should contain the public key line."
     Assert-Contains $payload "bash `"`$script_path`" 'add' `"`$pubkey_path`" 'check-sshd'" "payload should execute helper with add action."
+    Assert-Contains $payload '${TMPDIR:-/tmp}/swaw-kit-ssh-remote.XXXXXXXXXX' "payload should use the canonical remote temp namespace."
     Assert-Contains $payload "trap cleanup EXIT" "payload should clean remote temp files."
     Assert-True (-not $payload.Contains("`r")) "payload should use LF line endings."
 }
@@ -130,12 +131,20 @@ identityfile C:/Users/Smoke User/.ssh/fallback
     Assert-True ($selected -eq "C:\Users\Smoke User\.ssh\id_vps1") "key manager should select the first usable OpenSSH identityfile and expand ~."
 }
 
+function Test-PersistentArtifactsUseCanonicalNames {
+    $helperSource = [System.IO.File]::ReadAllText((Join-Path $script:KitRoot "authorized_keys.sh"))
+    Assert-Contains $helperSource "/etc/ssh/sshd_config.d/00-swaw-kit-ssh-remote-pubkey-auth.conf" "the remote sshd drop-in should use the canonical swaw-kit name."
+    Assert-Contains $helperSource "# Managed by swaw-kit SSH Remote key.fix/key.add.fix" "the remote sshd marker should use the canonical swaw-kit owner."
+    Assert-Contains $helperSource ".swaw-kit-ssh-remote-backup-" "persistent remote backups should use the canonical swaw-kit namespace."
+}
+
 try {
     Test-PayloadEmbedsHelperAndPubkeyForSingleSshConnection
     Test-PasswordBootstrapArgsUseOneInteractiveSshCommand
     Test-KeyAuthArgsKeepBatchModeButStillUseSingleSshCommand
     Test-ConfigHostArgsUseConfigAliasWithoutDirectOverrides
     Test-SelectIdentityFileFromOpenSshEffectiveConfig
+    Test-PersistentArtifactsUseCanonicalNames
     Write-Host "ssh remote kit key-manager smoke ok" -ForegroundColor Green
 } finally {
     $ctx = $null

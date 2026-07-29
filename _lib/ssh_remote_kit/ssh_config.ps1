@@ -231,7 +231,7 @@ function Ensure-RemoteKitSshConfigInclude {
     if ($oldText -ne $newText) {
         if ($null -ne $oldText) {
             $stamp = Get-Date -Format "yyyyMMddHHmmss"
-            Copy-Item -LiteralPath $UserConfigPath -Destination "$UserConfigPath.remote-kit-bak-$stamp" -Force
+            Copy-Item -LiteralPath $UserConfigPath -Destination "$UserConfigPath.swaw-kit-ssh-remote-backup-$stamp" -Force
         }
 
         [System.IO.File]::WriteAllText($UserConfigPath, $newText, [System.Text.UTF8Encoding]::new($false))

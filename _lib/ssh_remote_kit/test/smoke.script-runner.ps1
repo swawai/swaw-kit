@@ -66,6 +66,7 @@ function Test-PayloadEmbedsScriptAndArgsForSingleSshConnection {
 bash "$script_path" 'alpha' 'two words' 'quote'"'"'value'
 '@.Trim()
     Assert-Contains $payload $expectedRun "payload should shell-quote forwarded script args."
+    Assert-Contains $payload '${TMPDIR:-/tmp}/swaw-kit-ssh-remote.XXXXXXXXXX' "payload should use the canonical remote temp namespace."
     Assert-Contains $payload "trap cleanup EXIT" "payload should clean remote temp files."
     Assert-True (-not $payload.Contains("`r")) "payload should use LF line endings."
 }

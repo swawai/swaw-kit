@@ -296,7 +296,7 @@ try {
         $natDryRunOutput = Invoke-Captured $entryFile @(".port", "expose", "8080", "80", "--dry-run") 0 "nat port expose dry-run"
         Assert-True ($natDryRunOutput.Contains("listenaddress=0.0.0.0")) "nat dry-run should use the fixed 0.0.0.0 listen address."
         Assert-True ($natDryRunOutput.Contains("connectaddress=<WSL-IP>")) "nat dry-run should not require a live WSL IP."
-        Assert-True ($natDryRunOutput.Contains("wsl_instance_kit-")) "nat dry-run should use the wsl_instance_kit rule prefix."
+        Assert-True ($natDryRunOutput.Contains("swaw-kit-wsl-instance-")) "nat dry-run should use the canonical swaw-kit rule prefix."
         Assert-True ($natDryRunOutput.Contains("$entryCommand .port sync")) "nat dry-run should tell users to refresh mappings after WSL IP changes."
         $natDelDryRunOutput = Invoke-Captured $entryFile @(".port", "del", "8080", "--dry-run") 0 "nat port del dry-run"
         Assert-True ($natDelDryRunOutput.Contains("portproxy delete")) "nat del dry-run should delete the NAT portproxy."
@@ -515,7 +515,7 @@ try {
         Remove-Item -LiteralPath $argsFile -Force -ErrorAction SilentlyContinue
         $aliveDryRunOutput = Invoke-Captured $entryFile @(".alive", "123", "--dry-run") 0 "alive dry-run"
         Assert-True ($aliveDryRunOutput.Contains("sleep 123")) "alive dry-run should show the sleep command."
-        Assert-True ($aliveDryRunOutput.Contains("wsl_instance_kit_alive_wsl01")) "alive dry-run should include the alive marker."
+        Assert-True ($aliveDryRunOutput.Contains("swaw-kit-wsl-instance-alive-wsl01")) "alive dry-run should include the canonical alive marker."
         Assert-True ($aliveDryRunOutput.Contains("schtasks.exe /Create")) "alive dry-run should show the scheduled task create command."
         Assert-MockWslNotCalled $argsFile "alive dry-run"
 
@@ -586,10 +586,11 @@ try {
         Assert-True ($vmAliveListOutput.Contains("WSL alive tasks: current Windows user")) "vm alive should show heading."
         Invoke-Checked $entryFile @(".vm", "alive", "extra") 1 "reject unknown vm alive command"
         Invoke-Checked $entryFile @(".vm", "alive", "del", "wsl01") 1 "reject guessed vm alive task name"
-        Invoke-Checked $entryFile @(".vm", "alive", "del", "alive_missing") 1 "reject missing vm alive task"
+        $missingAliveOutput = Invoke-Captured $entryFile @(".vm", "alive", "del", "swaw-kit-wsl-instance-alive-missing") 1 "reject missing vm alive task"
+        Assert-True ($missingAliveOutput.Contains("Alive task not found:")) "a canonical missing alive task should pass identity validation."
         $vmPortOutput = Invoke-Captured $entryFile @(".vm", "port") 0 "vm port"
         Assert-True ($vmPortOutput.Contains("WSL port rules: current Windows user")) "vm port should show heading."
-        Invoke-Checked $entryFile @(".vm", "port", "del", "wsl_instance_kit-missing-port-tcp-0.0.0.0-65535") 1 "reject missing vm port rule"
+        Invoke-Checked $entryFile @(".vm", "port", "del", "swaw-kit-wsl-instance-missing-port-tcp-0.0.0.0-65535") 1 "reject missing vm port rule"
         Invoke-Checked $entryFile @(".vm", "port", "extra") 1 "reject unknown vm port command"
         Invoke-Checked $entryFile @(".vm", "status", "extra") 1 "reject vm status extra args"
         Invoke-Checked $entryFile @(".vm", "show", "extra") 1 "reject vm show extra args"
@@ -637,6 +638,8 @@ try {
         Assert-True ($enableScript.Contains("yum install -y openssh-server")) "ssh enable script should support yum."
         Assert-True ($enableScript.Contains("microdnf install -y openssh-server")) "ssh enable script should support microdnf."
         Assert-True ($enableScript.Contains("ssh-keygen -A")) "ssh enable script should generate host keys."
+        Assert-True ($enableScript.Contains("/etc/ssh/sshd_config.d/00-swaw-kit-wsl-instance-pubkey-auth.conf")) "ssh enable should use the canonical swaw-kit drop-in name."
+        Assert-True ($enableScript.Contains("# Managed by swaw-kit WSL instance .sshd enable")) "ssh enable should use the canonical managed marker."
 
         if (Test-WslDistributionExists "wsl01") {
             Invoke-Checked $entryFile @(".sshd", "status") 0 "ssh status"

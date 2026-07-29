@@ -14,7 +14,7 @@ function ConvertFrom-WslManagedPortRuleName {
         return $null
     }
 
-    if ($RuleName -notmatch '^wsl_instance_kit-(?<instance>.+)-port-(?<protocol>[A-Za-z0-9]+)-(?<address>[A-Za-z0-9_.-]+)-(?<port>\d+)$') {
+    if ($RuleName -notmatch (Get-WslPortRuleRegex)) {
         return $null
     }
 
@@ -29,21 +29,6 @@ function ConvertFrom-WslManagedPortRuleName {
         ListenAddress    = $Matches["address"]
         ListenPort       = $port
     }
-}
-
-function Get-WslPortRuleInstanceName {
-    param([AllowNull()] [object]$Rule)
-
-    if ($null -eq $Rule -or [string]::IsNullOrWhiteSpace([string]$Rule.DisplayName)) {
-        return ""
-    }
-
-    $displayName = [string]$Rule.DisplayName
-    if ($displayName -match '^WSL Kit (?<name>.+?)\s+[A-Za-z]+\s+\d+(?:\s*->\s*\d+)?$') {
-        return $Matches["name"].Trim()
-    }
-
-    return ""
 }
 
 function ConvertFrom-WslManagedPortRule {
@@ -64,7 +49,7 @@ function ConvertFrom-WslManagedPortRule {
     return [pscustomobject]@{
         Id               = [string]$Rule.Name
         Kind             = $Kind
-        InstanceName     = Get-WslPortRuleInstanceName $Rule
+        InstanceName     = Get-WslPortRuleInstanceNameFromDisplayName ([string]$Rule.DisplayName)
         InstanceSafeName = $parsed.InstanceSafeName
         Protocol         = $parsed.Protocol
         ListenAddress    = $parsed.ListenAddress

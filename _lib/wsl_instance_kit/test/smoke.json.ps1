@@ -40,7 +40,7 @@ function Test-StatusJsonBriefOutput {
         Assert-True ($json.next -eq "") "an installed instance should not suggest installation."
     } else {
         Assert-True ($json.state -eq "not installed") "a missing instance should report not installed."
-        Assert-True ($json.next -eq "wsl01 .install") "a missing instance should suggest installation."
+        Assert-True ($json.next -eq "$entryCommand .install") "a missing instance should suggest installation through the active entry."
     }
     Assert-True ($null -ne $json.warnings) "brief status json should include warnings."
     Assert-True ($null -eq $json.source) "brief status json should omit source."

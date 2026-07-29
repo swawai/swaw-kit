@@ -12,7 +12,75 @@ function ConvertTo-WslPortSafeName {
 
 function Get-WslPortRulePrefix {
     $safeName = ConvertTo-WslPortSafeName $script:Config.Name
-    return "wsl_instance_kit-$safeName-port"
+    return "$(Get-WslPortRuleNamespace)-$safeName-port"
+}
+
+
+function Get-WslPortRuleNamespace {
+    return "swaw-kit-wsl-instance"
+}
+
+
+function Get-WslPortRuleDisplayNamePrefix {
+    return "Swaw Kit: WSL instance "
+}
+
+
+function Get-WslPortRuleGroupName {
+    return "Swaw Kit"
+}
+
+
+function Get-WslPortRuleWildcard {
+    return "$(Get-WslPortRuleNamespace)-*-port-*"
+}
+
+
+function Get-WslPortRuleRegex {
+    $namespace = [regex]::Escape((Get-WslPortRuleNamespace))
+    return "^$namespace-(?<instance>.+)-port-(?<protocol>[A-Za-z0-9]+)-(?<address>[A-Za-z0-9_.-]+)-(?<port>\d+)$"
+}
+
+
+function Test-WslPortRuleName {
+    param([AllowNull()] [string]$RuleName)
+
+    return (
+        -not [string]::IsNullOrWhiteSpace($RuleName) -and
+        $RuleName -match (Get-WslPortRuleRegex)
+    )
+}
+
+
+function Get-WslPortRuleDisplayName {
+    param(
+        [string]$Protocol,
+        [int]$ListenPort,
+        [AllowNull()] [Nullable[int]]$ConnectPort = $null
+    )
+
+    $displayName = "$(Get-WslPortRuleDisplayNamePrefix)$($script:Config.Name); $($Protocol.ToUpperInvariant()) $ListenPort"
+    if ($null -ne $ConnectPort) {
+        $displayName += " -> $ConnectPort"
+    }
+
+    return $displayName
+}
+
+
+function Get-WslPortRuleInstanceNameFromDisplayName {
+    param([AllowNull()] [string]$DisplayName)
+
+    if ([string]::IsNullOrWhiteSpace($DisplayName)) {
+        return ""
+    }
+
+    $prefix = [regex]::Escape((Get-WslPortRuleDisplayNamePrefix))
+    if ($DisplayName -notmatch "^$prefix(?<name>.+);\s+[A-Za-z]+\s+\d+(?:\s*->\s*\d+)?$") {
+        return ""
+    }
+
+    return $Matches["name"].Trim()
 }
 
 

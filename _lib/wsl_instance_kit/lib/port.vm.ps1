@@ -79,7 +79,7 @@ function Delete-WslVmPortRule {
     }
 
     $id = $ids[0].Trim()
-    if ($id -notmatch '^wsl_instance_kit-[A-Za-z0-9_.-]+-port-[A-Za-z0-9]+-[A-Za-z0-9_.-]+-\d+$') {
+    if (-not (Test-WslPortRuleName $id)) {
         Write-Fail "Invalid WSL port rule id: $id"
         Write-Fail "Run .vm port and pass one of the displayed rule ids."
         return 1

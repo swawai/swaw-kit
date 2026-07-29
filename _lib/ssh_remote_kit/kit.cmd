@@ -287,7 +287,7 @@ if errorlevel 1 (
 set "sftpFile=%localPath%\.vscode\SFTP.json"
 if not exist "%sftpFile%" goto :WriteSftpFile
 for /f "delims=" %%a in ('PowerShell -NoProfile -ExecutionPolicy Bypass -Command "Get-Date -Format yyyyMMddHHmmss"') do set "sftpBackupStamp=%%a"
-set "sftpBackupFile=%sftpFile%.remote-kit-bak-%sftpBackupStamp%"
+set "sftpBackupFile=%sftpFile%.swaw-kit-ssh-remote-backup-%sftpBackupStamp%"
 copy /Y "%sftpFile%" "%sftpBackupFile%" >nul
 if errorlevel 1 (
     echo Failed to back up existing SFTP config: "%sftpFile%"

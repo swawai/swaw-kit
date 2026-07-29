@@ -2,7 +2,7 @@ function Get-WslAliveAllTaskInfos {
     $items = New-Object System.Collections.ArrayList
     try {
         $tasks = @(Get-ScheduledTask -TaskPath (Get-WslAliveTaskPath) -ErrorAction Stop | Where-Object {
-            $_.TaskName -like "alive_*"
+            $_.TaskName -like (Get-WslAliveTaskNameWildcard)
         } | Sort-Object -Property TaskName)
     } catch {
         return @()
@@ -49,7 +49,7 @@ function Delete-WslVmAliveTask {
     }
 
     $taskName = $Rest[0].Trim()
-    if ($taskName -notmatch '^alive_[A-Za-z0-9_.-]+$') {
+    if (-not (Test-WslAliveTaskName $taskName)) {
         Write-Fail "Invalid alive task name: $taskName"
         Write-Fail "Run .vm alive and pass one of the displayed task names."
         return 1

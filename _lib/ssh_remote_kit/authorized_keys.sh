@@ -37,6 +37,7 @@ tmp_file=""
 sshd_changed_path=""
 sshd_backup_path=""
 sshd_created_path="no"
+ssh_remote_backup_suffix=".swaw-kit-ssh-remote-backup-"
 
 cleanup() {
   if [ -n "$tmp_file" ] && [ -f "$tmp_file" ]; then
@@ -157,7 +158,7 @@ prune_remote_kit_backups() {
 
   backup_dir="$(dirname "$base_path")"
   backup_name="$(basename "$base_path")"
-  backup_prefix="$backup_name.remote-kit-bak-"
+  backup_prefix="$backup_name$ssh_remote_backup_suffix"
 
   backups="$(
     run_root sh -c '
@@ -173,14 +174,14 @@ prune_remote_kit_backups() {
   fi
 
   remove_count=$((count - keep))
-  echo "[INFO] Pruning old remote_kit sshd backups for $base_path; keeping newest $keep."
+  echo "[INFO] Pruning old Swaw Kit SSH Remote backups for $base_path; keeping newest $keep."
 
   printf '%s\n' "$backups" | awk -v n="$remove_count" 'NF && ++seen <= n { print }' |
   while IFS= read -r backup; do
     if run_root rm -f "$backup"; then
-      echo "[INFO] Pruned old remote_kit sshd backup: $backup"
+      echo "[INFO] Pruned old Swaw Kit SSH Remote backup: $backup"
     else
-      echo "[WARN] Failed to prune old remote_kit sshd backup: $backup" >&2
+      echo "[WARN] Failed to prune old Swaw Kit SSH Remote backup: $backup" >&2
     fi
   done
 }
@@ -260,15 +261,15 @@ EOF
 }
 
 write_pubkey_auth_dropin() {
-  local dropin_file="/etc/ssh/sshd_config.d/00-remote-kit-pubkey-auth.conf"
+  local dropin_file="/etc/ssh/sshd_config.d/00-swaw-kit-ssh-remote-pubkey-auth.conf"
   local local_tmp backup timestamp
 
   local_tmp="$(mktemp)"
   timestamp="$(date +%Y%m%d%H%M%S)"
-  backup="$dropin_file.remote-kit-bak-$timestamp"
+  backup="$dropin_file$ssh_remote_backup_suffix$timestamp"
 
   {
-    printf '# Managed by remote_kit key.fix/key.add.fix\n'
+    printf '# Managed by swaw-kit SSH Remote key.fix/key.add.fix\n'
     printf 'PubkeyAuthentication yes\n'
   } > "$local_tmp"
 
@@ -304,7 +305,7 @@ rewrite_pubkey_auth_in_main_config() {
 
   local_tmp="$(mktemp)"
   timestamp="$(date +%Y%m%d%H%M%S)"
-  backup="$config_file.remote-kit-bak-$timestamp"
+  backup="$config_file$ssh_remote_backup_suffix$timestamp"
 
   awk '
     BEGIN {

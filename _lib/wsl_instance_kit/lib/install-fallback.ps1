@@ -5,7 +5,7 @@ function Get-WslDownloadDir {
 }
 
 function Get-WslDownloadTempRoot {
-    return [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) "wsl_instance_kit"))
+    return [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) "swaw-kit-wsl-instance"))
 }
 
 function New-WslDownloadTempPath {

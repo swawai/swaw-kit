@@ -50,7 +50,7 @@ function New-RemoteKitKeyManagerOpenSshPayload {
 
     $lines = New-Object System.Collections.Generic.List[string]
     $lines.Add("set -euo pipefail")
-    $lines.Add("remote_dir=`"`$(mktemp -d `"`${TMPDIR:-/tmp}/remote_kit.XXXXXXXXXX`")`"")
+    $lines.Add("remote_dir=`"`$(mktemp -d `"$(Get-RemoteKitOpenSshTempDirectoryTemplate)`")`"")
     $lines.Add("umask 077")
     $lines.Add("cleanup() { rm -rf `"`$remote_dir`"; }")
     $lines.Add("trap cleanup EXIT")

@@ -260,8 +260,8 @@ ensure_pubkey_authentication() {
         return 0
     fi
 
-    dropin=/etc/ssh/sshd_config.d/00-wsl-instance-kit-pubkey-auth.conf
-    desired="# Managed by wsl_instance_kit .sshd enable
+    dropin=/etc/ssh/sshd_config.d/00-swaw-kit-wsl-instance-pubkey-auth.conf
+    desired="# Managed by swaw-kit WSL instance .sshd enable
 PubkeyAuthentication yes"
     current=
     if [ -f "`$dropin" ]; then
@@ -273,7 +273,7 @@ PubkeyAuthentication yes"
 
     mkdir -p /etc/ssh/sshd_config.d
     backup_file "`$dropin"
-    tmp=`$(mktemp /etc/ssh/sshd_config.d/00-wsl-instance-kit-pubkey-auth.conf.tmp.XXXXXX 2>/dev/null || mktemp)
+    tmp=`$(mktemp "`$dropin.tmp.XXXXXX" 2>/dev/null || mktemp)
     printf '%s\n' "`$desired" > "`$tmp"
     chmod 0644 "`$tmp" 2>/dev/null || true
     chown root:root "`$tmp" 2>/dev/null || true

@@ -5,6 +5,10 @@
 
 $script:RemoteKitContext = $null
 
+function Get-RemoteKitOpenSshTempDirectoryTemplate {
+    return '${TMPDIR:-/tmp}/swaw-kit-ssh-remote.XXXXXXXXXX'
+}
+
 function Test-RemoteKitVerbose {
     $value = $env:REMOTE_KIT_VERBOSE
     if ([string]::IsNullOrWhiteSpace($value)) {
@@ -336,7 +340,7 @@ function Invoke-RemoteKitOpenSshStdinPayload {
     $payloadPath = $null
 
     try {
-        $payloadPath = New-RemoteKitUploadTextFile "ssh_payload_" ".sh" $Payload $DisplayName
+        $payloadPath = New-RemoteKitUploadTextFile "swaw-kit-ssh-remote-payload-" ".sh" $Payload $DisplayName
         $args = @(Get-RemoteKitOpenSshBaseArgs) + @("-T") + @($ExtraSshOptions) + @(Get-RemoteKitOpenSshTargetArgs) + @($RemoteCommand)
         Write-RemoteKitInfrastructureLog "[DEBUG] ssh command: $(Format-RemoteKitCommandForLog $ctx.SshExe ($args + @("<", $payloadPath)))"
 

@@ -24,7 +24,7 @@ function Get-WslManagedHyperVFirewallRules {
 
 function Get-WslAllManagedWindowsFirewallRules {
     try {
-        return @(Get-NetFirewallRule -Name "wsl_instance_kit-*-port-*" -ErrorAction SilentlyContinue)
+        return @(Get-NetFirewallRule -Name (Get-WslPortRuleWildcard) -ErrorAction SilentlyContinue)
     } catch {
         return @()
     }
@@ -37,7 +37,7 @@ function Get-WslAllManagedHyperVFirewallRules {
     }
 
     try {
-        return @(Get-NetFirewallHyperVRule -Name "wsl_instance_kit-*-port-*" -ErrorAction SilentlyContinue)
+        return @(Get-NetFirewallHyperVRule -Name (Get-WslPortRuleWildcard) -ErrorAction SilentlyContinue)
     } catch {
         return @()
     }
@@ -53,10 +53,11 @@ function Set-WslWindowsFirewallRule {
     )
 
     $ruleName = Get-WslPortRuleName $Protocol $ListenPort
-    $displayName = "WSL Kit $($script:Config.Name) $($Protocol.ToUpperInvariant()) $ListenPort -> $ConnectPort"
+    $displayName = Get-WslPortRuleDisplayName -Protocol $Protocol -ListenPort $ListenPort -ConnectPort $ConnectPort
+    $groupName = Get-WslPortRuleGroupName
 
     if ($DryRun) {
-        Write-Host "New-NetFirewallRule -Name $ruleName -DisplayName `"$displayName`" -Group `"WSL Kit`" -Direction Inbound -Action Allow -Protocol $($Protocol.ToUpperInvariant()) -LocalPort $ListenPort -Profile Any"
+        Write-Host "New-NetFirewallRule -Name $ruleName -DisplayName `"$displayName`" -Group `"$groupName`" -Direction Inbound -Action Allow -Protocol $($Protocol.ToUpperInvariant()) -LocalPort $ListenPort -Profile Any"
         return 0
     }
 
@@ -65,7 +66,7 @@ function Set-WslWindowsFirewallRule {
         Remove-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
     }
 
-    New-NetFirewallRule -Name $ruleName -DisplayName $displayName -Group "WSL Kit" -Direction Inbound -Action Allow -Protocol $Protocol.ToUpperInvariant() -LocalPort $ListenPort -Profile Any | Out-Null
+    New-NetFirewallRule -Name $ruleName -DisplayName $displayName -Group $groupName -Direction Inbound -Action Allow -Protocol $Protocol.ToUpperInvariant() -LocalPort $ListenPort -Profile Any | Out-Null
     return 0
 }
 
@@ -104,7 +105,7 @@ function Set-WslHyperVFirewallRule {
     }
 
     $ruleName = Get-WslPortRuleName $Protocol $ListenPort
-    $displayName = "WSL Kit $($script:Config.Name) $($Protocol.ToUpperInvariant()) $ListenPort"
+    $displayName = Get-WslPortRuleDisplayName -Protocol $Protocol -ListenPort $ListenPort
 
     if ($DryRun) {
         Write-Host "New-NetFirewallHyperVRule -Name $ruleName -DisplayName `"$displayName`" -Direction Inbound -VMCreatorId $creatorId -Protocol $($Protocol.ToUpperInvariant()) -LocalPorts $ListenPort -Action Allow -Enabled True"

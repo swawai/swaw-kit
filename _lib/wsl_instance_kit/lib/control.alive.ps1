@@ -43,12 +43,37 @@ function Get-WslAliveMinimumSeconds {
 }
 
 function Get-WslAliveTaskPath {
-    return "\swaw-kit\wsl_instance_kit\"
+    return "\swaw-kit\"
+}
+
+function Get-WslAliveTaskNamePrefix {
+    return "swaw-kit-wsl-instance-alive-"
+}
+
+function Get-WslAliveTaskName {
+    param([AllowNull()] [string]$InstanceName)
+
+    $name = ConvertTo-WslAliveSafeName $InstanceName
+    return "$(Get-WslAliveTaskNamePrefix)$name"
+}
+
+function Get-WslAliveTaskNameWildcard {
+    return "$(Get-WslAliveTaskNamePrefix)*"
+}
+
+function Test-WslAliveTaskName {
+    param([AllowNull()] [string]$TaskName)
+
+    if ([string]::IsNullOrWhiteSpace($TaskName)) {
+        return $false
+    }
+
+    $prefix = [regex]::Escape((Get-WslAliveTaskNamePrefix))
+    return ($TaskName -match "^$prefix[A-Za-z0-9_.-]+$")
 }
 
 function Get-WslAliveTaskIdentity {
-    $name = ConvertTo-WslAliveSafeName $script:Config.Name
-    $taskName = "alive_{0}" -f $name
+    $taskName = Get-WslAliveTaskName $script:Config.Name
     $taskPath = Get-WslAliveTaskPath
 
     return [pscustomobject]@{
@@ -59,8 +84,7 @@ function Get-WslAliveTaskIdentity {
 }
 
 function Get-WslAliveMarker {
-    $name = ConvertTo-WslAliveSafeName $script:Config.Name
-    return ("wsl_instance_kit_alive_{0}" -f $name)
+    return (Get-WslAliveTaskName $script:Config.Name)
 }
 
 function Resolve-WslAliveDuration {
@@ -163,7 +187,7 @@ function Get-WslAliveCurrentUser {
 function Get-WslAliveDescription {
     param([pscustomobject]$Spec)
 
-    return "swaw-kit WSL alive; mode=$($Spec.Mode); seconds=$($Spec.Seconds); command=$($script:Config.CommandName); wsl=$($script:Config.Name)"
+    return "swaw-kit WSL instance alive; mode=$($Spec.Mode); seconds=$($Spec.Seconds); command=$($script:Config.CommandName); wsl=$($script:Config.Name)"
 }
 
 function New-WslAliveTaskXml {
@@ -494,7 +518,7 @@ function Register-WslAliveTask {
         return $removeExit
     }
 
-    $xmlPath = Join-Path ([System.IO.Path]::GetTempPath()) ("wsl-alive-" + [guid]::NewGuid().ToString("N") + ".xml")
+    $xmlPath = Join-Path ([System.IO.Path]::GetTempPath()) ((Get-WslAliveTaskNamePrefix) + [guid]::NewGuid().ToString("N") + ".xml")
     try {
         $xml = New-WslAliveTaskXml $Spec
         [System.IO.File]::WriteAllText($xmlPath, $xml, [System.Text.UnicodeEncoding]::new($false, $true))
