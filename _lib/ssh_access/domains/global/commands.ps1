@@ -53,7 +53,7 @@ function Invoke-SshAccessGlobalServerShellCommand {
         [string[]]$Arguments
     )
 
-    $Usage = "$($Context.CommandName) .global server shell status|cmd|powershell [--uac]"
+    $Usage = "$($Context.CommandName) .global server shell cmd|powershell [--uac]"
     if ($Arguments.Count -eq 0) {
         throw "Missing server shell command. Usage: $Usage"
     }
@@ -61,14 +61,6 @@ function Invoke-SshAccessGlobalServerShellCommand {
     $Action = $Arguments[0].ToLowerInvariant()
     [string[]]$Rest = @($Arguments | Select-Object -Skip 1)
     switch ($Action) {
-        'status' {
-            Assert-SshAccessNoArguments `
-                -Arguments $Rest `
-                -Usage "$($Context.CommandName) .global server shell status"
-            $State = Get-SshAccessShellState -Context $Context
-            Show-SshAccessShellState -State $State
-            return 0
-        }
         'cmd' {
             $Options = Get-SshAccessSwitchSet `
                 -Arguments $Rest `
@@ -105,6 +97,126 @@ function Invoke-SshAccessGlobalServerShellCommand {
     }
 }
 
+function Invoke-SshAccessGlobalServerPortCommand {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Context,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$Arguments
+    )
+
+    $Usage = "$($Context.CommandName) .global server port set <port> [--uac]"
+    if ($Arguments.Count -eq 0) {
+        throw "Missing server port command. Usage: $Usage"
+    }
+    $Action = $Arguments[0].ToLowerInvariant()
+    [string[]]$Rest = @($Arguments | Select-Object -Skip 1)
+    if ($Action -ne 'set') {
+        throw "Unknown server port command '$($Arguments[0])'. Usage: $Usage"
+    }
+
+    $Uac = $false
+    $Values = New-Object Collections.Generic.List[string]
+    foreach ($Argument in $Rest) {
+        if ($Argument -eq '--uac') {
+            if ($Uac) {
+                throw "Duplicate option '--uac'. Usage: $Usage"
+            }
+            $Uac = $true
+            continue
+        }
+        if ($Argument.StartsWith('--')) {
+            throw "Unexpected argument '$Argument'. Usage: $Usage"
+        }
+        $Values.Add($Argument)
+    }
+    if ($Values.Count -ne 1) {
+        throw "Port set requires exactly one port. Usage: $Usage"
+    }
+    $Port = Resolve-SshAccessServerPortNumber -Value $Values[0]
+    $AdminResult = Invoke-SshAccessAdminCommand `
+        -Context $Context `
+        -Arguments @('.global', 'server', 'port', 'set', [string]$Port) `
+        -Uac $Uac
+    if ($null -ne $AdminResult) {
+        return [int]$AdminResult
+    }
+    Set-SshAccessServerPort -Context $Context -Port $Port
+    return 0
+}
+
+function Invoke-SshAccessGlobalServerFirewallCommand {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Context,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$Arguments
+    )
+
+    $Usage = (
+        "$($Context.CommandName) .global server firewall " +
+        'status|allow|remove [--uac]'
+    )
+    if ($Arguments.Count -eq 0) {
+        throw "Missing server firewall command. Usage: $Usage"
+    }
+    $Action = $Arguments[0].ToLowerInvariant()
+    [string[]]$Rest = @($Arguments | Select-Object -Skip 1)
+    switch ($Action) {
+        'status' {
+            $Options = Get-SshAccessSwitchSet `
+                -Arguments $Rest `
+                -Allowed @('--uac') `
+                -Usage "$($Context.CommandName) .global server firewall status [--uac]"
+            if ($Options.ContainsKey('--uac') -and
+                -not (Test-SshAccessAdministrator)) {
+                return Invoke-SshAccessElevatedCommand `
+                    -Context $Context `
+                    -Arguments @('.global', 'server', 'firewall', 'status')
+            }
+            Show-SshAccessFirewallState -Context $Context
+            return 0
+        }
+        'allow' {
+            $Options = Get-SshAccessSwitchSet `
+                -Arguments $Rest `
+                -Allowed @('--uac') `
+                -Usage "$($Context.CommandName) .global server firewall allow [--uac]"
+            $AdminResult = Invoke-SshAccessAdminCommand `
+                -Context $Context `
+                -Arguments @('.global', 'server', 'firewall', 'allow') `
+                -Uac $Options.ContainsKey('--uac')
+            if ($null -ne $AdminResult) {
+                return [int]$AdminResult
+            }
+            $null = Get-SshAccessRequiredServerService
+            $PortState = Get-SshAccessServerPortConfigurationState `
+                -Context $Context
+            $Port = Assert-SshAccessManagedServerPortState -State $PortState
+            Ensure-SshAccessServerFirewall -Port $Port
+            return 0
+        }
+        'remove' {
+            $Options = Get-SshAccessSwitchSet `
+                -Arguments $Rest `
+                -Allowed @('--uac') `
+                -Usage "$($Context.CommandName) .global server firewall remove [--uac]"
+            $AdminResult = Invoke-SshAccessAdminCommand `
+                -Context $Context `
+                -Arguments @('.global', 'server', 'firewall', 'remove') `
+                -Uac $Options.ContainsKey('--uac')
+            if ($null -ne $AdminResult) {
+                return [int]$AdminResult
+            }
+            Remove-SshAccessServerFirewall -Context $Context
+            return 0
+        }
+        default {
+            throw "Unknown server firewall command '$($Arguments[0])'. Usage: $Usage"
+        }
+    }
+}
+
 function Invoke-SshAccessGlobalServerCommand {
     param(
         [Parameter(Mandatory = $true)][pscustomobject]$Context,
@@ -113,7 +225,10 @@ function Invoke-SshAccessGlobalServerCommand {
         [string[]]$Arguments
     )
 
-    $Usage = "$($Context.CommandName) .global server status|install|start|stop|uninstall|shell"
+    $Usage = (
+        "$($Context.CommandName) .global server " +
+        'status|install|start|stop|uninstall|port|firewall|shell'
+    )
     if ($Arguments.Count -eq 0) {
         throw "Missing server command. Usage: $Usage"
     }
@@ -194,6 +309,16 @@ function Invoke-SshAccessGlobalServerCommand {
         }
         'shell' {
             return Invoke-SshAccessGlobalServerShellCommand `
+                -Context $Context `
+                -Arguments $Rest
+        }
+        'port' {
+            return Invoke-SshAccessGlobalServerPortCommand `
+                -Context $Context `
+                -Arguments $Rest
+        }
+        'firewall' {
+            return Invoke-SshAccessGlobalServerFirewallCommand `
                 -Context $Context `
                 -Arguments $Rest
         }

@@ -49,6 +49,57 @@ Assert-SshAccessTestEqual `
     $true `
     'Shell status should flag companion values that affect remote commands.'
 
+Write-Host '[TEST] Aggregate server status owns the complete shell state'
+$ServerState = [pscustomobject]@{
+    Installation = 'Installed'
+    Capability   = [pscustomobject]@{ State = 'Installed'; Error = '' }
+    Executable   = [pscustomobject]@{
+        Path     = 'C:\Windows\System32\OpenSSH\sshd.exe'
+        Probe    = 'Ready'
+        Error    = ''
+    }
+    Service      = [pscustomobject]@{
+        Status  = 'Running'
+        Startup = 'Automatic'
+        Error   = ''
+    }
+    Port         = [pscustomobject]@{
+        Status = 'Known'
+        Path   = 'C:\ProgramData\ssh\sshd_config'
+        Port   = 2222
+        Source = 'Explicit'
+        Issues = @()
+    }
+    Listener     = [pscustomobject]@{
+        Port   = 2222
+        Status = 'Listening'
+        Error  = ''
+    }
+    Firewall     = [pscustomobject]@{
+        Status   = 'Ready'
+        Source   = 'Managed'
+        RuleName = 'swaw-kit-ssh-access-sshd-inbound-tcp'
+        Error    = ''
+    }
+    Shell        = $State
+}
+$ServerOutput = (
+    & { Show-SshAccessServerState -State $ServerState } 6>&1 |
+        Out-String
+)
+Assert-SshAccessTestContains `
+    $ServerOutput `
+    '2222 (Explicit)' `
+    'Server status should show the dynamic configured port.'
+Assert-SshAccessTestContains `
+    $ServerOutput `
+    'C:\tools\custom-shell.exe' `
+    'Server status should absorb the effective shell path.'
+Assert-SshAccessTestContains `
+    $ServerOutput `
+    'Shell command option:' `
+    'Server status should absorb shell companion options.'
+
 Write-Host '[TEST] Shell changes clear incompatible companion values'
 $script:RemovedShellValues = New-Object Collections.Generic.List[string]
 $script:SetShellValues = New-Object Collections.Generic.List[string]

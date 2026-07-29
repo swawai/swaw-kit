@@ -58,27 +58,6 @@ function Get-SshAccessServerServiceState {
     }
 }
 
-function Get-SshAccessServerListenerState {
-    try {
-        $Listeners = @(
-            [Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().
-                GetActiveTcpListeners() |
-                Where-Object { $_.Port -eq 22 }
-        )
-        return [pscustomobject]@{
-            Status = if ($Listeners.Count -gt 0) { 'Listening' } else { 'NotListening' }
-            Count  = $Listeners.Count
-            Error  = $null
-        }
-    } catch {
-        return [pscustomobject]@{
-            Status = 'Unknown'
-            Count  = $null
-            Error  = Get-SshAccessErrorText -ErrorRecord $_
-        }
-    }
-}
-
 function Get-SshAccessServerState {
     param([Parameter(Mandatory = $true)][pscustomobject]$Context)
 
@@ -89,8 +68,20 @@ function Get-SshAccessServerState {
         -CommandName 'sshd.exe' `
         -ProbeArguments @('-?')
     $Service = Get-SshAccessServerServiceState
-    $Listener = Get-SshAccessServerListenerState
-    $Firewall = Get-SshAccessFirewallState
+    $Port = Get-SshAccessServerPortConfigurationState -Context $Context
+    if ($Port.Status -eq 'Known') {
+        $Listener = Get-SshAccessServerListenerState -Port $Port.Port
+        $Firewall = Get-SshAccessFirewallState -Port $Port.Port
+    } else {
+        $Reason = [string]::Join(' ', [string[]]@($Port.Issues))
+        $Listener = [pscustomobject]@{
+            Port   = $null
+            Status = 'Unknown'
+            Count  = $null
+            Error  = $Reason
+        }
+        $Firewall = New-SshAccessUnavailableFirewallState -Reason $Reason
+    }
     $Shell = Get-SshAccessShellState -Context $Context
 
     $Installation = 'Unknown'
@@ -109,6 +100,7 @@ function Get-SshAccessServerState {
         Capability   = $Capability
         Executable   = $Executable
         Service      = $Service
+        Port         = $Port
         Listener     = $Listener
         Firewall     = $Firewall
         Shell        = $Shell
@@ -135,14 +127,43 @@ function Show-SshAccessServerState {
     Write-SshAccessField -Name 'Executable probe' -Value $State.Executable.Probe
     Write-SshAccessField -Name 'Service' -Value $State.Service.Status
     Write-SshAccessField -Name 'Startup' -Value $State.Service.Startup
-    Write-SshAccessField -Name 'TCP port 22' -Value $State.Listener.Status
+    Write-SshAccessField -Name 'sshd_config' -Value $State.Port.Path
+    $PortText = if ($State.Port.Status -eq 'Known') {
+        "$($State.Port.Port) ($($State.Port.Source))"
+    } else {
+        $State.Port.Status
+    }
+    Write-SshAccessField -Name 'SSH port' -Value $PortText
+    $ListenerName = if ($null -eq $State.Listener.Port) {
+        'TCP listener'
+    } else {
+        "TCP/$($State.Listener.Port) listener"
+    }
+    Write-SshAccessField -Name $ListenerName -Value $State.Listener.Status
 
     $FirewallText = $State.Firewall.Status
     if (-not [string]::IsNullOrWhiteSpace($State.Firewall.Source)) {
         $FirewallText = "$FirewallText ($($State.Firewall.Source))"
     }
     Write-SshAccessField -Name 'Firewall' -Value $FirewallText
+    Write-SshAccessField -Name 'Firewall rule' -Value $State.Firewall.RuleName
     Write-SshAccessField -Name 'Default shell' -Value $State.Shell.Kind
+    Write-SshAccessField -Name 'Shell path' -Value $State.Shell.Path
+    $ShellOverride = if ($null -eq $State.Shell.Configured) {
+        'Unknown'
+    } elseif ($State.Shell.Configured) {
+        'Yes'
+    } else {
+        'No (Windows default)'
+    }
+    Write-SshAccessField -Name 'Shell registry override' -Value $ShellOverride
+    Write-SshAccessField -Name 'Shell command option' -Value $State.Shell.CommandOption
+    Write-SshAccessField -Name 'Shell escape arguments' -Value $State.Shell.EscapeArguments
+    if ($State.Shell.CompanionConfigured -eq $true) {
+        Write-SshAccessWarning -Message (
+            'Companion shell registry values can change remote command behavior.'
+        )
+    }
 
     if (-not [string]::IsNullOrWhiteSpace($State.Capability.Error)) {
         Write-SshAccessField -Name 'Capability note' -Value $State.Capability.Error
@@ -152,6 +173,9 @@ function Show-SshAccessServerState {
     }
     if (-not [string]::IsNullOrWhiteSpace($State.Service.Error)) {
         Write-SshAccessField -Name 'Service note' -Value $State.Service.Error
+    }
+    foreach ($Issue in @($State.Port.Issues)) {
+        Write-SshAccessField -Name 'Port note' -Value $Issue
     }
     if (-not [string]::IsNullOrWhiteSpace($State.Listener.Error)) {
         Write-SshAccessField -Name 'Listener note' -Value $State.Listener.Error
@@ -228,7 +252,9 @@ function Install-SshAccessServer {
         Wait-SshAccessServerService -Service $Service -Status 'Running'
     }
 
-    Ensure-SshAccessServerFirewall
+    $PortState = Get-SshAccessServerPortConfigurationState -Context $Context
+    $Port = Assert-SshAccessManagedServerPortState -State $PortState
+    Ensure-SshAccessServerFirewall -Port $Port
     if ($CapabilityResult.Changed) {
         Write-Host 'OpenSSH server capability installed.'
     } else {
@@ -274,10 +300,10 @@ function Uninstall-SshAccessServer {
     $CapabilityState = Get-SshAccessWindowsCapabilityState `
         -Name (Get-SshAccessServerCapabilityName)
     if ($CapabilityState.State -eq 'NotPresent') {
-        $FirewallRemoved = Remove-SshAccessManagedFirewallRule
+        $FirewallRemoved = @(Remove-SshAccessOwnedFirewallRules)
         Write-Host 'The Windows OpenSSH server capability is not installed.'
-        if ($FirewallRemoved) {
-            Write-Host "Removed SSH Access firewall rule '$(Get-SshAccessManagedFirewallRuleName)'."
+        if ($FirewallRemoved.Count -gt 0) {
+            Write-Host "Removed SSH Access firewall rule(s): $($FirewallRemoved -join ', ')"
         } else {
             Write-Host 'No SSH Access firewall rule needed removal.'
         }
@@ -335,15 +361,15 @@ function Uninstall-SshAccessServer {
         }
         throw "OpenSSH server capability removal failed, and sshd could not be restored. Removal: $RemovalError Recovery: $RecoveryError"
     }
-    $FirewallRemoved = Remove-SshAccessManagedFirewallRule
+    $FirewallRemoved = @(Remove-SshAccessOwnedFirewallRules)
 
     if ($CapabilityResult.Changed) {
         Write-Host 'OpenSSH server capability uninstalled.'
     } else {
         Write-Host 'OpenSSH server capability was not installed.'
     }
-    if ($FirewallRemoved) {
-        Write-Host "Removed SSH Access firewall rule '$(Get-SshAccessManagedFirewallRuleName)'."
+    if ($FirewallRemoved.Count -gt 0) {
+        Write-Host "Removed SSH Access firewall rule(s): $($FirewallRemoved -join ', ')"
     } else {
         Write-Host 'No SSH Access firewall rule needed removal.'
     }

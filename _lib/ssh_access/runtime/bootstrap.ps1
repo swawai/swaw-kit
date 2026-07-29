@@ -21,9 +21,12 @@ foreach ($RelativePath in @(
     'domains\public\authorized-keys.ps1',
     'domains\public\commands.ps1',
     'domains\global\client.ps1',
+    'domains\global\server-config-io.ps1',
+    'domains\global\server-config.ps1',
     'domains\global\firewall.ps1',
     'domains\global\shell.ps1',
     'domains\global\server.ps1',
+    'domains\global\server-port.ps1',
     'domains\global\commands.ps1',
     'domains\status\command.ps1',
     'runtime\dispatch.ps1'

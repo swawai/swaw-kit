@@ -119,11 +119,14 @@ try {
         AuthorizedKeysPath = (Join-Path $ScratchRoot 'authorized_keys')
     }
     $script:PublicTestConfigState = [pscustomobject]@{
-        Path                      = (Join-Path $ScratchRoot 'sshd_config')
-        Exists                    = $true
-        Compatible                = $true
-        AdministratorMappingFound = $false
-        Issues                    = @()
+        Path                           = (Join-Path $ScratchRoot 'sshd_config')
+        Exists                         = $true
+        Compatible                     = $true
+        AuthorizedKeysCompatible       = $true
+        PublicKeyAuthentication        = 'default-enabled'
+        PublicKeyAuthenticationEnabled = $true
+        AdministratorMappingFound      = $false
+        Issues                         = @()
     }
     $script:PublicTestReferences = [pscustomobject]@{
         State                       = 'none'
@@ -189,6 +192,33 @@ try {
         $AmbiguousState.MatchCount `
         2 `
         'Status should count every identity reference so key deletion remains fail-closed.'
+
+    Write-Host '[TEST] Disabled key authentication does not hide authorization references'
+    $script:PublicTestConfigState.Compatible = $false
+    $script:PublicTestConfigState.PublicKeyAuthentication = 'disabled'
+    $script:PublicTestConfigState.PublicKeyAuthenticationEnabled = $false
+    $script:PublicTestConfigState.Issues = @(
+        'Line 4: PubkeyAuthentication is disabled.'
+    )
+    $script:PublicTestReferences = [pscustomobject]@{
+        State                       = 'plain'
+        IdentityReferenceCount      = 1
+        PlainAuthorizationCount     = 1
+        OptionBoundReferenceCount   = 0
+    }
+    $DisabledAuthenticationState = Get-SshAccessPublicState -Context $StateContext
+    Assert-SshAccessTestEqual `
+        $DisabledAuthenticationState.Authorization `
+        'granted' `
+        'Authentication policy should not hide a safely readable authorization reference.'
+    Assert-SshAccessTestContains `
+        $DisabledAuthenticationState.Error `
+        'PubkeyAuthentication is disabled' `
+        'Status should still expose the ineffective server authentication policy.'
+    $script:PublicTestConfigState.Compatible = $true
+    $script:PublicTestConfigState.PublicKeyAuthentication = 'default-enabled'
+    $script:PublicTestConfigState.PublicKeyAuthenticationEnabled = $true
+    $script:PublicTestConfigState.Issues = @()
 
     Write-Host '[TEST] Public status summarizes access denial'
     function Test-SshAccessAdministrator {

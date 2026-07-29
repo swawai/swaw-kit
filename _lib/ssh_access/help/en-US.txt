@@ -38,12 +38,15 @@ SSH Access (protocol development stage)
 # Windows OpenSSH (machine-global state):
   {{COMMAND}} .global client status                  Show Windows OpenSSH Client availability; restricted state is unknown
   {{COMMAND}} .global client install --uac           Install Windows OpenSSH Client
-  {{COMMAND}} .global server status                  Show Server, sshd, startup, firewall, and TCP/22 listener state
+  {{COMMAND}} .global server status                  Show sshd, port, listener, firewall, and default-shell state
   {{COMMAND}} .global server install --uac           Install and initialize Windows OpenSSH Server
   {{COMMAND}} .global server start --uac             Start sshd without changing startup or firewall configuration
   {{COMMAND}} .global server stop --uac              Stop sshd without disabling automatic startup
   {{COMMAND}} .global server uninstall --yes --uac   Uninstall Server and remove only this tool's firewall rule
-  {{COMMAND}} .global server shell status            Show the default shell; an absent setting means cmd.exe
+  {{COMMAND}} .global server port set <port> --uac   Set the single port, reconcile firewall, restart, and verify sshd
+  {{COMMAND}} .global server firewall status         Show firewall coverage for the current sshd port
+  {{COMMAND}} .global server firewall allow --uac    Allow the current sshd port
+  {{COMMAND}} .global server firewall remove --uac   Remove SSH Access-owned sshd firewall rules
   {{COMMAND}} .global server shell cmd --uac         Select cmd.exe as the default shell
   {{COMMAND}} .global server shell powershell --uac  Select Windows PowerShell as the default shell
 
@@ -56,9 +59,12 @@ SSH Access (protocol development stage)
   - Administrator authorization uses the machine-shared administrators_authorized_keys; the key can request any administrator account
   - Administrator grant/revoke requires an existing sshd_config with the standard shared-file mapping
   - A plain grant is idempotent; an option-bound reference is never silently weakened into a plain grant, and must be revoked or edited deliberately
-  - The first release manages only the default Windows OpenSSH AuthorizedKeysFile layout and refuses custom paths or Include directives
+  - Grant requires the default Windows AuthorizedKeysFile layout and usable public-key authentication; it never silently rewrites sshd authentication policy
   - --uac permits elevation when a mutation requires it; with .status it explicitly requests elevation; it never expands the supported target scope
   - .global explicitly denotes machine-global state and is not owned by one SSH Access entry
+  - port set manages only a single-port layout and refuses multiple Port directives, port-qualified ListenAddress, or Include
+  - port set validates configuration, reconciles the owned firewall rule, restarts sshd, verifies the listener, and attempts recovery on failure
+  - firewall remove deletes only SSH Access-owned rules, never Windows-owned or third-party rules
   - If the Server capability is absent, uninstall does not stop an independent service named sshd; failed removal attempts restore the prior running state when possible
   - Server uninstall preserves ProgramData\ssh configuration, host keys, and authorization files; shell changes affect new sessions only
   - Shell switching treats DefaultShell and its two command-option values as one configuration aggregate, preventing stale arguments from leaking into the new shell

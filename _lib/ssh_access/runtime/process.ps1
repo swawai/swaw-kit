@@ -62,7 +62,8 @@ function Resolve-SshAccessOpenSshExecutable {
 
     $Path = Join-Path (Join-Path $Context.WindowsRoot 'System32\OpenSSH') $Name
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "Windows OpenSSH executable not found: $Path. Install the Windows OpenSSH Client first."
+        $Feature = if ($Name -eq 'sshd.exe') { 'Server' } else { 'Client' }
+        throw "Windows OpenSSH executable not found: $Path. Install the Windows OpenSSH $Feature first."
     }
     return $Path
 }

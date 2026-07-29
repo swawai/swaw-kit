@@ -104,6 +104,49 @@ try {
         $false `
         'A custom AuthorizedKeysFile should be rejected instead of writing the wrong file.'
 
+    Write-Host '[TEST] Public-key authentication defaults on and explicit disable fails grant closed'
+    [IO.File]::WriteAllText(
+        $SshdConfigPath,
+        "PubkeyAuthentication no`r`nAuthorizedKeysFile .ssh/authorized_keys`r`nMatch Group administrators`r`n  AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys`r`n",
+        (New-Object Text.UTF8Encoding($false))
+    )
+    $DisabledAuthenticationState = Get-SshAccessSshdConfigState `
+        -Context $ConfigContext `
+        -Account $AdminAccount
+    Assert-SshAccessTestEqual `
+        $DisabledAuthenticationState.AuthorizedKeysCompatible `
+        $true `
+        'An authentication policy should not make the known authorization path unsafe to revoke.'
+    Assert-SshAccessTestEqual `
+        $DisabledAuthenticationState.PublicKeyAuthentication `
+        'disabled' `
+        'An explicit global PubkeyAuthentication no should be detected.'
+    Assert-SshAccessTestThrowsLike `
+        {
+            Assert-SshAccessAuthorizedKeysConfiguration `
+                -Context $ConfigContext `
+                -Account $AdminAccount `
+                -RequirePublicKeyAuthentication $true
+        } `
+        '*PubkeyAuthentication is disabled*' `
+        'Grant should refuse to install an ineffective public key.'
+    $null = Assert-SshAccessAuthorizedKeysConfiguration `
+        -Context $ConfigContext `
+        -Account $AdminAccount
+
+    [IO.File]::WriteAllText(
+        $SshdConfigPath,
+        "AuthorizedKeysFile .ssh/authorized_keys`r`nMatch Group administrators`r`n  AuthorizedKeysFile __PROGRAMDATA__/ssh/administrators_authorized_keys`r`n  PubkeyAuthentication yes`r`n",
+        (New-Object Text.UTF8Encoding($false))
+    )
+    $ConditionalAuthenticationState = Get-SshAccessSshdConfigState `
+        -Context $ConfigContext `
+        -Account $AdminAccount
+    Assert-SshAccessTestEqual `
+        $ConditionalAuthenticationState.PublicKeyAuthentication `
+        'unknown' `
+        'Conditional authentication policy should fail closed when effective behavior cannot be proven.'
+
     Write-Host '[TEST] Public mutation scope and administrator configuration fail closed'
     $StateContext = [pscustomobject]@{
         CommandName = 'sshaccess.test'
@@ -166,11 +209,14 @@ try {
         AuthorizedKeysPath = $AuthPath
     }
     $script:PublicTestConfigState = [pscustomobject]@{
-        Path                      = $SshdConfigPath
-        Exists                    = $true
-        Compatible                = $false
-        AdministratorMappingFound = $false
-        Issues                    = @('test stop')
+        Path                           = $SshdConfigPath
+        Exists                         = $true
+        Compatible                     = $false
+        AuthorizedKeysCompatible       = $false
+        PublicKeyAuthentication        = 'default-enabled'
+        PublicKeyAuthenticationEnabled = $true
+        AdministratorMappingFound      = $false
+        Issues                         = @('test stop')
     }
     Assert-SshAccessTestThrowsLike `
         {
@@ -179,7 +225,7 @@ try {
                 -Operation grant `
                 -Uac $true
         } `
-        '*Unsupported sshd AuthorizedKeysFile configuration*' `
+        '*Unsupported sshd public-key authorization configuration*' `
         '--uac should permit elevation when needed rather than force it unconditionally.'
     Assert-SshAccessTestEqual `
         $script:AdminCommandCalls `
@@ -206,11 +252,14 @@ try {
 
     $script:AdminCommandResult = $null
     $script:PublicTestConfigState = [pscustomobject]@{
-        Path                      = $SshdConfigPath
-        Exists                    = $false
-        Compatible                = $false
-        AdministratorMappingFound = $false
-        Issues                    = @(
+        Path                           = $SshdConfigPath
+        Exists                         = $false
+        Compatible                     = $false
+        AuthorizedKeysCompatible       = $false
+        PublicKeyAuthentication        = 'default-enabled'
+        PublicKeyAuthenticationEnabled = $true
+        AdministratorMappingFound      = $false
+        Issues                         = @(
             'sshd_config is missing, so the Administrators AuthorizedKeysFile mapping cannot be verified.'
         )
     }

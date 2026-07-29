@@ -113,43 +113,6 @@ function Get-SshAccessShellState {
     }
 }
 
-function Show-SshAccessShellState {
-    [CmdletBinding(DefaultParameterSetName = 'Context')]
-    param(
-        [Parameter(Mandatory = $true, ParameterSetName = 'Context')]
-        [pscustomobject]$Context,
-        [Parameter(Mandatory = $true, ParameterSetName = 'State')]
-        [pscustomobject]$State
-    )
-
-    if ($PSCmdlet.ParameterSetName -eq 'Context') {
-        $State = Get-SshAccessShellState -Context $Context
-    }
-
-    Write-SshAccessHeading -Text 'Windows OpenSSH server shell'
-    Write-SshAccessField -Name 'Status' -Value $State.Status
-    Write-SshAccessField -Name 'Shell' -Value $State.Kind
-    Write-SshAccessField -Name 'Effective path' -Value $State.Path
-    $ConfiguredText = if ($null -eq $State.Configured) {
-        'Unknown'
-    } elseif ($State.Configured) {
-        'Yes'
-    } else {
-        'No (Windows default)'
-    }
-    Write-SshAccessField -Name 'Registry override' -Value $ConfiguredText
-    Write-SshAccessField -Name 'Command option' -Value $State.CommandOption
-    Write-SshAccessField -Name 'Escape arguments' -Value $State.EscapeArguments
-    if ($State.CompanionConfigured -eq $true) {
-        Write-SshAccessWarning -Message (
-            'Companion shell registry values are configured and can change remote command behavior.'
-        )
-    }
-    if (-not [string]::IsNullOrWhiteSpace($State.Error)) {
-        Write-SshAccessField -Name 'Shell note' -Value $State.Error
-    }
-}
-
 function Remove-SshAccessServerShellRegistryValues {
     param(
         [Parameter(Mandatory = $true)][string]$RegistryPath,

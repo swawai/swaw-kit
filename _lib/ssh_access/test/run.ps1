@@ -40,6 +40,8 @@ $Suites = @(
     'smoke.public.policy-command.ps1',
     'smoke.global.capability.ps1',
     'smoke.global.shell.ps1',
+    'smoke.global.firewall.ps1',
+    'smoke.global.port.ps1',
     'smoke.global.ps1'
 )
 

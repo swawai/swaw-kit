@@ -1,6 +1,5 @@
 [CmdletBinding()]
 param()
-
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
@@ -18,6 +17,7 @@ $script:CapabilityRemoveCalls = 0
 $script:FirewallRemoveCalls = 0
 function Assert-SshAccessGlobalAdministrator {
 }
+
 function Get-SshAccessWindowsCapabilityState {
     param([string]$Name)
 
@@ -43,9 +43,10 @@ function Remove-SshAccessWindowsCapability {
         RestartNeeded = $false
     }
 }
-function Remove-SshAccessManagedFirewallRule {
+
+function Remove-SshAccessOwnedFirewallRules {
     $script:FirewallRemoveCalls++
-    return $false
+    return [string[]]@()
 }
 
 Uninstall-SshAccessServer
@@ -177,7 +178,10 @@ function Install-SshAccessWindowsCapability {
         RestartNeeded = $true
     }
 }
+
 function Ensure-SshAccessServerFirewall {
+    param([int]$Port)
+
     $script:FirewallEnsureCalls++
 }
 $ServiceReadsBeforePendingInstall = $script:UninstallServiceReads
@@ -196,6 +200,10 @@ $script:ServerUninstallCalls = 0
 $script:ServerInstallCalls = 0
 $script:ClientInstallCalls = 0
 $script:ShellSetCalls = 0
+$script:PortSetCalls = 0
+$script:FirewallStatusCalls = 0
+$script:FirewallAllowCalls = 0
+$script:FirewallCommandRemoveCalls = 0
 
 function Invoke-SshAccessAdminCommand {
     param(
@@ -211,26 +219,63 @@ function Invoke-SshAccessAdminCommand {
     return $null
 }
 
-function Uninstall-SshAccessServer {
-    $script:ServerUninstallCalls++
-}
+function Uninstall-SshAccessServer { $script:ServerUninstallCalls++ }
 
 function Install-SshAccessServer {
     param([pscustomobject]$Context)
-
     $script:ServerInstallCalls++
 }
 
 function Install-SshAccessClient {
     param([pscustomobject]$Context)
-
     $script:ClientInstallCalls++
 }
 
 function Set-SshAccessServerShellPowerShell {
     param([pscustomobject]$Context)
-
     $script:ShellSetCalls++
+}
+
+function Set-SshAccessServerPort {
+    param(
+        [pscustomobject]$Context,
+        [int]$Port
+    )
+
+    $script:PortSetCalls++
+    $script:LastPortSet = $Port
+}
+
+function Show-SshAccessFirewallState {
+    param([pscustomobject]$Context)
+    $script:FirewallStatusCalls++
+}
+
+function Get-SshAccessServerPortConfigurationState {
+    param([pscustomobject]$Context)
+
+    return [pscustomobject]@{
+        Status = 'Known'
+        Port   = 2222
+    }
+}
+
+function Get-SshAccessRequiredServerService { return [pscustomobject]@{ Status = 'Running' } }
+
+function Assert-SshAccessManagedServerPortState {
+    param([pscustomobject]$State)
+    return [int]$State.Port
+}
+
+function Ensure-SshAccessServerFirewall {
+    param([int]$Port)
+    $script:FirewallAllowCalls++
+    $script:LastFirewallPort = $Port
+}
+
+function Remove-SshAccessServerFirewall {
+    param([pscustomobject]$Context)
+    $script:FirewallCommandRemoveCalls++
 }
 
 Write-Host '[TEST] Server uninstall confirmation precedes elevation and mutation'
@@ -275,6 +320,26 @@ Assert-SshAccessTestThrowsLike `
     { Invoke-SshAccessGlobalCommand -Context $Context -Arguments @('server', 'shell', 'powershell', '--yes') } `
     "*Unexpected argument '--yes'*" `
     'Shell changes should reject unknown options.'
+Assert-SshAccessTestThrowsLike `
+    { Invoke-SshAccessGlobalCommand -Context $Context -Arguments @('server', 'shell', 'status') } `
+    "*Unknown server shell command 'status'*" `
+    'The removed shell status command must stay unavailable.'
+Assert-SshAccessTestThrowsLike `
+    { Invoke-SshAccessGlobalCommand -Context $Context -Arguments @('server', 'port', 'status') } `
+    "*Unknown server port command 'status'*" `
+    'Port state should remain part of aggregate server status.'
+Assert-SshAccessTestThrowsLike `
+    { Invoke-SshAccessGlobalCommand -Context $Context -Arguments @('server', 'port', 'set', '0') } `
+    '*must be an integer from 1 to 65535*' `
+    'Port set should reject an invalid port before authorization.'
+Assert-SshAccessTestThrowsLike `
+    { Invoke-SshAccessGlobalCommand -Context $Context -Arguments @('server', 'port', 'set', '22', '23') } `
+    '*requires exactly one port*' `
+    'Port set should reject multiple values before authorization.'
+Assert-SshAccessTestThrowsLike `
+    { Invoke-SshAccessGlobalCommand -Context $Context -Arguments @('server', 'firewall', 'allow', '--yes') } `
+    "*Unexpected argument '--yes'*" `
+    'Firewall mutations should reject unknown options before authorization.'
 Assert-SshAccessTestEqual `
     $script:AdminCalls.Count `
     $AdminCount `
@@ -293,12 +358,33 @@ $null = Invoke-SshAccessGlobalCommand `
 $null = Invoke-SshAccessGlobalCommand `
     -Context $Context `
     -Arguments @('server', 'shell', 'powershell', '--uac')
+$null = Invoke-SshAccessGlobalCommand `
+    -Context $Context `
+    -Arguments @('server', 'port', 'set', '2222', '--uac')
+$null = Invoke-SshAccessGlobalCommand `
+    -Context $Context `
+    -Arguments @('server', 'firewall', 'allow', '--uac')
+$null = Invoke-SshAccessGlobalCommand `
+    -Context $Context `
+    -Arguments @('server', 'firewall', 'remove', '--uac')
+$null = Invoke-SshAccessGlobalCommand `
+    -Context $Context `
+    -Arguments @('server', 'firewall', 'status')
 Assert-SshAccessTestEqual $script:ServerInstallCalls 1 'Server install should dispatch once.'
 Assert-SshAccessTestEqual $script:ClientInstallCalls 1 'Client install should dispatch once.'
 Assert-SshAccessTestEqual $script:ShellSetCalls 1 'Shell change should dispatch once.'
+Assert-SshAccessTestEqual $script:PortSetCalls 1 'Port set should dispatch once.'
+Assert-SshAccessTestEqual $script:LastPortSet 2222 'Port set should retain the validated port.'
+Assert-SshAccessTestEqual $script:FirewallAllowCalls 1 'Firewall allow should dispatch once.'
+Assert-SshAccessTestEqual $script:LastFirewallPort 2222 'Firewall allow should use the configured sshd port.'
+Assert-SshAccessTestEqual $script:FirewallCommandRemoveCalls 1 'Firewall remove should dispatch once.'
+Assert-SshAccessTestEqual $script:FirewallStatusCalls 1 'Firewall status should dispatch once.'
 Assert-SshAccessTestEqual $script:AdminCalls[1].Uac $false 'No flag should mean no implicit UAC.'
 Assert-SshAccessTestEqual $script:AdminCalls[2].Uac $true 'Client --uac should be explicit.'
 Assert-SshAccessTestEqual $script:AdminCalls[3].Uac $true 'Shell --uac should be explicit.'
+Assert-SshAccessTestEqual $script:AdminCalls[4].Uac $true 'Port --uac should be explicit.'
+Assert-SshAccessTestEqual $script:AdminCalls[5].Uac $true 'Firewall allow --uac should be explicit.'
+Assert-SshAccessTestEqual $script:AdminCalls[6].Uac $true 'Firewall remove --uac should be explicit.'
 
 Assert-SshAccessTestThrowsLike `
     { Invoke-SshAccessGlobalCommand -Context $Context -Arguments @('registry') } `

@@ -83,10 +83,6 @@ try {
         param([pscustomobject]$Context)
         [void]$script:StatusCalls.Add('server')
     }
-    function Show-SshAccessShellState {
-        param([pscustomobject]$Context)
-        [void]$script:StatusCalls.Add('shell')
-    }
     $StatusOutput = (
         & {
             Invoke-SshAccessStatusCommand -Context $Context -Arguments @()
@@ -95,7 +91,7 @@ try {
     )
     Assert-SshAccessTestEqual `
         ($script:StatusCalls -join ',') `
-        'key,private,public,client,server,shell' `
+        'key,private,public,client,server' `
         'Bare status should compose every status domain in protocol order.'
     Assert-SshAccessTestContains `
         $StatusOutput `
@@ -192,8 +188,8 @@ try {
     )
     Assert-SshAccessTestEqual `
         ($script:StatusCalls -join ',') `
-        'client,server,shell' `
-        'SSH status should query client, server, and default-shell state.'
+        'client,server' `
+        'SSH status should query client and the aggregate server state.'
     Assert-SshAccessTestTrue `
         (-not $SshStatusOutput.Contains('SSH login target:')) `
         'SSH status should omit entry-bound login identity.'

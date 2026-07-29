@@ -155,12 +155,6 @@ function Invoke-SshAccessStatusCommand {
             -OfferElevation $OfferElevation `
             -RetryArguments $RetryArguments `
             -Action { Show-SshAccessServerState -Context $Context }
-        Invoke-SshAccessStatusSection `
-            -Name 'OpenSSH default shell' `
-            -Context $Context `
-            -OfferElevation $OfferElevation `
-            -RetryArguments $RetryArguments `
-            -Action { Show-SshAccessShellState -Context $Context }
         if ($OfferElevation) {
             $Retry = Format-SshAccessCommand `
                 -CommandName $Context.CommandName `

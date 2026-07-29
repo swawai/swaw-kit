@@ -203,10 +203,24 @@ function Write-SshAccessAuthorizedKeysAtomic {
         throw
     } finally {
         if (Test-Path -LiteralPath $TemporaryPath -PathType Leaf) {
-            Remove-Item -LiteralPath $TemporaryPath -Force -ErrorAction SilentlyContinue
+            try {
+                Remove-Item -LiteralPath $TemporaryPath -Force -ErrorAction Stop
+            } catch {
+                Write-SshAccessWarning -Message (
+                    "A temporary authorized_keys file could not be removed: " +
+                    "'$TemporaryPath'."
+                )
+            }
         }
         if ($ReplacementComplete -and (Test-Path -LiteralPath $BackupPath -PathType Leaf)) {
-            Remove-Item -LiteralPath $BackupPath -Force -ErrorAction SilentlyContinue
+            try {
+                Remove-Item -LiteralPath $BackupPath -Force -ErrorAction Stop
+            } catch {
+                Write-SshAccessWarning -Message (
+                    "The authorized_keys update succeeded, but its temporary " +
+                    "recovery copy could not be removed: '$BackupPath'."
+                )
+            }
         }
     }
 }

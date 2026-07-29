@@ -21,6 +21,7 @@ function Get-SshAccessPublicState {
         OptionBoundCount   = $null
         ConfigPath         = $null
         ConfigCompatible   = $null
+        KeyAuthentication  = $null
         Error              = $null
     }
 
@@ -37,8 +38,14 @@ function Get-SshAccessPublicState {
         $ConfigState = Get-SshAccessSshdConfigState -Context $Context -Account $Account
         $State.ConfigPath = $ConfigState.Path
         $State.ConfigCompatible = $ConfigState.Compatible
-        if (-not $ConfigState.Compatible) {
-            $State.Error = [string]::Join(' ', [string[]]@($ConfigState.Issues))
+        $State.KeyAuthentication = $ConfigState.PublicKeyAuthentication
+        $ConfigurationError = if ($ConfigState.Compatible) {
+            $null
+        } else {
+            [string]::Join(' ', [string[]]@($ConfigState.Issues))
+        }
+        if (-not $ConfigState.AuthorizedKeysCompatible) {
+            $State.Error = $ConfigurationError
         } elseif ($State.PublicKeyExists) {
             $Key = Get-SshAccessBoundPublicKey -Context $Context
             $References = Get-SshAccessAuthorizedKeyReferenceState `
@@ -65,6 +72,13 @@ function Get-SshAccessPublicState {
             $State.OptionBoundCount = 0
             $State.Granted = $false
             $State.Authorization = 'not-granted'
+        }
+        if (-not [string]::IsNullOrWhiteSpace($ConfigurationError) -and
+            [string]::IsNullOrWhiteSpace($State.Error)) {
+            $State.Error = $ConfigurationError
+        } elseif (-not [string]::IsNullOrWhiteSpace($ConfigurationError) -and
+            -not $State.Error.Contains($ConfigurationError)) {
+            $State.Error += [Environment]::NewLine + $ConfigurationError
         }
     } catch {
         if (Test-SshAccessAccessDeniedError -ErrorRecord $_) {
@@ -117,6 +131,7 @@ function Show-SshAccessPublicState {
     Write-SshAccessField -Name 'Direct matches' -Value $State.DirectMatchCount
     Write-SshAccessField -Name 'Option-bound matches' -Value $State.OptionBoundCount
     Write-SshAccessField -Name 'Config compatible' -Value $State.ConfigCompatible
+    Write-SshAccessField -Name 'Key authentication' -Value $State.KeyAuthentication
     if ($State.Shared -eq $true) {
         Write-SshAccessWarning 'This authorization file is shared by every member of the built-in Administrators group.'
     }
@@ -153,7 +168,10 @@ function Invoke-SshAccessPublicMutation {
         }
     }
 
-    [void](Assert-SshAccessAuthorizedKeysConfiguration -Context $Context -Account $Account)
+    [void](Assert-SshAccessAuthorizedKeysConfiguration `
+        -Context $Context `
+        -Account $Account `
+        -RequirePublicKeyAuthentication ($Operation -eq 'grant'))
     if ($Operation -eq 'grant' -and
         (Test-Path -LiteralPath $Context.PrivateKeyPath -PathType Leaf)) {
         $KeyState = Get-SshAccessKeyState -Context $Context

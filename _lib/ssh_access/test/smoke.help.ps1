@@ -44,7 +44,10 @@ foreach ($Arguments in @(
     $Output = Invoke-SshAccessHelpTestCommand `
         -Arguments $Arguments `
         -ExpectedExitCode 0
-    Assert-SshAccessTestContains $Output 'SSH Access' 'Help should identify the resource.'
+    Assert-SshAccessTestContains `
+        $Output `
+        'sshaccess1.dev .status' `
+        'Help should identify the actual entry command.'
     Assert-SshAccessTestContains `
         $Output `
         'sshaccess1.dev .global server install --uac' `
@@ -101,7 +104,7 @@ Assert-SshAccessTestEqual `
     "The trusted CMD adapter should start help under a poisoned environment.`n$TrustedAdapterHelp"
 Assert-SshAccessTestContains `
     $TrustedAdapterHelp `
-    'SSH Access' `
+    'sshaccess1.dev .status' `
     'The CMD adapter should ignore poisoned Windows process environment values.'
 Assert-SshAccessTestEqual `
     $TrustedAdapterStatusExitCode `
@@ -161,16 +164,12 @@ Assert-SshAccessTestContains `
     'Chinese help should show the real entry file name including its extension.'
 Assert-SshAccessTestContains `
     $Chinese `
-    ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(
-        'djEg5Y+q5YWB6K645pmu6YCa55So5oi35pys5Lq66L+Q6KGM5YWl5Y+j5bm25L+u5pS56Ieq5bex55qEIHByb2ZpbGU='
-    ))) `
-    'Chinese help should document the ordinary-user mutation boundary.'
+    'PubkeyAuthentication' `
+    'Chinese help should document the public-key authentication policy boundary.'
 Assert-SshAccessTestContains `
-    $Chinese `
-    ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(
-        '5bey5pyJIG9wdGlvbi1ib3VuZCDlvJXnlKjml7bkuI3kvJrpnZnpu5jov73liqDmm7Tlrr3mnb7nmoQgcGxhaW4g5o6I5p2D'
-    ))) `
-    'Chinese help should document option-bound grant safety.'
+    $English `
+    'never silently rewrites sshd authentication policy' `
+    'English help should document the public-key authentication policy boundary.'
 
 foreach ($Required in @(
     '.status key',
@@ -190,6 +189,10 @@ foreach ($Required in @(
     '.global client install --uac',
     '.global server install --uac',
     '.global server uninstall --yes --uac',
+    '.global server port set <port> --uac',
+    '.global server firewall status',
+    '.global server firewall allow --uac',
+    '.global server firewall remove --uac',
     '.global server shell powershell --uac'
 )) {
     Assert-SshAccessTestContains $Chinese $Required "Chinese help should contain $Required"
@@ -223,6 +226,18 @@ Assert-SshAccessTestTrue `
 Assert-SshAccessTestTrue `
     (-not $Chinese.Contains('sshaccess1.dev /?')) `
     'Help should not advertise the unsupported legacy alias.'
+Assert-SshAccessTestTrue `
+    (-not $Chinese.Contains('.global server port status')) `
+    'Help should keep port state in aggregate server status.'
+Assert-SshAccessTestTrue `
+    (-not $English.Contains('.global server port status')) `
+    'English help should keep port state in aggregate server status.'
+Assert-SshAccessTestTrue `
+    (-not $Chinese.Contains('.global server shell status')) `
+    'Help should keep shell state in aggregate server status.'
+Assert-SshAccessTestTrue `
+    (-not $English.Contains('.global server shell status')) `
+    'English help should keep shell state in aggregate server status.'
 
 $SlashQuestion = Invoke-SshAccessHelpTestCommand `
     -Arguments @('/?') `

@@ -159,37 +159,50 @@ function Get-SshAccessSshdConfigState {
     )
 
     $ConfigPath = Join-Path (Join-Path $Context.ProgramData 'ssh') 'sshd_config'
-    $Issues = New-Object Collections.Generic.List[string]
+    $AuthorizedKeysIssues = New-Object Collections.Generic.List[string]
+    $AuthenticationIssues = New-Object Collections.Generic.List[string]
     if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) {
         if ($Account.IsAdministrator) {
-            $Issues.Add(
+            $AuthorizedKeysIssues.Add(
                 'sshd_config is missing, so the Administrators AuthorizedKeysFile mapping cannot be verified.'
             )
         }
+        $Issues = @($AuthorizedKeysIssues) + @($AuthenticationIssues)
         return [pscustomobject]@{
-            Path                      = $ConfigPath
-            Exists                    = $false
-            Compatible                = ($Issues.Count -eq 0)
-            AdministratorMappingFound = $false
-            Issues                    = @($Issues)
+            Path                           = $ConfigPath
+            Exists                         = $false
+            Compatible                     = ($Issues.Count -eq 0)
+            AuthorizedKeysCompatible       = ($AuthorizedKeysIssues.Count -eq 0)
+            PublicKeyAuthentication        = 'default-enabled'
+            PublicKeyAuthenticationEnabled = $true
+            AdministratorMappingFound      = $false
+            Issues                         = @($Issues)
         }
     }
 
     try {
         $Lines = [IO.File]::ReadAllLines($ConfigPath)
     } catch {
-        $Issues.Add("Cannot read sshd_config: $($_.Exception.Message)")
+        $AuthorizedKeysIssues.Add("Cannot read sshd_config: $($_.Exception.Message)")
+        $AuthenticationIssues.Add('Public-key authentication could not be verified.')
+        $Issues = @($AuthorizedKeysIssues) + @($AuthenticationIssues)
         return [pscustomobject]@{
-            Path                      = $ConfigPath
-            Exists                    = $true
-            Compatible                = $false
-            AdministratorMappingFound = $false
-            Issues                    = @($Issues)
+            Path                           = $ConfigPath
+            Exists                         = $true
+            Compatible                     = $false
+            AuthorizedKeysCompatible       = $false
+            PublicKeyAuthentication        = 'unknown'
+            PublicKeyAuthenticationEnabled = $false
+            AdministratorMappingFound      = $false
+            Issues                         = @($Issues)
         }
     }
 
     $Scope = 'global'
     $AdministratorMappingFound = $false
+    $PublicKeyAuthentication = 'default-enabled'
+    $PublicKeyAuthenticationEnabled = $true
+    $GlobalPublicKeyAuthenticationFound = $false
     for ($LineIndex = 0; $LineIndex -lt $Lines.Length; $LineIndex++) {
         $Content = (Remove-SshAccessSshdConfigComment -Line $Lines[$LineIndex]).Trim()
         if ([string]::IsNullOrWhiteSpace($Content)) {
@@ -202,7 +215,9 @@ function Get-SshAccessSshdConfigState {
 
         $Directive = $Fields[0].ToLowerInvariant()
         if ($Directive -eq 'include') {
-            $Issues.Add("Line $($LineIndex + 1): Include is not supported by this version of SSH Access.")
+            $AuthorizedKeysIssues.Add(
+                "Line $($LineIndex + 1): Include is not supported by this version of SSH Access."
+            )
             continue
         }
         if ($Directive -eq 'match') {
@@ -216,6 +231,39 @@ function Get-SshAccessSshdConfigState {
             }
             continue
         }
+        if ($Directive -eq 'pubkeyauthentication') {
+            if ($Scope -ne 'global') {
+                $AuthenticationIssues.Add(
+                    "Line $($LineIndex + 1): conditional PubkeyAuthentication is not supported by this version of SSH Access."
+                )
+                $PublicKeyAuthentication = 'unknown'
+                $PublicKeyAuthenticationEnabled = $false
+                continue
+            }
+            if ($GlobalPublicKeyAuthenticationFound) {
+                continue
+            }
+            $GlobalPublicKeyAuthenticationFound = $true
+            if ($Fields.Count -ne 2 -or
+                @('yes', 'no') -notcontains $Fields[1].ToLowerInvariant()) {
+                $AuthenticationIssues.Add(
+                    "Line $($LineIndex + 1): PubkeyAuthentication must be yes or no."
+                )
+                $PublicKeyAuthentication = 'unknown'
+                $PublicKeyAuthenticationEnabled = $false
+                continue
+            }
+            if ($Fields[1].ToLowerInvariant() -eq 'yes') {
+                $PublicKeyAuthentication = 'enabled'
+            } else {
+                $AuthenticationIssues.Add(
+                    "Line $($LineIndex + 1): PubkeyAuthentication is disabled."
+                )
+                $PublicKeyAuthentication = 'disabled'
+                $PublicKeyAuthenticationEnabled = $false
+            }
+            continue
+        }
         if ($Directive -ne 'authorizedkeysfile') {
             continue
         }
@@ -223,7 +271,9 @@ function Get-SshAccessSshdConfigState {
         $Paths = @($Fields | Select-Object -Skip 1)
         if ($Scope -eq 'global') {
             if (-not (Test-SshAccessDefaultUserAuthorizedKeysValue -Paths $Paths)) {
-                $Issues.Add("Line $($LineIndex + 1): non-default global AuthorizedKeysFile is not supported.")
+                $AuthorizedKeysIssues.Add(
+                    "Line $($LineIndex + 1): non-default global AuthorizedKeysFile is not supported."
+                )
             }
             continue
         }
@@ -232,32 +282,50 @@ function Get-SshAccessSshdConfigState {
             $AdministratorMappingFound = $true
             continue
         }
-        $Issues.Add("Line $($LineIndex + 1): conditional or non-default AuthorizedKeysFile is not supported.")
+        $AuthorizedKeysIssues.Add(
+            "Line $($LineIndex + 1): conditional or non-default AuthorizedKeysFile is not supported."
+        )
     }
 
     if ($Account.IsAdministrator -and -not $AdministratorMappingFound) {
-        $Issues.Add('The standard Administrators AuthorizedKeysFile mapping is missing.')
+        $AuthorizedKeysIssues.Add(
+            'The standard Administrators AuthorizedKeysFile mapping is missing.'
+        )
     }
+    if ($AuthenticationIssues.Count -gt 0) {
+        $PublicKeyAuthenticationEnabled = $false
+        if ($PublicKeyAuthentication -ne 'disabled') {
+            $PublicKeyAuthentication = 'unknown'
+        }
+    }
+    $Issues = @($AuthorizedKeysIssues) + @($AuthenticationIssues)
 
     return [pscustomobject]@{
-        Path                      = $ConfigPath
-        Exists                    = $true
-        Compatible                = ($Issues.Count -eq 0)
-        AdministratorMappingFound = $AdministratorMappingFound
-        Issues                    = @($Issues)
+        Path                           = $ConfigPath
+        Exists                         = $true
+        Compatible                     = ($Issues.Count -eq 0)
+        AuthorizedKeysCompatible       = ($AuthorizedKeysIssues.Count -eq 0)
+        PublicKeyAuthentication        = $PublicKeyAuthentication
+        PublicKeyAuthenticationEnabled = $PublicKeyAuthenticationEnabled
+        AdministratorMappingFound      = $AdministratorMappingFound
+        Issues                         = @($Issues)
     }
 }
 
 function Assert-SshAccessAuthorizedKeysConfiguration {
     param(
         [Parameter(Mandatory = $true)][pscustomobject]$Context,
-        [Parameter(Mandatory = $true)][pscustomobject]$Account
+        [Parameter(Mandatory = $true)][pscustomobject]$Account,
+        [bool]$RequirePublicKeyAuthentication = $false
     )
 
     $State = Get-SshAccessSshdConfigState -Context $Context -Account $Account
-    if (-not $State.Compatible) {
+    $Supported = $State.AuthorizedKeysCompatible -and
+        (-not $RequirePublicKeyAuthentication -or
+        $State.PublicKeyAuthenticationEnabled)
+    if (-not $Supported) {
         $Detail = [string]::Join(' ', [string[]]@($State.Issues))
-        throw "Unsupported sshd AuthorizedKeysFile configuration in '$($State.Path)'. $Detail"
+        throw "Unsupported sshd public-key authorization configuration in '$($State.Path)'. $Detail"
     }
     return $State
 }
