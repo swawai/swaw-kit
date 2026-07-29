@@ -11,7 +11,16 @@ if (@($args).Count -gt 0) {
 $Context = New-ProjDevContextFromEnvironment
 $BunDefinition = Get-ProjDevBunDefinition
 $MsvcDefinition = Get-ProjDevMsvcDefinition
-if ($null -ne $BunDefinition -or $null -ne $MsvcDefinition) {
+$RustDefinition = Get-ProjDevRustDefinition
+if ($null -ne $RustDefinition -and $null -eq $MsvcDefinition) {
+    throw (
+        'Rust V0 with the x86_64-pc-windows-msvc host requires the managed ' +
+        'MSVC module.'
+    )
+}
+if ($null -ne $BunDefinition -or
+    $null -ne $MsvcDefinition -or
+    $null -ne $RustDefinition) {
     Assert-ProjDevWindowsX64 -ToolName 'Managed development tools'
 }
 $ActiveGenerationId = [string]$env:SWAWKIT_DEV_GENERATION_ID
@@ -22,7 +31,6 @@ $ActiveEnvironment = Assert-ProjDevActiveEnvironmentCompatible `
 $PendingModules = foreach ($Pending in @(
     [pscustomobject]@{ Name = 'uv'; Variable = 'SWAWKIT_PROJ_UV_MODE' },
     [pscustomobject]@{ Name = 'python'; Variable = 'SWAWKIT_PROJ_PYTHON_MODE' },
-    [pscustomobject]@{ Name = 'rust'; Variable = 'SWAWKIT_PROJ_RUST_MODE' },
     [pscustomobject]@{ Name = 'pwsh'; Variable = 'SWAWKIT_PROJ_PWSH_MODE' },
     [pscustomobject]@{ Name = 'go'; Variable = 'SWAWKIT_PROJ_GO_MODE' }
 )) {
@@ -47,6 +55,7 @@ try {
     $Plan = New-ProjDevEnvironmentPlan -Context $Context
     $BunChanged = $false
     $MsvcChanged = $false
+    $RustChanged = $false
     if ($null -ne $BunDefinition) {
         $BunChanged = Install-ProjDevBun `
             -Context $Context `
@@ -63,6 +72,15 @@ try {
         Add-ProjDevMsvcEnvironment `
             -Context $Context `
             -Definition $MsvcDefinition `
+            -Plan $Plan
+    }
+    if ($null -ne $RustDefinition) {
+        $RustChanged = Install-ProjDevRust `
+            -Context $Context `
+            -Definition $RustDefinition
+        Add-ProjDevRustEnvironment `
+            -Context $Context `
+            -Definition $RustDefinition `
             -Plan $Plan
     }
 
@@ -87,7 +105,18 @@ try {
             "[OK] MSVC channel $($MsvcDefinition.Channel) is ready."
         ) -ForegroundColor Green
     }
-    if ($null -eq $BunDefinition -and $null -eq $MsvcDefinition) {
+    if ($null -ne $RustDefinition -and $RustChanged) {
+        Write-Host (
+            "[OK] Rust $($RustDefinition.Toolchain) installed and configured."
+        ) -ForegroundColor Green
+    } elseif ($null -ne $RustDefinition) {
+        Write-Host (
+            "[OK] Rust $($RustDefinition.Toolchain) is ready."
+        ) -ForegroundColor Green
+    }
+    if ($null -eq $BunDefinition -and
+        $null -eq $MsvcDefinition -and
+        $null -eq $RustDefinition) {
         Write-Host '[OK] The base development environment is ready.' `
             -ForegroundColor Green
     }

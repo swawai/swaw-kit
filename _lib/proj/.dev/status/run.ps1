@@ -58,4 +58,28 @@ if ($null -eq $MsvcDefinition) {
     ) -ForegroundColor $MsvcColor
 }
 
+$RustDefinition = Get-ProjDevRustDefinition
+if ($null -eq $RustDefinition) {
+    Write-Host '[OFF] rust is disabled.' -ForegroundColor DarkGray
+} else {
+    $RustMetadata = Get-ProjDevRustValidMetadata `
+        -Context $Context `
+        -Definition $RustDefinition
+    $RustReady = $null -ne $RustMetadata -and
+        (Test-ProjDevRustInstalled `
+            -Context $Context `
+            -Definition $RustDefinition)
+    $RustState = if ($RustReady) { 'READY' } else { 'MISSING' }
+    $RustColor = if ($RustReady) { 'Green' } else { 'Yellow' }
+    $RustVersion = if ($RustReady) {
+        "rustc $($RustMetadata.rustcVersion), cargo $($RustMetadata.cargoVersion)"
+    } else {
+        'not installed'
+    }
+    Write-Host (
+        "[$RustState] rust $($RustDefinition.Toolchain)  " +
+        "rust-static-sha256  $RustVersion"
+    ) -ForegroundColor $RustColor
+}
+
 $global:LASTEXITCODE = 0

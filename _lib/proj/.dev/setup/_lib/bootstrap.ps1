@@ -22,7 +22,14 @@ foreach ($File in @(
     'msvc\payload.ps1',
     'msvc\manifest.ps1',
     'msvc\install.ps1',
-    'msvc\environment.ps1'
+    'msvc\environment.ps1',
+    'rust\module.ps1',
+    'rust\state.ps1',
+    'rust\release.ps1',
+    'rust\process.ps1',
+    'rust\install.ps1',
+    'rust\environment.ps1',
+    'rust\command.ps1'
 )) {
     . (Join-Path $ModuleRoot $File)
 }

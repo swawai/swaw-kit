@@ -1,5 +1,21 @@
 Set-StrictMode -Version 2.0
 
+function Get-ProjDevMsvcRuntimeSignature {
+    param(
+        [Parameter(Mandatory = $true)][object]$Definition,
+        [Parameter(Mandatory = $true)][object]$Metadata
+    )
+
+    return Get-ProjDevSha256Text -Value (
+        [string]::Join("`n", [string[]]@(
+            (Get-ProjDevMsvcDefinitionSignature -Definition $Definition)
+            [string]$Metadata.manifestSha256
+            [string]$Metadata.toolVersion
+            [string]$Metadata.sdkVersion
+        ))
+    )
+}
+
 function Add-ProjDevMsvcEnvironment {
     param(
         [Parameter(Mandatory = $true)][object]$Context,
@@ -30,14 +46,9 @@ function Add-ProjDevMsvcEnvironment {
         SWAWKIT_DEV_MSVC_TOOL_VERSION = $ToolVersion
         SWAWKIT_DEV_MSVC_SDK_VERSION = $SdkVersion
         SWAWKIT_DEV_MSVC_HOME = $InstallRoot
-        SWAWKIT_DEV_MSVC_SIGNATURE = Get-ProjDevSha256Text -Value (
-            [string]::Join("`n", [string[]]@(
-                (Get-ProjDevMsvcDefinitionSignature -Definition $Definition),
-                [string]$Metadata.manifestSha256,
-                $ToolVersion,
-                $SdkVersion
-            ))
-        )
+        SWAWKIT_DEV_MSVC_SIGNATURE = Get-ProjDevMsvcRuntimeSignature `
+            -Definition $Definition `
+            -Metadata $Metadata
         VSCMD_ARG_HOST_ARCH = 'x64'
         VSCMD_ARG_TGT_ARCH = 'x64'
         VCToolsVersion = $ToolVersion
@@ -75,5 +86,87 @@ function Add-ProjDevMsvcEnvironment {
         (Join-Path $SdkBin 'ucrt')
     )) {
         Add-ProjDevEnvironmentPath -Plan $Plan -Path $Path
+    }
+}
+
+function Assert-ProjDevMsvcReady {
+    param(
+        [Parameter(Mandatory = $true)][object]$Context,
+        [Parameter(Mandatory = $true)][object]$Definition
+    )
+
+    if ($null -eq (Get-ProjDevMsvcValidMetadata `
+        -Context $Context `
+        -Definition $Definition)) {
+        throw (
+            'The managed MSVC installation is missing or inconsistent. Run ' +
+            "'$($Context.EntryCommand) .dev.setup'."
+        )
+    }
+}
+
+function Assert-ProjDevMsvcEnvironmentCurrent {
+    param(
+        [Parameter(Mandatory = $true)][object]$Context,
+        [Parameter(Mandatory = $true)][object]$Definition
+    )
+
+    $InstallRoot = Get-ProjDevMsvcInstallRoot `
+        -Context $Context `
+        -Definition $Definition
+    $Metadata = Get-ProjDevMsvcValidMetadata `
+        -Context $Context `
+        -Definition $Definition
+    if ($null -eq $Metadata) {
+        throw 'The generated MSVC environment has no valid installation.'
+    }
+    $ToolVersion = [string]$Metadata.toolVersion
+    $SdkVersion = [string]$Metadata.sdkVersion
+    $ExpectedSignature = Get-ProjDevMsvcRuntimeSignature `
+        -Definition $Definition `
+        -Metadata $Metadata
+    if ([string]$env:SWAWKIT_DEV_MSVC_MODE -cne
+            [string]$Definition.Mode -or
+        [string]$env:SWAWKIT_DEV_MSVC_CHANNEL -cne
+            [string]$Definition.Channel -or
+        [string]$env:SWAWKIT_DEV_MSVC_TOOL_VERSION -cne $ToolVersion -or
+        [string]$env:SWAWKIT_DEV_MSVC_SDK_VERSION -cne $SdkVersion -or
+        [string]$env:SWAWKIT_DEV_MSVC_SIGNATURE -cne $ExpectedSignature -or
+        [string]$env:VCToolsVersion -cne $ToolVersion -or
+        [string]$env:WindowsSDKVersion -cne "$SdkVersion\" -or
+        [string]::IsNullOrWhiteSpace([string]$env:INCLUDE) -or
+        [string]::IsNullOrWhiteSpace([string]$env:LIB) -or
+        [string]::IsNullOrWhiteSpace([string]$env:SWAWKIT_DEV_MSVC_HOME) -or
+        -not (Get-ProjDevCanonicalPath -Path (
+            [string]$env:SWAWKIT_DEV_MSVC_HOME
+        )).Equals(
+            (Get-ProjDevCanonicalPath -Path $InstallRoot),
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw (
+            'The generated MSVC environment does not match the project ' +
+            "declaration. Run '$($Context.EntryCommand) .dev.setup'."
+        )
+    }
+
+    $ToolBin = Join-Path $InstallRoot (
+        "VC\Tools\MSVC\$ToolVersion\bin\Hostx64\x64"
+    )
+    foreach ($ExecutableName in @('cl.exe', 'link.exe')) {
+        $Command = Get-Command $ExecutableName `
+            -CommandType Application `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        $Expected = Join-Path $ToolBin $ExecutableName
+        if ($null -eq $Command -or
+            -not (Get-ProjDevCanonicalPath -Path $Command.Source).Equals(
+                (Get-ProjDevCanonicalPath -Path $Expected),
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            throw (
+                "The managed MSVC $ExecutableName is not active. Exit this " +
+                'shell and start a new project shell.'
+            )
+        }
     }
 }

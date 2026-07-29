@@ -11,4 +11,7 @@ Bun 校验等级:
 MSVC 固定显示 microsoft-manifest；工具链的每个下载制品均使用
 Visual Studio manifest 提供的 SHA-256 校验。
 
+Rust 显示声明的 toolchain 以及实际解析的 rustc/cargo 版本。
+rustup-init 使用 Rust 官方 SHA-256 sidecar 校验。
+
 该命令只读取本地声明和安装元数据，不访问网络、不写入项目数据。
