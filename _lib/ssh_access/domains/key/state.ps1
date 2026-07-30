@@ -62,11 +62,11 @@ function Get-SshAccessPrivateKeyFingerprint {
 function Get-SshAccessKeyState {
     param([Parameter(Mandatory = $true)][pscustomobject]$Context)
 
-    if (Test-Path -LiteralPath $Context.PrivateKeyPath -PathType Container) {
-        throw "SSH_ACCESS_PRIVATE_KEY_PATH points to a directory: $($Context.PrivateKeyPath)"
-    }
     if (Test-Path -LiteralPath $Context.PublicKeyPath -PathType Container) {
-        throw "The derived public key path points to a directory: $($Context.PublicKeyPath)"
+        throw "SSH_ACCESS_PUBLIC_KEY_PATH points to a directory: $($Context.PublicKeyPath)"
+    }
+    if (Test-Path -LiteralPath $Context.PrivateKeyPath -PathType Container) {
+        throw "The derived private key path points to a directory: $($Context.PrivateKeyPath)"
     }
 
     $PrivateExists = Test-Path -LiteralPath $Context.PrivateKeyPath -PathType Leaf
@@ -77,12 +77,8 @@ function Get-SshAccessKeyState {
     $PrivateFingerprint = ''
     $PairConsistency = if ($PrivateExists -and $PublicExists) {
         'unknown'
-    } elseif ($PrivateExists) {
-        'private-only'
-    } elseif ($PublicExists) {
-        'public-only'
     } else {
-        'missing'
+        ''
     }
 
     if ($PublicExists) {
@@ -118,12 +114,14 @@ function Get-SshAccessKeyState {
         PublicKeyPath  = $Context.PublicKeyPath
         PrivateExists  = $PrivateExists
         PublicExists   = $PublicExists
-        PairState      = if ($PrivateExists -and $PublicExists) {
+        KeyMaterial    = if ($PrivateExists -and $PublicExists) {
             'complete'
-        } elseif (-not $PrivateExists -and -not $PublicExists) {
-            'missing'
+        } elseif ($PublicExists) {
+            'public-only'
+        } elseif ($PrivateExists) {
+            'private-only'
         } else {
-            'incomplete'
+            'missing'
         }
         ConfiguredType = $Context.KeyType
         PublicKeyState = $PublicKeyState
@@ -141,14 +139,16 @@ function Show-SshAccessKeyState {
     )
 
     Write-SshAccessHeading 'Bound key'
-    Write-SshAccessField 'Pair' $State.PairState
-    Write-SshAccessField 'Private key' $State.PrivateKeyPath
-    Write-SshAccessField 'Private exists' $State.PrivateExists
+    Write-SshAccessField 'Key material' $State.KeyMaterial
     Write-SshAccessField 'Public key' $State.PublicKeyPath
     Write-SshAccessField 'Public exists' $State.PublicExists
+    Write-SshAccessField 'Private key' $State.PrivateKeyPath
+    Write-SshAccessField 'Private exists' $State.PrivateExists
     Write-SshAccessField 'Configured type' $State.ConfiguredType
     Write-SshAccessField 'Public key state' $State.PublicKeyState
-    Write-SshAccessField 'Pair consistency' $State.PairConsistency
+    if ($State.KeyMaterial -eq 'complete') {
+        Write-SshAccessField 'Pair consistency' $State.PairConsistency
+    }
     if ($null -ne $State.PublicKey) {
         Write-SshAccessField 'Actual type' $State.PublicKey.Type
         Write-SshAccessField 'Fingerprint' $State.PublicKey.Fingerprint

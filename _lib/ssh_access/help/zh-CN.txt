@@ -1,4 +1,4 @@
-# 先在 {{ENTRY_FILE}} 中修改定义：密钥路径、绑定的用户名
+# 默认无需配置；如需自定义公钥路径、公钥附注信息、或密钥生成算法，请先修改 {{ENTRY_FILE}}
 
 # 基本用法:
   {{COMMAND}} .help en                Show English help.
@@ -8,50 +8,48 @@
   {{COMMAND}} .status public          查看公钥，及应用状态
   {{COMMAND}} .status ssh             查看 SSH Client、Server，及默认 Shell 状态
   {{COMMAND}} .status                 查看完整状态（打印信息≈2.5KB）
-  {{COMMAND}} .status --uac           同上，但请求 UAC 提权
+  {{COMMAND}} .status --uac           有交互！同上，但请求 UAC 提权
 
 # 密钥对:
   {{COMMAND}} .key status              查看公、私钥文件、指纹和匹配状态
-  {{COMMAND}} .key gen                 按定义，生成密钥对，文件已存在则报错
+  {{COMMAND}} .key dir                 用资源管理器打开密钥对所在目录
+  {{COMMAND}} .key gen                 有交互！按定义，生成密钥对，文件已存在则报错
+  {{COMMAND}} .key gen -N              同上，但无需交互，直接生成无口令保护的密钥对
   {{COMMAND}} .key fp                  显示公钥的 SHA256 指纹
   {{COMMAND}} .key delete --yes        删除公私钥文件（私钥在应用的会自动取消，公钥在应用的会拒绝删除）
-  {{COMMAND}} .key delete --yes --uac  同上，但请求 UAC 提权
+  {{COMMAND}} .key delete --yes --uac  有交互！同上，但请求 UAC 提权
 
 # 应用私钥，方便用私钥登录别的机器:
   {{COMMAND}} .private status          查看私钥，及应用状态（关联 ssh-agent 服务）
-  {{COMMAND}} .private load            应用私钥（将私钥加载到当前用户的 ssh-agent）
-  {{COMMAND}} .private load --uac      同上，但请求 UAC 提权
+  {{COMMAND}} .private load            有交互（可能要求输入私钥口令）！应用私钥（将私钥加载到当前用户的 ssh-agent）
+  {{COMMAND}} .private load --uac      有交互！同上，但请求 UAC 提权
   {{COMMAND}} .private unload          罢免私钥（从 ssh-agent 的密钥名单中移除）
-  {{COMMAND}} .private unload --uac    同上，但请求 UAC 提权
+  {{COMMAND}} .private unload --uac    有交互！同上，但请求 UAC 提权
 
 # 应用公钥，方便你从别处用私钥登录本机:
-  {{COMMAND}} .public grant            应用公钥，普通用户写入：%USERPROFILE%\.ssh\authorized_keys
-                                                  管理员用户写入：C:\ProgramData\ssh\administrators_authorized_keys
-  {{COMMAND}} .public grant --uac      同上，但请求 UAC 提权
+  {{COMMAND}} .public grant            应用公钥，非管理员账户写入 %USERPROFILE%\.ssh\authorized_keys，仅授权当前账户
+                                          否则写入 C:\ProgramData\ssh\administrators_authorized_keys，会授权所有管理员账户
+  {{COMMAND}} .public grant --uac      有交互！同上，但请求 UAC 提权
   {{COMMAND}} .public revoke           罢免公钥（grant 的反向操作）
-  {{COMMAND}} .public revoke --uac     同上，但请求 UAC 提权
+  {{COMMAND}} .public revoke --uac     有交互！同上，但请求 UAC 提权
 
 
 # 全局管理命令（会影响其它 Windows 用户）:
   客户端：
   {{COMMAND}} .global client status                  显示 OpenSSH Client 的可用状态；受限状态标为 unknown
-  {{COMMAND}} .global client install --uac           安装 OpenSSH Client
-  {{COMMAND}} .global server status                  显示 sshd 服务、端口、监听、防火墙和默认 Shell
+  {{COMMAND}} .global client install --uac           有交互！安装 OpenSSH Client
 
   服务器：
-  {{COMMAND}} .global server install --uac           安装并初始化 sshd（Windows OpenSSH Server）
-  {{COMMAND}} .global server start --uac             启动 sshd 服务（不改变服务启动方式和防火墙）
-  {{COMMAND}} .global server stop --uac              停止 sshd 服务（不改变服务启动方式和防火墙，例如不会关开机启动）
-  {{COMMAND}} .global server uninstall --yes --uac   卸载 sshd（Windows OpenSSH Server）并清理本工具创建的防火墙规则
-  {{COMMAND}} .global server shell cmd --uac         设置默认 Shell 为 CMD
-  {{COMMAND}} .global server shell powershell --uac  设置默认 Shell 为 PowerShell
+  {{COMMAND}} .global server status                  显示 sshd 服务、端口、监听、防火墙和默认 Shell
+  {{COMMAND}} .global server install --uac           有交互！安装并初始化 sshd（Windows OpenSSH Server）
+  {{COMMAND}} .global server uninstall --yes --uac   有交互！卸载 sshd 并清理本工具创建的防火墙规则
+  {{COMMAND}} .global server start --uac             有交互！启动 sshd 服务，不会碰服务的启动方式和防火墙规则
+  {{COMMAND}} .global server stop --uac              有交互！停止 sshd 服务，不会碰服务的启动方式和防火墙规则
+  {{COMMAND}} .global server shell cmd --uac         有交互！设置默认 Shell 为 CMD
+  {{COMMAND}} .global server shell powershell --uac  有交互！设置默认 Shell 为 PowerShell
 
   端口和防火墙：
-  {{COMMAND}} .global server port set <port> --uac   设置唯一监听端口，并同步防火墙、重启和验证 sshd
+  {{COMMAND}} .global server port set <port> --uac   有交互！设置唯一监听端口，并同步防火墙、重启和验证 sshd
   {{COMMAND}} .global server firewall status         显示 sshd 当前端口的防火墙放行状态
-  {{COMMAND}} .global server firewall allow --uac    放行 sshd 当前端口
-  {{COMMAND}} .global server firewall remove --uac   删除本工具拥有的 sshd 防火墙规则
-
-# 语义与安全边界:
-  - 管理员用户的授权写入机器共享的 administrators_authorized_keys；该公钥可用于请求任一管理员账户
-  - grant 会检查默认 AuthorizedKeysFile 布局和公钥认证（PubkeyAuthentication）状态，但不会自动修改 sshd_config 的认证策略
+  {{COMMAND}} .global server firewall allow --uac    有交互！放行 sshd 当前端口
+  {{COMMAND}} .global server firewall remove --uac   有交互！删除本工具拥有的 sshd 防火墙规则

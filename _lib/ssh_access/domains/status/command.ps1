@@ -27,36 +27,6 @@ function Invoke-SshAccessStatusSection {
     }
 }
 
-function Get-SshAccessCurrentProcessIdentity {
-    try {
-        $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-        try {
-            if ($null -eq $Identity -or $null -eq $Identity.User) {
-                throw 'The current Windows process identity has no user SID.'
-            }
-            $Name = [string]$Identity.Name
-            if ([string]::IsNullOrWhiteSpace($Name)) {
-                $Name = $Identity.User.Value
-            }
-            return [pscustomobject]@{
-                Name  = $Name
-                Sid   = $Identity.User.Value
-                Error = ''
-            }
-        } finally {
-            if ($null -ne $Identity) {
-                $Identity.Dispose()
-            }
-        }
-    } catch {
-        return [pscustomobject]@{
-            Name  = 'unknown'
-            Sid   = 'unknown'
-            Error = $_.Exception.Message
-        }
-    }
-}
-
 function Invoke-SshAccessStatusCommand {
     param(
         [Parameter(Mandatory = $true)][pscustomobject]$Context,
@@ -107,7 +77,9 @@ function Invoke-SshAccessStatusCommand {
 
     Write-Host "SSH Access status: $($Context.CommandName)" -ForegroundColor Cyan
     if (@('all', 'public') -contains $Domain) {
-        Write-SshAccessField 'SSH login target' $Context.UserName
+        Write-SshAccessField `
+            'Entry Windows user' `
+            $Context.AuthorizationUserName
     }
     if (@('all', 'private') -contains $Domain) {
         $ProcessIdentity = Get-SshAccessCurrentProcessIdentity

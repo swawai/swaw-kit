@@ -1,72 +1,55 @@
-SSH Access (protocol development stage)
-
+# No configuration is normally required. To customize the public-key path, public-key comment, or key-generation algorithm, edit {{ENTRY_FILE}} first.
 
 # Basic usage:
   {{COMMAND}} .help en                Show English help.
   {{COMMAND}} .help zh                Show Chinese help.
-  {{COMMAND}} .status                 Show all SSH Access state
-  {{COMMAND}} .status key             Show only the bound-key state
-  {{COMMAND}} .status private         Show only ssh-agent and bound-private-key application state
-  {{COMMAND}} .status public          Show only the target user's public-key authorization state
-  {{COMMAND}} .status ssh             Show only OpenSSH Client, Server, and Server default-shell state
-  {{COMMAND}} .status --uac           Show all state in an explicitly elevated process
+  {{COMMAND}} .status key             Show public/private key files, fingerprints, and match state
+  {{COMMAND}} .status private         Show the private key and its application state (including ssh-agent)
+  {{COMMAND}} .status public          Show the public key and its application state
+  {{COMMAND}} .status ssh             Show SSH Client, Server, and default-shell state
+  {{COMMAND}} .status                 Show complete state (approximately 2.5 KB of output)
+  {{COMMAND}} .status --uac           INTERACTIVE! Same as above, but request UAC elevation
+
+# Key pair:
+  {{COMMAND}} .key status              Show public/private key files, fingerprints, and match state
+  {{COMMAND}} .key dir                 Open the key-pair directory in File Explorer
+  {{COMMAND}} .key gen                 INTERACTIVE! Generate the declared key pair; fail if either file already exists
+  {{COMMAND}} .key gen -N              Same as above, but do not prompt; generate a key pair without passphrase protection
+  {{COMMAND}} .key fp                  Show the public key's SHA256 fingerprint
+  {{COMMAND}} .key delete --yes        Delete both key files; unload an applied private key, and refuse while the public key is applied
+  {{COMMAND}} .key delete --yes --uac  INTERACTIVE! Same as above, but request UAC elevation
+
+# Apply the private key for logging in to other machines:
+  {{COMMAND}} .private status          Show the private key and its application state (including ssh-agent)
+  {{COMMAND}} .private load            INTERACTIVE! May prompt for the private-key passphrase; load the private key into the current user's ssh-agent
+  {{COMMAND}} .private load --uac      INTERACTIVE! Same as above, but request UAC elevation
+  {{COMMAND}} .private unload          Revoke the private key (remove it from ssh-agent's key list)
+  {{COMMAND}} .private unload --uac    INTERACTIVE! Same as above, but request UAC elevation
+
+# Apply the public key for logging in to this machine from elsewhere:
+  {{COMMAND}} .public grant            Apply the public key; non-administrator account: %USERPROFILE%\.ssh\authorized_keys, authorizes only the current account
+                                          otherwise: C:\ProgramData\ssh\administrators_authorized_keys, authorizes all administrator accounts
+  {{COMMAND}} .public grant --uac      INTERACTIVE! Same as above, but request UAC elevation
+  {{COMMAND}} .public revoke           Revoke the public key (the inverse of grant)
+  {{COMMAND}} .public revoke --uac     INTERACTIVE! Same as above, but request UAC elevation
 
 
-# Bound key:
-  {{COMMAND}} .key status              Show key paths, presence, fingerprints, and pair consistency
-  {{COMMAND}} .key gen                 Generate the declared key pair; refuse if either target already exists (generate is also accepted)
-  {{COMMAND}} .key fp                  Show the bound public key SHA256 fingerprint (fingerprint is also accepted)
-  {{COMMAND}} .key delete --yes        Delete both key files; unload first, and refuse while the authorization file still references the key
-  {{COMMAND}} .key delete --yes --uac  Elevate authorization checks or agent startup, then let the original user unload and delete
+# Global management commands (affect other Windows users):
+  Client:
+  {{COMMAND}} .global client status                  Show OpenSSH Client availability; restricted state is reported as unknown
+  {{COMMAND}} .global client install --uac           INTERACTIVE! Install OpenSSH Client
 
+  Server:
+  {{COMMAND}} .global server status                  Show sshd service, port, listener, firewall, and default-shell state
+  {{COMMAND}} .global server install --uac           INTERACTIVE! Install and initialize sshd (Windows OpenSSH Server)
+  {{COMMAND}} .global server uninstall --yes --uac   INTERACTIVE! Uninstall sshd and remove this tool's firewall rules
+  {{COMMAND}} .global server start --uac             INTERACTIVE! Start sshd without changing its startup mode or firewall rules
+  {{COMMAND}} .global server stop --uac              INTERACTIVE! Stop sshd without changing its startup mode or firewall rules
+  {{COMMAND}} .global server shell cmd --uac         INTERACTIVE! Set CMD as the default shell
+  {{COMMAND}} .global server shell powershell --uac  INTERACTIVE! Set PowerShell as the default shell
 
-# Apply the private key for outbound SSH:
-  {{COMMAND}} .private status          Show ssh-agent service and bound-key loading state
-  {{COMMAND}} .private load            Verify the key pair, then load it into the current user's ssh-agent
-  {{COMMAND}} .private load --uac      Explicitly elevate agent setup when enabling or starting it requires UAC
-  {{COMMAND}} .private unload          Unload only the bound key from ssh-agent
-  {{COMMAND}} .private unload --uac    Explicitly start the agent when UAC is required to inspect and unload persistent identities
-
-
-# Apply the public key for inbound SSH:
-  {{COMMAND}} .public grant            Add the bound public key to the target user's effective authorization file
-  {{COMMAND}} .public grant --uac      Same operation; permit a UAC retry only when administrator rights are required
-  {{COMMAND}} .public revoke           Remove every plain or option-bound reference to the bound public-key identity
-  {{COMMAND}} .public revoke --uac     Same operation; permit a UAC retry only when administrator rights are required
-
-
-# Windows OpenSSH (machine-global state):
-  {{COMMAND}} .global client status                  Show Windows OpenSSH Client availability; restricted state is unknown
-  {{COMMAND}} .global client install --uac           Install Windows OpenSSH Client
-  {{COMMAND}} .global server status                  Show sshd, port, listener, firewall, and default-shell state
-  {{COMMAND}} .global server install --uac           Install and initialize Windows OpenSSH Server
-  {{COMMAND}} .global server start --uac             Start sshd without changing startup or firewall configuration
-  {{COMMAND}} .global server stop --uac              Stop sshd without disabling automatic startup
-  {{COMMAND}} .global server uninstall --yes --uac   Uninstall Server and remove only this tool's firewall rule
-  {{COMMAND}} .global server port set <port> --uac   Set the single port, reconcile firewall, restart, and verify sshd
-  {{COMMAND}} .global server firewall status         Show firewall coverage for the current sshd port
-  {{COMMAND}} .global server firewall allow --uac    Allow the current sshd port
-  {{COMMAND}} .global server firewall remove --uac   Remove SSH Access-owned sshd firewall rules
-  {{COMMAND}} .global server shell cmd --uac         Select cmd.exe as the default shell
-  {{COMMAND}} .global server shell powershell --uac  Select Windows PowerShell as the default shell
-
-
-# Semantics and safety boundaries:
-  - The entry file declares the private key path, key type, public key comment, and local login user; the public path is always the private path plus .pub
-  - SSH_ACCESS_USER must identify a real local Windows user; Administrators is a group, not a login user
-  - .private unload removes only this entry's key and never clears other ssh-agent identities
-  - Version 1 mutates an ordinary user's profile only when that user runs the entry; --uac does not bypass this boundary
-  - Administrator authorization uses the machine-shared administrators_authorized_keys; the key can request any administrator account
-  - Administrator grant/revoke requires an existing sshd_config with the standard shared-file mapping
-  - A plain grant is idempotent; an option-bound reference is never silently weakened into a plain grant, and must be revoked or edited deliberately
-  - Grant requires the default Windows AuthorizedKeysFile layout and usable public-key authentication; it never silently rewrites sshd authentication policy
-  - --uac permits elevation when a mutation requires it; with .status it explicitly requests elevation; it never expands the supported target scope
-  - .global explicitly denotes machine-global state and is not owned by one SSH Access entry
-  - port set manages only a single-port layout and refuses multiple Port directives, port-qualified ListenAddress, or Include
-  - port set validates configuration, reconciles the owned firewall rule, restarts sshd, verifies the listener, and attempts recovery on failure
-  - firewall remove deletes only SSH Access-owned rules, never Windows-owned or third-party rules
-  - If the Server capability is absent, uninstall does not stop an independent service named sshd; failed removal attempts restore the prior running state when possible
-  - Server uninstall preserves ProgramData\ssh configuration, host keys, and authorization files; shell changes affect new sessions only
-  - Shell switching treats DefaultShell and its two command-option values as one configuration aggregate, preventing stale arguments from leaking into the new shell
-  - Status commands do not auto-elevate; denied details are unknown and suggest an explicit .status ... --uac retry
-  - The entry does not pass arbitrary commands through; every supported operation is listed above
+  Port and firewall:
+  {{COMMAND}} .global server port set <port> --uac   INTERACTIVE! Set the single listening port, reconcile firewall, restart, and verify sshd
+  {{COMMAND}} .global server firewall status         Show firewall allowance for sshd's current port
+  {{COMMAND}} .global server firewall allow --uac    INTERACTIVE! Allow sshd's current port
+  {{COMMAND}} .global server firewall remove --uac   INTERACTIVE! Remove sshd firewall rules owned by this tool

@@ -1,7 +1,10 @@
 Set-StrictMode -Version 2.0
 
 function Invoke-SshAccessKeyGenerate {
-    param([Parameter(Mandatory = $true)][pscustomobject]$Context)
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Context,
+        [bool]$NoPassphrase = $false
+    )
 
     $State = Get-SshAccessKeyState -Context $Context
     if ($State.PrivateExists -or $State.PublicExists) {
@@ -23,14 +26,18 @@ function Invoke-SshAccessKeyGenerate {
     $SshKeygen = Resolve-SshAccessOpenSshExecutable -Context $Context -Name 'ssh-keygen.exe'
     Write-Host "Generating $($Context.KeyType) key pair:"
     Write-Host "  $($Context.PrivateKeyPath)"
+    [string[]]$KeygenArguments = @(
+        '-t', $Context.KeyType,
+        '-f', $TemporaryPrivatePath,
+        '-C', $Context.KeyComment
+    )
+    if ($NoPassphrase) {
+        $KeygenArguments += @('-N', '')
+    }
     try {
         $ExitCode = Invoke-SshAccessConsoleProcess `
             -Executable $SshKeygen `
-            -Arguments @(
-                '-t', $Context.KeyType,
-                '-f', $TemporaryPrivatePath,
-                '-C', $Context.KeyComment
-            ) `
+            -Arguments $KeygenArguments `
             -WorkingDirectory $Parent
 
         if ($ExitCode -ne 0) {
@@ -85,6 +92,47 @@ function Invoke-SshAccessKeyFingerprint {
 
     $PublicKey = Read-SshAccessPublicKeyFile -Path $Context.PublicKeyPath
     Write-Host $PublicKey.Fingerprint
+    return 0
+}
+
+function Start-SshAccessKeyDirectoryExplorer {
+    param(
+        [Parameter(Mandatory = $true)][string]$ExplorerPath,
+        [Parameter(Mandatory = $true)][string]$Directory
+    )
+
+    $StartInfo = New-Object Diagnostics.ProcessStartInfo
+    $StartInfo.FileName = $ExplorerPath
+    $StartInfo.Arguments = ConvertTo-SshAccessWindowsArguments -Arguments @($Directory)
+    $StartInfo.WorkingDirectory = $Directory
+    $StartInfo.UseShellExecute = $false
+    $StartInfo.CreateNoWindow = $false
+
+    $Process = [Diagnostics.Process]::Start($StartInfo)
+    if ($null -eq $Process) {
+        throw "Failed to open the key directory: $Directory"
+    }
+    $Process.Dispose()
+}
+
+function Open-SshAccessKeyDirectory {
+    param([Parameter(Mandatory = $true)][pscustomobject]$Context)
+
+    $Directory = Split-Path -Parent $Context.PublicKeyPath
+    if ([string]::IsNullOrWhiteSpace($Directory) -or
+        -not (Test-Path -LiteralPath $Directory -PathType Container)) {
+        throw "The key directory does not exist: $Directory. Generate the key pair first or create its parent directory."
+    }
+
+    $ExplorerPath = Join-Path $Context.WindowsRoot 'explorer.exe'
+    if (-not (Test-Path -LiteralPath $ExplorerPath -PathType Leaf)) {
+        throw "Trusted Windows File Explorer was not found: $ExplorerPath"
+    }
+
+    Start-SshAccessKeyDirectoryExplorer `
+        -ExplorerPath $ExplorerPath `
+        -Directory $Directory
+    Write-Host "Opened key directory: $Directory"
     return 0
 }
 
@@ -226,7 +274,7 @@ function Invoke-SshAccessKeyCommand {
     )
 
     if ($Arguments.Count -eq 0) {
-        throw "Missing .key command. Usage: $($Context.CommandName) .key status|gen|fp|delete"
+        throw "Missing .key command. Usage: $($Context.CommandName) .key status|dir|gen|fp|delete"
     }
 
     $Action = $Arguments[0].ToLowerInvariant()
@@ -243,9 +291,18 @@ function Invoke-SshAccessKeyCommand {
             Show-SshAccessKeyState -Context $Context
             return 0
         }
+        'dir' {
+            Assert-SshAccessNoArguments -Arguments $Rest -Usage "$($Context.CommandName) .key dir"
+            return Open-SshAccessKeyDirectory -Context $Context
+        }
         'gen' {
-            Assert-SshAccessNoArguments -Arguments $Rest -Usage "$($Context.CommandName) .key gen"
-            return Invoke-SshAccessKeyGenerate -Context $Context
+            $Options = Get-SshAccessSwitchSet `
+                -Arguments $Rest `
+                -Allowed @('-N') `
+                -Usage "$($Context.CommandName) .key gen [-N]"
+            return Invoke-SshAccessKeyGenerate `
+                -Context $Context `
+                -NoPassphrase ($Options.ContainsKey('-N'))
         }
         'fp' {
             Assert-SshAccessNoArguments -Arguments $Rest -Usage "$($Context.CommandName) .key fp"

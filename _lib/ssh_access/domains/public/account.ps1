@@ -1,19 +1,5 @@
 Set-StrictMode -Version 2.0
 
-function Get-SshAccessCurrentUserSid {
-    $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    try {
-        if ($null -eq $Identity -or $null -eq $Identity.User) {
-            throw 'Unable to resolve the current Windows user SID.'
-        }
-        return $Identity.User.Value
-    } finally {
-        if ($null -ne $Identity) {
-            $Identity.Dispose()
-        }
-    }
-}
-
 function Test-SshAccessLocalUserIsAdministrator {
     param([Parameter(Mandatory = $true)][string]$UserSid)
 
@@ -71,30 +57,36 @@ function Resolve-SshAccessLocalUser {
         $Users = @(
             Get-LocalUser -ErrorAction Stop |
                 Where-Object {
+                    $null -ne $_.SID -and
                     [string]::Equals(
-                        $_.Name,
-                        $Context.UserName,
+                        $_.SID.Value,
+                        $Context.AuthorizationUserSid,
                         [StringComparison]::OrdinalIgnoreCase
                     )
                 }
         )
     } catch {
-        throw "SSH_ACCESS_USER '$($Context.UserName)' is not a local Windows user. Local groups, domain users, and Entra users are not supported."
+        throw (
+            "Windows identity '$($Context.AuthorizationUserName)' " +
+            "($($Context.AuthorizationUserSid)) " +
+            'is not a supported local user. Domain and Entra users are not supported.'
+        )
     }
     if ($Users.Count -ne 1 -or
-        $null -eq $Users[0].SID -or
-        -not [string]::Equals(
-            $Users[0].Name,
-            $Context.UserName,
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-        throw "SSH_ACCESS_USER '$($Context.UserName)' did not resolve to exactly one local Windows user."
+        $null -eq $Users[0].SID) {
+        throw (
+            "Windows identity '$($Context.AuthorizationUserName)' " +
+            "($($Context.AuthorizationUserSid)) " +
+            'did not resolve to exactly one local Windows user. ' +
+            'Domain and Entra users are not supported.'
+        )
     }
 
     $User = $Users[0]
     $UserSid = $User.SID.Value
     $IsAdministrator = Test-SshAccessLocalUserIsAdministrator -UserSid $UserSid
-    $CurrentUserSid = Get-SshAccessCurrentUserSid
+    $CurrentIdentity = Get-SshAccessRequiredCurrentProcessIdentity
+    $CurrentUserSid = $CurrentIdentity.Sid
     $IsCurrentUser = [string]::Equals($CurrentUserSid, $UserSid, [StringComparison]::OrdinalIgnoreCase)
     $ProfilePath = $null
     if (-not $IsAdministrator) {

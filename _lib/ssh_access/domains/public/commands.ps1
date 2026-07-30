@@ -5,7 +5,7 @@ function Get-SshAccessPublicState {
 
     $State = [ordered]@{
         Domain             = 'public'
-        UserName           = $Context.UserName
+        UserName           = $Context.AuthorizationUserName
         UserSid            = $null
         UserEnabled        = $null
         IsAdministrator    = $null

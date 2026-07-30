@@ -106,9 +106,10 @@ try {
         (New-Object Text.UTF8Encoding($false))
     )
     $StateContext = [pscustomobject]@{
-        UserName      = 'test-user'
-        PublicKeyPath = $StatePublicKeyPath
-        CommandName   = 'sshaccess.test'
+        AuthorizationUserName = 'test-user'
+        AuthorizationUserSid  = 'S-1-5-21-1-2-3-1001'
+        PublicKeyPath          = $StatePublicKeyPath
+        CommandName            = 'sshaccess.test'
     }
     $script:PublicTestAccount = [pscustomobject]@{
         Name               = 'test-user'

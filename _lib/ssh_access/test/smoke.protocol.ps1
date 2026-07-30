@@ -11,8 +11,9 @@ $EnvironmentNames = @(
     'SSH_ACCESS_PROTOCOL',
     'SSH_ACCESS_ENTRY_COMMAND',
     'SSH_ACCESS_ENTRY_FILE',
-    'SSH_ACCESS_PRIVATE_KEY_PATH',
-    'SSH_ACCESS_USER',
+    'SSH_ACCESS_PUBLIC_KEY_PATH',
+    'SSH_ACCESS_ORIGIN_USER_NAME',
+    'SSH_ACCESS_ORIGIN_USER_SID',
     'SSH_ACCESS_KEY_TYPE',
     'SSH_ACCESS_KEY_COMMENT'
 )
@@ -36,12 +37,16 @@ try {
 
     Write-Host '[TEST] Valid entry context'
     $PrivatePath = Join-Path $ScratchRoot 'identity\id_ed25519'
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath $PrivatePath
+    $PublicPath = "$PrivatePath.pub"
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PublicPath
     $Context = New-SshAccessContext -KitRoot $script:SshAccessTestKitRoot
     Assert-SshAccessTestEqual $Context.Protocol 1 'Protocol should resolve to version 1.'
-    Assert-SshAccessTestEqual $Context.PrivateKeyPath $PrivatePath 'Private key path should be canonical.'
-    Assert-SshAccessTestEqual $Context.PublicKeyPath "$PrivatePath.pub" 'Public key path should be derived.'
-    Assert-SshAccessTestEqual $Context.UserName 'ssh_access_test_user' 'The local user should come from the entry.'
+    Assert-SshAccessTestEqual $Context.PublicKeyPath $PublicPath 'Public key path should be canonical.'
+    Assert-SshAccessTestEqual $Context.PrivateKeyPath $PrivatePath 'Private key path should be derived.'
+    Assert-SshAccessTestEqual $Context.AuthorizationUserName `
+        'TESTBOX\ssh_access_test_user' `
+        'The authorization user should come from the original process identity.'
+    Assert-SshAccessTestEqual $Context.AuthorizationUserSid 'S-1-5-21-1-2-3-1001' 'The authorization SID should be the stable identity authority.'
     Assert-SshAccessTestEqual $Context.KeyType 'ed25519' 'The configured key type should be retained.'
     Assert-SshAccessTestEqual `
         $Context.WindowsRoot `
@@ -95,12 +100,12 @@ try {
         'Bare status should compose every status domain in protocol order.'
     Assert-SshAccessTestContains `
         $StatusOutput `
-        'SSH login target:' `
-        'Status should label the configured inbound SSH user explicitly.'
+        'Entry Windows user:' `
+        'Status should label the authorization-origin user explicitly.'
     Assert-SshAccessTestContains `
         $StatusOutput `
         'ssh_access_test_user' `
-        'Status should show the configured inbound SSH user.'
+        'Status should show the authorization-origin user.'
     Assert-SshAccessTestContains `
         $StatusOutput `
         'Agent/process user:' `
@@ -129,7 +134,7 @@ try {
         'key' `
         'Key status should query only the key domain.'
     Assert-SshAccessTestTrue `
-        (-not $KeyStatusOutput.Contains('SSH login target:')) `
+        (-not $KeyStatusOutput.Contains('Entry Windows user:')) `
         'Key status should omit unrelated login identity.'
     Assert-SshAccessTestTrue `
         (-not $KeyStatusOutput.Contains('Agent/process user:')) `
@@ -153,8 +158,8 @@ try {
         'Agent/process user:' `
         'Private status should identify the agent/process user.'
     Assert-SshAccessTestTrue `
-        (-not $PrivateStatusOutput.Contains('SSH login target:')) `
-        'Private status should omit the unrelated SSH login target.'
+        (-not $PrivateStatusOutput.Contains('Entry Windows user:')) `
+        'Private status should omit the unrelated entry user.'
 
     $script:StatusCalls.Clear()
     $PublicStatusOutput = (
@@ -171,7 +176,7 @@ try {
         'Public status should query only the public-key authorization domain.'
     Assert-SshAccessTestContains `
         $PublicStatusOutput `
-        'SSH login target:' `
+        'Entry Windows user:' `
         'Public status should identify the inbound SSH user.'
     Assert-SshAccessTestTrue `
         (-not $PublicStatusOutput.Contains('Agent/process user:')) `
@@ -191,7 +196,7 @@ try {
         'client,server' `
         'SSH status should query client and the aggregate server state.'
     Assert-SshAccessTestTrue `
-        (-not $SshStatusOutput.Contains('SSH login target:')) `
+        (-not $SshStatusOutput.Contains('Entry Windows user:')) `
         'SSH status should omit entry-bound login identity.'
     Assert-SshAccessTestTrue `
         (-not $SshStatusOutput.Contains('Agent/process user:')) `
@@ -336,41 +341,41 @@ try {
         '*Unsupported or missing SSH_ACCESS_PROTOCOL*' `
         'A missing protocol should fail.'
 
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath $PrivatePath
-    $env:SSH_ACCESS_PRIVATE_KEY_PATH = 'relative\id_ed25519'
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PublicPath
+    $env:SSH_ACCESS_PUBLIC_KEY_PATH = 'relative\id_ed25519.pub'
     Assert-SshAccessTestThrowsLike `
         { New-SshAccessContext -KitRoot $script:SshAccessTestKitRoot } `
         '*must be an absolute path*' `
-        'A relative private-key path should fail.'
+        'A relative public-key path should fail.'
 
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath "$PrivatePath.pub"
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PrivatePath
     Assert-SshAccessTestThrowsLike `
         { New-SshAccessContext -KitRoot $script:SshAccessTestKitRoot } `
-        '*must name the private key*' `
-        'A public-key path should not be accepted as the private-key path.'
+        '*must name a .pub file*' `
+        'A public-key path without the .pub suffix should fail.'
 
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath $PrivatePath
-    $env:SSH_ACCESS_USER = 'DOMAIN\alice'
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PublicPath
+    $env:SSH_ACCESS_ORIGIN_USER_NAME = $null
     Assert-SshAccessTestThrowsLike `
         { New-SshAccessContext -KitRoot $script:SshAccessTestKitRoot } `
-        '*unqualified local Windows user name*' `
-        'A qualified user name should fail.'
+        '*authorization identity is incomplete*' `
+        'Incomplete internal UAC identity transport should fail closed.'
 
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath $PrivatePath
-    $env:SSH_ACCESS_USER = 'ssh*'
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PublicPath
+    $env:SSH_ACCESS_ORIGIN_USER_SID = 'not-a-sid'
     Assert-SshAccessTestThrowsLike `
         { New-SshAccessContext -KitRoot $script:SshAccessTestKitRoot } `
-        '*not a wildcard pattern*' `
-        'A wildcard user name should fail instead of selecting a different local account.'
+        '*authorization user SID is invalid*' `
+        'Malformed internal UAC identity transport should fail closed.'
 
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath $PrivatePath
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PublicPath
     $env:SSH_ACCESS_KEY_TYPE = 'dsa'
     Assert-SshAccessTestThrowsLike `
         { New-SshAccessContext -KitRoot $script:SshAccessTestKitRoot } `
         '*Unsupported SSH_ACCESS_KEY_TYPE*' `
         'An unsupported key type should fail.'
 
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath $PrivatePath
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PublicPath
     $env:SSH_ACCESS_KEY_COMMENT = "first`nsecond"
     Assert-SshAccessTestThrowsLike `
         { New-SshAccessContext -KitRoot $script:SshAccessTestKitRoot } `
@@ -378,7 +383,7 @@ try {
         'A multiline public-key comment should fail.'
 
     Write-Host '[TEST] Unknown top-level commands'
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath $PrivatePath
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PublicPath
     Assert-SshAccessTestThrowsLike `
         { Invoke-SshAccessMain -Arguments @('/?') } `
         "*Unknown SSH Access command '/?'*" `

@@ -116,8 +116,9 @@ function Get-SshAccessContextEnvironmentScript {
         "`$env:SSH_ACCESS_PROTOCOL = '1'",
         "`$env:SSH_ACCESS_ENTRY_COMMAND = $(ConvertTo-SshAccessPowerShellLiteral $Context.CommandName)",
         "`$env:SSH_ACCESS_ENTRY_FILE = $(ConvertTo-SshAccessPowerShellLiteral $Context.EntryFile)",
-        "`$env:SSH_ACCESS_PRIVATE_KEY_PATH = $(ConvertTo-SshAccessPowerShellLiteral $Context.PrivateKeyPath)",
-        "`$env:SSH_ACCESS_USER = $(ConvertTo-SshAccessPowerShellLiteral $Context.UserName)",
+        "`$env:SSH_ACCESS_PUBLIC_KEY_PATH = $(ConvertTo-SshAccessPowerShellLiteral $Context.PublicKeyPath)",
+        "`$env:SSH_ACCESS_ORIGIN_USER_NAME = $(ConvertTo-SshAccessPowerShellLiteral $Context.AuthorizationUserName)",
+        "`$env:SSH_ACCESS_ORIGIN_USER_SID = $(ConvertTo-SshAccessPowerShellLiteral $Context.AuthorizationUserSid)",
         "`$env:SSH_ACCESS_KEY_TYPE = $(ConvertTo-SshAccessPowerShellLiteral $Context.KeyType)",
         "`$env:SSH_ACCESS_KEY_COMMENT = $(ConvertTo-SshAccessPowerShellLiteral $Context.KeyComment)"
     ))

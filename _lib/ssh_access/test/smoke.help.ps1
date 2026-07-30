@@ -9,7 +9,14 @@ $OutputEncoding = New-Object Text.UTF8Encoding($false)
 
 . (Join-Path $PSScriptRoot 'support.ps1')
 
-$Entry = Join-Path $script:SshAccessTestRepoRoot 'sshaccess1.dev.cmd'
+$TemplateEntry = Join-Path $script:SshAccessTestRepoRoot 'Favorites\template.sshaccess1.cmd'
+if (-not [IO.File]::Exists($TemplateEntry)) {
+    throw "SSH Access entry template not found: $TemplateEntry"
+}
+
+$EntryFileName = '.sshaccess-test-' + [Guid]::NewGuid().ToString('N') + '.cmd'
+$Entry = Join-Path $script:SshAccessTestRepoRoot $EntryFileName
+$EntryCommand = [IO.Path]::GetFileNameWithoutExtension($Entry)
 
 function Invoke-SshAccessHelpTestCommand {
     param(
@@ -34,6 +41,37 @@ function Invoke-SshAccessHelpTestCommand {
     return $Output
 }
 
+function Get-SshAccessHelpCommandSignatures {
+    param([Parameter(Mandatory = $true)][string]$Text)
+
+    $Commands = New-Object Collections.Generic.List[string]
+    foreach ($Line in ($Text -split '\r?\n')) {
+        if ($Line -match '^\s+\S+\s+(\..*?)\s{2,}\S') {
+            $Commands.Add($Matches[1].Trim())
+        }
+    }
+    return [string[]]$Commands.ToArray()
+}
+
+function Get-SshAccessInteractiveHelpCommandSignatures {
+    param(
+        [Parameter(Mandatory = $true)][string]$Text,
+        [Parameter(Mandatory = $true)][string]$Marker
+    )
+
+    $Commands = New-Object Collections.Generic.List[string]
+    foreach ($Line in ($Text -split '\r?\n')) {
+        if ($Line.Contains($Marker) -and
+            $Line -match '^\s+\S+\s+(\..*?)\s{2,}\S') {
+            $Commands.Add($Matches[1].Trim())
+        }
+    }
+    return [string[]]$Commands.ToArray()
+}
+
+try {
+    [IO.File]::Copy($TemplateEntry, $Entry)
+
 foreach ($Arguments in @(
     [string[]]@(),
     [string[]]@('--help'),
@@ -46,11 +84,11 @@ foreach ($Arguments in @(
         -ExpectedExitCode 0
     Assert-SshAccessTestContains `
         $Output `
-        'sshaccess1.dev .status' `
+        "$EntryCommand .status" `
         'Help should identify the actual entry command.'
     Assert-SshAccessTestContains `
         $Output `
-        'sshaccess1.dev .global server install --uac' `
+        "$EntryCommand .global server install --uac" `
         'Help should use the actual entry command.'
     Assert-SshAccessTestTrue `
         (-not $Output.Contains('{{COMMAND}}')) `
@@ -104,7 +142,7 @@ Assert-SshAccessTestEqual `
     "The trusted CMD adapter should start help under a poisoned environment.`n$TrustedAdapterHelp"
 Assert-SshAccessTestContains `
     $TrustedAdapterHelp `
-    'sshaccess1.dev .status' `
+    "$EntryCommand .status" `
     'The CMD adapter should ignore poisoned Windows process environment values.'
 Assert-SshAccessTestEqual `
     $TrustedAdapterStatusExitCode `
@@ -114,6 +152,13 @@ Assert-SshAccessTestContains `
     $TrustedAdapterStatus `
     'SSH Access status:' `
     'The runtime should remain operational after replacing the poisoned process environment.'
+$ExpectedTemplatePublicKeyPath = Join-Path `
+    $env:USERPROFILE `
+    ".ssh\id_$EntryCommand.pub"
+Assert-SshAccessTestContains `
+    $TrustedAdapterStatus `
+    $ExpectedTemplatePublicKeyPath `
+    'The copied template should derive its default public key path from the instance name.'
 Assert-SshAccessTestTrue `
     (-not $TrustedAdapterStatus.Contains(
         'Microsoft.PowerShell.LocalAccounts module is required'
@@ -126,20 +171,24 @@ $English = Invoke-SshAccessHelpTestCommand `
 Assert-SshAccessTestContains $English '# Basic usage:' '.help en should render English help.'
 Assert-SshAccessTestContains `
     $English `
-    'sshaccess1.dev .private load --uac' `
+    "$EntryCommand .private load --uac" `
     'English help should document explicit agent elevation.'
 Assert-SshAccessTestContains `
     $English `
-    'with .status it explicitly requests elevation' `
-    'English help should distinguish status elevation from mutation consent.'
+    'May prompt for the private-key passphrase' `
+    'English help should document private-key passphrase interaction.'
 Assert-SshAccessTestContains `
     $English `
-    "Version 1 mutates an ordinary user's profile only when that user runs the entry" `
-    'English help should document the ordinary-user mutation boundary.'
+    $EntryFileName `
+    'English help should show the real entry file name including its extension.'
 Assert-SshAccessTestContains `
     $English `
-    'an option-bound reference is never silently weakened into a plain grant' `
-    'English help should document option-bound grant safety.'
+    'authorizes only the current account' `
+    'English help should document ordinary-user authorization scope.'
+Assert-SshAccessTestContains `
+    $English `
+    'authorizes all administrator accounts' `
+    'English help should document shared administrator authorization scope.'
 
 $Chinese = Invoke-SshAccessHelpTestCommand `
     -Arguments @('.help', 'zh') `
@@ -156,20 +205,47 @@ Assert-SshAccessTestContains `
     '.help zh should render Chinese help.'
 Assert-SshAccessTestContains `
     $Chinese `
-    'sshaccess1.dev .private load --uac' `
+    "$EntryCommand .private load --uac" `
     'Chinese help should document explicit agent elevation.'
 Assert-SshAccessTestContains `
     $Chinese `
-    'sshaccess1.dev.cmd' `
+    $EntryFileName `
     'Chinese help should show the real entry file name including its extension.'
-Assert-SshAccessTestContains `
-    $Chinese `
-    'PubkeyAuthentication' `
-    'Chinese help should document the public-key authentication policy boundary.'
-Assert-SshAccessTestContains `
-    $English `
-    'never silently rewrites sshd authentication policy' `
-    'English help should document the public-key authentication policy boundary.'
+
+$ChineseCommands = Get-SshAccessHelpCommandSignatures -Text $Chinese
+$EnglishCommands = Get-SshAccessHelpCommandSignatures -Text $English
+Assert-SshAccessTestEqual `
+    $EnglishCommands.Count `
+    $ChineseCommands.Count `
+    'English and Chinese help should document the same number of commands.'
+for ($Index = 0; $Index -lt $ChineseCommands.Count; $Index++) {
+    Assert-SshAccessTestEqual `
+        $EnglishCommands[$Index] `
+        $ChineseCommands[$Index] `
+        "English command order should follow the Chinese source at index $Index."
+}
+
+$ChineseInteractiveMarker = -join ([char[]]@(
+    0x6709,
+    0x4ea4,
+    0x4e92
+))
+$ChineseInteractiveCommands = Get-SshAccessInteractiveHelpCommandSignatures `
+    -Text $Chinese `
+    -Marker $ChineseInteractiveMarker
+$EnglishInteractiveCommands = Get-SshAccessInteractiveHelpCommandSignatures `
+    -Text $English `
+    -Marker 'INTERACTIVE'
+Assert-SshAccessTestEqual `
+    $EnglishInteractiveCommands.Count `
+    $ChineseInteractiveCommands.Count `
+    'English and Chinese help should mark the same number of interactive commands.'
+for ($Index = 0; $Index -lt $ChineseInteractiveCommands.Count; $Index++) {
+    Assert-SshAccessTestEqual `
+        $EnglishInteractiveCommands[$Index] `
+        $ChineseInteractiveCommands[$Index] `
+        "English interactive markers should follow the Chinese source at index $Index."
+}
 
 foreach ($Required in @(
     '.status key',
@@ -177,7 +253,9 @@ foreach ($Required in @(
     '.status public',
     '.status ssh',
     '.status --uac',
+    '.key dir',
     '.key gen',
+    '.key gen -N',
     '.key fp',
     '.key delete --yes',
     '.private status',
@@ -200,31 +278,37 @@ foreach ($Required in @(
 }
 
 Assert-SshAccessTestTrue `
-    (-not $Chinese.Contains('sshaccess1.dev .key generate')) `
+    (-not $Chinese.Contains("$EntryCommand .key generate")) `
     'Help should present the preferred short generation spelling.'
 Assert-SshAccessTestTrue `
-    (-not $Chinese.Contains('sshaccess1.dev .key fingerprint')) `
+    (-not $Chinese.Contains("$EntryCommand .key fingerprint")) `
     'Help should present the preferred short fingerprint spelling.'
 Assert-SshAccessTestTrue `
-    (-not $English.Contains('sshaccess1.dev .key generate')) `
+    (-not $English.Contains("$EntryCommand .key generate")) `
     'English help should present the preferred short generation spelling.'
 Assert-SshAccessTestTrue `
-    (-not $English.Contains('sshaccess1.dev .key fingerprint')) `
+    (-not $English.Contains("$EntryCommand .key fingerprint")) `
     'English help should present the preferred short fingerprint spelling.'
 Assert-SshAccessTestTrue `
-    (-not $Chinese.Contains('sshaccess1.dev .key fing')) `
+    (-not $Chinese.Contains("$EntryCommand .key fing")) `
     'Help should not retain the replaced fing spelling.'
 Assert-SshAccessTestTrue `
-    (-not $English.Contains('sshaccess1.dev .key fing')) `
+    (-not $English.Contains("$EntryCommand .key fing")) `
     'English help should not retain the replaced fing spelling.'
+Assert-SshAccessTestTrue `
+    (-not $Chinese.Contains("$EntryCommand .key cd")) `
+    'Help should not imply that a child command can change the caller directory.'
+Assert-SshAccessTestTrue `
+    (-not $English.Contains("$EntryCommand .key cd")) `
+    'English help should not imply that a child command can change the caller directory.'
 Assert-SshAccessTestTrue `
     (-not $Chinese.Contains('.agent ')) `
     'Help should not expose ssh-agent as a top-level namespace.'
 Assert-SshAccessTestTrue `
-    (-not $Chinese.Contains('sshaccess1.dev .grant')) `
+    (-not $Chinese.Contains("$EntryCommand .grant")) `
     'Help should not expose the old top-level grant command.'
 Assert-SshAccessTestTrue `
-    (-not $Chinese.Contains('sshaccess1.dev /?')) `
+    (-not $Chinese.Contains("$EntryCommand /?")) `
     'Help should not advertise the unsupported legacy alias.'
 Assert-SshAccessTestTrue `
     (-not $Chinese.Contains('.global server port status')) `
@@ -255,13 +339,23 @@ Assert-SshAccessTestContains `
     "Unknown SSH Access command '.unknown'" `
     'Unknown commands should fail explicitly.'
 
-$AliasExtra = Invoke-SshAccessHelpTestCommand `
-    -Arguments @('--help', 'en') `
-    -ExpectedExitCode 1
-Assert-SshAccessTestContains `
-    $AliasExtra `
-    'does not accept additional arguments' `
-    'Help aliases should reject language arguments.'
+foreach ($Alias in @('.h', '-h', '--help')) {
+    $AliasEnglish = Invoke-SshAccessHelpTestCommand `
+        -Arguments @($Alias, 'en') `
+        -ExpectedExitCode 0
+    Assert-SshAccessTestEqual `
+        $AliasEnglish `
+        $English `
+        "$Alias en should behave exactly like .help en."
+
+    $AliasChinese = Invoke-SshAccessHelpTestCommand `
+        -Arguments @($Alias, 'zh') `
+        -ExpectedExitCode 0
+    Assert-SshAccessTestEqual `
+        $AliasChinese `
+        $Chinese `
+        "$Alias zh should behave exactly like .help zh."
+}
 
 $InvalidLanguage = Invoke-SshAccessHelpTestCommand `
     -Arguments @('.help', 'fr') `
@@ -280,3 +374,8 @@ Assert-SshAccessTestContains `
     'Canonical help should reject extra arguments.'
 
 Write-Host 'ssh access help tests: PASS' -ForegroundColor Green
+} finally {
+    if ([IO.File]::Exists($Entry)) {
+        [IO.File]::Delete($Entry)
+    }
+}

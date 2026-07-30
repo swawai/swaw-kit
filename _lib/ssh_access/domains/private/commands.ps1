@@ -7,7 +7,7 @@ function Invoke-SshAccessPrivateLoad {
     )
 
     $KeyState = Get-SshAccessKeyState -Context $Context
-    if ($KeyState.PairState -ne 'complete' -or
+    if ($KeyState.KeyMaterial -ne 'complete' -or
         $KeyState.PublicKeyState -ne 'valid' -or
         $KeyState.PairConsistency -ne 'matching') {
         throw "A complete, matching bound key pair is required. $($KeyState.Error) Run: $(Format-SshAccessCommand -CommandName $Context.CommandName -Arguments @('.key', 'status'))"

@@ -57,8 +57,8 @@ try {
                 KeyType        = 'ed25519'
             })
         } `
-        '*SSH_ACCESS_PRIVATE_KEY_PATH points to a directory*' `
-        'The key domain should reject a directory used as the private-key path.'
+        '*derived private key path points to a directory*' `
+        'The key domain should reject a directory at the derived private-key path.'
 
     $PublicDirectoryPath = Join-Path $ScratchRoot 'public-directory'
     [void][IO.Directory]::CreateDirectory($PublicDirectoryPath)
@@ -70,8 +70,8 @@ try {
                 KeyType        = 'ed25519'
             })
         } `
-        '*derived public key path points to a directory*' `
-        'The key domain should reject a directory used as the public-key path.'
+        '*SSH_ACCESS_PUBLIC_KEY_PATH points to a directory*' `
+        'The key domain should reject a directory used as the declared public-key path.'
 
     Write-Host '[TEST] Pair consistency is explicit'
     $StatePrivatePath = Join-Path $ScratchRoot 'state-private'
@@ -87,15 +87,15 @@ try {
 
         return $script:PrivateFingerprint
     }
-    $PairState = Get-SshAccessKeyState -Context $StateContext
+    $KeyState = Get-SshAccessKeyState -Context $StateContext
     Assert-SshAccessTestEqual `
-        $PairState.PairConsistency `
+        $KeyState.PairConsistency `
         'matching' `
         'Equal private and public fingerprints should form a matching pair.'
     $script:PrivateFingerprint = 'SHA256:different'
-    $PairState = Get-SshAccessKeyState -Context $StateContext
+    $KeyState = Get-SshAccessKeyState -Context $StateContext
     Assert-SshAccessTestEqual `
-        $PairState.PairConsistency `
+        $KeyState.PairConsistency `
         'mismatched' `
         'Different fingerprints must never be treated as one bound identity.'
 

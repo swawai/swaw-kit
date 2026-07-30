@@ -1,5 +1,75 @@
 Set-StrictMode -Version 2.0
 
+function Get-SshAccessCurrentProcessIdentity {
+    try {
+        $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        try {
+            if ($null -eq $Identity -or $null -eq $Identity.User) {
+                throw 'The current Windows process identity has no user SID.'
+            }
+            $Name = [string]$Identity.Name
+            if ([string]::IsNullOrWhiteSpace($Name)) {
+                $Name = $Identity.User.Value
+            }
+            return [pscustomobject]@{
+                Name  = $Name
+                Sid   = $Identity.User.Value
+                Error = ''
+            }
+        } finally {
+            if ($null -ne $Identity) {
+                $Identity.Dispose()
+            }
+        }
+    } catch {
+        return [pscustomobject]@{
+            Name  = 'unknown'
+            Sid   = 'unknown'
+            Error = $_.Exception.Message
+        }
+    }
+}
+
+function Get-SshAccessRequiredCurrentProcessIdentity {
+    $Identity = Get-SshAccessCurrentProcessIdentity
+    if (-not [string]::IsNullOrWhiteSpace($Identity.Error)) {
+        throw "Unable to resolve the current Windows user. $($Identity.Error)"
+    }
+    return $Identity
+}
+
+function Get-SshAccessAuthorizationOriginIdentity {
+    $Name = [Environment]::GetEnvironmentVariable(
+        'SSH_ACCESS_ORIGIN_USER_NAME'
+    )
+    $SidText = [Environment]::GetEnvironmentVariable(
+        'SSH_ACCESS_ORIGIN_USER_SID'
+    )
+    $HasName = -not [string]::IsNullOrWhiteSpace($Name)
+    $HasSid = -not [string]::IsNullOrWhiteSpace($SidText)
+    if (-not $HasName -and -not $HasSid) {
+        return Get-SshAccessRequiredCurrentProcessIdentity
+    }
+    if (-not $HasName -or -not $HasSid) {
+        throw 'The internal SSH Access authorization identity is incomplete.'
+    }
+
+    $Name = $Name.Trim()
+    if ($Name.IndexOfAny([char[]]@("`r", "`n", [char]0)) -ge 0) {
+        throw 'The internal SSH Access authorization user name is invalid.'
+    }
+    try {
+        $Sid = New-Object Security.Principal.SecurityIdentifier($SidText.Trim())
+    } catch {
+        throw 'The internal SSH Access authorization user SID is invalid.'
+    }
+    return [pscustomobject]@{
+        Name  = $Name
+        Sid   = $Sid.Value
+        Error = ''
+    }
+}
+
 function Get-SshAccessCommandName {
     $CommandName = [Environment]::GetEnvironmentVariable('SSH_ACCESS_ENTRY_COMMAND')
     if ([string]::IsNullOrWhiteSpace($CommandName)) {
@@ -49,31 +119,26 @@ function New-SshAccessContext {
 
     Assert-SshAccessEntryProtocol
 
-    $PrivateKeyPath = [Environment]::GetEnvironmentVariable('SSH_ACCESS_PRIVATE_KEY_PATH')
-    if ([string]::IsNullOrWhiteSpace($PrivateKeyPath)) {
-        throw 'SSH_ACCESS_PRIVATE_KEY_PATH is required.'
+    $PublicKeyPath = [Environment]::GetEnvironmentVariable('SSH_ACCESS_PUBLIC_KEY_PATH')
+    if ([string]::IsNullOrWhiteSpace($PublicKeyPath)) {
+        throw 'SSH_ACCESS_PUBLIC_KEY_PATH is required.'
     }
-    $PrivateKeyPath = [Environment]::ExpandEnvironmentVariables($PrivateKeyPath.Trim())
-    if (-not [IO.Path]::IsPathRooted($PrivateKeyPath)) {
-        throw 'SSH_ACCESS_PRIVATE_KEY_PATH must be an absolute path.'
+    $PublicKeyPath = [Environment]::ExpandEnvironmentVariables($PublicKeyPath.Trim())
+    if (-not [IO.Path]::IsPathRooted($PublicKeyPath)) {
+        throw 'SSH_ACCESS_PUBLIC_KEY_PATH must be an absolute path.'
     }
-    $PrivateKeyPath = [IO.Path]::GetFullPath($PrivateKeyPath)
-    if ($PrivateKeyPath.EndsWith('.pub', [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'SSH_ACCESS_PRIVATE_KEY_PATH must name the private key, not a .pub file.'
+    $PublicKeyPath = [IO.Path]::GetFullPath($PublicKeyPath)
+    if (-not $PublicKeyPath.EndsWith('.pub', [StringComparison]::OrdinalIgnoreCase) -or
+        [string]::Equals(
+            (Split-Path -Leaf $PublicKeyPath),
+            '.pub',
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw 'SSH_ACCESS_PUBLIC_KEY_PATH must name a .pub file with a non-empty base name.'
     }
-    $PublicKeyPath = $PrivateKeyPath + '.pub'
+    $PrivateKeyPath = $PublicKeyPath.Substring(0, $PublicKeyPath.Length - 4)
 
-    $UserName = [Environment]::GetEnvironmentVariable('SSH_ACCESS_USER')
-    if ([string]::IsNullOrWhiteSpace($UserName)) {
-        throw 'SSH_ACCESS_USER is required.'
-    }
-    $UserName = $UserName.Trim()
-    if ($UserName.IndexOfAny([char[]]@('\', '/', '@')) -ge 0) {
-        throw 'SSH_ACCESS_USER must be an unqualified local Windows user name.'
-    }
-    if ($UserName.IndexOfAny([char[]]@('*', '?', '[', ']')) -ge 0) {
-        throw 'SSH_ACCESS_USER must be an exact user name, not a wildcard pattern.'
-    }
+    $OriginIdentity = Get-SshAccessAuthorizationOriginIdentity
 
     $KeyType = [Environment]::GetEnvironmentVariable('SSH_ACCESS_KEY_TYPE')
     if ([string]::IsNullOrWhiteSpace($KeyType)) {
@@ -116,7 +181,8 @@ function New-SshAccessContext {
         HelpRoot       = Join-Path $KitRoot 'help'
         PrivateKeyPath = $PrivateKeyPath
         PublicKeyPath  = $PublicKeyPath
-        UserName       = $UserName
+        AuthorizationUserName = $OriginIdentity.Name
+        AuthorizationUserSid  = $OriginIdentity.Sid
         KeyType        = $KeyType
         KeyComment     = $KeyComment
         ProgramData    = [IO.Path]::GetFullPath($ProgramData)

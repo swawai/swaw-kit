@@ -5,13 +5,9 @@ function Invoke-SshAccessHelpCommand {
         [Parameter(Mandatory = $true)][pscustomobject]$Context,
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
-        [string[]]$Arguments,
-        [Parameter(Mandatory = $true)][bool]$AllowLanguage
+        [string[]]$Arguments
     )
 
-    if (-not $AllowLanguage -and $Arguments.Count -ne 0) {
-        throw 'This help alias does not accept additional arguments. Use .help en or .help zh.'
-    }
     if ($Arguments.Count -gt 1) {
         throw 'Help accepts at most one language: en or zh.'
     }
@@ -40,8 +36,7 @@ function Invoke-SshAccessMain {
     if ($Arguments.Count -eq 0) {
         return Invoke-SshAccessHelpCommand `
             -Context $HelpContext `
-            -Arguments @() `
-            -AllowLanguage $true
+            -Arguments @()
     }
 
     $Command = $Arguments[0].ToLowerInvariant()
@@ -49,14 +44,12 @@ function Invoke-SshAccessMain {
     if (@('-h', '--help', '.h') -contains $Command) {
         return Invoke-SshAccessHelpCommand `
             -Context $HelpContext `
-            -Arguments $Rest `
-            -AllowLanguage $false
+            -Arguments $Rest
     }
     if ($Command -eq '.help') {
         return Invoke-SshAccessHelpCommand `
             -Context $HelpContext `
-            -Arguments $Rest `
-            -AllowLanguage $true
+            -Arguments $Rest
     }
 
     $Context = New-SshAccessContext -KitRoot $script:SshAccessKitRoot

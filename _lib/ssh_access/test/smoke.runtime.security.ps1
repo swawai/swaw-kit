@@ -11,8 +11,9 @@ $EnvironmentNames = @(
     'SSH_ACCESS_PROTOCOL',
     'SSH_ACCESS_ENTRY_COMMAND',
     'SSH_ACCESS_ENTRY_FILE',
-    'SSH_ACCESS_PRIVATE_KEY_PATH',
-    'SSH_ACCESS_USER',
+    'SSH_ACCESS_PUBLIC_KEY_PATH',
+    'SSH_ACCESS_ORIGIN_USER_NAME',
+    'SSH_ACCESS_ORIGIN_USER_SID',
     'SSH_ACCESS_KEY_TYPE',
     'SSH_ACCESS_KEY_COMMENT',
     'SystemRoot',
@@ -25,7 +26,8 @@ $ScratchRoot = New-SshAccessTestScratchRoot
 
 try {
     $PrivatePath = Join-Path $ScratchRoot 'identity\id_ed25519'
-    Set-SshAccessTestValidEnvironment -PrivateKeyPath $PrivatePath
+    $PublicPath = "$PrivatePath.pub"
+    Set-SshAccessTestValidEnvironment -PublicKeyPath $PublicPath
     $Context = New-SshAccessContext -KitRoot $script:SshAccessTestKitRoot
 
     $ExpectedWindowsRoot = [IO.Path]::GetFullPath(
@@ -257,6 +259,14 @@ try {
             )
         )) `
         'The elevated host should select trusted cmd.exe before kit.cmd.'
+    Assert-SshAccessTestContains `
+        $script:ElevatedScript `
+        "`$env:SSH_ACCESS_PUBLIC_KEY_PATH = '$($Context.PublicKeyPath)'" `
+        'Elevation should preserve the declared public-key path.'
+    Assert-SshAccessTestContains `
+        $script:ElevatedScript `
+        "`$env:SSH_ACCESS_ORIGIN_USER_SID = '$($Context.AuthorizationUserSid)'" `
+        'Elevation should preserve the original authorization SID.'
 } finally {
     Restore-SshAccessTestEnvironment -Saved $SavedEnvironment
     Remove-SshAccessTestScratchRoot -Path $ScratchRoot

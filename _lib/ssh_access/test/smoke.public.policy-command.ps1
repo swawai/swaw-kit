@@ -147,6 +147,49 @@ try {
         'unknown' `
         'Conditional authentication policy should fail closed when effective behavior cannot be proven.'
 
+    Write-Host '[TEST] Local authorization identity resolves by SID, not mutable user name'
+    $StableUserSid = 'S-1-5-21-1-2-3-1001'
+    function Get-LocalUser {
+        param([object]$ErrorAction)
+
+        return [pscustomobject]@{
+            Name    = 'renamed-user'
+            SID     = [pscustomobject]@{ Value = $StableUserSid }
+            Enabled = $true
+        }
+    }
+    function Get-LocalGroupMember {
+        param(
+            [object]$SID,
+            [object]$ErrorAction
+        )
+    }
+    function Get-SshAccessRequiredCurrentProcessIdentity {
+        return [pscustomobject]@{
+            Name  = 'TESTBOX\renamed-user'
+            Sid   = $StableUserSid
+            Error = ''
+        }
+    }
+    function Get-SshAccessProfilePath {
+        param([string]$UserSid)
+
+        return $ScratchRoot
+    }
+    $ResolvedAccount = Resolve-SshAccessLocalUser -Context ([pscustomobject]@{
+        AuthorizationUserName = 'TESTBOX\old-name'
+        AuthorizationUserSid  = $StableUserSid
+        ProgramData           = $ProgramData
+    })
+    Assert-SshAccessTestEqual `
+        $ResolvedAccount.Name `
+        'renamed-user' `
+        'A local account rename should not change the SID-bound authorization target.'
+    Assert-SshAccessTestEqual `
+        $ResolvedAccount.IsCurrentUser `
+        $true `
+        'The original process SID should define current-user ownership.'
+
     Write-Host '[TEST] Public mutation scope and administrator configuration fail closed'
     $StateContext = [pscustomobject]@{
         CommandName = 'sshaccess.test'

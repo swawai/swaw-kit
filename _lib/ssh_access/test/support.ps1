@@ -96,15 +96,17 @@ function Restore-SshAccessTestEnvironment {
 
 function Set-SshAccessTestValidEnvironment {
     param(
-        [Parameter(Mandatory = $true)][string]$PrivateKeyPath,
-        [string]$UserName = 'ssh_access_test_user'
+        [Parameter(Mandatory = $true)][string]$PublicKeyPath,
+        [string]$OriginUserName = 'TESTBOX\ssh_access_test_user',
+        [string]$OriginUserSid = 'S-1-5-21-1-2-3-1001'
     )
 
     $env:SSH_ACCESS_PROTOCOL = '1'
     $env:SSH_ACCESS_ENTRY_COMMAND = 'sshaccess.test'
-    $env:SSH_ACCESS_ENTRY_FILE = Join-Path $script:SshAccessTestRepoRoot 'sshaccess1.dev.cmd'
-    $env:SSH_ACCESS_PRIVATE_KEY_PATH = $PrivateKeyPath
-    $env:SSH_ACCESS_USER = $UserName
+    $env:SSH_ACCESS_ENTRY_FILE = Join-Path $script:SshAccessTestRepoRoot 'Favorites\template.sshaccess1.cmd'
+    $env:SSH_ACCESS_PUBLIC_KEY_PATH = $PublicKeyPath
+    $env:SSH_ACCESS_ORIGIN_USER_NAME = $OriginUserName
+    $env:SSH_ACCESS_ORIGIN_USER_SID = $OriginUserSid
     $env:SSH_ACCESS_KEY_TYPE = 'ed25519'
     $env:SSH_ACCESS_KEY_COMMENT = 'ssh-access-test'
 }
