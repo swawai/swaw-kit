@@ -4,7 +4,6 @@ $script:ProjRequiredProjectDeclarations = @(
     'SWAWKIT_PROJ_ID',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
-    'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_ENTRY_FILE'
 )
@@ -77,15 +76,26 @@ function Get-ProjProjectContext {
     $ActionRoot = Get-ProjDeclaredFullPath `
         -Value $Declarations['SWAWKIT_PROJ_ACTION_ROOT'] `
         -Name 'SWAWKIT_PROJ_ACTION_ROOT'
-    $DataRoot = Get-ProjDeclaredFullPath `
-        -Value $Declarations['SWAWKIT_PROJ_DATA_ROOT'] `
-        -Name 'SWAWKIT_PROJ_DATA_ROOT'
     $EntryFile = Get-ProjDeclaredFullPath `
         -Value $Declarations['SWAWKIT_PROJ_ENTRY_FILE'] `
         -Name 'SWAWKIT_PROJ_ENTRY_FILE'
     if (-not [IO.File]::Exists($EntryFile)) {
         throw "Declared project entry file does not exist: $EntryFile"
     }
+    $EntryDirectory = [IO.Path]::GetDirectoryName($EntryFile)
+    if (-not $EntryDirectory.Equals(
+        $ProjectRoot,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw (
+            'The project entry file must be located directly in the project ' +
+            "root: $EntryFile"
+        )
+    }
+    $DataRoot = Resolve-ProjProjectDataRoot `
+        -ProjectRoot $ProjectRoot `
+        -ActionRoot $ActionRoot `
+        -EntryFile $EntryFile
 
     return [pscustomobject]@{
         Protocol = '1'

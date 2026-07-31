@@ -244,13 +244,13 @@ try {
     [void][IO.Directory]::CreateDirectory($ActionRoot)
     $EntryFile = Join-Path $ProjectRoot 'entry.cmd'
     [IO.File]::WriteAllText($EntryFile, '@echo off')
-    $HelpDataRoot = Join-Path $TemporaryRoot 'help data'
+    $HelpDataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
         SWAWKIT_PROJ_ID = 'bun-help'
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
-        SWAWKIT_PROJ_DATA_ROOT = $HelpDataRoot
+        SWAWKIT_PROJ_DATA_ROOT = $null
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_ENTRY_FILE = $EntryFile
         SWAWKIT_INVOCATION_DIR = $InvocationRoot
@@ -262,8 +262,11 @@ try {
         -Arguments @('.dev.setup', '--help')
     Assert-ProjBunTest `
         -Condition ($HelpExitCode -eq 0 -and
-            -not [IO.Directory]::Exists($HelpDataRoot)) `
-        -Message '.dev.setup --help was not handled read-only by Proj'
+            [IO.File]::Exists((Join-Path $HelpDataRoot '_entry.json')) -and
+            -not [IO.Directory]::Exists(
+                (Join-Path $HelpDataRoot 'dev_env')
+            )) `
+        -Message '.dev.setup --help created development state'
 
     $SetupDataRoot = Join-Path $TemporaryRoot 'setup entry data'
     $env:SWAWKIT_PROJ_ID = 'bun-setup'

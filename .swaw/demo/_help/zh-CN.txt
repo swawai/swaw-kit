@@ -1,6 +1,14 @@
-演示真实 .swaw 目录 Action 的自动发现和分层帮助。
+演示真实 .swaw 目录 Action 的自动发现、分层帮助和模块前提协议。
 
 用法:
   {{INVOCATION}} .help
 
 该目录本身是命令组；可执行 Action 位于它的子目录中。
+
+开发规范示例:
+  demo.echo          无开发工具前提
+  demo.bun           由 run.ts 适配器选择项目 Bun
+  demo.managed-msvc  模块自行强制受管 MSVC，不接受系统工具穿透
+
+Core 不理解 MSVC、Bun 等业务语义。每个命令模块必须在入口最前面
+明确自己的工具来源策略，并通过 Core 注入的环境变量验证前提。

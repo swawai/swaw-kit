@@ -5,7 +5,11 @@ foreach ($File in @(
     'protocol.ps1',
     'process.ps1',
     'discovery.ps1',
+    'entry-identity.ps1',
+    'data-root-claim.ps1',
+    'data-root.ps1',
     'project-context.ps1',
+    'development-environment.ps1',
     'help.ps1',
     'runtime.ps1'
 )) {

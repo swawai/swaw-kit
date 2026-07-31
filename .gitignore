@@ -7,4 +7,6 @@
 /*.cmd
 !/PathHereAdd.cmd
 !/PathHereRemove.cmd
-!/xvenv.cmd
+!/swawkit.cmd
+
+/Favorites/template.proj1.exe

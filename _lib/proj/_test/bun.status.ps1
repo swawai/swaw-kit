@@ -41,13 +41,13 @@ try {
     [void][IO.Directory]::CreateDirectory($ActionRoot)
     $EntryFile = Join-Path $ProjectRoot 'entry.cmd'
     [IO.File]::WriteAllText($EntryFile, '@echo off')
-    $DataRoot = Join-Path $TemporaryRoot 'data'
+    $DataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
         SWAWKIT_PROJ_ID = 'bun-status'
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
-        SWAWKIT_PROJ_DATA_ROOT = $DataRoot
+        SWAWKIT_PROJ_DATA_ROOT = $null
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_ENTRY_FILE = $EntryFile
         SWAWKIT_INVOCATION_DIR = $ProjectRoot
@@ -55,6 +55,10 @@ try {
         SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
         SWAWKIT_PROJ_BUN_SHA256 = ''
     }
+    [void](Resolve-ProjProjectDataRoot `
+        -ProjectRoot $ProjectRoot `
+        -ActionRoot $ActionRoot `
+        -EntryFile $EntryFile)
 
     $Context = New-ProjDevContextFromEnvironment
     $Definition = Get-ProjDevBunDefinition
@@ -105,8 +109,14 @@ try {
         ) `
         -Message ".dev.setup did not preserve non-blocking trust: $($SetupResult.Output)"
 
-    $PinnedDataRoot = Join-Path $TemporaryRoot 'pinned missing'
-    $env:SWAWKIT_PROJ_DATA_ROOT = $PinnedDataRoot
+    $PinnedEntryFile = Join-Path $ProjectRoot 'pinned.cmd'
+    [IO.File]::WriteAllText($PinnedEntryFile, '@echo off')
+    $env:SWAWKIT_PROJ_DATA_ROOT = $null
+    $PinnedDataRoot = Resolve-ProjProjectDataRoot `
+        -ProjectRoot $ProjectRoot `
+        -ActionRoot $ActionRoot `
+        -EntryFile $PinnedEntryFile
+    $env:SWAWKIT_PROJ_ENTRY_FILE = $PinnedEntryFile
     $env:SWAWKIT_PROJ_BUN_SHA256 = 'e' * 64
     $PinnedStatus = Invoke-ProjBunMainFixture `
         -PowerShell $SystemPowerShell `
@@ -118,7 +128,9 @@ try {
             $PinnedStatus.ExitCode -eq 0 -and
             $PinnedStatus.Output -like '*[[]MISSING[]]*bun 1.2.15*pinned*' -and
             $PinnedStatus.Output -notlike '*WARNING*' -and
-            -not [IO.Directory]::Exists($PinnedDataRoot)
+            -not [IO.Directory]::Exists(
+                (Join-Path $PinnedDataRoot 'dev_env')
+            )
         ) `
         -Message ".dev.status was not read-only for pinned state: $($PinnedStatus.Output)"
 

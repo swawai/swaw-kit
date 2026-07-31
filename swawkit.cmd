@@ -4,7 +4,6 @@
 set "SWAWKIT_PROJ_ID=swaw-kit"
 set "SWAWKIT_PROJ_DIR=%~dp0"
 set "SWAWKIT_PROJ_ACTION_ROOT=%SWAWKIT_PROJ_DIR%.swaw"
-set "SWAWKIT_PROJ_DATA_ROOT=%SWAWKIT_PROJ_DIR%data\%SWAWKIT_PROJ_ID%"
 
 
 :: Optional project behavior
@@ -46,9 +45,9 @@ set "SWAWKIT_PROJ_CURSOR_MODE=system"
 
 
 :: Optional Git identity
-set "SWAWKIT_PROJ_GIT_ID_NAME=user1"
-set "SWAWKIT_PROJ_GIT_ID_EMAIL=user1@example.com"
-set "SWAWKIT_PROJ_GIT_ID_ACCESS=ssh:ssh -o IdentitiesOnly=yes -i '%USERPROFILE%/.ssh/id_ed25519_swawai'"
+set "SWAWKIT_PROJ_GIT_ID_NAME=SwawHQ"
+set "SWAWKIT_PROJ_GIT_ID_EMAIL=swawhq@gmail.com"
+set "SWAWKIT_PROJ_GIT_ID_ACCESS=ssh:ssh -o IdentitiesOnly=yes -i '%USERPROFILE%/.ssh/id_ed25519_swaw'"
 
 :: Optional REPO context
 set "SWAWKIT_PROJ_REPO_REMOTE=https://github.com/swawai/swaw-kit.git"

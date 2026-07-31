@@ -5,8 +5,10 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 $EntryPath = Join-Path $RepoRoot 'swawkit.cmd'
-$DeclaredDataRoot = Join-Path $RepoRoot 'data\swaw-kit'
-$DataRootExistedBefore = [IO.Directory]::Exists($DeclaredDataRoot)
+$DeclaredDataRoot = Join-Path $RepoRoot 'data\proj.swawkit'
+$DevelopmentEnvironment = Join-Path $DeclaredDataRoot 'dev_env'
+$DevelopmentEnvironmentExistedBefore =
+    [IO.Directory]::Exists($DevelopmentEnvironment)
 function Assert-ProjEntryTest {
     param(
         [Parameter(Mandatory = $true)][bool]$Condition,
@@ -297,7 +299,6 @@ $RequiredProjectDeclarations = @(
     'SWAWKIT_PROJ_ID',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
-    'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_ENTRY_FILE'
 )
@@ -357,8 +358,12 @@ Assert-ProjEntryTest `
     )) `
     'the entry must not change Machine PATH'
 Assert-ProjEntryTest `
-    ([IO.Directory]::Exists($DeclaredDataRoot) -eq $DataRootExistedBefore) `
-    'read-only entry commands must not create the declared Data Root'
+    ([IO.File]::Exists((Join-Path $DeclaredDataRoot '_entry.json'))) `
+    'entry commands must publish the entry identity binding'
+Assert-ProjEntryTest `
+    ([IO.Directory]::Exists($DevelopmentEnvironment) -eq
+        $DevelopmentEnvironmentExistedBefore) `
+    'read-only entry commands must not create the development environment'
 
 Write-Host '[PASS] Proj promoted entry smoke test' -ForegroundColor Green
 $global:LASTEXITCODE = 0

@@ -81,7 +81,13 @@ Assert-ProjSmoke `
     ($Addresses -cnotcontains '.core') `
     'the single-underscore _core tree must remain private'
 $DiscoveryDirectories = @($Discoveries | ForEach-Object Directory)
-foreach ($PrivateRootName in @('_core', '_bin', '_help', '_test')) {
+foreach ($PrivateRootName in @(
+    '_core',
+    '_bin',
+    '_help',
+    '_shell',
+    '_test'
+)) {
     Assert-ProjSmoke `
         ($DiscoveryDirectories -cnotcontains (Join-Path $KernelRoot $PrivateRootName)) `
         "discovery must prune the private $PrivateRootName directory itself"

@@ -5,6 +5,11 @@ $ErrorActionPreference = 'Stop'
 
 & (Join-Path $PSScriptRoot '..\_core\smoke.ps1')
 & (Join-Path $PSScriptRoot 'smoke-entry.ps1')
+& (Join-Path $PSScriptRoot 'entry-data-root.ps1')
+& (Join-Path $PSScriptRoot 'claim-timeout.ps1')
+& (Join-Path $PSScriptRoot 'core-environment.ps1')
+& (Join-Path $PSScriptRoot 'launcher-policy.ps1')
+& (Join-Path $PSScriptRoot 'shell.ps1')
 & (Join-Path $PSScriptRoot 'install-recovery.ps1')
 & (Join-Path $PSScriptRoot 'bun.ps1')
 & (Join-Path $PSScriptRoot 'msvc.ps1')

@@ -200,6 +200,14 @@ function Invoke-ProjMain {
         $RawTailArguments = @($Arguments[1..($Arguments.Count - 1)])
     }
 
+    # .dev.setup publishes this environment, so it must remain able to repair
+    # a missing or stale publication. Every other command inherits the
+    # published environment here instead of locating toolchains itself.
+    if ($Address -cne '.dev.setup') {
+        [void](Import-ProjDevelopmentEnvironment `
+            -ProjectContext $ProjectContext)
+    }
+
     $UseProjHelp = $false
     [string]$HelpTargetAddress = ''
     if (

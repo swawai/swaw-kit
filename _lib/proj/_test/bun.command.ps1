@@ -48,7 +48,16 @@ try {
     $EntryFile = Join-Path $ProjectRoot 'entry.cmd'
     [IO.File]::WriteAllText($EntryFile, '@echo off')
 
-    $ConsumerDataRoot = Join-Path $TemporaryRoot 'consumer data'
+    $ConsumerDataRoot = Join-Path $ProjectRoot 'data\proj.entry'
+    [Environment]::SetEnvironmentVariable(
+        'SWAWKIT_PROJ_DATA_ROOT',
+        $null,
+        [EnvironmentVariableTarget]::Process
+    )
+    [void](Resolve-ProjProjectDataRoot `
+        -ProjectRoot $ProjectRoot `
+        -ActionRoot $ActionRoot `
+        -EntryFile $EntryFile)
     $ConsumerContext = New-ProjDevContext `
         -ProjectId 'bun-consumer' `
         -ProjectRoot $ProjectRoot `
@@ -146,7 +155,9 @@ try {
         -Arguments @('.bun', '--version')
     Assert-ProjBunTest `
         -Condition ($MissingResult.ExitCode -eq 1 -and
-            -not [IO.Directory]::Exists($ConsumerDataRoot)) `
+            -not [IO.Directory]::Exists(
+                (Join-Path $ConsumerDataRoot 'dev_env')
+            )) `
         -Message '.bun implicitly created development state before setup'
 
     $env:SWAWKIT_PROJ_BUN_MODE = 'disabled'
@@ -157,7 +168,9 @@ try {
         -Arguments @('.bun', '--version')
     Assert-ProjBunTest `
         -Condition ($DisabledResult.ExitCode -eq 1 -and
-            -not [IO.Directory]::Exists($ConsumerDataRoot)) `
+            -not [IO.Directory]::Exists(
+                (Join-Path $ConsumerDataRoot 'dev_env')
+            )) `
         -Message 'disabled .bun wrote development state'
     $env:SWAWKIT_PROJ_BUN_MODE = 'managed'
 

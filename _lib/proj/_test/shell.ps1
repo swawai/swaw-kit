@@ -1,0 +1,144 @@
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2.0
+
+function Assert-ProjShellTest {
+    param(
+        [Parameter(Mandatory = $true)][bool]$Condition,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+    if (-not $Condition) {
+        throw "Assertion failed: $Message"
+    }
+}
+
+function Invoke-ProjShellTest {
+    param(
+        [Parameter(Mandatory = $true)][string]$Address,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [string[]]$InputLines
+    )
+
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $Output = @($InputLines | & $script:ProjShellEntry $Address 2>&1)
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    return [pscustomobject]@{
+        ExitCode = [int]$ExitCode
+        Text = [string]::Join(
+            [Environment]::NewLine,
+            [string[]]@($Output | ForEach-Object { [string]$_ })
+        )
+    }
+}
+
+$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+$script:ProjShellEntry = Join-Path $RepoRoot 'swawkit.cmd'
+$RuntimeBin = Join-Path $RepoRoot '_lib\proj\_bin'
+$DataRoot = Join-Path $RepoRoot 'data\proj.swawkit'
+$UserPathBefore = [Environment]::GetEnvironmentVariable('PATH', 'User')
+$MachinePathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+
+$Cmd = Invoke-ProjShellTest `
+    -Address '.cmd' `
+    -InputLines @(
+        'echo SHELL_KIND=cmd'
+        'echo PROJECT_ID=%SWAWKIT_PROJ_ID%'
+        'echo COMMAND_ADDRESS=%SWAWKIT_COMMAND_ADDRESS%'
+        'echo DATA_ROOT=%SWAWKIT_PROJ_DATA_ROOT%'
+        'echo RUNTIME_BIN=%SWAWKIT_PROJ_RUNTIME_BIN%'
+        'echo PATH_VALUE=%PATH%'
+        'echo WORKING_DIR=%CD%'
+        'exit 31'
+    )
+Assert-ProjShellTest `
+    -Condition ($Cmd.ExitCode -eq 31) `
+    -Message ".cmd did not return the child shell exit code: $($Cmd.Text)"
+foreach ($Expected in @(
+    'SHELL_KIND=cmd',
+    'PROJECT_ID=swaw-kit',
+    'COMMAND_ADDRESS=.cmd',
+    "DATA_ROOT=$DataRoot",
+    "RUNTIME_BIN=$RuntimeBin",
+    "PATH_VALUE=$RuntimeBin;",
+    "WORKING_DIR=$RepoRoot"
+)) {
+    Assert-ProjShellTest `
+        -Condition ($Cmd.Text.IndexOf(
+            $Expected,
+            [StringComparison]::OrdinalIgnoreCase
+        ) -ge 0) `
+        -Message ".cmd did not inherit '$Expected': $($Cmd.Text)"
+}
+
+$PowerShell = Invoke-ProjShellTest `
+    -Address '.ps' `
+    -InputLines @(
+        'Write-Output "SHELL_KIND=ps"'
+        'Write-Output "PS_MAJOR=$($PSVersionTable.PSVersion.Major)"'
+        'Write-Output "PS_HOME=$PSHOME"'
+        'Write-Output "PROJECT_ID=$env:SWAWKIT_PROJ_ID"'
+        'Write-Output "COMMAND_ADDRESS=$env:SWAWKIT_COMMAND_ADDRESS"'
+        'Write-Output "DATA_ROOT=$env:SWAWKIT_PROJ_DATA_ROOT"'
+        'Write-Output "RUNTIME_BIN=$env:SWAWKIT_PROJ_RUNTIME_BIN"'
+        'Write-Output "PATH_VALUE=$env:PATH"'
+        'Write-Output "WORKING_DIR=$((Get-Location).ProviderPath)"'
+        'exit 32'
+    )
+$ExpectedPsHome = Join-Path $env:SystemRoot (
+    'System32\WindowsPowerShell\v1.0'
+)
+Assert-ProjShellTest `
+    -Condition ($PowerShell.ExitCode -eq 32) `
+    -Message ".ps did not return the child shell exit code: $($PowerShell.Text)"
+foreach ($Expected in @(
+    'SHELL_KIND=ps',
+    'PS_MAJOR=5',
+    "PS_HOME=$ExpectedPsHome",
+    'PROJECT_ID=swaw-kit',
+    'COMMAND_ADDRESS=.ps',
+    "DATA_ROOT=$DataRoot",
+    "RUNTIME_BIN=$RuntimeBin",
+    "PATH_VALUE=$RuntimeBin;",
+    "WORKING_DIR=$RepoRoot"
+)) {
+    Assert-ProjShellTest `
+        -Condition ($PowerShell.Text.IndexOf(
+            $Expected,
+            [StringComparison]::OrdinalIgnoreCase
+        ) -ge 0) `
+        -Message ".ps did not inherit '$Expected': $($PowerShell.Text)"
+}
+
+foreach ($Address in @('.cmd', '.ps')) {
+    $PreviousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $script:ProjShellEntry $Address 'unexpected' 2>&1 | Out-Null
+        $TailExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
+    Assert-ProjShellTest `
+        -Condition ($TailExitCode -eq 1) `
+        -Message "$Address accepted a dynamic tail argument"
+}
+
+Assert-ProjShellTest `
+    -Condition (
+        [Environment]::GetEnvironmentVariable('PATH', 'User') -ceq
+            $UserPathBefore -and
+        [Environment]::GetEnvironmentVariable('PATH', 'Machine') -ceq
+            $MachinePathBefore
+    ) `
+    -Message 'interactive project shells changed persistent PATH'
+
+Write-Host '[PASS] Proj interactive shell commands' -ForegroundColor Green
+$global:LASTEXITCODE = 0
