@@ -5,6 +5,7 @@
 Windows 开发/运维常见痛点工具箱。目标是一键：
 
 管理指定 SSH 主机（如设置免密登录）  
+开启本机 SSH 服务（Windows 一般需要手动开）  
 管理指定 WSL 实例（如设置后台保活、备份还原、端口映射）  
 管理多套 Git 身份（一个命令入口一套身份，清晰可见）  
 查询端口占用进程  
@@ -19,13 +20,14 @@ Windows 开发/运维常见痛点工具箱。目标是一键：
 工具和入口模板，默认收纳在：`Favorites/`，请按需复制到仓库根目录，例如：
 
 ```powershell
-copy Favorites\porttask.cmd .\
-copy Favorites\taskport.cmd .\
-copy Favorites\portrule.cmd .\
+copy .\Favorites\porttask.cmd .\
+copy .\Favorites\taskport.cmd .\
+copy .\Favorites\portrule.cmd .\
 
-copy Favorites\template.vps1.cmd   vps2.cmd   # 复制后修改 vps2.cmd  中定义的 VPS 主机信息
-copy Favorites\template.wsl01.cmd  wsl02.cmd  # 复制后修改 wsl02.cmd 中定义的子系统实例信息
-copy Favorites\template.git1.cmd   git2.cmd   # 复制后修改 git2.cmd  中定义的 Git 身份信息
+copy .\Favorites\template.vps1.cmd         .\vps2.cmd        # 复制后修改 vps2.cmd       中定义的 VPS 主机信息
+copy .\Favorites\template.wsl01.cmd        .\wsl02.cmd       # 复制后修改 wsl02.cmd      中定义的子系统实例信息
+copy .\Favorites\template.git1.cmd         .\git2.cmd        # 复制后修改 git2.cmd       中定义的 Git 身份信息
+copy .\Favorites\template.sshaccdss1.cmd   .\sshaccess.cmd   # 复制后修改 sshaccess.cmd  中定义的公钥的路径信息
 ```
 
 根目录已设置.gitignore，.cmd 等文件会被忽略提交。
@@ -37,11 +39,12 @@ copy Favorites\template.git1.cmd   git2.cmd   # 复制后修改 git2.cmd  中定
 | `porttask.cmd 80*` | 查询 `80*` 端口占用程序 |
 | `taskport.cmd chrome` | 查询 `chrome` 进程占用端口 |
 | `portrule.cmd` | 交互式管理防火墙入站规则 |
-| `vps2.cmd --help` | 管理复制并配置好的 SSH 主机入口 |
-| `wsl02.cmd --help` | 管理复制并配置好的 WSL 实例入口 |
-| `git2.cmd --help` | 应用复制并配置好的 Git 身份入口 |
+| `vps2.cmd --help` | 管理已绑定的 SSH 主机 |
+| `wsl02.cmd --help` | 管理已绑定的 WSL 实例 |
+| `git2.cmd --help` | 应用已绑定的 Git 身份 |
+| `sshaccess.cmd --help` | 管理 Windows 作 SSH 服务器，必要时应用其中已绑定的公钥/私钥 |
 
-> 命令脚本名如带点号，例如 `vps.2.cmd`，在 Win+R 中执行 `vps.2` 可能会报错。
+> 命令脚本名如带点号，例如 `vps.2.cmd`，在 Win+R 中执行，需输入扩展名 `vps.2.cmd`，而`vps.2`会报错。
 
 
 
@@ -92,6 +95,7 @@ copy Favorites\template.git1.cmd   git2.cmd   # 复制后修改 git2.cmd  中定
 WSL 实例管理：https://swaw.com/zh/p/swaw-kit-wsl-release/  
 SSH 主机管理：https://swaw.com/zh/p/ssh-remote-kit-windows/  
 Git 多身份管理：https://swaw.com/zh/p/swaw-kit-git/
+Windows 开启 SSH 服务：https://swaw.com/zh/p/swaw-kit-git/
 
 ## 微软 Sysinternals
 
