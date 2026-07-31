@@ -17,7 +17,7 @@ Windows 开发/运维常见痛点工具箱。目标是一键：
 
 ## 开始使用
 
-工具和入口模板，默认收纳在：`Favorites/`，请按需复制到仓库根目录，例如：
+工具和入口模板，默认收纳在：`Favorites/`，请**按需复制到仓库根目录**，例如：
 
 ```powershell
 copy .\Favorites\porttask.cmd .\
@@ -54,15 +54,9 @@ copy .\Favorites\template.sshaccdss1.cmd   .\sshaccess.cmd   # 复制后修改 s
 
     PathHereAdd.cmd
 
-它会将脚本自身所在（也就是仓库根目录），幂等加入当前用户的 `PATH`。
+它会，仅将脚本自身所在（也就是仓库根目录），幂等加入当前用户的 `PATH`。
 
-所以 `Favorites/` 中的工具脚本，要按需复制到仓库根目录。
-
-撤销：
-
-    PathHereRemove.cmd
-
-它会把自身所在目录从当前用户 `PATH` 中安全移除。
+要撤销，执行`PathHereRemove.cmd`它会把自身所在目录，从当前用户 `PATH` 中安全移除。
 
 
 ## 会不会改坏 PATH？
@@ -87,7 +81,7 @@ copy .\Favorites\template.sshaccdss1.cmd   .\sshaccess.cmd   # 复制后修改 s
 
 1. 修改环境变量后，已经打开的终端不会自动刷新。
 
-2. 目录都加入 `PATH`，可能带来命令名冲突。如：系统本来有`cmd`命令，你追加的目录中若有同名命令，系统的会被你覆盖。
+2. 目录加入 `PATH`，可带来命令名冲突。如：系统本有`cmd`命令，追加的目录若有同名命令，系统的会被你覆盖。
 
 
 ## Docs
