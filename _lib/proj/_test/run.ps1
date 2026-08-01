@@ -4,6 +4,7 @@ param()
 $ErrorActionPreference = 'Stop'
 
 & (Join-Path $PSScriptRoot '..\_core\smoke.ps1')
+& (Join-Path $PSScriptRoot 'optional-action-root.ps1')
 & (Join-Path $PSScriptRoot 'smoke-entry.ps1')
 & (Join-Path $PSScriptRoot 'entry-data-root.ps1')
 & (Join-Path $PSScriptRoot 'claim-timeout.ps1')

@@ -163,11 +163,12 @@ function Assert-ProjNoReparsePoint {
     )
 
     $Current = [IO.Path]::GetFullPath($Root)
-    if ([IO.Directory]::Exists($Current)) {
-        $RootItem = Get-Item -LiteralPath $Current -Force
-        if (($RootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "Command root cannot be a reparse point: $Current"
-        }
+    if (-not [IO.Directory]::Exists($Current)) {
+        return
+    }
+    $RootItem = Get-Item -LiteralPath $Current -Force
+    if (($RootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Command root cannot be a reparse point: $Current"
     }
     foreach ($Segment in $PhysicalSegments) {
         $Matches = @(Get-ChildItem -LiteralPath $Current -Directory -Force |
