@@ -8,6 +8,7 @@ foreach ($File in @(
     'entry-identity.ps1',
     'data-root-claim.ps1',
     'data-root.ps1',
+    'data-root-state.ps1',
     'project-context.ps1',
     'development-environment.ps1',
     'help.ps1',

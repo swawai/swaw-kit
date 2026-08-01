@@ -82,9 +82,7 @@ function Invoke-ProjResolvedCommand {
             $env:SWAWKIT_HELP_TARGET_ADDRESS = $HelpTargetAddress
         }
         $env:SWAWKIT_PROJ_PROTOCOL = $ProjectContext.Protocol
-        $env:SWAWKIT_PROJ_HOME = [IO.Path]::GetFullPath(
-            (Join-Path $KernelRoot '..\..')
-        )
+        $env:SWAWKIT_PROJ_HOME = [string]$ProjectContext.ProjHome
         $env:SWAWKIT_PROJ_DIR = $ProjectContext.ProjectRoot
         $env:SWAWKIT_PROJ_ACTION_ROOT = $ProjectContext.ActionRoot
         $env:SWAWKIT_PROJ_DATA_ROOT = $ProjectContext.DataRoot
@@ -192,7 +190,8 @@ function Invoke-ProjMain {
     )
 
     $InvocationDirectory = (Get-Location).ProviderPath
-    $ProjectContext = Get-ProjProjectContext
+    $ProjHome = [IO.Path]::GetFullPath((Join-Path $KernelRoot '..\..'))
+    $ProjectContext = Get-ProjProjectContext -ProjHome $ProjHome
     $ProjectRoot = $ProjectContext.ProjectRoot
     $ActionRoot = $ProjectContext.ActionRoot
 

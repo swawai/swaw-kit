@@ -38,6 +38,9 @@ $TestTemporaryBase = [IO.Path]::GetFullPath(
 $TemporaryRoot = Join-Path $TestTemporaryBase (
     "swawkit-proj-bun-$([Guid]::NewGuid().ToString('N'))"
 )
+$ControlHome = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..'))
+$HelpEntryName = "test-bun-help-$([Guid]::NewGuid().ToString('N'))"
+$HelpDataRoot = Join-Path $ControlHome "data\proj.$HelpEntryName"
 $SystemPowerShell = Join-Path $env:SystemRoot (
     'System32\WindowsPowerShell\v1.0\powershell.exe'
 )
@@ -266,12 +269,11 @@ try {
 
     $ActionRoot = Join-Path $ProjectRoot '.swaw'
     [void][IO.Directory]::CreateDirectory($ActionRoot)
-    $EntryFile = Join-Path $ProjectRoot 'entry.cmd'
+    $EntryFile = Join-Path $ProjectRoot "$HelpEntryName.cmd"
     [IO.File]::WriteAllText($EntryFile, '@echo off')
-    $HelpDataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_HOME = $ProjectRoot
+        SWAWKIT_PROJ_HOME = $ControlHome
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $null
@@ -351,6 +353,11 @@ try {
     Write-Host '[PASS] Proj Bun installation test' -ForegroundColor Green
 } finally {
     Exit-ProjBunIsolatedEnvironment -Snapshot $EnvironmentSnapshot
+    if ([IO.Directory]::Exists($HelpDataRoot) -and
+        [IO.Path]::GetFileName($HelpDataRoot) -ceq
+            "proj.$HelpEntryName") {
+        Remove-Item -LiteralPath $HelpDataRoot -Recurse -Force
+    }
     $ResolvedTemporaryRoot = [IO.Path]::GetFullPath($TemporaryRoot)
     $SystemTemporaryRoot = [IO.Path]::GetFullPath(
         $TestTemporaryBase

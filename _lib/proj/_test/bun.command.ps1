@@ -34,6 +34,9 @@ $TestTemporaryBase = [IO.Path]::GetFullPath(
 $TemporaryRoot = Join-Path $TestTemporaryBase (
     "swawkit-proj-bun-command-$([Guid]::NewGuid().ToString('N'))"
 )
+$ControlHome = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..'))
+$EntryName = "test-bun-command-$([Guid]::NewGuid().ToString('N'))"
+$ConsumerDataRoot = Join-Path $ControlHome "data\proj.$EntryName"
 $SystemPowerShell = Join-Path $env:SystemRoot (
     'System32\WindowsPowerShell\v1.0\powershell.exe'
 )
@@ -45,16 +48,16 @@ try {
     foreach ($Directory in @($ProjectRoot, $InvocationRoot, $ActionRoot)) {
         [void][IO.Directory]::CreateDirectory($Directory)
     }
-    $EntryFile = Join-Path $ProjectRoot 'entry.cmd'
+    $EntryFile = Join-Path $ProjectRoot "$EntryName.cmd"
     [IO.File]::WriteAllText($EntryFile, '@echo off')
 
-    $ConsumerDataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     [Environment]::SetEnvironmentVariable(
         'SWAWKIT_PROJ_DATA_ROOT',
         $null,
         [EnvironmentVariableTarget]::Process
     )
     [void](Resolve-ProjProjectDataRoot `
+        -ProjHome $ControlHome `
         -ProjectRoot $ProjectRoot `
         -ActionRoot $ActionRoot `
         -EntryFile $EntryFile)
@@ -111,7 +114,7 @@ try {
     $ForeignDataRoot = Join-Path $TemporaryRoot 'foreign setup data'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_HOME = $TemporaryRoot
+        SWAWKIT_PROJ_HOME = $ControlHome
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $ForeignDataRoot
@@ -326,6 +329,10 @@ try {
     Write-Host '[PASS] Proj Bun command protocol test' -ForegroundColor Green
 } finally {
     Exit-ProjBunIsolatedEnvironment -Snapshot $EnvironmentSnapshot
+    if ([IO.Directory]::Exists($ConsumerDataRoot) -and
+        [IO.Path]::GetFileName($ConsumerDataRoot) -ceq "proj.$EntryName") {
+        Remove-Item -LiteralPath $ConsumerDataRoot -Recurse -Force
+    }
     $ResolvedTemporaryRoot = [IO.Path]::GetFullPath($TemporaryRoot)
     $SystemTemporaryRoot = [IO.Path]::GetFullPath(
         $TestTemporaryBase

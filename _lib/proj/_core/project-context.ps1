@@ -46,6 +46,8 @@ function Get-ProjDeclaredFullPath {
 }
 
 function Get-ProjProjectContext {
+    param([Parameter(Mandatory = $true)][string]$ProjHome)
+
     $Protocol = [Environment]::GetEnvironmentVariable(
         'SWAWKIT_PROJ_PROTOCOL',
         [EnvironmentVariableTarget]::Process
@@ -79,13 +81,21 @@ function Get-ProjProjectContext {
     if ([string]::IsNullOrWhiteSpace($EntryName)) {
         throw "The project entry file has no usable entry name: $EntryFile"
     }
+    $CanonicalProjHome = Get-ProjDeclaredFullPath `
+        -Value $ProjHome `
+        -Name 'SWAWKIT_PROJ_HOME'
+    if (-not [IO.Directory]::Exists($CanonicalProjHome)) {
+        throw "Declared Swaw Kit Proj home does not exist: $CanonicalProjHome"
+    }
     $DataRoot = Resolve-ProjProjectDataRoot `
+        -ProjHome $CanonicalProjHome `
         -ProjectRoot $ProjectRoot `
         -ActionRoot $ActionRoot `
         -EntryFile $EntryFile
 
     return [pscustomobject]@{
         Protocol = '1'
+        ProjHome = $CanonicalProjHome
         ProjectRoot = $ProjectRoot
         ActionRoot = $ActionRoot
         DataRoot = $DataRoot

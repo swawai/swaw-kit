@@ -17,6 +17,7 @@ $KernelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $ActionRoot = Join-Path ([IO.Path]::GetTempPath()) 'proj-smoke-actions-not-created'
 $SmokeProjectContext = [pscustomobject]@{
     Protocol = '1'
+    ProjHome = [IO.Path]::GetFullPath((Join-Path $KernelRoot '..\..'))
     ProjectRoot = $KernelRoot
     ActionRoot = $ActionRoot
     DataRoot = Join-Path ([IO.Path]::GetTempPath()) 'proj-smoke-data-not-created'

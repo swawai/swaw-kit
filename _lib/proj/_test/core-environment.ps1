@@ -29,13 +29,15 @@ $TestTemporaryBase = [IO.Path]::GetFullPath(
 $TemporaryRoot = Join-Path $TestTemporaryBase (
     "swawkit-proj-core-environment-$([Guid]::NewGuid().ToString('N'))"
 )
+$ControlHome = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..'))
+$EntryName = "test-core-env-$([Guid]::NewGuid().ToString('N'))"
 $ProjectRoot = Join-Path $TemporaryRoot 'project'
 $EntryRoot = Join-Path $TemporaryRoot 'entries'
 $ActionRoot = Join-Path $ProjectRoot '.swaw'
 $CommandRoot = Join-Path $ActionRoot 'probe'
-$DataRoot = Join-Path $ProjectRoot 'data\proj.fixture'
+$DataRoot = Join-Path $ControlHome "data\proj.$EntryName"
 $EnvironmentRoot = Join-Path $DataRoot 'dev_env'
-$EntryPath = Join-Path $EntryRoot 'fixture.cmd'
+$EntryPath = Join-Path $EntryRoot "$EntryName.cmd"
 $CapturePath = Join-Path $TemporaryRoot 'capture.txt'
 
 $OwnedVariables = @(
@@ -80,6 +82,7 @@ try {
         [EnvironmentVariableTarget]::Process
     )
     [void](Resolve-ProjProjectDataRoot `
+        -ProjHome $ControlHome `
         -ProjectRoot $ProjectRoot `
         -ActionRoot $ActionRoot `
         -EntryFile $EntryPath)
@@ -105,9 +108,9 @@ $global:LASTEXITCODE = 0
     $env:SWAWKIT_TEST_CORE_ENV_CAPTURE = $CapturePath
     $env:SWAWKIT_TEST_CORE_ENV_MARKER = 'ambient'
 
-    $ProjectContext = Get-ProjProjectContext
+    $ProjectContext = Get-ProjProjectContext -ProjHome $ControlHome
     Assert-ProjCoreEnvironmentTest `
-        -Condition ([string]$ProjectContext.EntryName -ceq 'fixture') `
+        -Condition ([string]$ProjectContext.EntryName -ceq $EntryName) `
         -Message 'the entry name was not derived from the real entry file'
     Assert-ProjCoreEnvironmentTest `
         -Condition (-not ([IO.Path]::GetDirectoryName(
@@ -121,7 +124,7 @@ $global:LASTEXITCODE = 0
     $ExitCode = Invoke-ProjMain -KernelRoot $ProjRoot -Arguments @('probe')
     Assert-ProjCoreEnvironmentTest `
         -Condition ($ExitCode -eq 0 -and
-            [IO.File]::ReadAllText($CapturePath) -ceq 'ambient|fixture') `
+            [IO.File]::ReadAllText($CapturePath) -ceq "ambient|$EntryName") `
         -Message 'a project without a managed environment lost the ambient PATH contract'
     Assert-ProjCoreEnvironmentTest `
         -Condition ([string]$env:SWAWKIT_PROJ_ENTRY_COMMAND -ceq
@@ -159,7 +162,8 @@ $global:LASTEXITCODE = 0
         $ExitCode = Invoke-ProjMain -KernelRoot $ProjRoot -Arguments @('probe')
         Assert-ProjCoreEnvironmentTest `
             -Condition ($ExitCode -eq 0 -and
-                [IO.File]::ReadAllText($CapturePath) -ceq 'managed|fixture') `
+                [IO.File]::ReadAllText($CapturePath) -ceq
+                    "managed|$EntryName") `
             -Message 'the Core did not activate the published environment before the Action'
     }
     Assert-ProjCoreEnvironmentTest `
@@ -190,6 +194,10 @@ $global:LASTEXITCODE = 0
             )
     }
 } finally {
+    if ([IO.Directory]::Exists($DataRoot) -and
+        [IO.Path]::GetFileName($DataRoot) -ceq "proj.$EntryName") {
+        Remove-Item -LiteralPath $DataRoot -Recurse -Force
+    }
     if ([IO.Directory]::Exists($TemporaryRoot)) {
         [IO.Directory]::Delete($TemporaryRoot, $true)
     }

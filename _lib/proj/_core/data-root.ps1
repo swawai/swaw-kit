@@ -25,26 +25,24 @@ function Get-ProjDataRootDirectories {
 
 function Get-ProjDataRootPlan {
     param(
-        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$DataDirectory,
         [Parameter(Mandatory = $true)][string]$EntryFile,
-        [AllowEmptyString()][string]$InheritedDataRoot = ''
+        [AllowEmptyString()][string]$InheritedDataRoot = '',
+        [AllowEmptyString()][string]$LegacyDataDirectory = ''
     )
 
-    $CanonicalProjectRoot = [IO.Path]::GetFullPath($ProjectRoot)
+    $CanonicalDataDirectory = [IO.Path]::GetFullPath($DataDirectory)
     $CanonicalEntryFile = [IO.Path]::GetFullPath($EntryFile)
     $EntryName = [IO.Path]::GetFileNameWithoutExtension($CanonicalEntryFile)
     if ([string]::IsNullOrWhiteSpace($EntryName)) {
         throw "Project entry has no usable file name: $CanonicalEntryFile"
     }
-    $DataDirectory = [IO.Path]::GetFullPath(
-        (Join-Path $CanonicalProjectRoot 'data')
-    )
     $Candidate = [IO.Path]::GetFullPath(
-        (Join-Path $DataDirectory "proj.$EntryName")
+        (Join-Path $CanonicalDataDirectory "proj.$EntryName")
     )
     $Identity = Get-ProjEntryFileIdentity -EntryFile $CanonicalEntryFile
     $Directories = @(Get-ProjDataRootDirectories `
-        -DataDirectory $DataDirectory)
+        -DataDirectory $CanonicalDataDirectory)
 
     $CandidateDirectory = $Directories |
         Where-Object { $_.FullName.Equals(
@@ -82,6 +80,48 @@ function Get-ProjDataRootPlan {
         )
     }
 
+    $LegacyMatches = @()
+    if (-not [string]::IsNullOrWhiteSpace($LegacyDataDirectory)) {
+        $CanonicalLegacyDirectory = [IO.Path]::GetFullPath(
+            $LegacyDataDirectory
+        )
+        if (-not $CanonicalLegacyDirectory.Equals(
+            $CanonicalDataDirectory,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            foreach ($Directory in @(Get-ProjDataRootDirectories `
+                -DataDirectory $CanonicalLegacyDirectory)) {
+                $Record = Read-ProjEntryIdentityRecord `
+                    -DataRoot $Directory.FullName
+                if ($Record.Valid -and
+                    (Test-ProjEntryIdentityEqual `
+                        -Record $Record.Value `
+                        -Identity $Identity)) {
+                    $LegacyMatches += [pscustomobject]@{
+                        DataRoot = $Directory.FullName
+                        Record = $Record
+                    }
+                }
+            }
+        }
+    }
+    if ($LegacyMatches.Count -gt 1) {
+        throw (
+            'Multiple legacy project DataRoots contain the current entry ' +
+            'File ID: ' + [string]::Join(', ', [string[]]@(
+                $LegacyMatches | ForEach-Object { $_.DataRoot }
+            )) + '. Manual repair is required.'
+        )
+    }
+    $LegacyMatch = $LegacyMatches | Select-Object -First 1
+    if ($null -ne $LegacyMatch -and $IdentityMatches.Count -gt 0) {
+        throw (
+            'Both the Swaw Kit Home and legacy project directory contain ' +
+            "DataRoots for the current entry File ID: '$($IdentityMatches[0].DataRoot)', " +
+            "'$($LegacyMatch.DataRoot)'. Manual repair is required."
+        )
+    }
+
     $CanonicalInherited = ''
     if (-not [string]::IsNullOrWhiteSpace($InheritedDataRoot)) {
         if (-not [IO.Path]::IsPathRooted($InheritedDataRoot)) {
@@ -100,7 +140,13 @@ function Get-ProjDataRootPlan {
                     [StringComparison]::OrdinalIgnoreCase
                 ) } |
                 Select-Object -First 1
-            if ($null -eq $InheritedMatch) {
+            $InheritedMatchesLegacy = $null -ne $LegacyMatch -and
+                $CanonicalInherited.Equals(
+                    [string]$LegacyMatch.DataRoot,
+                    [StringComparison]::OrdinalIgnoreCase
+                )
+            if ($null -eq $InheritedMatch -and
+                -not $InheritedMatchesLegacy) {
                 throw (
                     "Another project's DataRoot is already active: " +
                     "$CanonicalInherited. Exit that project shell before " +
@@ -179,6 +225,37 @@ function Get-ProjDataRootPlan {
         }
     }
 
+    if ($null -ne $LegacyMatch) {
+        $LegacyNameMatches = (
+            [string]$LegacyMatch.Record.Value.entryName
+        ).Equals(
+            $EntryName,
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and [IO.Path]::GetFileName(
+            [string]$LegacyMatch.DataRoot
+        ).Equals(
+            "proj.$EntryName",
+            [StringComparison]::OrdinalIgnoreCase
+        )
+        return [pscustomobject][ordered]@{
+            Kind = if ($LegacyNameMatches) {
+                'MigrateLegacy'
+            } else {
+                'ClaimMigrateLegacy'
+            }
+            EntryName = $EntryName
+            EntryFile = $CanonicalEntryFile
+            Identity = $Identity
+            DataRoot = $Candidate
+            SourceDataRoot = [string]$LegacyMatch.DataRoot
+            Reason = if ($LegacyNameMatches) {
+                'legacy DataRoot is stored under SWAWKIT_PROJ_DIR'
+            } else {
+                'the entry File ID is stored under a renamed legacy DataRoot'
+            }
+        }
+    }
+
     if (-not [string]::IsNullOrWhiteSpace($CanonicalInherited)) {
         throw (
             "Inherited DataRoot '$CanonicalInherited' has no valid binding " +
@@ -196,111 +273,9 @@ function Get-ProjDataRootPlan {
     }
 }
 
-function Enter-ProjDataRootLock {
-    param([Parameter(Mandatory = $true)][string]$DataDirectory)
-
-    [void][IO.Directory]::CreateDirectory($DataDirectory)
-    $DataDirectoryItem = Get-Item -LiteralPath $DataDirectory -Force
-    if (($DataDirectoryItem.Attributes -band
-        [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw (
-            'Project data directory cannot be a reparse point: ' +
-            $DataDirectory
-        )
-    }
-    $LockPath = Join-Path $DataDirectory '_proj-entry.lock'
-    foreach ($Attempt in 1..100) {
-        try {
-            return [IO.FileStream]::new(
-                $LockPath,
-                [IO.FileMode]::OpenOrCreate,
-                [IO.FileAccess]::ReadWrite,
-                [IO.FileShare]::None
-            )
-        } catch [IO.IOException] {
-            if ($Attempt -eq 100) {
-                throw "Timed out waiting for the project DataRoot lock: $LockPath"
-            }
-            Start-Sleep -Milliseconds 50
-        }
-    }
-}
-
-function Complete-ProjDataRootPlan {
-    param([Parameter(Mandatory = $true)][object]$Plan)
-
-    switch ([string]$Plan.Kind) {
-        'Direct' {
-            return [string]$Plan.DataRoot
-        }
-        'Create' {
-            [void][IO.Directory]::CreateDirectory($Plan.DataRoot)
-        }
-        'ClaimCurrent' {
-            if (-not [IO.Directory]::Exists($Plan.DataRoot)) {
-                throw "Claim target disappeared: $($Plan.DataRoot)"
-            }
-        }
-        'ClaimRename' {
-            if ([IO.Directory]::Exists($Plan.DataRoot)) {
-                throw "Claim rename target already exists: $($Plan.DataRoot)"
-            }
-            if (-not [IO.Directory]::Exists($Plan.SourceDataRoot)) {
-                throw "Claim rename source disappeared: $($Plan.SourceDataRoot)"
-            }
-            [IO.Directory]::Move(
-                [string]$Plan.SourceDataRoot,
-                [string]$Plan.DataRoot
-            )
-        }
-        default {
-            throw "Unsupported DataRoot plan kind '$($Plan.Kind)'."
-        }
-    }
-    Write-ProjEntryIdentityRecord `
-        -DataRoot $Plan.DataRoot `
-        -EntryName $Plan.EntryName `
-        -EntryFile $Plan.EntryFile `
-        -Identity $Plan.Identity
-    return [string]$Plan.DataRoot
-}
-
-function Test-ProjDataRootClaimStateStable {
-    param(
-        [Parameter(Mandatory = $true)][object]$InitialPlan,
-        [Parameter(Mandatory = $true)][object]$CurrentPlan
-    )
-
-    foreach ($Property in @('EntryFile', 'DataRoot')) {
-        if (-not ([string]$InitialPlan.$Property).Equals(
-            [string]$CurrentPlan.$Property,
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-            return $false
-        }
-    }
-    if (-not ([string]$InitialPlan.EntryName).Equals(
-        [string]$CurrentPlan.EntryName,
-        [StringComparison]::OrdinalIgnoreCase
-    ) -or
-        [string]$InitialPlan.Identity.Key -cne
-            [string]$CurrentPlan.Identity.Key) {
-        return $false
-    }
-    if ([string]$CurrentPlan.Kind -ceq 'Direct') {
-        return $true
-    }
-    return (
-        [string]$CurrentPlan.Kind -ceq [string]$InitialPlan.Kind -and
-        ([string]$CurrentPlan.SourceDataRoot).Equals(
-            [string]$InitialPlan.SourceDataRoot,
-            [StringComparison]::OrdinalIgnoreCase
-        )
-    )
-}
-
 function Resolve-ProjProjectDataRoot {
     param(
+        [Parameter(Mandatory = $true)][string]$ProjHome,
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
         [Parameter(Mandatory = $true)][string]$ActionRoot,
         [Parameter(Mandatory = $true)][string]$EntryFile,
@@ -308,7 +283,16 @@ function Resolve-ProjProjectDataRoot {
     )
 
     $DataDirectory = [IO.Path]::GetFullPath(
+        (Join-Path $ProjHome 'data')
+    )
+    $EntryName = [IO.Path]::GetFileNameWithoutExtension(
+        [IO.Path]::GetFullPath($EntryFile)
+    )
+    $LegacyDataDirectory = [IO.Path]::GetFullPath(
         (Join-Path $ProjectRoot 'data')
+    )
+    $LegacyDataRootCandidate = [IO.Path]::GetFullPath(
+        (Join-Path $LegacyDataDirectory "proj.$EntryName")
     )
     $InheritedDataRoot = [string][Environment]::GetEnvironmentVariable(
         'SWAWKIT_PROJ_DATA_ROOT',
@@ -318,12 +302,21 @@ function Resolve-ProjProjectDataRoot {
     $Lock = Enter-ProjDataRootLock -DataDirectory $DataDirectory
     try {
         $Plan = Get-ProjDataRootPlan `
-            -ProjectRoot $ProjectRoot `
+            -DataDirectory $DataDirectory `
             -EntryFile $EntryFile `
-            -InheritedDataRoot $InheritedDataRoot
-        if ($Plan.Kind -in @('Direct', 'Create')) {
+            -InheritedDataRoot $InheritedDataRoot `
+            -LegacyDataDirectory $LegacyDataDirectory
+        if ($Plan.Kind -in @('Direct', 'Create', 'MigrateLegacy')) {
             $Resolved = Complete-ProjDataRootPlan -Plan $Plan
-            $env:SWAWKIT_PROJ_DATA_ROOT = $Resolved
+            $LegacyDataRoot = if ($Plan.Kind -ceq 'MigrateLegacy') {
+                [string]$Plan.SourceDataRoot
+            } else {
+                $LegacyDataRootCandidate
+            }
+            $Resolved = Set-ProjResolvedDataRoot `
+                -DataRoot $Resolved `
+                -LegacyDataRoot $LegacyDataRoot `
+                -EntryName $EntryName
             return $Resolved
         }
     } finally {
@@ -346,9 +339,10 @@ function Resolve-ProjProjectDataRoot {
     $Lock = Enter-ProjDataRootLock -DataDirectory $DataDirectory
     try {
         $CurrentPlan = Get-ProjDataRootPlan `
-            -ProjectRoot $ProjectRoot `
+            -DataDirectory $DataDirectory `
             -EntryFile $EntryFile `
-            -InheritedDataRoot $InheritedDataRoot
+            -InheritedDataRoot $InheritedDataRoot `
+            -LegacyDataDirectory $LegacyDataDirectory
         if (-not (Test-ProjDataRootClaimStateStable `
             -InitialPlan $Plan `
             -CurrentPlan $CurrentPlan)) {
@@ -359,11 +353,28 @@ function Resolve-ProjProjectDataRoot {
         }
         if ($CurrentPlan.Kind -ceq 'Direct') {
             $Resolved = Complete-ProjDataRootPlan -Plan $CurrentPlan
-            $env:SWAWKIT_PROJ_DATA_ROOT = $Resolved
+            $LegacyDataRoot = if ($Plan.Kind -ceq 'ClaimMigrateLegacy') {
+                [string]$Plan.SourceDataRoot
+            } else {
+                $LegacyDataRootCandidate
+            }
+            $Resolved = Set-ProjResolvedDataRoot `
+                -DataRoot $Resolved `
+                -LegacyDataRoot $LegacyDataRoot `
+                -EntryName $EntryName
             return $Resolved
         }
         $Resolved = Complete-ProjDataRootPlan -Plan $CurrentPlan
-        $env:SWAWKIT_PROJ_DATA_ROOT = $Resolved
+        $LegacyDataRoot = if ($CurrentPlan.Kind -ceq
+            'ClaimMigrateLegacy') {
+            [string]$CurrentPlan.SourceDataRoot
+        } else {
+            $LegacyDataRootCandidate
+        }
+        $Resolved = Set-ProjResolvedDataRoot `
+            -DataRoot $Resolved `
+            -LegacyDataRoot $LegacyDataRoot `
+            -EntryName $EntryName
         return $Resolved
     } finally {
         $Lock.Dispose()

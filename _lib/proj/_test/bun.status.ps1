@@ -31,6 +31,11 @@ $TestTemporaryBase = [IO.Path]::GetFullPath(
 $TemporaryRoot = Join-Path $TestTemporaryBase (
     "swawkit-proj-bun-status-$([Guid]::NewGuid().ToString('N'))"
 )
+$ControlHome = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..'))
+$EntryName = "test-bun-status-$([Guid]::NewGuid().ToString('N'))"
+$PinnedEntryName = "$EntryName-pinned"
+$DataRoot = Join-Path $ControlHome "data\proj.$EntryName"
+$PinnedDataRoot = Join-Path $ControlHome "data\proj.$PinnedEntryName"
 $SystemPowerShell = Join-Path $env:SystemRoot (
     'System32\WindowsPowerShell\v1.0\powershell.exe'
 )
@@ -39,12 +44,11 @@ try {
     $ProjectRoot = Join-Path $TemporaryRoot 'project'
     $ActionRoot = Join-Path $ProjectRoot '.swaw'
     [void][IO.Directory]::CreateDirectory($ActionRoot)
-    $EntryFile = Join-Path $ProjectRoot 'entry.cmd'
+    $EntryFile = Join-Path $ProjectRoot "$EntryName.cmd"
     [IO.File]::WriteAllText($EntryFile, '@echo off')
-    $DataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_HOME = $ProjectRoot
+        SWAWKIT_PROJ_HOME = $ControlHome
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $null
@@ -56,6 +60,7 @@ try {
         SWAWKIT_PROJ_BUN_SHA256 = ''
     }
     [void](Resolve-ProjProjectDataRoot `
+        -ProjHome $ControlHome `
         -ProjectRoot $ProjectRoot `
         -ActionRoot $ActionRoot `
         -EntryFile $EntryFile)
@@ -63,7 +68,7 @@ try {
     $Context = New-ProjDevContextFromEnvironment
     Assert-ProjBunTest `
         -Condition ($Context.CacheDataRoot.Equals(
-            (Join-Path $ProjectRoot 'data\proj_cache'),
+            (Join-Path $ControlHome 'data\proj_cache'),
             [StringComparison]::OrdinalIgnoreCase
         )) `
         -Message 'the production context did not derive the shared cache from the entry root'
@@ -115,10 +120,11 @@ try {
         ) `
         -Message ".dev.setup did not preserve non-blocking trust: $($SetupResult.Output)"
 
-    $PinnedEntryFile = Join-Path $ProjectRoot 'pinned.cmd'
+    $PinnedEntryFile = Join-Path $ProjectRoot "$PinnedEntryName.cmd"
     [IO.File]::WriteAllText($PinnedEntryFile, '@echo off')
     $env:SWAWKIT_PROJ_DATA_ROOT = $null
     $PinnedDataRoot = Resolve-ProjProjectDataRoot `
+        -ProjHome $ControlHome `
         -ProjectRoot $ProjectRoot `
         -ActionRoot $ActionRoot `
         -EntryFile $PinnedEntryFile
@@ -144,6 +150,15 @@ try {
         -ForegroundColor Green
 } finally {
     Exit-ProjBunIsolatedEnvironment -Snapshot $EnvironmentSnapshot
+    foreach ($OwnedDataRoot in @($DataRoot, $PinnedDataRoot)) {
+        if ([IO.Directory]::Exists($OwnedDataRoot) -and
+            [IO.Path]::GetDirectoryName($OwnedDataRoot).Equals(
+                (Join-Path $ControlHome 'data'),
+                [StringComparison]::OrdinalIgnoreCase
+            )) {
+            Remove-Item -LiteralPath $OwnedDataRoot -Recurse -Force
+        }
+    }
     $ResolvedTemporaryRoot = [IO.Path]::GetFullPath($TemporaryRoot)
     $SystemTemporaryRoot = [IO.Path]::GetFullPath(
         $TestTemporaryBase

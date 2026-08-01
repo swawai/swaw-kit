@@ -8,7 +8,8 @@ if ($args.Count -ne 0) {
 
 . (Join-Path $PSScriptRoot '..\_core\engine.ps1')
 
-$ProjectContext = Get-ProjProjectContext
+$ProjectContext = Get-ProjProjectContext `
+    -ProjHome ([string]$env:SWAWKIT_PROJ_HOME)
 $TargetAddress = [Environment]::GetEnvironmentVariable(
     'SWAWKIT_HELP_TARGET_ADDRESS',
     'Process'
