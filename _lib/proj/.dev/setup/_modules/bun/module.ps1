@@ -34,6 +34,7 @@ function Assert-ProjDevBunManifest {
             'Schema',
             'Name',
             'ModeVariable',
+            'SetupImplemented',
             'VersionVariable',
             'HashVariable',
             'InstallMode',
@@ -46,6 +47,8 @@ function Assert-ProjDevBunManifest {
     if ([string]$Manifest.Schema -cne 'swawkit.proj-dev.module.v0' -or
         [string]$Manifest.Name -cne 'bun' -or
         [string]$Manifest.ModeVariable -cne 'SWAWKIT_PROJ_BUN_MODE' -or
+        $Manifest.SetupImplemented -isnot [bool] -or
+        -not [bool]$Manifest.SetupImplemented -or
         [string]$Manifest.VersionVariable -cne 'SWAWKIT_PROJ_BUN_VERSION' -or
         [string]$Manifest.HashVariable -cne 'SWAWKIT_PROJ_BUN_SHA256' -or
         [string]$Manifest.InstallMode -cne 'managed') {

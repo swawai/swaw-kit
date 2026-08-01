@@ -10,8 +10,10 @@ foreach ($File in @(
     'data-root.ps1',
     'data-root-state.ps1',
     'project-context.ps1',
+    'development-declaration.ps1',
     'development-environment.ps1',
     'help.ps1',
+    'guard.ps1',
     'runtime.ps1'
 )) {
     . (Join-Path $PSScriptRoot $File)

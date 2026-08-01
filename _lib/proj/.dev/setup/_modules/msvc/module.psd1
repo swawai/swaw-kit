@@ -2,6 +2,7 @@
     Schema = 'swawkit.proj-dev.module.v0'
     Name = 'msvc'
     ModeVariable = 'SWAWKIT_PROJ_MSVC_MODE'
+    SetupImplemented = $true
     ChannelVariable = 'SWAWKIT_PROJ_MSVC_CHANNEL'
     InstallMode = 'managed'
     RecipeVersion = '1'

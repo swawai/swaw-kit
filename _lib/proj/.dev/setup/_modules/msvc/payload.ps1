@@ -67,9 +67,15 @@ function Get-ProjDevMsvcVerifiedPayload {
         throw "Invalid Microsoft payload SHA-256 for: $SafeName"
     }
     $PayloadRoot = Join-Path $CacheRoot $PayloadSha256
-    $Lock = Enter-ProjDevFileLock -Path (
-        Join-Path $Context.ArtifactLockRoot "msvc-$PayloadSha256.lock"
-    )
+    $PayloadRoot = Assert-ProjDevPathInsideDataRoot `
+        -Path $PayloadRoot `
+        -DataRoot $Context.CacheDataRoot `
+        -Activity 'using the MSVC payload cache'
+    $Lock = Enter-ProjDevFileLock `
+        -Path (Join-Path `
+            $Context.ArtifactLockRoot `
+            "msvc-$PayloadSha256.lock") `
+        -ControlledRoot $Context.CacheDataRoot
     try {
         if ([IO.File]::Exists($PayloadRoot)) {
             Remove-ProjDevControlledPath `
@@ -98,7 +104,8 @@ function Get-ProjDevMsvcVerifiedPayload {
         if (-not [IO.File]::Exists($Path)) {
             Invoke-ProjDevDownload `
                 -Source ([string]$Payload.Url) `
-                -Destination $Path
+                -Destination $Path `
+                -ControlledRoot $Context.CacheDataRoot
         }
         if ((Get-ProjDevFileSha256 -Path $Path) -cne
             $PayloadSha256) {
@@ -156,9 +163,14 @@ function Copy-ProjDevMsvcPayloadToSourceRoot {
 function Expand-ProjDevMsvcVsix {
     param(
         [Parameter(Mandatory = $true)][string]$ArchivePath,
-        [Parameter(Mandatory = $true)][string]$Destination
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot
     )
 
+    $Destination = Assert-ProjDevPathInsideDataRoot `
+        -Path $Destination `
+        -DataRoot $ControlledRoot `
+        -Activity 'extracting an MSVC VSIX'
     $Archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
     $EntryCount = 0
     [long]$TotalBytes = 0
@@ -249,9 +261,18 @@ function Invoke-ProjDevMsvcAdministrativeInstall {
     param(
         [Parameter(Mandatory = $true)][string]$MsiPath,
         [Parameter(Mandatory = $true)][string]$Destination,
-        [Parameter(Mandatory = $true)][string]$LogPath
+        [Parameter(Mandatory = $true)][string]$LogPath,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot
     )
 
+    $Destination = Assert-ProjDevPathInsideDataRoot `
+        -Path $Destination `
+        -DataRoot $ControlledRoot `
+        -Activity 'installing an MSVC payload'
+    $LogPath = Assert-ProjDevPathInsideDataRoot `
+        -Path $LogPath `
+        -DataRoot $ControlledRoot `
+        -Activity 'writing an MSVC installation log'
     $MsiExec = Join-Path $env:SystemRoot 'System32\msiexec.exe'
     if (-not [IO.File]::Exists($MsiExec)) {
         throw "Windows Installer is unavailable: $MsiExec"
@@ -261,7 +282,10 @@ function Invoke-ProjDevMsvcAdministrativeInstall {
         (Split-Path -Path $LogPath -Parent)
     )
     if ([IO.File]::Exists($LogPath)) {
-        [IO.File]::Delete($LogPath)
+        Remove-ProjDevControlledPath `
+            -Path $LogPath `
+            -DataRoot $ControlledRoot `
+            -Activity 'replacing an MSVC installation log'
     }
     $Info = [Diagnostics.ProcessStartInfo]::new()
     $Info.FileName = $MsiExec
@@ -291,6 +315,9 @@ function Invoke-ProjDevMsvcAdministrativeInstall {
         $Process.Dispose()
     }
     if ([IO.File]::Exists($LogPath)) {
-        [IO.File]::Delete($LogPath)
+        Remove-ProjDevControlledPath `
+            -Path $LogPath `
+            -DataRoot $ControlledRoot `
+            -Activity 'cleaning an MSVC installation log'
     }
 }

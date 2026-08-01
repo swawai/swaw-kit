@@ -15,7 +15,9 @@ function Assert-ProjLauncherPolicyTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-$ActionPath = Join-Path $RepoRoot '.swaw\proj\build\launcher\run.ps1'
+$PolicyPath = Join-Path $RepoRoot (
+    '.swaw\proj\build\launcher\_lib\policy.ps1'
+)
 $TestBase = Join-Path $RepoRoot 'data\_test'
 $TemporaryRoot = Join-Path $TestBase (
     "swawkit-proj-launcher-policy-$([Guid]::NewGuid().ToString('N'))"
@@ -50,6 +52,7 @@ foreach ($Name in [string[]]@($ProcessEnvironment.Keys)) {
 }
 
 try {
+    . $PolicyPath
     [void][IO.Directory]::CreateDirectory($AmbientBin)
     [void][IO.Directory]::CreateDirectory($ManagedHome)
     foreach ($Name in @('cl.exe', 'link.exe')) {
@@ -75,7 +78,7 @@ try {
 
     $RejectedAmbientFallback = $false
     try {
-        & $ActionPath
+        [void](Resolve-ManagedMsvcExecutable -Name 'cl.exe')
     } catch {
         $RejectedAmbientFallback =
             $_.Exception.Message -like '*requires the project-managed MSVC*'
@@ -90,7 +93,7 @@ try {
     $env:SWAWKIT_DEV_MSVC_SIGNATURE = 'fixture-signature'
     $RejectedOutsideTool = $false
     try {
-        & $ActionPath
+        [void](Resolve-ManagedMsvcExecutable -Name 'cl.exe')
     } catch {
         $RejectedOutsideTool =
             $_.Exception.Message -like '*resolved outside*managed MSVC*'

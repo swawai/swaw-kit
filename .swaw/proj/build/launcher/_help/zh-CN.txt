@@ -6,7 +6,7 @@
 输出:
   Favorites/template.proj1.exe
 
-该 Action 不接受动态参数，也不定位或激活编译环境。
-它声明“仅接受项目受管 MSVC”：系统 PATH 中碰巧存在的 cl.exe
-不会作为后备工具。请先启用项目 MSVC 声明并执行
-{{COMMAND}} .dev.setup。
+该 Action 不接受动态参数，也不硬编码 DataRoot 或编译器路径。
+它的 _guard 先校验受管 MSVC 声明和环境状态，run.ps1 再通过框架
+共享函数显式加载当前项目环境。系统 PATH 中碰巧存在的 cl.exe
+不会作为后备工具。请先启用项目 MSVC 声明并执行 {{COMMAND}} .dev.setup。

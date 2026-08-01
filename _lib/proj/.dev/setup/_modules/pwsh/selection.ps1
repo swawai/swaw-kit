@@ -129,6 +129,7 @@ function Write-ProjDevPwshSelection {
     }
     Write-ProjDevTextAtomic `
         -Path (Get-ProjDevPwshSelectionPath -Context $Context) `
-        -Content (ConvertTo-ProjDevJsonText -Value $Selection)
+        -Content (ConvertTo-ProjDevJsonText -Value $Selection) `
+        -ControlledRoot $Context.DataRoot
     $Definition.SelectionStatus = 'loaded'
 }

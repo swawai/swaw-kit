@@ -53,7 +53,8 @@ function Receive-ProjDevRustupChecksum {
     }
     Invoke-ProjDevDownload `
         -Source ([string]$Definition.RustupInitChecksumUrl) `
-        -Destination $ChecksumPath
+        -Destination $ChecksumPath `
+        -ControlledRoot $Context.CacheDataRoot
     $Expected = Read-ProjDevRustupChecksum -Path $ChecksumPath
     if ([string]::IsNullOrWhiteSpace($Expected)) {
         Remove-ProjDevControlledPath `
@@ -74,15 +75,19 @@ function Get-ProjDevVerifiedRustupInstaller {
     $CacheRoot = Get-ProjDevRustupCacheRoot `
         -Context $Context `
         -Definition $Definition
+    $CacheRoot = Assert-ProjDevPathInsideDataRoot `
+        -Path $CacheRoot `
+        -DataRoot $Context.CacheDataRoot `
+        -Activity 'using the rustup artifact cache'
     $ChecksumPath = Join-Path $CacheRoot 'rustup-init.exe.sha256'
     $InstallerPath = Join-Path $CacheRoot 'rustup-init.exe'
     $LockKey = Get-ProjDevSha256Text -Value ([string]::Join("`n", @(
         [string]$Definition.RustupInitUrl
         [string]$Definition.RustupInitChecksumUrl
     )))
-    $Lock = Enter-ProjDevFileLock -Path (
-        Join-Path $Context.ArtifactLockRoot "rustup-$LockKey.lock"
-    )
+    $Lock = Enter-ProjDevFileLock `
+        -Path (Join-Path $Context.ArtifactLockRoot "rustup-$LockKey.lock") `
+        -ControlledRoot $Context.CacheDataRoot
     try {
         if ([IO.File]::Exists($CacheRoot)) {
             Remove-ProjDevControlledPath `
@@ -116,7 +121,8 @@ function Get-ProjDevVerifiedRustupInstaller {
         if (-not [IO.File]::Exists($InstallerPath)) {
             Invoke-ProjDevDownload `
                 -Source ([string]$Definition.RustupInitUrl) `
-                -Destination $InstallerPath
+                -Destination $InstallerPath `
+                -ControlledRoot $Context.CacheDataRoot
         }
         $Actual = Get-ProjDevFileSha256 -Path $InstallerPath
         if ($Actual -cne $Expected) {

@@ -3,6 +3,7 @@
     Schema = 'swawkit.proj-dev.module.v0'
     Name = 'bun'
     ModeVariable = 'SWAWKIT_PROJ_BUN_MODE'
+    SetupImplemented = $true
     VersionVariable = 'SWAWKIT_PROJ_BUN_VERSION'
     HashVariable = 'SWAWKIT_PROJ_BUN_SHA256'
     InstallMode = 'managed'

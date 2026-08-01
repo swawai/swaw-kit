@@ -149,6 +149,7 @@ function Write-ProjDevBunSelection {
     }
     Write-ProjDevTextAtomic `
         -Path (Get-ProjDevBunSelectionPath -Context $Context) `
-        -Content (ConvertTo-ProjDevJsonText -Value $Selection)
+        -Content (ConvertTo-ProjDevJsonText -Value $Selection) `
+        -ControlledRoot $Context.DataRoot
     $Definition.SelectionStatus = 'loaded'
 }

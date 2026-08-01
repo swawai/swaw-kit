@@ -28,7 +28,8 @@ function Get-ProjDevMsvcManifest {
     Assert-ProjDevMsvcDictionaryKeys `
         -Dictionary $Manifest `
         -Expected @(
-            'Schema', 'Name', 'ModeVariable', 'ChannelVariable',
+            'Schema', 'Name', 'ModeVariable', 'SetupImplemented',
+            'ChannelVariable',
             'InstallMode', 'RecipeVersion', 'ChannelUrlTemplate',
             'VisualStudioManifestId', 'ResourceLanguage',
             'ToolPackageTemplates', 'SdkMsiNames'
@@ -37,6 +38,8 @@ function Get-ProjDevMsvcManifest {
     if ([string]$Manifest.Schema -cne 'swawkit.proj-dev.module.v0' -or
         [string]$Manifest.Name -cne 'msvc' -or
         [string]$Manifest.ModeVariable -cne 'SWAWKIT_PROJ_MSVC_MODE' -or
+        $Manifest.SetupImplemented -isnot [bool] -or
+        -not [bool]$Manifest.SetupImplemented -or
         [string]$Manifest.ChannelVariable -cne 'SWAWKIT_PROJ_MSVC_CHANNEL' -or
         [string]$Manifest.InstallMode -cne 'managed' -or
         [string]$Manifest.ChannelUrlTemplate -cne
@@ -210,7 +213,8 @@ function Write-ProjDevMsvcMetadata {
     }
     Write-ProjDevTextAtomic `
         -Path (Get-ProjDevMsvcMetadataPath -InstallRoot $InstallRoot) `
-        -Content (ConvertTo-ProjDevJsonText -Value $Metadata)
+        -Content (ConvertTo-ProjDevJsonText -Value $Metadata) `
+        -ControlledRoot $InstallRoot
 }
 
 function Get-ProjDevMsvcValidMetadata {

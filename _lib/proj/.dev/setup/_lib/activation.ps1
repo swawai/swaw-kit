@@ -3,40 +3,18 @@ Set-StrictMode -Version 2.0
 function Get-ProjDevGeneratedEnvironmentGeneration {
     param([Parameter(Mandatory = $true)][object]$Context)
 
-    $HasCmd = [IO.File]::Exists($Context.EnvCmdPath)
-    $HasPs1 = [IO.File]::Exists($Context.EnvPs1Path)
-    if (-not $HasCmd -and -not $HasPs1) {
+    # Command modules own declaration freshness. Shared activation only proves
+    # that the environment publication is complete and internally consistent.
+    $GenerationId = Get-ProjPublishedDevelopmentEnvironmentGeneration `
+        -EnvironmentRoot $Context.EnvironmentRoot `
+        -EntryCommand $Context.EntryCommand
+    if ($null -eq $GenerationId) {
         throw (
             'The project development environment is not configured. Run ' +
             "'$($Context.EntryCommand) .dev.setup'."
         )
     }
-    if (-not $HasCmd -or -not $HasPs1) {
-        throw (
-            'The generated project environment is incomplete. Run ' +
-            "'$($Context.EntryCommand) .dev.setup'."
-        )
-    }
-
-    $CmdContent = [IO.File]::ReadAllText($Context.EnvCmdPath)
-    $CmdMatch = [regex]::Match(
-        $CmdContent,
-        '(?im)^set "SWAWKIT_DEV_GENERATION_ID=([a-f0-9]{16})"\s*$'
-    )
-    $Ps1Content = [IO.File]::ReadAllText($Context.EnvPs1Path)
-    $Ps1Match = [regex]::Match(
-        $Ps1Content,
-        "(?im)^\`$env:SWAWKIT_DEV_GENERATION_ID = '([a-f0-9]{16})'\s*$"
-    )
-    if (-not $CmdMatch.Success -or
-        -not $Ps1Match.Success -or
-        $CmdMatch.Groups[1].Value -cne $Ps1Match.Groups[1].Value) {
-        throw (
-            'The generated environment files do not match. Run ' +
-            "'$($Context.EntryCommand) .dev.setup'."
-        )
-    }
-    return $CmdMatch.Groups[1].Value
+    return $GenerationId
 }
 
 function Clear-ProjDevProcessEnvironmentVariables {

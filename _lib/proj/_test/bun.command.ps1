@@ -21,6 +21,9 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256',
+    'SWAWKIT_PROJ_PWSH_MODE',
+    'SWAWKIT_PROJ_PWSH_VERSION',
+    'SWAWKIT_PROJ_PWSH_SHA256',
     'SWAWKIT_TEST_BUN_CAPTURE'
 )
 $EnvironmentSnapshot = Enter-ProjBunIsolatedEnvironment `
@@ -212,9 +215,23 @@ try {
         -Context $ConsumerContext `
         -Definition $Definition `
         -Plan $Plan
+    $Scripts = ConvertTo-ProjDevEnvironmentScripts -Plan $Plan
     [void](Publish-ProjDevEnvironmentScripts `
         -Context $ConsumerContext `
-        -Scripts (ConvertTo-ProjDevEnvironmentScripts -Plan $Plan))
+        -Scripts $Scripts)
+    [void](Publish-ProjDevEnvironmentState `
+        -Context $ConsumerContext `
+        -GenerationId ([string]$Scripts.GenerationId))
+
+    $env:SWAWKIT_PROJ_PWSH_MODE = 'managed'
+    $env:SWAWKIT_PROJ_PWSH_VERSION = '7.6.4'
+    $env:SWAWKIT_PROJ_PWSH_SHA256 = ''
+    $UnrelatedDeclarationExitCode = Invoke-ProjMain `
+        -KernelRoot $ProjRoot `
+        -Arguments @('.bun', 'unrelated-declaration-probe')
+    Assert-ProjBunTest `
+        -Condition ($UnrelatedDeclarationExitCode -eq 0) `
+        -Message 'an unrelated PowerShell declaration change blocked Bun'
 
     $CapturePath = Join-Path $TemporaryRoot 'bun-capture.txt'
     $env:SWAWKIT_TEST_BUN_CAPTURE = $CapturePath

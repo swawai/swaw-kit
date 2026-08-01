@@ -197,7 +197,8 @@ function Write-ProjDevInstallMetadata {
     }
     Write-ProjDevTextAtomic `
         -Path (Get-ProjDevInstallMetadataPath -InstallRoot $InstallRoot) `
-        -Content (ConvertTo-ProjDevJsonText -Value $Metadata)
+        -Content (ConvertTo-ProjDevJsonText -Value $Metadata) `
+        -ControlledRoot $InstallRoot
 }
 
 function Get-ProjDevValidInstallMetadata {

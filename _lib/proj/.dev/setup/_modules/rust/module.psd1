@@ -2,6 +2,7 @@
     Schema = 'swawkit.proj-dev.module.v0'
     Name = 'rust'
     ModeVariable = 'SWAWKIT_PROJ_RUST_MODE'
+    SetupImplemented = $true
     ToolchainVariable = 'SWAWKIT_PROJ_RUST_TOOLCHAIN'
     ProfileVariable = 'SWAWKIT_PROJ_RUST_PROFILE'
     HostVariable = 'SWAWKIT_PROJ_RUST_HOST'

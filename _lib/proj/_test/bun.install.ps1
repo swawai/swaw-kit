@@ -22,9 +22,12 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256',
     'SWAWKIT_PROJ_UV_MODE',
+    'SWAWKIT_PROJ_UV_VERSION',
     'SWAWKIT_PROJ_PYTHON_MODE',
+    'SWAWKIT_PROJ_PYTHON_VERSION',
     'SWAWKIT_PROJ_PWSH_MODE',
     'SWAWKIT_PROJ_GO_MODE',
+    'SWAWKIT_PROJ_GO_VERSION',
     'SWAWKIT_TEST_BUN_CAPTURE'
 )
 $EnvironmentSnapshot = Enter-ProjBunIsolatedEnvironment `
@@ -108,6 +111,26 @@ try {
             -Context $Context `
             -Scripts $Scripts) `
         -Message 'first environment publication was skipped'
+    $env:SWAWKIT_PROJ_BUN_MODE = 'managed'
+    $env:SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
+    $env:SWAWKIT_PROJ_BUN_SHA256 = [string]$Definition.ProjectSha256
+    Assert-ProjBunTest `
+        -Condition (Publish-ProjDevEnvironmentState `
+            -Context $Context `
+            -GenerationId ([string]$Scripts.GenerationId)) `
+        -Message 'first environment state publication was skipped'
+    $PublishedState = Read-ProjDevelopmentEnvironmentState `
+        -EnvironmentRoot $Context.EnvironmentRoot
+    Assert-ProjBunTest `
+        -Condition (
+            [string]$PublishedState.GenerationId -ceq
+                [string]$Scripts.GenerationId -and
+            [string]$PublishedState.Declarations.SWAWKIT_PROJ_BUN_MODE -ceq
+                'managed' -and
+            [string]$PublishedState.Declarations.SWAWKIT_PROJ_BUN_VERSION -ceq
+                '1.2.15'
+        ) `
+        -Message 'published environment state lost its declaration contract'
     Assert-ProjBunEnvironmentScriptsUsable `
         -Context $Context `
         -ExpectedExecutable (Join-Path $InstallRoot 'bun.exe') `
@@ -125,6 +148,11 @@ try {
             -Context $Context `
             -Scripts (ConvertTo-ProjDevEnvironmentScripts -Plan $Plan))) `
         -Message 'byte-stable environment was needlessly rewritten'
+    Assert-ProjBunTest `
+        -Condition (-not (Publish-ProjDevEnvironmentState `
+            -Context $Context `
+            -GenerationId ([string]$Scripts.GenerationId))) `
+        -Message 'byte-stable environment state was needlessly rewritten'
     Assert-ProjBunTest `
         -Condition (
             (Get-ProjDevFileSha256 -Path $Context.EnvCmdPath) -ceq $EnvCmdHash -and
@@ -305,6 +333,7 @@ try {
         -Condition ($SetupResult.ExitCode -eq 0 -and
             [IO.File]::Exists((Join-Path $SetupDataRoot 'dev_env\env.cmd')) -and
             [IO.File]::Exists((Join-Path $SetupDataRoot 'dev_env\env.ps1')) -and
+            [IO.File]::Exists((Join-Path $SetupDataRoot 'dev_env\_state.json')) -and
             -not [IO.Directory]::Exists(
                 (Join-Path $SetupDataRoot 'dev_env\bun')
             )) `
@@ -325,6 +354,11 @@ try {
     $PendingDataRoot = Join-Path $TemporaryRoot 'pending setup data'
     $env:SWAWKIT_PROJ_DATA_ROOT = $PendingDataRoot
     $env:SWAWKIT_PROJ_GO_MODE = 'managed'
+    $env:SWAWKIT_PROJ_GO_VERSION = '1.22.4'
+    $env:SWAWKIT_PROJ_PYTHON_MODE = 'uv'
+    $env:SWAWKIT_PROJ_PYTHON_VERSION = '3.13'
+    $env:SWAWKIT_PROJ_UV_MODE = 'managed'
+    $env:SWAWKIT_PROJ_UV_VERSION = '0.10.2'
     $PendingSetup = Invoke-ProjBunEntryFixture `
         -PowerShell $SystemPowerShell `
         -EntryPath $SetupEntry `
@@ -332,14 +366,23 @@ try {
     Assert-ProjBunTest `
         -Condition ($PendingSetup.ExitCode -eq 1 -and
             $PendingSetup.Output.Contains(
-                '.dev.setup does not yet handle these enabled declarations: go.'
+                '.dev.setup does not yet handle these enabled declarations: go, python, uv.'
             ) -and
             -not [IO.Directory]::Exists($PendingDataRoot) -and
             -not [IO.Directory]::Exists(
                 (Join-Path $ProjectRoot 'data\proj_cache')
             )) `
         -Message 'an unsupported enabled module did not fail before side effects'
-    $env:SWAWKIT_PROJ_GO_MODE = 'disabled'
+    foreach ($Name in @(
+        'SWAWKIT_PROJ_GO_MODE',
+        'SWAWKIT_PROJ_GO_VERSION',
+        'SWAWKIT_PROJ_PYTHON_MODE',
+        'SWAWKIT_PROJ_PYTHON_VERSION',
+        'SWAWKIT_PROJ_UV_MODE',
+        'SWAWKIT_PROJ_UV_VERSION'
+    )) {
+        [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
+    }
 
     Assert-ProjBunTest `
         -Condition (

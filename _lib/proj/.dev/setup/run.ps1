@@ -29,21 +29,10 @@ $ActiveGenerationId = [string]$env:SWAWKIT_DEV_GENERATION_ID
 $ActiveEnvironment = Assert-ProjDevActiveEnvironmentCompatible `
     -Context $Context
 
-# Temporary migration fence: remove each entry when its directory module lands.
-$PendingModules = foreach ($Pending in @(
-    [pscustomobject]@{ Name = 'uv'; Variable = 'SWAWKIT_PROJ_UV_MODE' },
-    [pscustomobject]@{ Name = 'python'; Variable = 'SWAWKIT_PROJ_PYTHON_MODE' },
-    [pscustomobject]@{ Name = 'go'; Variable = 'SWAWKIT_PROJ_GO_MODE' }
-)) {
-    $Mode = [string][Environment]::GetEnvironmentVariable(
-        [string]$Pending.Variable,
-        [EnvironmentVariableTarget]::Process
-    )
-    if (-not [string]::IsNullOrWhiteSpace($Mode) -and
-        $Mode.Trim().ToLowerInvariant() -cne 'disabled') {
-        [string]$Pending.Name
-    }
-}
+$Declarations = Get-ProjDevelopmentDeclarationSnapshot
+$PendingModules = @(
+    Get-ProjPendingDevelopmentSetupModuleNames -Declarations $Declarations
+)
 if (@($PendingModules).Count -gt 0) {
     throw (
         '.dev.setup does not yet handle these enabled declarations: ' +
@@ -51,7 +40,9 @@ if (@($PendingModules).Count -gt 0) {
     )
 }
 
-$SetupLock = Enter-ProjDevFileLock -Path $Context.SetupLockPath
+$SetupLock = Enter-ProjDevFileLock `
+    -Path $Context.SetupLockPath `
+    -ControlledRoot $Context.DataRoot
 try {
     if ($null -ne $BunDefinition) {
         $BunDefinition = Resolve-ProjDevBunDefinitionForSetup `
@@ -119,6 +110,10 @@ try {
     $EnvironmentChanged = Publish-ProjDevEnvironmentScripts `
         -Context $Context `
         -Scripts $Scripts
+    $StateChanged = Publish-ProjDevEnvironmentState `
+        -Context $Context `
+        -GenerationId ([string]$Scripts.GenerationId)
+    $EnvironmentChanged = $EnvironmentChanged -or $StateChanged
 
     $BunVersionLabel = if ($null -ne $BunDefinition -and
         [string]$BunDefinition.RequestedVersion -ceq 'latest') {

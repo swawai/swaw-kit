@@ -308,6 +308,20 @@ try {
             -Context $Context `
             -Scripts $Scripts) `
         -Message 'Rust environment scripts were not published'
+    $env:SWAWKIT_PROJ_BUN_MODE = 'disabled'
+    [void](Publish-ProjDevEnvironmentState `
+        -Context $Context `
+        -GenerationId ([string]$Scripts.GenerationId))
+    $env:SWAWKIT_PROJ_BUN_MODE = 'managed'
+    $env:SWAWKIT_PROJ_BUN_VERSION = '9.9.9'
+    [void](Import-ProjDevGeneratedEnvironment -Context $Context)
+    Assert-ProjDevRustEnvironmentCurrent `
+        -Context $Context `
+        -Definition $Definition
+    Assert-ProjRustTest `
+        -Condition ([string]$env:RUSTUP_TOOLCHAIN -ceq
+            [string]$Definition.ToolchainName) `
+        -Message 'an unrelated Bun declaration change blocked Rust activation'
     foreach ($Name in Get-ProjDevRustAmbientOverrideNames) {
         [Environment]::SetEnvironmentVariable(
             $Name,

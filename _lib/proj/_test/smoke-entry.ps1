@@ -144,18 +144,33 @@ Assert-ProjEntryTest `
     (-not $EscapedMetaTail.Text.Contains("'b' is not recognized")) `
     'the PowerShell-to-CMD bridge must not reparse an escaped metacharacter tail'
 
-$DemoAction = Invoke-ProjCmdLineTest `
-    -CommandLine (
-        '"{0}" demo.echo "" "A&B" "A B"' -f $EntryPath
-    ) `
-    -WorkingDirectory $InvocationDirectory
+$DemoEntryName = "test-smoke-entry-$([Guid]::NewGuid().ToString('N'))"
+$DemoEntryPath = Join-Path $RepoRoot "$DemoEntryName.cmd"
+$DemoDataRoot = Join-Path $RepoRoot "data\proj.$DemoEntryName"
+$DemoEntryContent = [IO.File]::ReadAllText($EntryPath)
+$DemoEntryContent = [regex]::Replace(
+    $DemoEntryContent,
+    '(?im)^set "(SWAWKIT_PROJ_[A-Z0-9_]+_MODE)=[^"]*"\s*$',
+    'set "$1=disabled"'
+)
+try {
+    [IO.File]::WriteAllText(
+        $DemoEntryPath,
+        $DemoEntryContent,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $DemoAction = Invoke-ProjCmdLineTest `
+        -CommandLine (
+            '"{0}" demo.echo "" "A&B" "A B"' -f $DemoEntryPath
+        ) `
+        -WorkingDirectory $InvocationDirectory
 Assert-ProjEntryTest `
     ($DemoAction.ExitCode -eq 0) `
     "the real .swaw demo Action failed: $($DemoAction.Text)"
 foreach ($Expected in @(
     'SWAW Action demo.echo',
     'commandAddress=demo.echo',
-    'entryName=swawkit',
+    "entryName=$DemoEntryName",
     "currentDirectory=$RepoRoot",
     'argumentCount=3',
     'arg[0]=""',
@@ -216,6 +231,7 @@ foreach ($Marker in @('.help', '.h', '-h', '--help')) {
         "demo.echo $Marker must not execute the target Action."
 
     $ModuleHelp = Invoke-ProjEntryTest `
+        -CommandPath $DemoEntryPath `
         -Arguments @('demo.native-help', $Marker) `
         -WorkingDirectory $InvocationDirectory
     Assert-ProjEntryTest `
@@ -230,6 +246,7 @@ foreach ($Marker in @('.help', '.h', '-h', '--help')) {
 }
 
 $OrdinaryDoubleDash = Invoke-ProjEntryTest `
+    -CommandPath $DemoEntryPath `
     -Arguments @('demo.echo', '--', '--help') `
     -WorkingDirectory $InvocationDirectory
 Assert-ProjEntryTest `
@@ -242,6 +259,7 @@ foreach ($Expected in @('arg[0]="--"', 'arg[1]="--help"')) {
 }
 
 $HelpAmongArguments = Invoke-ProjEntryTest `
+    -CommandPath $DemoEntryPath `
     -Arguments @('demo.echo', '--help', 'value') `
     -WorkingDirectory $InvocationDirectory
 Assert-ProjEntryTest `
@@ -251,6 +269,14 @@ foreach ($Expected in @('arg[0]="--help"', 'arg[1]="value"')) {
     Assert-ProjEntryTest `
         $HelpAmongArguments.Text.Contains($Expected) `
         "non-standalone help selector should remain a module argument: '$Expected'"
+}
+} finally {
+    if ([IO.File]::Exists($DemoEntryPath)) {
+        [IO.File]::Delete($DemoEntryPath)
+    }
+    if ([IO.Directory]::Exists($DemoDataRoot)) {
+        [IO.Directory]::Delete($DemoDataRoot, $true)
+    }
 }
 
 $InfoHelp = Invoke-ProjEntryTest `

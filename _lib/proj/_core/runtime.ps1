@@ -31,7 +31,9 @@ function Invoke-ProjResolvedCommand {
         [bool]$UseProjHelp = $false,
         [AllowEmptyString()][string]$HelpTargetAddress = '',
         [AllowNull()][object]$ProtocolCommand = $null,
-        [AllowNull()][string]$RuntimeWorkingDirectory = $null
+        [AllowNull()][string]$RuntimeWorkingDirectory = $null,
+        [ValidateSet('run', 'guard')][string]$ExecutionPhase = 'run',
+        [ValidateSet('', 'global', 'command')][string]$GuardScope = ''
     )
 
     if ($null -eq $ProtocolCommand) {
@@ -41,8 +43,10 @@ function Invoke-ProjResolvedCommand {
     $SavedEnvironment = @{}
     foreach ($Name in @(
         'SWAWKIT_COMMAND_PROTOCOL',
+        'SWAWKIT_COMMAND_PHASE',
         'SWAWKIT_COMMAND_ADDRESS',
         'SWAWKIT_COMMAND_DIR',
+        'SWAWKIT_GUARD_SCOPE',
         'SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR',
         'SWAWKIT_INVOCATION_DIR',
         'SWAWKIT_HELP_TARGET_ADDRESS',
@@ -59,8 +63,18 @@ function Invoke-ProjResolvedCommand {
 
     try {
         $env:SWAWKIT_COMMAND_PROTOCOL = '1'
+        $env:SWAWKIT_COMMAND_PHASE = $ExecutionPhase
         $env:SWAWKIT_COMMAND_ADDRESS = $ProtocolCommand.Address
         $env:SWAWKIT_COMMAND_DIR = $ProtocolCommand.Directory
+        if ($ExecutionPhase -ceq 'guard') {
+            $env:SWAWKIT_GUARD_SCOPE = $GuardScope
+        } else {
+            [Environment]::SetEnvironmentVariable(
+                'SWAWKIT_GUARD_SCOPE',
+                $null,
+                'Process'
+            )
+        }
         if ([string]::IsNullOrWhiteSpace($RuntimeWorkingDirectory)) {
             [Environment]::SetEnvironmentVariable(
                 'SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR',
@@ -147,14 +161,17 @@ function Invoke-ProjResolvedCommand {
                     )
                 }
                 [string[]]$BunArguments = @($Command.Entry.Path) + $Arguments
-                $ExitCode = Invoke-ProjResolvedCommand `
+                $ExitCode = Invoke-ProjCommandPipeline `
                     -Command $BunCommand `
                     -ProjectContext $ProjectContext `
                     -KernelRoot $KernelRoot `
                     -InvocationDirectory $InvocationDirectory `
                     -Arguments $BunArguments `
+                    -UseProjHelp $UseProjHelp `
+                    -HelpTargetAddress $HelpTargetAddress `
                     -ProtocolCommand $ProtocolCommand `
-                    -RuntimeWorkingDirectory $ProjectRoot
+                    -RuntimeWorkingDirectory $ProjectRoot `
+                    -IncludeGlobal $false
             }
             'python' {
                 $Runtime = Get-ProjRuntimePath -Adapter python
@@ -181,32 +198,98 @@ function Invoke-ProjResolvedCommand {
     }
 }
 
-function Invoke-ProjMain {
+function Invoke-ProjCommandGuards {
+    param(
+        [Parameter(Mandatory = $true)][object]$Command,
+        [Parameter(Mandatory = $true)][object]$ProjectContext,
+        [Parameter(Mandatory = $true)][string]$KernelRoot,
+        [Parameter(Mandatory = $true)][string]$InvocationDirectory,
+        [AllowNull()][object]$ProtocolCommand = $null,
+        [bool]$UseProjHelp = $false,
+        [AllowEmptyString()][string]$HelpTargetAddress = '',
+        [bool]$IncludeGlobal = $true
+    )
+
+    if ($null -eq $ProtocolCommand) {
+        $ProtocolCommand = $Command
+    }
+    foreach ($Guard in @(Get-ProjCommandGuards `
+        -KernelRoot $KernelRoot `
+        -Command $Command `
+        -IncludeGlobal $IncludeGlobal)) {
+        $ExitCode = Invoke-ProjResolvedCommand `
+            -Command $Guard `
+            -ProjectContext $ProjectContext `
+            -KernelRoot $KernelRoot `
+            -InvocationDirectory $InvocationDirectory `
+            -ProtocolCommand $ProtocolCommand `
+            -UseProjHelp $UseProjHelp `
+            -HelpTargetAddress $HelpTargetAddress `
+            -ExecutionPhase guard `
+            -GuardScope ([string]$Guard.Scope)
+        if ($ExitCode -ne 0) {
+            return [int]$ExitCode
+        }
+    }
+    return 0
+}
+
+function Invoke-ProjCommandPipeline {
+    param(
+        [Parameter(Mandatory = $true)][object]$Command,
+        [Parameter(Mandatory = $true)][object]$ProjectContext,
+        [Parameter(Mandatory = $true)][string]$KernelRoot,
+        [Parameter(Mandatory = $true)][string]$InvocationDirectory,
+        [AllowEmptyCollection()]
+        [AllowEmptyString()]
+        [string[]]$Arguments = @(),
+        [bool]$UseProjHelp = $false,
+        [AllowEmptyString()][string]$HelpTargetAddress = '',
+        [AllowNull()][object]$ProtocolCommand = $null,
+        [AllowNull()][string]$RuntimeWorkingDirectory = $null,
+        [bool]$IncludeGlobal = $true
+    )
+
+    if ($null -eq $ProtocolCommand) {
+        $ProtocolCommand = $Command
+    }
+    $GuardExitCode = Invoke-ProjCommandGuards `
+        -Command $Command `
+        -ProjectContext $ProjectContext `
+        -KernelRoot $KernelRoot `
+        -InvocationDirectory $InvocationDirectory `
+        -ProtocolCommand $ProtocolCommand `
+        -UseProjHelp $UseProjHelp `
+        -HelpTargetAddress $HelpTargetAddress `
+        -IncludeGlobal $IncludeGlobal
+    if ($GuardExitCode -ne 0) {
+        return [int]$GuardExitCode
+    }
+    return Invoke-ProjResolvedCommand `
+        -Command $Command `
+        -ProjectContext $ProjectContext `
+        -KernelRoot $KernelRoot `
+        -InvocationDirectory $InvocationDirectory `
+        -Arguments $Arguments `
+        -UseProjHelp $UseProjHelp `
+        -HelpTargetAddress $HelpTargetAddress `
+        -ProtocolCommand $ProtocolCommand `
+        -RuntimeWorkingDirectory $RuntimeWorkingDirectory
+}
+
+function Resolve-ProjInvocation {
     param(
         [Parameter(Mandatory = $true)][string]$KernelRoot,
+        [Parameter(Mandatory = $true)][string]$ActionRoot,
         [AllowEmptyCollection()]
         [AllowEmptyString()]
         [string[]]$Arguments = @()
     )
 
-    $InvocationDirectory = (Get-Location).ProviderPath
-    $ProjHome = [IO.Path]::GetFullPath((Join-Path $KernelRoot '..\..'))
-    $ProjectContext = Get-ProjProjectContext -ProjHome $ProjHome
-    $ProjectRoot = $ProjectContext.ProjectRoot
-    $ActionRoot = $ProjectContext.ActionRoot
-
     $Address = if ($Arguments.Count -eq 0) { '' } else { $Arguments[0] }
     [string[]]$RawTailArguments = @()
     if ($Arguments.Count -gt 1) {
         $RawTailArguments = @($Arguments[1..($Arguments.Count - 1)])
-    }
-
-    # .dev.setup publishes this environment, so it must remain able to repair
-    # a missing or stale publication. Every other command inherits the
-    # published environment here instead of locating toolchains itself.
-    if ($Address -cne '.dev.setup') {
-        [void](Import-ProjDevelopmentEnvironment `
-            -ProjectContext $ProjectContext)
     }
 
     $UseProjHelp = $false
@@ -231,12 +314,35 @@ function Invoke-ProjMain {
         -KernelRoot $KernelRoot `
         -ActionRoot $ActionRoot `
         -Address $Address
-    return Invoke-ProjResolvedCommand `
-        -Command $Command `
+    return [pscustomobject][ordered]@{
+        Command = $Command
+        Arguments = $TailArguments
+        UseProjHelp = $UseProjHelp
+        HelpTargetAddress = $HelpTargetAddress
+    }
+}
+
+function Invoke-ProjMain {
+    param(
+        [Parameter(Mandatory = $true)][string]$KernelRoot,
+        [AllowEmptyCollection()]
+        [AllowEmptyString()]
+        [string[]]$Arguments = @()
+    )
+
+    $InvocationDirectory = (Get-Location).ProviderPath
+    $ProjHome = [IO.Path]::GetFullPath((Join-Path $KernelRoot '..\..'))
+    $ProjectContext = Get-ProjProjectContext -ProjHome $ProjHome
+    $Invocation = Resolve-ProjInvocation `
+        -KernelRoot $KernelRoot `
+        -ActionRoot ([string]$ProjectContext.ActionRoot) `
+        -Arguments $Arguments
+    return Invoke-ProjCommandPipeline `
+        -Command $Invocation.Command `
         -ProjectContext $ProjectContext `
         -KernelRoot $KernelRoot `
         -InvocationDirectory $InvocationDirectory `
-        -Arguments $TailArguments `
-        -UseProjHelp $UseProjHelp `
-        -HelpTargetAddress $HelpTargetAddress
+        -Arguments $Invocation.Arguments `
+        -UseProjHelp ([bool]$Invocation.UseProjHelp) `
+        -HelpTargetAddress ([string]$Invocation.HelpTargetAddress)
 }

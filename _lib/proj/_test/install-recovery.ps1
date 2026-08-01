@@ -40,6 +40,8 @@ $TemporaryRoot = Join-Path $TestBase (
     "swawkit-proj-recovery-$([Guid]::NewGuid().ToString('N'))"
 )
 $LockHolder = [pscustomobject]@{ Stream = $null }
+$BoundaryEnvironmentLink = ''
+$BoundaryCacheLink = ''
 
 try {
     $ProjectRoot = Join-Path $TemporaryRoot 'project'
@@ -79,6 +81,46 @@ try {
             -not (Test-ProjDevPathExists -Path $StalePartial)
         ) `
         -Message 'a healthy target did not clean interrupted residues'
+
+    # Work/partial directories are disposable protocol artifacts. A declaration
+    # change alters the target leaf, so recovery must still find strictly named
+    # residues from an older version, MSVC channel, or Rust toolchain. Backups
+    # remain leaf-scoped and must not be claimed by the new target.
+    $CrossLeafResidues = @(
+        (Join-Path $Parent (
+            '.1.2.15.partial-11111111111111111111111111111111'
+        )),
+        (Join-Path $Parent (
+            '.16.work-22222222222222222222222222222222'
+        )),
+        (Join-Path $Parent (
+            '.nightly-2026-07-31.partial-33333333333333333333333333333333'
+        ))
+    )
+    foreach ($Residue in $CrossLeafResidues) {
+        Write-ProjRecoveryCandidate -Path $Residue -Identity 'orphan'
+    }
+    $ForeignBackup = Join-Path $Parent (
+        'old.backup-20260801T0101010000000Z-' +
+        '44444444444444444444444444444444'
+    )
+    Write-ProjRecoveryCandidate -Path $ForeignBackup -Identity 'valid'
+    $CrossLeafCleanup = Repair-ProjDevInstallState `
+        -Context $Context `
+        -Definition $Definition `
+        -TargetPath $Target `
+        -ValidateCandidate $Validate
+    Assert-ProjRecoveryTest `
+        -Condition ($CrossLeafCleanup.Ready -and
+            @($CrossLeafResidues | Where-Object {
+                Test-ProjDevPathExists -Path $_
+            }).Count -eq 0 -and
+            (Test-ProjDevPathExists -Path $ForeignBackup)) `
+        -Message 'cross-leaf work cleanup removed a backup or missed an orphan'
+    Remove-ProjDevControlledPathWithRetry `
+        -Path $ForeignBackup `
+        -DataRoot $Context.DataRoot `
+        -Activity 'cleaning the foreign-backup boundary fixture'
 
     Remove-ProjDevControlledPathWithRetry `
         -Path $Target `
@@ -130,6 +172,26 @@ try {
             -not (Test-ProjDevPathExists -Path $InterruptedWork)
         ) `
         -Message 'invalid state was not reset for a clean reinstall'
+
+    $OlderBackup = "$Target.backup-20260801T0101010000000Z-" +
+        '11111111111111111111111111111111'
+    $NewerBackup = "$Target.backup-20260801T0101020000000Z-" +
+        '22222222222222222222222222222222'
+    Write-ProjRecoveryCandidate -Path $OlderBackup -Identity 'valid'
+    Write-ProjRecoveryCandidate -Path $NewerBackup -Identity 'valid'
+    [IO.File]::WriteAllText((Join-Path $OlderBackup 'order.txt'), 'older')
+    [IO.File]::WriteAllText((Join-Path $NewerBackup 'order.txt'), 'newer')
+    $OrderedRecovery = Repair-ProjDevInstallState `
+        -Context $Context `
+        -Definition $Definition `
+        -TargetPath $Target `
+        -ValidateCandidate $Validate
+    Assert-ProjRecoveryTest `
+        -Condition ($OrderedRecovery.Ready -and
+            $OrderedRecovery.Restored -and
+            [IO.File]::ReadAllText((Join-Path $Target 'order.txt')) -ceq
+                'newer') `
+        -Message 'recovery did not select the newest timestamped valid backup'
 
     Write-ProjRecoveryCandidate -Path $Target -Identity 'invalid'
     $LockedFile = Join-Path $Target 'locked.bin'
@@ -292,10 +354,115 @@ try {
         ) `
         -Message 'first-install failure was not reset after its lock released'
 
+    # A controlled root is not enough by itself: every existing segment down to
+    # a destructive target must remain physical. Reject a module junction before
+    # recovery can validate or remove anything below its external target.
+    $BoundaryDataRoot = Join-Path $TemporaryRoot 'boundary-data'
+    $BoundaryCacheRoot = Join-Path $TemporaryRoot 'boundary-cache'
+    [void][IO.Directory]::CreateDirectory($BoundaryDataRoot)
+    [void][IO.Directory]::CreateDirectory($BoundaryCacheRoot)
+    $BoundaryContext = New-ProjDevContext `
+        -ProjectRoot $ProjectRoot `
+        -DataRoot $BoundaryDataRoot `
+        -CacheDataRoot $BoundaryCacheRoot
+    [void][IO.Directory]::CreateDirectory($BoundaryContext.EnvironmentRoot)
+    $ExternalEnvironment = Join-Path $TemporaryRoot 'external-environment'
+    [void][IO.Directory]::CreateDirectory(
+        (Join-Path $ExternalEnvironment 'installs\v1')
+    )
+    $ExternalEnvironmentSentinel = Join-Path `
+        $ExternalEnvironment `
+        'installs\v1\sentinel.txt'
+    [IO.File]::WriteAllText($ExternalEnvironmentSentinel, 'preserve')
+    $BoundaryEnvironmentLink = Join-Path `
+        $BoundaryContext.EnvironmentRoot `
+        'fixture'
+    [void](New-Item `
+        -ItemType Junction `
+        -Path $BoundaryEnvironmentLink `
+        -Target $ExternalEnvironment)
+    $DescendantJunctionRejected = $false
+    try {
+        [void](Repair-ProjDevInstallState `
+            -Context $BoundaryContext `
+            -Definition $Definition `
+            -TargetPath (Join-Path `
+                $BoundaryEnvironmentLink `
+                'installs\v1') `
+            -ValidateCandidate $Validate)
+    } catch {
+        $DescendantJunctionRejected =
+            $_.Exception.Message -like '*reparse point*'
+    }
+    Assert-ProjRecoveryTest `
+        -Condition ($DescendantJunctionRejected -and
+            [IO.File]::Exists($ExternalEnvironmentSentinel)) `
+        -Message 'install recovery crossed a descendant environment junction'
+    [IO.Directory]::Delete($BoundaryEnvironmentLink)
+    $BoundaryEnvironmentLink = ''
+
+    # The shared cache is an independent destructive boundary. Context creation
+    # must reject a junction root before a lock, download, or cleanup is created.
+    $ExternalCache = Join-Path $TemporaryRoot 'external-cache'
+    [void][IO.Directory]::CreateDirectory($ExternalCache)
+    $ExternalCacheSentinel = Join-Path $ExternalCache 'sentinel.txt'
+    [IO.File]::WriteAllText($ExternalCacheSentinel, 'preserve')
+    $BoundaryCacheLink = Join-Path $TemporaryRoot 'linked-cache'
+    [void](New-Item `
+        -ItemType Junction `
+        -Path $BoundaryCacheLink `
+        -Target $ExternalCache)
+    $CacheRootJunctionRejected = $false
+    try {
+        [void](New-ProjDevContext `
+            -ProjectRoot $ProjectRoot `
+            -DataRoot (Join-Path $TemporaryRoot 'cache-boundary-data') `
+            -CacheDataRoot $BoundaryCacheLink)
+    } catch {
+        $CacheRootJunctionRejected =
+            $_.Exception.Message -like '*cache data root*reparse point*'
+    }
+    Assert-ProjRecoveryTest `
+        -Condition ($CacheRootJunctionRejected -and
+            [IO.File]::Exists($ExternalCacheSentinel)) `
+        -Message 'setup accepted a shared cache root junction'
+    [IO.Directory]::Delete($BoundaryCacheLink)
+    $BoundaryCacheLink = ''
+
+    $PhysicalCacheRoot = Join-Path $TemporaryRoot 'physical-cache'
+    [void][IO.Directory]::CreateDirectory($PhysicalCacheRoot)
+    $BoundaryCacheLink = Join-Path $PhysicalCacheRoot 'downloads'
+    [void](New-Item `
+        -ItemType Junction `
+        -Path $BoundaryCacheLink `
+        -Target $ExternalCache)
+    $CacheDescendantJunctionRejected = $false
+    try {
+        Remove-ProjDevControlledPath `
+            -Path (Join-Path $BoundaryCacheLink 'sentinel.txt') `
+            -DataRoot $PhysicalCacheRoot `
+            -Activity 'testing shared cache containment'
+    } catch {
+        $CacheDescendantJunctionRejected =
+            $_.Exception.Message -like '*reparse point*'
+    }
+    Assert-ProjRecoveryTest `
+        -Condition ($CacheDescendantJunctionRejected -and
+            [IO.File]::Exists($ExternalCacheSentinel)) `
+        -Message 'cache cleanup crossed a descendant cache junction'
+    [IO.Directory]::Delete($BoundaryCacheLink)
+    $BoundaryCacheLink = ''
+
     Write-Host '[PASS] Proj install recovery test' -ForegroundColor Green
 } finally {
     if ($null -ne $LockHolder.Stream) {
         $LockHolder.Stream.Dispose()
+    }
+    foreach ($Link in @($BoundaryEnvironmentLink, $BoundaryCacheLink)) {
+        if (-not [string]::IsNullOrWhiteSpace($Link) -and
+            [IO.Directory]::Exists($Link)) {
+            [IO.Directory]::Delete($Link)
+        }
     }
     $ResolvedTemporaryRoot = [IO.Path]::GetFullPath($TemporaryRoot)
     $TestPrefix = $TestBase.TrimEnd('\') + '\'

@@ -115,6 +115,34 @@ $PreviousChannel = [Environment]::GetEnvironmentVariable(
     'SWAWKIT_PROJ_MSVC_CHANNEL',
     'Process'
 )
+$RuntimeEnvironmentNames = @(
+    'SWAWKIT_PROJ_PROTOCOL',
+    'SWAWKIT_PROJ_HOME',
+    'SWAWKIT_PROJ_DIR',
+    'SWAWKIT_PROJ_DATA_ROOT',
+    'SWAWKIT_PROJ_ENTRY_COMMAND',
+    'SWAWKIT_INVOCATION_DIR',
+    'SWAWKIT_PROJ_BUN_MODE',
+    'SWAWKIT_PROJ_BUN_VERSION',
+    'SWAWKIT_PROJ_BUN_SHA256'
+)
+$PreviousRuntimeEnvironment = @{}
+foreach ($Name in $RuntimeEnvironmentNames) {
+    $PreviousRuntimeEnvironment[$Name] =
+        [Environment]::GetEnvironmentVariable($Name, 'Process')
+}
+$PreviousPath = [string]$env:PATH
+$PreviousDevelopmentEnvironment = @{}
+$ProcessEnvironment = [Environment]::GetEnvironmentVariables('Process')
+foreach ($Name in [string[]]@($ProcessEnvironment.Keys)) {
+    if ($Name.StartsWith(
+        'SWAWKIT_DEV_',
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        $PreviousDevelopmentEnvironment[$Name] =
+            [string]$ProcessEnvironment[$Name]
+    }
+}
 $TestTemporaryBase = [IO.Path]::GetFullPath(
     (Join-Path $ProjRoot '..\..\data\_test')
 )
@@ -234,7 +262,8 @@ try {
     $VsixRoot = Join-Path $TemporaryRoot 'vsix'
     Expand-ProjDevMsvcVsix `
         -ArchivePath $VsixPath `
-        -Destination $VsixRoot
+        -Destination $VsixRoot `
+        -ControlledRoot $TemporaryRoot
     Assert-ProjMsvcTest `
         -Condition (
             [IO.File]::Exists(
@@ -273,7 +302,8 @@ try {
     try {
         Expand-ProjDevMsvcVsix `
             -ArchivePath $SlipPath `
-            -Destination (Join-Path $TemporaryRoot 'slip-root')
+            -Destination (Join-Path $TemporaryRoot 'slip-root') `
+            -ControlledRoot $TemporaryRoot
     } catch {
         $SlipRejected = $_.Exception.Message -like '*escapes its root*'
     }
@@ -356,6 +386,43 @@ try {
         ) `
         -Message 'generated MSVC environment lost the baseline contract'
 
+    $env:SWAWKIT_PROJ_BUN_MODE = 'managed'
+    $env:SWAWKIT_PROJ_BUN_VERSION = '1.0.0'
+    $env:SWAWKIT_PROJ_BUN_SHA256 = ''
+    [void](Publish-ProjDevEnvironmentScripts `
+        -Context $Context `
+        -Scripts $Scripts)
+    [void](Publish-ProjDevEnvironmentState `
+        -Context $Context `
+        -GenerationId ([string]$Scripts.GenerationId))
+    $env:SWAWKIT_PROJ_PROTOCOL = '1'
+    $env:SWAWKIT_PROJ_HOME = [IO.Path]::GetFullPath(
+        (Join-Path $ProjRoot '..\..')
+    )
+    $env:SWAWKIT_PROJ_DIR = $ProjectRoot
+    $env:SWAWKIT_PROJ_DATA_ROOT = $DataRoot
+    $env:SWAWKIT_PROJ_ENTRY_COMMAND = 'fixture'
+    $env:SWAWKIT_INVOCATION_DIR = $ProjectRoot
+    foreach ($Name in [string[]]@(
+        [Environment]::GetEnvironmentVariables('Process').Keys
+    )) {
+        if ($Name.StartsWith(
+            'SWAWKIT_DEV_',
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
+        }
+    }
+    $env:SWAWKIT_PROJ_BUN_VERSION = '2.0.0'
+    . (Join-Path $ProjRoot '.dev\setup\_modules\msvc\runtime.ps1')
+    $RuntimeRequirement = Import-ProjDevMsvcCommandEnvironment
+    Assert-ProjMsvcTest `
+        -Condition (
+            [string]$RuntimeRequirement.Definition.Channel -ceq '17' -and
+            [string]$env:SWAWKIT_DEV_MSVC_HOME -ceq $TargetRoot
+        ) `
+        -Message 'an unrelated Bun declaration change blocked managed MSVC'
+
     [IO.File]::AppendAllText(
         (Join-Path $TargetRoot (
             'VC\Tools\MSVC\14.44.35228\bin\Hostx64\x64\cl.exe'
@@ -370,6 +437,30 @@ try {
 
     Write-Host '[PASS] Proj MSVC module test' -ForegroundColor Green
 } finally {
+    $env:PATH = $PreviousPath
+    $CurrentEnvironment = [Environment]::GetEnvironmentVariables('Process')
+    foreach ($Name in [string[]]@($CurrentEnvironment.Keys)) {
+        if ($Name.StartsWith(
+            'SWAWKIT_DEV_',
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+            [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
+        }
+    }
+    foreach ($Name in $PreviousDevelopmentEnvironment.Keys) {
+        [Environment]::SetEnvironmentVariable(
+            $Name,
+            [string]$PreviousDevelopmentEnvironment[$Name],
+            'Process'
+        )
+    }
+    foreach ($Name in $RuntimeEnvironmentNames) {
+        [Environment]::SetEnvironmentVariable(
+            $Name,
+            $PreviousRuntimeEnvironment[$Name],
+            'Process'
+        )
+    }
     [Environment]::SetEnvironmentVariable(
         'SWAWKIT_PROJ_MSVC_MODE',
         $PreviousMode,

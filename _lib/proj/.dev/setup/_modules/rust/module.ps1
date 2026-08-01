@@ -39,7 +39,8 @@ function Get-ProjDevRustManifest {
     Assert-ProjDevRustDictionaryKeys `
         -Dictionary $Manifest `
         -Expected @(
-            'Schema', 'Name', 'ModeVariable', 'ToolchainVariable',
+            'Schema', 'Name', 'ModeVariable', 'SetupImplemented',
+            'ToolchainVariable',
             'ProfileVariable', 'HostVariable', 'InstallMode',
             'RecipeVersion', 'SupportedProfiles', 'SupportedHost',
             'RustupInit'
@@ -55,6 +56,8 @@ function Get-ProjDevRustManifest {
     if ([string]$Manifest.Schema -cne 'swawkit.proj-dev.module.v0' -or
         [string]$Manifest.Name -cne 'rust' -or
         [string]$Manifest.ModeVariable -cne 'SWAWKIT_PROJ_RUST_MODE' -or
+        $Manifest.SetupImplemented -isnot [bool] -or
+        -not [bool]$Manifest.SetupImplemented -or
         [string]$Manifest.ToolchainVariable -cne
             'SWAWKIT_PROJ_RUST_TOOLCHAIN' -or
         [string]$Manifest.ProfileVariable -cne
@@ -354,5 +357,6 @@ function Write-ProjDevRustMetadata {
     }
     Write-ProjDevTextAtomic `
         -Path (Get-ProjDevRustMetadataPath -InstallRoot $InstallRoot) `
-        -Content (ConvertTo-ProjDevJsonText -Value $Metadata)
+        -Content (ConvertTo-ProjDevJsonText -Value $Metadata) `
+        -ControlledRoot $InstallRoot
 }

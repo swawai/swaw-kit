@@ -198,6 +198,10 @@ function Get-ProjDevMsvcProductManifestPath {
             [string]$Definition.Channel
         )
     ) 'manifests'
+    $Root = Assert-ProjDevPathInsideDataRoot `
+        -Path $Root `
+        -DataRoot $Context.CacheDataRoot `
+        -Activity 'using the MSVC manifest cache'
     [void][IO.Directory]::CreateDirectory($Root)
     $ManifestIdentity = ([string]$Payload.Sha256).Trim().ToLowerInvariant()
     if ($ManifestIdentity -cnotmatch '^[a-f0-9]{64}$') {
@@ -207,11 +211,11 @@ function Get-ProjDevMsvcProductManifestPath {
         "VisualStudio.$($ManifestIdentity.Substring(0, 16)).vsman"
     )
     $DigestPath = "$Path.actual.sha256"
-    $Lock = Enter-ProjDevFileLock -Path (
-        Join-Path $Context.ArtifactLockRoot (
+    $Lock = Enter-ProjDevFileLock `
+        -Path (Join-Path $Context.ArtifactLockRoot (
             "msvc-manifest-$ManifestIdentity.lock"
-        )
-    )
+        )) `
+        -ControlledRoot $Context.CacheDataRoot
     try {
         if ($Refresh) {
             foreach ($RefreshPath in @($Path, $DigestPath)) {
@@ -240,7 +244,8 @@ function Get-ProjDevMsvcProductManifestPath {
         if (-not [IO.File]::Exists($Path)) {
             Invoke-ProjDevDownload `
                 -Source ([string]$Payload.Url) `
-                -Destination $Path
+                -Destination $Path `
+                -ControlledRoot $Context.CacheDataRoot
         }
         if (-not [IO.File]::Exists($Path) -or
             (Get-Item -LiteralPath $Path).Length -le 0) {
@@ -248,7 +253,8 @@ function Get-ProjDevMsvcProductManifestPath {
         }
         Write-ProjDevTextAtomic `
             -Path $DigestPath `
-            -Content "$(Get-ProjDevFileSha256 -Path $Path)`r`n"
+            -Content "$(Get-ProjDevFileSha256 -Path $Path)`r`n" `
+            -ControlledRoot $Context.CacheDataRoot
         return $Path
     } finally {
         $Lock.Dispose()
@@ -271,6 +277,31 @@ function Read-ProjDevMsvcJsonFile {
     }
 }
 
+function Remove-ProjDevMsvcChannelRefreshResidues {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot
+    )
+
+    $Root = Assert-ProjDevPathInsideDataRoot `
+        -Path $Root `
+        -DataRoot $ControlledRoot `
+        -Activity 'cleaning MSVC channel refresh residues'
+    if (-not [IO.Directory]::Exists($Root)) {
+        return
+    }
+    foreach ($Item in Get-ChildItem -LiteralPath $Root -File -Force) {
+        if ([string]$Item.Name -cnotmatch
+            '^\.channel-[a-f0-9]{32}\.json$') {
+            continue
+        }
+        Remove-ProjDevControlledPath `
+            -Path $Item.FullName `
+            -DataRoot $ControlledRoot `
+            -Activity 'cleaning an interrupted MSVC channel refresh'
+    }
+}
+
 function Get-ProjDevMsvcChannelData {
     param(
         [Parameter(Mandatory = $true)][object]$Context,
@@ -282,27 +313,36 @@ function Get-ProjDevMsvcChannelData {
             [string]$Definition.Channel
         )
     ) 'manifests'
+    $Root = Assert-ProjDevPathInsideDataRoot `
+        -Path $Root `
+        -DataRoot $Context.CacheDataRoot `
+        -Activity 'using the MSVC channel cache'
     [void][IO.Directory]::CreateDirectory($Root)
     $CachedPath = Join-Path $Root 'channel.json'
     $RefreshPath = Join-Path $Root (
         ".channel-$([Guid]::NewGuid().ToString('N')).json"
     )
-    $Lock = Enter-ProjDevFileLock -Path (
-        Join-Path $Context.ArtifactLockRoot (
+    $Lock = Enter-ProjDevFileLock `
+        -Path (Join-Path $Context.ArtifactLockRoot (
             "msvc-channel-$($Definition.Channel).lock"
-        )
-    )
+        )) `
+        -ControlledRoot $Context.CacheDataRoot
     try {
+        Remove-ProjDevMsvcChannelRefreshResidues `
+            -Root $Root `
+            -ControlledRoot $Context.CacheDataRoot
         try {
             Invoke-ProjDevDownload `
                 -Source ([string]$Definition.ChannelUrl) `
-                -Destination $RefreshPath
+                -Destination $RefreshPath `
+                -ControlledRoot $Context.CacheDataRoot
             $Data = Read-ProjDevMsvcJsonFile `
                 -Path $RefreshPath `
                 -Description 'Visual Studio channel'
             Write-ProjDevTextAtomic `
                 -Path $CachedPath `
-                -Content (ConvertTo-ProjDevJsonText -Value $Data)
+                -Content (ConvertTo-ProjDevJsonText -Value $Data) `
+                -ControlledRoot $Context.CacheDataRoot
             return $Data
         } catch {
             if (-not [IO.File]::Exists($CachedPath)) {
@@ -322,7 +362,10 @@ function Get-ProjDevMsvcChannelData {
     } finally {
         try {
             if ([IO.File]::Exists($RefreshPath)) {
-                [IO.File]::Delete($RefreshPath)
+                Remove-ProjDevControlledPath `
+                    -Path $RefreshPath `
+                    -DataRoot $Context.CacheDataRoot `
+                    -Activity 'cleaning an MSVC channel refresh'
             }
         } finally {
             $Lock.Dispose()

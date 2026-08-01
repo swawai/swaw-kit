@@ -50,12 +50,25 @@ function Publish-ProjDevInstallDirectory {
         [AllowNull()][scriptblock]$ValidatePublished = $null
     )
 
-    $TargetPath = Get-ProjDevFullPath -Path $TargetPath
-    $StagedPath = Get-ProjDevFullPath -Path $StagedPath
+    $TargetPath = Assert-ProjDevPathInsideDataRoot `
+        -Path $TargetPath `
+        -DataRoot $Context.DataRoot `
+        -Activity 'publishing a development installation'
+    $StagedPath = Assert-ProjDevPathInsideDataRoot `
+        -Path $StagedPath `
+        -DataRoot $Context.DataRoot `
+        -Activity 'publishing a staged development installation'
     [void][IO.Directory]::CreateDirectory(
         (Split-Path -Path $TargetPath -Parent)
     )
-    $BackupPath = "$TargetPath.backup-$([Guid]::NewGuid().ToString('N'))"
+    $BackupTimestamp = [DateTime]::UtcNow.ToString(
+        'yyyyMMddTHHmmssfffffffZ',
+        [Globalization.CultureInfo]::InvariantCulture
+    )
+    $BackupPath = (
+        "$TargetPath.backup-$BackupTimestamp-" +
+        [Guid]::NewGuid().ToString('N')
+    )
     $BackupKind = ''
     $Published = $false
 
@@ -214,7 +227,8 @@ function Install-ProjDevArchiveTool {
                 -ForegroundColor DarkGray
             Expand-ProjDevZipSafely `
                 -ArchivePath $ArchivePath `
-                -Destination $ExtractRoot
+                -Destination $ExtractRoot `
+                -ControlledRoot $Context.DataRoot
             $SourceRoot = if ([string]::IsNullOrWhiteSpace(
                 [string]$Definition.ArchiveSubdir
             )) {

@@ -6,6 +6,11 @@ function Get-ProjDataRootDirectories {
     if (-not [IO.Directory]::Exists($DataDirectory)) {
         return @()
     }
+    $DataDirectoryItem = Get-Item -LiteralPath $DataDirectory -Force
+    if (($DataDirectoryItem.Attributes -band
+        [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Project data directory cannot be a reparse point: $DataDirectory"
+    }
     $Directories = @(Get-ChildItem `
         -LiteralPath $DataDirectory `
         -Directory `
@@ -316,7 +321,10 @@ function Resolve-ProjProjectDataRoot {
             $Resolved = Set-ProjResolvedDataRoot `
                 -DataRoot $Resolved `
                 -LegacyDataRoot $LegacyDataRoot `
-                -EntryName $EntryName
+                -EntryName $EntryName `
+                -RemoveLegacyDirectoryResidue (
+                    $Plan.Kind -ceq 'MigrateLegacy'
+                )
             return $Resolved
         }
     } finally {
@@ -353,7 +361,10 @@ function Resolve-ProjProjectDataRoot {
         }
         if ($CurrentPlan.Kind -ceq 'Direct') {
             $Resolved = Complete-ProjDataRootPlan -Plan $CurrentPlan
-            $LegacyDataRoot = if ($Plan.Kind -ceq 'ClaimMigrateLegacy') {
+            $LegacyDataRoot = if ($Plan.Kind -in @(
+                'ClaimRename',
+                'ClaimMigrateLegacy'
+            )) {
                 [string]$Plan.SourceDataRoot
             } else {
                 $LegacyDataRootCandidate
@@ -361,12 +372,17 @@ function Resolve-ProjProjectDataRoot {
             $Resolved = Set-ProjResolvedDataRoot `
                 -DataRoot $Resolved `
                 -LegacyDataRoot $LegacyDataRoot `
-                -EntryName $EntryName
+                -EntryName $EntryName `
+                -RemoveLegacyDirectoryResidue (
+                    $Plan.Kind -ceq 'ClaimMigrateLegacy'
+                )
             return $Resolved
         }
         $Resolved = Complete-ProjDataRootPlan -Plan $CurrentPlan
-        $LegacyDataRoot = if ($CurrentPlan.Kind -ceq
-            'ClaimMigrateLegacy') {
+        $LegacyDataRoot = if ($CurrentPlan.Kind -in @(
+            'ClaimRename',
+            'ClaimMigrateLegacy'
+        )) {
             [string]$CurrentPlan.SourceDataRoot
         } else {
             $LegacyDataRootCandidate
@@ -374,7 +390,10 @@ function Resolve-ProjProjectDataRoot {
         $Resolved = Set-ProjResolvedDataRoot `
             -DataRoot $Resolved `
             -LegacyDataRoot $LegacyDataRoot `
-            -EntryName $EntryName
+            -EntryName $EntryName `
+            -RemoveLegacyDirectoryResidue (
+                $CurrentPlan.Kind -ceq 'ClaimMigrateLegacy'
+            )
         return $Resolved
     } finally {
         $Lock.Dispose()

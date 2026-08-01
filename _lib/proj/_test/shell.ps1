@@ -40,12 +40,25 @@ function Invoke-ProjShellTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-$script:ProjShellEntry = Join-Path $RepoRoot 'swawkit.cmd'
+$SourceEntry = Join-Path $RepoRoot 'swawkit.cmd'
+$EntryName = "test-shell-$([Guid]::NewGuid().ToString('N'))"
+$script:ProjShellEntry = Join-Path $RepoRoot "$EntryName.cmd"
 $RuntimeBin = Join-Path $RepoRoot '_lib\proj\_bin'
-$DataRoot = Join-Path $RepoRoot 'data\proj.swawkit'
+$DataRoot = Join-Path $RepoRoot "data\proj.$EntryName"
 $UserPathBefore = [Environment]::GetEnvironmentVariable('PATH', 'User')
 $MachinePathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+$EntryContent = [regex]::Replace(
+    [IO.File]::ReadAllText($SourceEntry),
+    '(?im)^set "(SWAWKIT_PROJ_[A-Z0-9_]+_MODE)=[^"]*"\s*$',
+    'set "$1=disabled"'
+)
+[IO.File]::WriteAllText(
+    $script:ProjShellEntry,
+    $EntryContent,
+    [Text.UTF8Encoding]::new($false)
+)
 
+try {
 $Cmd = Invoke-ProjShellTest `
     -Address '.cmd' `
     -InputLines @(
@@ -64,7 +77,7 @@ Assert-ProjShellTest `
     -Message ".cmd did not return the child shell exit code: $($Cmd.Text)"
 foreach ($Expected in @(
     'SHELL_KIND=cmd',
-    'ENTRY_NAME=swawkit',
+    "ENTRY_NAME=$EntryName",
     'COMMAND_ADDRESS=.cmd',
     "PROJ_HOME=$RepoRoot",
     "DATA_ROOT=$DataRoot",
@@ -105,7 +118,7 @@ foreach ($Expected in @(
     'SHELL_KIND=ps',
     'PS_MAJOR=5',
     "PS_HOME=$ExpectedPsHome",
-    'ENTRY_NAME=swawkit',
+    "ENTRY_NAME=$EntryName",
     'COMMAND_ADDRESS=.ps',
     "PROJ_HOME=$RepoRoot",
     "DATA_ROOT=$DataRoot",
@@ -143,6 +156,14 @@ Assert-ProjShellTest `
             $MachinePathBefore
     ) `
     -Message 'interactive project shells changed persistent PATH'
+} finally {
+    if ([IO.File]::Exists($script:ProjShellEntry)) {
+        [IO.File]::Delete($script:ProjShellEntry)
+    }
+    if ([IO.Directory]::Exists($DataRoot)) {
+        [IO.Directory]::Delete($DataRoot, $true)
+    }
+}
 
 Write-Host '[PASS] Proj interactive shell commands' -ForegroundColor Green
 $global:LASTEXITCODE = 0

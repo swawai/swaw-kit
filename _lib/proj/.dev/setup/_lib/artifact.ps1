@@ -46,19 +46,64 @@ function Get-ProjDevArtifactCacheRoot {
 }
 
 function Remove-ProjDevDownloadTemporaryFile {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot
+    )
 
     if ([IO.File]::Exists($Path)) {
+        $Path = Assert-ProjDevPathInsideDataRoot `
+            -Path $Path `
+            -DataRoot $ControlledRoot `
+            -Activity 'cleaning a download temporary file'
         [IO.File]::Delete($Path)
+    }
+}
+
+function Remove-ProjDevOrphanedDownloadFiles {
+    param(
+        [Parameter(Mandatory = $true)][string]$CacheRoot,
+        [Parameter(Mandatory = $true)][string]$ArchiveName,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot
+    )
+
+    $CacheRoot = Assert-ProjDevPathInsideDataRoot `
+        -Path $CacheRoot `
+        -DataRoot $ControlledRoot `
+        -Activity 'cleaning orphaned downloads'
+    if (-not [IO.Directory]::Exists($CacheRoot)) {
+        return
+    }
+    $Prefix = ".$ArchiveName."
+    foreach ($Path in [IO.Directory]::EnumerateFiles($CacheRoot)) {
+        $Name = [IO.Path]::GetFileName($Path)
+        if ($Name.StartsWith($Prefix, [StringComparison]::Ordinal) -and
+            $Name.EndsWith('.tmp', [StringComparison]::Ordinal)) {
+            $Item = Get-Item -LiteralPath $Path -Force
+            if (($Item.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Download temporary file cannot be a reparse point: $Path"
+            }
+            $Path = Assert-ProjDevPathInsideDataRoot `
+                -Path $Path `
+                -DataRoot $ControlledRoot `
+                -Activity 'cleaning an orphaned download'
+            [IO.File]::Delete($Path)
+        }
     }
 }
 
 function Invoke-ProjDevDownload {
     param(
         [Parameter(Mandatory = $true)][string]$Source,
-        [Parameter(Mandatory = $true)][string]$Destination
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot
     )
 
+    $Destination = Assert-ProjDevPathInsideDataRoot `
+        -Path $Destination `
+        -DataRoot $ControlledRoot `
+        -Activity 'downloading a development artifact'
     $Parent = Split-Path -Path $Destination -Parent
     [void][IO.Directory]::CreateDirectory($Parent)
     $TemporaryPath = Join-Path $Parent (
@@ -109,7 +154,9 @@ function Invoke-ProjDevDownload {
                     $Failures.Add("curl: $($_.Exception.Message)")
                 }
                 if (-not $Downloaded) {
-                    Remove-ProjDevDownloadTemporaryFile -Path $TemporaryPath
+                    Remove-ProjDevDownloadTemporaryFile `
+                        -Path $TemporaryPath `
+                        -ControlledRoot $ControlledRoot
                 }
             }
 
@@ -123,7 +170,9 @@ function Invoke-ProjDevDownload {
                     $Downloaded = $true
                 } catch {
                     $Failures.Add("BITS: $($_.Exception.Message)")
-                    Remove-ProjDevDownloadTemporaryFile -Path $TemporaryPath
+                    Remove-ProjDevDownloadTemporaryFile `
+                        -Path $TemporaryPath `
+                        -ControlledRoot $ControlledRoot
                 }
             }
 
@@ -140,7 +189,9 @@ function Invoke-ProjDevDownload {
                     $Downloaded = $true
                 } catch {
                     $Failures.Add("Invoke-WebRequest: $($_.Exception.Message)")
-                    Remove-ProjDevDownloadTemporaryFile -Path $TemporaryPath
+                    Remove-ProjDevDownloadTemporaryFile `
+                        -Path $TemporaryPath `
+                        -ControlledRoot $ControlledRoot
                 } finally {
                     [Net.ServicePointManager]::SecurityProtocol = $PreviousProtocol
                 }
@@ -159,7 +210,9 @@ function Invoke-ProjDevDownload {
     } catch {
         throw "Download failed for '$Source': $($_.Exception.Message)"
     } finally {
-        Remove-ProjDevDownloadTemporaryFile -Path $TemporaryPath
+        Remove-ProjDevDownloadTemporaryFile `
+            -Path $TemporaryPath `
+            -ControlledRoot $ControlledRoot
     }
 }
 
@@ -182,10 +235,14 @@ function Test-ProjDevZipArchive {
 function Expand-ProjDevZipSafely {
     param(
         [Parameter(Mandatory = $true)][string]$ArchivePath,
-        [Parameter(Mandatory = $true)][string]$Destination
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot
     )
 
-    $Destination = Get-ProjDevFullPath -Path $Destination
+    $Destination = Assert-ProjDevPathInsideDataRoot `
+        -Path $Destination `
+        -DataRoot $ControlledRoot `
+        -Activity 'extracting a development archive'
     [void][IO.Directory]::CreateDirectory($Destination)
     $DestinationPrefix = $Destination.TrimEnd('\', '/') +
         [IO.Path]::DirectorySeparatorChar
@@ -265,9 +322,15 @@ function Get-ProjDevVerifiedArchive {
     $CacheRoot = Get-ProjDevArtifactCacheRoot `
         -Context $Context `
         -Definition $Definition
+    $CacheRoot = Assert-ProjDevPathInsideDataRoot `
+        -Path $CacheRoot `
+        -DataRoot $Context.CacheDataRoot `
+        -Activity 'using a development artifact cache'
     $ArtifactKey = Get-ProjDevSha256Text -Value $CacheRoot
     $LockPath = Join-Path $Context.ArtifactLockRoot "$ArtifactKey.lock"
-    $Lock = Enter-ProjDevFileLock -Path $LockPath
+    $Lock = Enter-ProjDevFileLock `
+        -Path $LockPath `
+        -ControlledRoot $Context.CacheDataRoot
     try {
         if ([IO.File]::Exists($CacheRoot)) {
             Remove-ProjDevControlledPath `
@@ -279,6 +342,10 @@ function Get-ProjDevVerifiedArchive {
 
         $ArchiveName = Get-ProjDevSourceFileName `
             -Source ([string]$Definition.Url)
+        Remove-ProjDevOrphanedDownloadFiles `
+            -CacheRoot $CacheRoot `
+            -ArchiveName $ArchiveName `
+            -ControlledRoot $Context.CacheDataRoot
         $ArchivePath = Join-Path $CacheRoot $ArchiveName
         if ([IO.Directory]::Exists($ArchivePath)) {
             Remove-ProjDevControlledPath `
@@ -306,7 +373,8 @@ function Get-ProjDevVerifiedArchive {
         if (-not [IO.File]::Exists($ArchivePath)) {
             Invoke-ProjDevDownload `
                 -Source ([string]$Definition.Url) `
-                -Destination $ArchivePath
+                -Destination $ArchivePath `
+                -ControlledRoot $Context.CacheDataRoot
         }
         $Actual = Get-ProjDevFileSha256 -Path $ArchivePath
         if (-not [string]::IsNullOrWhiteSpace($Expected) -and

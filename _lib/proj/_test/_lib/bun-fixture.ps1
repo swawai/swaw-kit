@@ -377,7 +377,8 @@ function Assert-ProjBunZipTraversalRejected {
         -Action {
             Expand-ProjDevZipSafely `
                 -ArchivePath $SlipArchive `
-                -Destination $SlipDestination
+                -Destination $SlipDestination `
+                -ControlledRoot $TemporaryRoot
         } `
         -Pattern '*escapes extraction*'
     Assert-ProjBunTest `

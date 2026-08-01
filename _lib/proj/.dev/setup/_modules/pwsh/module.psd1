@@ -3,6 +3,7 @@
     Schema = 'swawkit.proj-dev.module.v0'
     Name = 'pwsh'
     ModeVariable = 'SWAWKIT_PROJ_PWSH_MODE'
+    SetupImplemented = $true
     VersionVariable = 'SWAWKIT_PROJ_PWSH_VERSION'
     HashVariable = 'SWAWKIT_PROJ_PWSH_SHA256'
     InstallMode = 'managed'

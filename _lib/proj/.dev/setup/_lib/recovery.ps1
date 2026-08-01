@@ -139,6 +139,16 @@ function New-ProjDevInstallWorkPath {
     )
 }
 
+function Test-ProjDevStrictInstallWorkName {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    return [regex]::IsMatch(
+        $Name,
+        '^\.[A-Za-z0-9][A-Za-z0-9._+-]*\.(partial|work)-[a-f0-9]{32}$',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+}
+
 function Get-ProjDevInstallRecoveryPaths {
     param([Parameter(Mandatory = $true)][string]$TargetPath)
 
@@ -156,12 +166,11 @@ function Get-ProjDevInstallRecoveryPaths {
     $Work = [Collections.Generic.List[string]]::new()
     foreach ($Item in Get-ChildItem -LiteralPath $Parent -Force) {
         $Name = [string]$Item.Name
-        if ($Name.StartsWith(
+        $IsBackup = $Name.StartsWith(
             "$Leaf.backup-",
             [StringComparison]::OrdinalIgnoreCase
-        )) {
-            $Backups.Add([string]$Item.FullName)
-        } elseif (
+        )
+        $IsWork = (
             $Name.StartsWith(
                 ".$Leaf.partial-",
                 [StringComparison]::OrdinalIgnoreCase
@@ -177,8 +186,22 @@ function Get-ProjDevInstallRecoveryPaths {
             $Name.StartsWith(
                 '.work-',
                 [StringComparison]::OrdinalIgnoreCase
+            ) -or
+            (Test-ProjDevStrictInstallWorkName -Name $Name)
+        )
+        if (($IsBackup -or $IsWork) -and
+            ($Item.Attributes -band
+                [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw (
+                'An installation recovery path cannot be a reparse point: ' +
+                $Item.FullName
             )
-        ) {
+        }
+        if ($IsBackup) {
+            # Backups remain target-scoped: a different version/channel/
+            # toolchain must never be restored into the current target.
+            $Backups.Add([string]$Item.FullName)
+        } elseif ($IsWork) {
             $Work.Add([string]$Item.FullName)
         }
     }
@@ -210,6 +233,20 @@ function Remove-ProjDevInstallResidues {
             Write-Warning $_.Exception.Message
         }
     }
+}
+
+function Get-ProjDevTimestampedBackupOrder {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $Match = [regex]::Match(
+        [IO.Path]::GetFileName($Path),
+        '\.backup-(\d{8}T\d{13}Z)-[a-f0-9]{32}$',
+        [Text.RegularExpressions.RegexOptions]::IgnoreCase
+    )
+    if (-not $Match.Success) {
+        return $null
+    }
+    return $Match.Groups[1].Value
 }
 
 function Repair-ProjDevInstallState {
@@ -256,7 +293,7 @@ function Repair-ProjDevInstallState {
             -Definition $Definition `
             -InstallRoot $_ `
             -ValidateCandidate $ValidateCandidate
-    } | Sort-Object)
+    })
     if (Test-ProjDevPathExists -Path $TargetPath) {
         Remove-ProjDevControlledPathWithRetry `
             -Path $TargetPath `
@@ -265,7 +302,24 @@ function Repair-ProjDevInstallState {
     }
 
     if ($ValidBackups.Count -gt 0) {
-        $SelectedBackup = [string]$ValidBackups[-1]
+        $TimestampedBackups = @($ValidBackups | ForEach-Object {
+            $Order = Get-ProjDevTimestampedBackupOrder -Path $_
+            if ($null -ne $Order) {
+                [pscustomobject]@{ Path = [string]$_; Order = [string]$Order }
+            }
+        } | Sort-Object Order, Path)
+        if ($TimestampedBackups.Count -gt 0) {
+            $SelectedBackup = [string]$TimestampedBackups[-1].Path
+        } elseif ($ValidBackups.Count -eq 1) {
+            # Compatibility with the pre-timestamp V0 backup name.
+            $SelectedBackup = [string]$ValidBackups[0]
+        } else {
+            throw (
+                "Multiple valid legacy backups exist for $($Definition.Name), " +
+                'but their creation order is unknowable. Manual repair is ' +
+                "required: $([string]::Join(', ', [string[]]$ValidBackups))"
+            )
+        }
         Move-ProjDevControlledPathWithRetry `
             -Source $SelectedBackup `
             -Destination $TargetPath `
@@ -323,9 +377,9 @@ function Clear-ProjDevArtifactCache {
         -Context $Context `
         -Definition $Definition
     $ArtifactKey = Get-ProjDevSha256Text -Value $CacheRoot
-    $Lock = Enter-ProjDevFileLock -Path (
-        Join-Path $Context.ArtifactLockRoot "$ArtifactKey.lock"
-    )
+    $Lock = Enter-ProjDevFileLock `
+        -Path (Join-Path $Context.ArtifactLockRoot "$ArtifactKey.lock") `
+        -ControlledRoot $Context.CacheDataRoot
     try {
         if (Test-ProjDevPathExists -Path $CacheRoot) {
             Remove-ProjDevControlledPathWithRetry `

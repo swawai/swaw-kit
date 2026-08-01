@@ -14,6 +14,8 @@ function Get-ProjDevFullPath {
     return $FullPath
 }
 
+. (Join-Path $PSScriptRoot 'controlled-path.ps1')
+
 function Get-ProjDevCanonicalPath {
     param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -55,8 +57,12 @@ function New-ProjDevContext {
     )
 
     $ResolvedProjectRoot = Get-ProjDevFullPath -Path $ProjectRoot
-    $ResolvedDataRoot = Get-ProjDevFullPath -Path $DataRoot
-    $ResolvedCacheDataRoot = Get-ProjDevFullPath -Path $CacheDataRoot
+    $ResolvedDataRoot = Assert-ProjDevControlledRoot `
+        -Root $DataRoot `
+        -Description 'Project development data root'
+    $ResolvedCacheDataRoot = Assert-ProjDevControlledRoot `
+        -Root $CacheDataRoot `
+        -Description 'Shared project cache data root'
     if (-not [IO.Directory]::Exists($ResolvedProjectRoot)) {
         throw "Declared project directory does not exist: $ResolvedProjectRoot"
     }
@@ -70,7 +76,8 @@ function New-ProjDevContext {
         throw "Invocation directory does not exist: $ResolvedInvocationDirectory"
     }
 
-    $EnvironmentRoot = Join-Path $ResolvedDataRoot 'dev_env'
+    $EnvironmentRoot = Assert-ProjDevelopmentEnvironmentControlledRoot `
+        -EnvironmentRoot (Join-Path $ResolvedDataRoot 'dev_env')
     $LockRoot = Join-Path $ResolvedDataRoot '_locks'
     return [pscustomobject][ordered]@{
         ProjectRoot = $ResolvedProjectRoot
@@ -80,6 +87,8 @@ function New-ProjDevContext {
         EnvironmentRoot = $EnvironmentRoot
         EnvCmdPath = Join-Path $EnvironmentRoot 'env.cmd'
         EnvPs1Path = Join-Path $EnvironmentRoot 'env.ps1'
+        EnvironmentStatePath = Get-ProjDevelopmentEnvironmentStatePath `
+            -EnvironmentRoot $EnvironmentRoot
         CacheRoot = Join-Path $ResolvedCacheDataRoot 'downloads'
         LockRoot = $LockRoot
         SetupLockPath = Join-Path $LockRoot 'dev-setup.lock'
@@ -214,10 +223,14 @@ function Write-ProjDevTextAtomic {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
         [Parameter(Mandatory = $true)][string]$Content,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot,
         [Text.Encoding]$Encoding = ([Text.UTF8Encoding]::new($false))
     )
 
-    $FullPath = Get-ProjDevFullPath -Path $Path
+    $FullPath = Assert-ProjDevPathInsideDataRoot `
+        -Path $Path `
+        -DataRoot $ControlledRoot `
+        -Activity 'publishing controlled development state'
     $Parent = Split-Path -Path $FullPath -Parent
     [void][IO.Directory]::CreateDirectory($Parent)
     $Token = [Guid]::NewGuid().ToString('N')
@@ -247,10 +260,14 @@ function Write-ProjDevTextAtomic {
 function Enter-ProjDevFileLock {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$ControlledRoot,
         [int]$TimeoutSeconds = 600
     )
 
-    $FullPath = Get-ProjDevFullPath -Path $Path
+    $FullPath = Assert-ProjDevPathInsideDataRoot `
+        -Path $Path `
+        -DataRoot $ControlledRoot `
+        -Activity 'creating a development lock'
     [void][IO.Directory]::CreateDirectory((Split-Path -Path $FullPath -Parent))
     $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while ([DateTime]::UtcNow -lt $Deadline) {
@@ -266,27 +283,6 @@ function Enter-ProjDevFileLock {
         }
     }
     throw "Timed out waiting for the project development lock: $FullPath"
-}
-
-function Assert-ProjDevPathInsideDataRoot {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$DataRoot,
-        [Parameter(Mandatory = $true)][string]$Activity
-    )
-
-    $FullPath = Get-ProjDevFullPath -Path $Path
-    $FullRoot = Get-ProjDevFullPath -Path $DataRoot
-    $RootPrefix = $FullRoot.TrimEnd('\', '/') +
-        [IO.Path]::DirectorySeparatorChar
-    if ($FullPath.Equals($FullRoot, [StringComparison]::OrdinalIgnoreCase) -or
-        -not $FullPath.StartsWith(
-            $RootPrefix,
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-        throw "Refusing $Activity outside the controlled data root: $FullPath"
-    }
-    return $FullPath
 }
 
 function Remove-ProjDevControlledPath {

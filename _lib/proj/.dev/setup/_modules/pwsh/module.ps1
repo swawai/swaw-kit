@@ -31,6 +31,7 @@ function Assert-ProjDevPwshManifest {
             'Schema',
             'Name',
             'ModeVariable',
+            'SetupImplemented',
             'VersionVariable',
             'HashVariable',
             'InstallMode',
@@ -43,6 +44,8 @@ function Assert-ProjDevPwshManifest {
     if ([string]$Manifest.Schema -cne 'swawkit.proj-dev.module.v0' -or
         [string]$Manifest.Name -cne 'pwsh' -or
         [string]$Manifest.ModeVariable -cne 'SWAWKIT_PROJ_PWSH_MODE' -or
+        $Manifest.SetupImplemented -isnot [bool] -or
+        -not [bool]$Manifest.SetupImplemented -or
         [string]$Manifest.VersionVariable -cne 'SWAWKIT_PROJ_PWSH_VERSION' -or
         [string]$Manifest.HashVariable -cne 'SWAWKIT_PROJ_PWSH_SHA256' -or
         [string]$Manifest.InstallMode -cne 'managed' -or

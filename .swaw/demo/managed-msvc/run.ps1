@@ -6,6 +6,13 @@ if ($args.Count -ne 0) {
     throw 'demo.managed-msvc does not accept dynamic arguments.'
 }
 
+$KernelRoot = [IO.Path]::GetFullPath(
+    (Join-Path ([string]$env:SWAWKIT_PROJ_HOME) '_lib\proj')
+)
+. (Join-Path $KernelRoot '_core\engine.ps1')
+. (Join-Path $KernelRoot '.dev\setup\_modules\msvc\runtime.ps1')
+[void](Import-ProjDevMsvcCommandEnvironment)
+
 # Command-owned precondition policy:
 # This module requires project-managed MSVC. A different module may
 # intentionally accept an ambient tool instead; Core does not decide for it.

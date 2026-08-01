@@ -9,6 +9,26 @@ if (@($args).Count -gt 0) {
 . (Join-Path $PSScriptRoot '..\setup\_lib\bootstrap.ps1')
 
 $Context = New-ProjDevContextFromEnvironment
+try {
+    $GenerationId = Get-ProjDevelopmentEnvironmentGeneration `
+        -EnvironmentRoot $Context.EnvironmentRoot `
+        -EntryCommand $Context.EntryCommand
+    if ($null -eq $GenerationId) {
+        $Enabled = @(
+            Get-ProjEnabledDevelopmentDeclarationNames `
+                -Declarations (Get-ProjDevelopmentDeclarationSnapshot)
+        )
+        if ($Enabled.Count -gt 0) {
+            Write-Host (
+                '[OUTDATED] no environment has been published; run ' +
+                "'$($Context.EntryCommand) .dev.setup'"
+            ) -ForegroundColor Red
+        }
+    }
+} catch {
+    Write-Host "[OUTDATED] $($_.Exception.Message)" -ForegroundColor Red
+}
+
 $BunDefinition = Get-ProjDevBunDefinition
 if ($null -eq $BunDefinition) {
     Write-Host '[OFF] bun is disabled.' -ForegroundColor DarkGray

@@ -45,6 +45,22 @@ try {
         -DataRoot (Join-Path $TemporaryRoot 'data') `
         -CacheDataRoot (Join-Path $TemporaryRoot 'shared cache')
 
+    $ChannelRoot = Join-Path $Context.CacheRoot 'msvc\17\manifests'
+    [void][IO.Directory]::CreateDirectory($ChannelRoot)
+    $InterruptedChannelRefresh = Join-Path $ChannelRoot (
+        '.channel-11111111111111111111111111111111.json'
+    )
+    $UnrelatedHiddenFile = Join-Path $ChannelRoot '.channel-not-a-guid.json'
+    [IO.File]::WriteAllText($InterruptedChannelRefresh, 'partial')
+    [IO.File]::WriteAllText($UnrelatedHiddenFile, 'preserve')
+    Remove-ProjDevMsvcChannelRefreshResidues `
+        -Root $ChannelRoot `
+        -ControlledRoot $Context.CacheDataRoot
+    Assert-ProjMsvcCacheTest `
+        -Condition (-not [IO.File]::Exists($InterruptedChannelRefresh) -and
+            [IO.File]::Exists($UnrelatedHiddenFile)) `
+        -Message 'MSVC channel refresh residue cleanup was not strict'
+
     $PayloadSource = Join-Path $TemporaryRoot 'payload.vsix'
     [IO.File]::WriteAllText($PayloadSource, 'payload-a')
     $Payload = [pscustomobject]@{

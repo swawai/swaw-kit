@@ -224,7 +224,8 @@ function Install-ProjDevMsvc {
             Write-Host "[EXT] $($Payload.LeafName)" -ForegroundColor DarkGray
             Expand-ProjDevMsvcVsix `
                 -ArchivePath $Path `
-                -Destination $StagedRoot
+                -Destination $StagedRoot `
+                -ControlledRoot $Context.DataRoot
         }
 
         $MsiPaths = [Collections.Generic.List[string]]::new()
@@ -279,7 +280,8 @@ function Install-ProjDevMsvc {
                 -Destination $StagedRoot `
                 -LogPath (Join-Path $MsiLogRoot (
                     "$([IO.Path]::GetFileName($MsiPath)).install.log"
-                ))
+                )) `
+                -ControlledRoot $Context.DataRoot
         }
 
         $Versions = Complete-ProjDevMsvcAssembly `
