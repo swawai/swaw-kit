@@ -11,6 +11,7 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_PROTOCOL',
+    'SWAWKIT_PROJ_HOME',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
@@ -43,6 +44,7 @@ try {
     $DataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
+        SWAWKIT_PROJ_HOME = $ProjectRoot
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $null
@@ -59,6 +61,12 @@ try {
         -EntryFile $EntryFile)
 
     $Context = New-ProjDevContextFromEnvironment
+    Assert-ProjBunTest `
+        -Condition ($Context.CacheDataRoot.Equals(
+            (Join-Path $ProjectRoot 'data\proj_cache'),
+            [StringComparison]::OrdinalIgnoreCase
+        )) `
+        -Message 'the production context did not derive the shared cache from the entry root'
     $Definition = Get-ProjDevBunDefinition
     $Definition.Sha256 = 'f' * 64
     $Definition.Verification = 'github'

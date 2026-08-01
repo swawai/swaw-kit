@@ -272,7 +272,7 @@ function Get-ProjDevVerifiedArchive {
         if ([IO.File]::Exists($CacheRoot)) {
             Remove-ProjDevControlledPath `
                 -Path $CacheRoot `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'repairing an invalid artifact cache'
         }
         [void][IO.Directory]::CreateDirectory($CacheRoot)
@@ -283,7 +283,7 @@ function Get-ProjDevVerifiedArchive {
         if ([IO.Directory]::Exists($ArchivePath)) {
             Remove-ProjDevControlledPath `
                 -Path $ArchivePath `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'repairing an invalid cached archive'
         }
 
@@ -298,7 +298,7 @@ function Get-ProjDevVerifiedArchive {
             if (-not $ValidCachedArchive) {
                 Remove-ProjDevControlledPath `
                     -Path $ArchivePath `
-                    -DataRoot $Context.DataRoot `
+                    -DataRoot $Context.CacheDataRoot `
                     -Activity 'removing a corrupt cached archive'
             }
         }
@@ -313,7 +313,7 @@ function Get-ProjDevVerifiedArchive {
             $Actual -cne $Expected) {
             Remove-ProjDevControlledPath `
                 -Path $ArchivePath `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'removing a download with the wrong checksum'
             throw "SHA-256 verification failed for: $ArchiveName"
         }
@@ -323,7 +323,7 @@ function Get-ProjDevVerifiedArchive {
         if (-not (Test-ProjDevZipArchive -Path $ArchivePath)) {
             Remove-ProjDevControlledPath `
                 -Path $ArchivePath `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'removing an invalid downloaded archive'
             throw "Downloaded archive is not a valid ZIP file: $ArchiveName"
         }

@@ -330,7 +330,7 @@ function Clear-ProjDevArtifactCache {
         if (Test-ProjDevPathExists -Path $CacheRoot) {
             Remove-ProjDevControlledPathWithRetry `
                 -Path $CacheRoot `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'resetting a failed artifact cache'
         }
     } finally {

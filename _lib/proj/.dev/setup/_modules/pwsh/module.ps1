@@ -1,18 +1,15 @@
 Set-StrictMode -Version 2.0
 
-# Bun declaration and environment contract shared by setup and .bun.
-$script:ProjDevBunManifestPath = Join-Path $PSScriptRoot 'module.psd1'
+$script:ProjDevPwshManifestPath = Join-Path $PSScriptRoot 'module.psd1'
 
-function Assert-ProjDevBunDictionaryKeys {
+function Assert-ProjDevPwshDictionaryKeys {
     param(
         [Parameter(Mandatory = $true)][Collections.IDictionary]$Dictionary,
         [Parameter(Mandatory = $true)][string[]]$Expected,
         [Parameter(Mandatory = $true)][string]$Description
     )
 
-    $Actual = [string[]]@($Dictionary.Keys | ForEach-Object {
-        [string]$_
-    })
+    $Actual = [string[]]@($Dictionary.Keys | ForEach-Object { [string]$_ })
     foreach ($Name in $Expected) {
         if ($Actual -cnotcontains $Name) {
             throw "$Description is missing '$Name'."
@@ -25,10 +22,10 @@ function Assert-ProjDevBunDictionaryKeys {
     }
 }
 
-function Assert-ProjDevBunManifest {
+function Assert-ProjDevPwshManifest {
     param([Parameter(Mandatory = $true)][Collections.IDictionary]$Manifest)
 
-    Assert-ProjDevBunDictionaryKeys `
+    Assert-ProjDevPwshDictionaryKeys `
         -Dictionary $Manifest `
         -Expected @(
             'Schema',
@@ -42,47 +39,47 @@ function Assert-ProjDevBunManifest {
             'RequiredPaths',
             'Release'
         ) `
-        -Description 'Bun module manifest'
+        -Description 'PowerShell module manifest'
     if ([string]$Manifest.Schema -cne 'swawkit.proj-dev.module.v0' -or
-        [string]$Manifest.Name -cne 'bun' -or
-        [string]$Manifest.ModeVariable -cne 'SWAWKIT_PROJ_BUN_MODE' -or
-        [string]$Manifest.VersionVariable -cne 'SWAWKIT_PROJ_BUN_VERSION' -or
-        [string]$Manifest.HashVariable -cne 'SWAWKIT_PROJ_BUN_SHA256' -or
-        [string]$Manifest.InstallMode -cne 'managed') {
-        throw 'The Bun module manifest identity is invalid.'
+        [string]$Manifest.Name -cne 'pwsh' -or
+        [string]$Manifest.ModeVariable -cne 'SWAWKIT_PROJ_PWSH_MODE' -or
+        [string]$Manifest.VersionVariable -cne 'SWAWKIT_PROJ_PWSH_VERSION' -or
+        [string]$Manifest.HashVariable -cne 'SWAWKIT_PROJ_PWSH_SHA256' -or
+        [string]$Manifest.InstallMode -cne 'managed' -or
+        [string]$Manifest.Executable -cne 'pwsh.exe') {
+        throw 'The PowerShell module manifest identity is invalid.'
     }
     if ($Manifest.Release -isnot [Collections.IDictionary]) {
-        throw 'The Bun module manifest must declare its release source.'
+        throw 'The PowerShell module manifest must declare its release source.'
     }
-    Assert-ProjDevBunDictionaryKeys `
+    Assert-ProjDevPwshDictionaryKeys `
         -Dictionary $Manifest.Release `
         -Expected @(
             'Provider',
             'Repository',
             'ApiVersion',
             'TagTemplate',
-            'Asset',
-            'ArchiveSubdir'
+            'AssetTemplate'
         ) `
-        -Description 'Bun release declaration'
+        -Description 'PowerShell release declaration'
     if ([string]$Manifest.Release.Provider -cne 'github' -or
-        [string]$Manifest.Release.Repository -cne 'oven-sh/bun' -or
+        [string]$Manifest.Release.Repository -cne 'PowerShell/PowerShell' -or
         [string]$Manifest.Release.ApiVersion -cnotmatch '^\d{4}-\d{2}-\d{2}$' -or
-        [string]$Manifest.Release.TagTemplate -cne 'bun-v{version}' -or
-        [string]$Manifest.Release.Asset -cne 'bun-windows-x64.zip' -or
-        [string]$Manifest.Release.ArchiveSubdir -cne 'bun-windows-x64') {
-        throw 'The Bun release declaration is invalid.'
+        [string]$Manifest.Release.TagTemplate -cne 'v{version}' -or
+        [string]$Manifest.Release.AssetTemplate -cne
+            'PowerShell-{version}-win-x64.zip') {
+        throw 'The PowerShell release declaration is invalid.'
     }
 }
 
-function Get-ProjDevBunManifest {
+function Get-ProjDevPwshManifest {
     $Manifest = Import-PowerShellDataFile `
-        -LiteralPath $script:ProjDevBunManifestPath
-    Assert-ProjDevBunManifest -Manifest $Manifest
+        -LiteralPath $script:ProjDevPwshManifestPath
+    Assert-ProjDevPwshManifest -Manifest $Manifest
     return $Manifest
 }
 
-function Get-ProjDevBunReleaseCoordinates {
+function Get-ProjDevPwshReleaseCoordinates {
     param(
         [Parameter(Mandatory = $true)][Collections.IDictionary]$Manifest,
         [Parameter(Mandatory = $true)][string]$Version
@@ -92,21 +89,26 @@ function Get-ProjDevBunReleaseCoordinates {
         '{version}',
         $Version
     )
+    $Asset = ([string]$Manifest.Release.AssetTemplate).Replace(
+        '{version}',
+        $Version
+    )
     return [pscustomobject][ordered]@{
         Tag = $Tag
+        Asset = $Asset
         Url = 'https://github.com/{0}/releases/download/{1}/{2}' -f
             [string]$Manifest.Release.Repository,
             $Tag,
-            [string]$Manifest.Release.Asset
+            $Asset
         SourceIdentity = 'github:{0}@{1}#{2}' -f
             [string]$Manifest.Release.Repository,
             $Tag,
-            [string]$Manifest.Release.Asset
+            $Asset
     }
 }
 
-function Get-ProjDevBunDefinition {
-    $Manifest = Get-ProjDevBunManifest
+function Get-ProjDevPwshDefinition {
+    $Manifest = Get-ProjDevPwshManifest
     $Mode = [string][Environment]::GetEnvironmentVariable(
         [string]$Manifest.ModeVariable,
         [EnvironmentVariableTarget]::Process
@@ -128,11 +130,12 @@ function Get-ProjDevBunDefinition {
     )
     $Version = $Version.Trim()
     if ([string]::IsNullOrWhiteSpace($Version)) {
-        throw "Enabled Bun must declare $($Manifest.VersionVariable)."
+        throw "Enabled PowerShell must declare $($Manifest.VersionVariable)."
     }
-    [void](Get-ProjDevSafeSegment `
-        -Value $Version `
-        -Description 'Bun version')
+    if ($Version -cne 'latest' -and
+        $Version -cnotmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
+        throw "Invalid PowerShell version '$Version'."
+    }
 
     $ProjectSha256 = [string][Environment]::GetEnvironmentVariable(
         [string]$Manifest.HashVariable,
@@ -152,16 +155,15 @@ function Get-ProjDevBunDefinition {
     if ($Version -ceq 'latest' -and
         -not [string]::IsNullOrWhiteSpace($ProjectSha256)) {
         throw (
-            'SWAWKIT_PROJ_BUN_VERSION=latest cannot be combined with ' +
-            'SWAWKIT_PROJ_BUN_SHA256. Use an exact Bun version when ' +
+            'SWAWKIT_PROJ_PWSH_VERSION=latest cannot be combined with ' +
+            'SWAWKIT_PROJ_PWSH_SHA256. Use an exact PowerShell version when ' +
             'pinning a project SHA-256.'
         )
     }
 
-    $Coordinates = Get-ProjDevBunReleaseCoordinates `
+    $Coordinates = Get-ProjDevPwshReleaseCoordinates `
         -Manifest $Manifest `
         -Version $Version
-
     return [pscustomobject][ordered]@{
         Schema = [string]$Manifest.Schema
         Name = [string]$Manifest.Name
@@ -178,7 +180,7 @@ function Get-ProjDevBunDefinition {
             'project'
         }
         Release = $Manifest.Release
-        ArchiveSubdir = [string]$Manifest.Release.ArchiveSubdir
+        ArchiveSubdir = ''
         RecipeVersion = [string]$Manifest.RecipeVersion
         Executable = [string]$Manifest.Executable
         RequiredPaths = [string[]]$Manifest.RequiredPaths
@@ -187,7 +189,7 @@ function Get-ProjDevBunDefinition {
     }
 }
 
-function Get-ProjDevBunTrustStatus {
+function Get-ProjDevPwshTrustStatus {
     param(
         [Parameter(Mandatory = $true)][object]$Context,
         [Parameter(Mandatory = $true)][object]$Definition
@@ -205,7 +207,6 @@ function Get-ProjDevBunTrustStatus {
             Metadata = $Metadata
         }
     }
-
     $Verification = if ($null -eq $Metadata) {
         [string]$Definition.Verification
     } else {
@@ -232,13 +233,13 @@ function Get-ProjDevBunTrustStatus {
     }
 }
 
-function Write-ProjDevBunTrustWarning {
+function Write-ProjDevPwshTrustWarning {
     param(
         [Parameter(Mandatory = $true)][object]$Context,
         [Parameter(Mandatory = $true)][object]$Definition
     )
 
-    $Trust = Get-ProjDevBunTrustStatus `
+    $Trust = Get-ProjDevPwshTrustStatus `
         -Context $Context `
         -Definition $Definition
     if ($Trust.Level -ceq 'pinned') {
@@ -246,26 +247,28 @@ function Write-ProjDevBunTrustWarning {
     }
     if ($Trust.Level -ceq 'upstream') {
         Write-Warning (
-            "Bun $($Definition.Version) was verified with the GitHub Release " +
-            'digest; SWAWKIT_PROJ_BUN_SHA256 is not pinned by this project.'
+            "PowerShell $($Definition.Version) was verified with the GitHub " +
+            'Release digest; SWAWKIT_PROJ_PWSH_SHA256 is not pinned by this ' +
+            'project.'
         )
         return
     }
     if ($null -eq $Trust.Metadata) {
         Write-Warning (
-            "Bun $($Definition.Version) is not pinned by " +
-            'SWAWKIT_PROJ_BUN_SHA256; .dev.setup will use the GitHub Release ' +
+            "PowerShell $($Definition.Version) is not pinned by " +
+            'SWAWKIT_PROJ_PWSH_SHA256; .dev.setup will use the GitHub Release ' +
             'digest when available.'
         )
         return
     }
     Write-Warning (
-        "Bun $($Definition.Version) has no comparable GitHub Release digest " +
-        'or project SHA-256; installation is allowed but not content-pinned.'
+        "PowerShell $($Definition.Version) has no comparable GitHub Release " +
+        'digest or project SHA-256; installation is allowed but not ' +
+        'content-pinned.'
     )
 }
 
-function Add-ProjDevBunEnvironment {
+function Add-ProjDevPwshEnvironment {
     param(
         [Parameter(Mandatory = $true)][object]$Context,
         [Parameter(Mandatory = $true)][object]$Definition,
@@ -277,90 +280,19 @@ function Add-ProjDevBunEnvironment {
         -Definition $Definition
     Set-ProjDevEnvironmentVariable `
         -Plan $Plan `
-        -Name 'SWAWKIT_DEV_BUN_MODE' `
+        -Name 'SWAWKIT_DEV_PWSH_MODE' `
         -Value ([string]$Definition.Mode)
     Set-ProjDevEnvironmentVariable `
         -Plan $Plan `
-        -Name 'SWAWKIT_DEV_BUN_VERSION' `
+        -Name 'SWAWKIT_DEV_PWSH_VERSION' `
         -Value ([string]$Definition.Version)
     Set-ProjDevEnvironmentVariable `
         -Plan $Plan `
-        -Name 'SWAWKIT_DEV_BUN_SIGNATURE' `
+        -Name 'SWAWKIT_DEV_PWSH_SIGNATURE' `
         -Value (Get-ProjDevDefinitionSignature -Definition $Definition)
     Set-ProjDevEnvironmentVariable `
         -Plan $Plan `
-        -Name 'SWAWKIT_DEV_BUN_HOME' `
+        -Name 'SWAWKIT_DEV_PWSH_HOME' `
         -Value $InstallRoot
     Add-ProjDevEnvironmentPath -Plan $Plan -Path $InstallRoot
-}
-
-function Assert-ProjDevBunEnvironmentCurrent {
-    param(
-        [Parameter(Mandatory = $true)][object]$Context,
-        [Parameter(Mandatory = $true)][object]$Definition
-    )
-
-    $InstallRoot = Get-ProjDevInstallRoot `
-        -Context $Context `
-        -Definition $Definition
-    $ExpectedSignature = Get-ProjDevDefinitionSignature `
-        -Definition $Definition
-    if ([string]$env:SWAWKIT_DEV_BUN_MODE -cne
-            [string]$Definition.Mode -or
-        [string]$env:SWAWKIT_DEV_BUN_VERSION -cne
-            [string]$Definition.Version -or
-        [string]$env:SWAWKIT_DEV_BUN_SIGNATURE -cne
-            $ExpectedSignature -or
-        [string]::IsNullOrWhiteSpace([string]$env:SWAWKIT_DEV_BUN_HOME) -or
-        -not (Get-ProjDevCanonicalPath -Path (
-            [string]$env:SWAWKIT_DEV_BUN_HOME
-        )).Equals(
-            (Get-ProjDevCanonicalPath -Path $InstallRoot),
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-        throw (
-            'The generated Bun environment does not match the project ' +
-            "declaration. Run '$($Context.EntryCommand) .dev.setup'."
-        )
-    }
-
-    $PathEntries = @(([string]$env:PATH).Split(
-        [IO.Path]::PathSeparator
-    ) | Where-Object {
-        -not [string]::IsNullOrWhiteSpace([string]$_)
-    })
-    if ($PathEntries.Count -eq 0) {
-        throw 'The generated Bun environment has an empty PATH.'
-    }
-    try {
-        $FirstPath = Get-ProjDevCanonicalPath -Path ([string]$PathEntries[0])
-    } catch {
-        throw 'The generated Bun environment has an invalid PATH prefix.'
-    }
-    if (-not $FirstPath.Equals(
-        (Get-ProjDevCanonicalPath -Path $InstallRoot),
-        [StringComparison]::OrdinalIgnoreCase
-    )) {
-        throw (
-            'The managed Bun directory is not first in PATH. Exit this shell ' +
-            'and start a new project shell.'
-        )
-    }
-}
-
-function Assert-ProjDevBunReady {
-    param(
-        [Parameter(Mandatory = $true)][object]$Context,
-        [Parameter(Mandatory = $true)][object]$Definition
-    )
-
-    if (-not (Test-ProjDevRunnable `
-        -Context $Context `
-        -Definition $Definition
-    )) {
-        throw (
-            'The managed Bun installation is missing or inconsistent. Run ' +
-            "'$($Context.EntryCommand) .dev.setup'."
-        )
-    }
 }

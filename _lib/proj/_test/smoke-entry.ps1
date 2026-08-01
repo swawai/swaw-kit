@@ -100,6 +100,8 @@ foreach ($Expected in @(
     'command              .info',
     'entryName            swawkit',
     "entryFile            $EntryPath",
+    "projHome             $RepoRoot",
+    "cacheRoot            $(Join-Path $RepoRoot 'data\proj_cache')",
     $RepoRoot,
     $ExpectedInvocationDirectory
 )) {

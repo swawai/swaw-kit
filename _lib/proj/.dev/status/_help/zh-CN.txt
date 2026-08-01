@@ -3,13 +3,18 @@
 用法:
   {{INVOCATION}}
 
-Bun 校验等级:
+Bun 与 PowerShell 校验等级:
   pinned      项目通过 SWAWKIT_PROJ_BUN_SHA256 锁定安装包
   upstream    安装时使用 GitHub Release digest 校验
   unpinned    上游与项目均未提供可比较的 SHA-256
 
+Bun 声明为 latest 时，显示项目已选择的精确版本；尚未首次 setup 时
+显示 unresolved。读取状态不会查询 GitHub，也不会隐式升级。
+PowerShell 的 latest 采用同一锁定语义，并从项目 dev_env/pwsh 读取选择记录。
+
 MSVC 固定显示 microsoft-manifest；工具链的每个下载制品均使用
-Visual Studio manifest 提供的 SHA-256 校验。
+Visual Studio manifest 提供的 SHA-256 校验。product manifest 本身按 channel
+身份定位，并记录实际下载字节的 SHA-256 以检测缓存损坏。
 
 Rust 显示声明的 toolchain 以及实际解析的 rustc/cargo 版本。
 rustup-init 使用 Rust 官方 SHA-256 sidecar 校验。

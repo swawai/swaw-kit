@@ -11,6 +11,7 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_PROTOCOL',
+    'SWAWKIT_PROJ_HOME',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
@@ -20,6 +21,10 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256',
+    'SWAWKIT_PROJ_UV_MODE',
+    'SWAWKIT_PROJ_PYTHON_MODE',
+    'SWAWKIT_PROJ_PWSH_MODE',
+    'SWAWKIT_PROJ_GO_MODE',
     'SWAWKIT_TEST_BUN_CAPTURE'
 )
 $EnvironmentSnapshot = Enter-ProjBunIsolatedEnvironment `
@@ -40,6 +45,7 @@ $SystemPowerShell = Join-Path $env:SystemRoot (
 try {
     $ProjectRoot = Join-Path $TemporaryRoot 'project'
     $DataRoot = Join-Path $TemporaryRoot 'data root'
+    $CacheDataRoot = Join-Path $TemporaryRoot 'shared cache'
     $FixtureRoot = Join-Path $TemporaryRoot 'fixture'
     $ArchiveRoot = Join-Path $FixtureRoot 'archive'
     $BunArchiveRoot = Join-Path $ArchiveRoot 'bun-windows-x64'
@@ -65,6 +71,7 @@ try {
     $Context = New-ProjDevContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
+        -CacheDataRoot $CacheDataRoot `
         -EntryCommand 'swawkit' `
         -InvocationDirectory $InvocationRoot
 
@@ -130,7 +137,8 @@ try {
     $UnpinnedDefinition.Verification = 'unverified'
     $UnpinnedContext = New-ProjDevContext `
         -ProjectRoot $ProjectRoot `
-        -DataRoot (Join-Path $TemporaryRoot 'unpinned-data')
+        -DataRoot (Join-Path $TemporaryRoot 'unpinned-data') `
+        -CacheDataRoot $CacheDataRoot
     Assert-ProjBunTest `
         -Condition (Install-ProjDevBun `
             -Context $UnpinnedContext `
@@ -195,7 +203,8 @@ try {
     $BadDataRoot = Join-Path $TemporaryRoot 'bad-data'
     $BadContext = New-ProjDevContext `
         -ProjectRoot $ProjectRoot `
-        -DataRoot $BadDataRoot
+        -DataRoot $BadDataRoot `
+        -CacheDataRoot $CacheDataRoot
     $BadDefinition = New-ProjBunTestDefinition `
         -ArchivePath $ArchivePath `
         -Sha256 ('0' * 64)
@@ -221,6 +230,25 @@ try {
             -Definition $Definition)) `
         -Message 'installed-file corruption was not detected'
     [IO.File]::Delete($ArchivePath)
+    $PeerContext = New-ProjDevContext `
+        -ProjectRoot $ProjectRoot `
+        -DataRoot (Join-Path $TemporaryRoot 'peer project data') `
+        -CacheDataRoot $CacheDataRoot
+    Assert-ProjBunTest `
+        -Condition (Install-ProjDevBun `
+            -Context $PeerContext `
+            -Definition $Definition) `
+        -Message 'a second project did not reuse the shared verified cache'
+    Assert-ProjBunTest `
+        -Condition ($PeerContext.CacheRoot.Equals(
+            $Context.CacheRoot,
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+            -not $PeerContext.DataRoot.Equals(
+                $Context.DataRoot,
+                [StringComparison]::OrdinalIgnoreCase
+            )) `
+        -Message 'the cache remained scoped to a project DataRoot'
     Assert-ProjBunTest `
         -Condition (Install-ProjDevBun `
             -Context $Context `
@@ -243,6 +271,7 @@ try {
     $HelpDataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
+        SWAWKIT_PROJ_HOME = $ProjectRoot
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $null
@@ -290,6 +319,25 @@ try {
                 -Path (Join-Path $SetupDataRoot 'dev_env\env.ps1')
             ) -ceq $SetupEnvHash) `
         -Message '.dev.setup accepted arguments or changed state after rejection'
+
+    $PendingDataRoot = Join-Path $TemporaryRoot 'pending setup data'
+    $env:SWAWKIT_PROJ_DATA_ROOT = $PendingDataRoot
+    $env:SWAWKIT_PROJ_GO_MODE = 'managed'
+    $PendingSetup = Invoke-ProjBunEntryFixture `
+        -PowerShell $SystemPowerShell `
+        -EntryPath $SetupEntry `
+        -Arguments @()
+    Assert-ProjBunTest `
+        -Condition ($PendingSetup.ExitCode -eq 1 -and
+            $PendingSetup.Output.Contains(
+                '.dev.setup does not yet handle these enabled declarations: go.'
+            ) -and
+            -not [IO.Directory]::Exists($PendingDataRoot) -and
+            -not [IO.Directory]::Exists(
+                (Join-Path $ProjectRoot 'data\proj_cache')
+            )) `
+        -Message 'an unsupported enabled module did not fail before side effects'
+    $env:SWAWKIT_PROJ_GO_MODE = 'disabled'
 
     Assert-ProjBunTest `
         -Condition (

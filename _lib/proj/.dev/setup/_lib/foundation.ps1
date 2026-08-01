@@ -49,12 +49,14 @@ function New-ProjDevContext {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
         [Parameter(Mandatory = $true)][string]$DataRoot,
+        [Parameter(Mandatory = $true)][string]$CacheDataRoot,
         [string]$EntryCommand = 'swawkit',
         [AllowNull()][string]$InvocationDirectory = $null
     )
 
     $ResolvedProjectRoot = Get-ProjDevFullPath -Path $ProjectRoot
     $ResolvedDataRoot = Get-ProjDevFullPath -Path $DataRoot
+    $ResolvedCacheDataRoot = Get-ProjDevFullPath -Path $CacheDataRoot
     if (-not [IO.Directory]::Exists($ResolvedProjectRoot)) {
         throw "Declared project directory does not exist: $ResolvedProjectRoot"
     }
@@ -74,13 +76,14 @@ function New-ProjDevContext {
         ProjectRoot = $ResolvedProjectRoot
         CanonicalProjectRoot = Get-ProjDevCanonicalPath -Path $ResolvedProjectRoot
         DataRoot = $ResolvedDataRoot
+        CacheDataRoot = $ResolvedCacheDataRoot
         EnvironmentRoot = $EnvironmentRoot
         EnvCmdPath = Join-Path $EnvironmentRoot 'env.cmd'
         EnvPs1Path = Join-Path $EnvironmentRoot 'env.ps1'
-        CacheRoot = Join-Path $ResolvedDataRoot 'cache\downloads'
+        CacheRoot = Join-Path $ResolvedCacheDataRoot 'downloads'
         LockRoot = $LockRoot
         SetupLockPath = Join-Path $LockRoot 'dev-setup.lock'
-        ArtifactLockRoot = Join-Path $LockRoot 'artifacts'
+        ArtifactLockRoot = Join-Path $ResolvedCacheDataRoot '_locks'
         EntryCommand = $EntryCommand
         InvocationDirectory = $ResolvedInvocationDirectory
     }
@@ -95,9 +98,16 @@ function New-ProjDevContextFromEnvironment {
         'SWAWKIT_INVOCATION_DIR',
         [EnvironmentVariableTarget]::Process
     )
+    $ProjHome = Get-ProjDevFullPath -Path (
+        Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_HOME'
+    )
+    if (-not [IO.Directory]::Exists($ProjHome)) {
+        throw "Declared Swaw Kit Proj home does not exist: $ProjHome"
+    }
     return New-ProjDevContext `
         -ProjectRoot (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_DIR') `
         -DataRoot (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_DATA_ROOT') `
+        -CacheDataRoot (Join-Path $ProjHome 'data\proj_cache') `
         -EntryCommand (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_ENTRY_COMMAND') `
         -InvocationDirectory $InvocationDirectory
 }

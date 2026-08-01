@@ -211,6 +211,9 @@ function Install-ProjDevMsvc {
     $StagedRoot = New-ProjDevInstallWorkPath `
         -TargetPath $Target `
         -Kind 'partial'
+    $MsiSourceRoot = New-ProjDevInstallWorkPath `
+        -TargetPath $Target `
+        -Kind 'work'
     [void][IO.Directory]::CreateDirectory($StagedRoot)
     try {
         foreach ($Payload in [object[]]$Recipe.ToolPayloads) {
@@ -238,9 +241,14 @@ function Install-ProjDevMsvc {
                 -Context $Context `
                 -Definition $Definition `
                 -Payload $Payload
-            $MsiPaths.Add($Path)
+            $MsiPath = Copy-ProjDevMsvcPayloadToSourceRoot `
+                -Context $Context `
+                -Payload $Payload `
+                -VerifiedPath $Path `
+                -SourceRoot $MsiSourceRoot
+            $MsiPaths.Add($MsiPath)
             foreach ($CabName in Get-ProjDevMsvcCabNames `
-                -MsiPath $Path `
+                -MsiPath $MsiPath `
                 -CandidateNames $CabCandidates) {
                 [void]$CabNames.Add($CabName)
             }
@@ -249,18 +257,29 @@ function Install-ProjDevMsvc {
             $Payload = Get-ProjDevMsvcSdkPayload `
                 -Recipe $Recipe `
                 -LeafName $CabName
-            [void](Get-ProjDevMsvcVerifiedPayload `
+            $Path = Get-ProjDevMsvcVerifiedPayload `
                 -Context $Context `
                 -Definition $Definition `
-                -Payload $Payload)
+                -Payload $Payload
+            [void](Copy-ProjDevMsvcPayloadToSourceRoot `
+                -Context $Context `
+                -Payload $Payload `
+                -VerifiedPath $Path `
+                -SourceRoot $MsiSourceRoot)
         }
+        $MsiLogRoot = Join-Path (
+            Join-Path $Context.EnvironmentRoot 'msvc'
+        ) '_logs'
         foreach ($MsiPath in $MsiPaths) {
             Write-Host (
                 "[MSI] $([IO.Path]::GetFileName($MsiPath))"
             ) -ForegroundColor DarkGray
             Invoke-ProjDevMsvcAdministrativeInstall `
                 -MsiPath $MsiPath `
-                -Destination $StagedRoot
+                -Destination $StagedRoot `
+                -LogPath (Join-Path $MsiLogRoot (
+                    "$([IO.Path]::GetFileName($MsiPath)).install.log"
+                ))
         }
 
         $Versions = Complete-ProjDevMsvcAssembly `
@@ -288,7 +307,7 @@ function Install-ProjDevMsvc {
     } finally {
         Remove-ProjDevInstallResidues `
             -Context $Context `
-            -Paths @($StagedRoot) `
+            -Paths @($StagedRoot, $MsiSourceRoot) `
             -Activity 'cleaning MSVC installation work data'
     }
 }

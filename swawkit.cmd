@@ -11,6 +11,7 @@ set "SWAWKIT_PROJ_DEFAULT_IDE=code"
 
 :: Optional portable development environment
 set "SWAWKIT_PROJ_BUN_MODE=managed"
+:: Version examples: latest (resolved once by .dev.setup) | 1.2.15
 set "SWAWKIT_PROJ_BUN_VERSION=1.2.15"
 :: Optional: pin the exact Bun release archive.
 set "SWAWKIT_PROJ_BUN_SHA256="
@@ -33,7 +34,10 @@ set "SWAWKIT_PROJ_MSVC_MODE=managed"
 set "SWAWKIT_PROJ_MSVC_CHANNEL=17"
 
 set "SWAWKIT_PROJ_PWSH_MODE=managed"
-set "SWAWKIT_PROJ_PWSH_VERSION=7.5.2"
+:: Version examples: latest (resolved once by .dev.setup) | 7.6.4
+set "SWAWKIT_PROJ_PWSH_VERSION=latest"
+:: Optional: pin the exact PowerShell release archive.
+set "SWAWKIT_PROJ_PWSH_SHA256="
 
 set "SWAWKIT_PROJ_GO_MODE=disabled"
 :: set "SWAWKIT_PROJ_GO_VERSION=1.22.4"

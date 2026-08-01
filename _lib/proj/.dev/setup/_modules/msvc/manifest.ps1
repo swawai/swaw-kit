@@ -199,25 +199,60 @@ function Get-ProjDevMsvcProductManifestPath {
         )
     ) 'manifests'
     [void][IO.Directory]::CreateDirectory($Root)
+    $ManifestIdentity = ([string]$Payload.Sha256).Trim().ToLowerInvariant()
+    if ($ManifestIdentity -cnotmatch '^[a-f0-9]{64}$') {
+        throw 'The Visual Studio product manifest has an invalid identity.'
+    }
     $Path = Join-Path $Root (
-        "VisualStudio.$($Payload.Sha256.Substring(0, 16)).vsman"
+        "VisualStudio.$($ManifestIdentity.Substring(0, 16)).vsman"
     )
-    if ($Refresh -and [IO.File]::Exists($Path)) {
-        Remove-ProjDevControlledPath `
-            -Path $Path `
-            -DataRoot $Context.DataRoot `
-            -Activity 'refreshing the Visual Studio product manifest'
+    $DigestPath = "$Path.actual.sha256"
+    $Lock = Enter-ProjDevFileLock -Path (
+        Join-Path $Context.ArtifactLockRoot (
+            "msvc-manifest-$ManifestIdentity.lock"
+        )
+    )
+    try {
+        if ($Refresh) {
+            foreach ($RefreshPath in @($Path, $DigestPath)) {
+                Remove-ProjDevControlledPath `
+                    -Path $RefreshPath `
+                    -DataRoot $Context.CacheDataRoot `
+                    -Activity 'refreshing the Visual Studio product manifest'
+            }
+        }
+        if ([IO.File]::Exists($Path) -and
+            [IO.File]::Exists($DigestPath)) {
+            $RecordedDigest = [IO.File]::ReadAllText($DigestPath).
+                Trim().ToLowerInvariant()
+            if ($RecordedDigest -cnotmatch '^[a-f0-9]{64}$' -or
+                (Get-ProjDevFileSha256 -Path $Path) -cne $RecordedDigest) {
+                foreach ($CorruptPath in @($Path, $DigestPath)) {
+                    Remove-ProjDevControlledPath `
+                        -Path $CorruptPath `
+                        -DataRoot $Context.CacheDataRoot `
+                        -Activity (
+                            'removing a corrupt Visual Studio product manifest'
+                        )
+                }
+            }
+        }
+        if (-not [IO.File]::Exists($Path)) {
+            Invoke-ProjDevDownload `
+                -Source ([string]$Payload.Url) `
+                -Destination $Path
+        }
+        if (-not [IO.File]::Exists($Path) -or
+            (Get-Item -LiteralPath $Path).Length -le 0) {
+            throw 'The downloaded Visual Studio product manifest is empty.'
+        }
+        Write-ProjDevTextAtomic `
+            -Path $DigestPath `
+            -Content "$(Get-ProjDevFileSha256 -Path $Path)`r`n"
+        return $Path
+    } finally {
+        $Lock.Dispose()
     }
-    if (-not [IO.File]::Exists($Path)) {
-        Invoke-ProjDevDownload `
-            -Source ([string]$Payload.Url) `
-            -Destination $Path
-    }
-    if (-not [IO.File]::Exists($Path) -or
-        (Get-Item -LiteralPath $Path).Length -le 0) {
-        throw 'The downloaded Visual Studio product manifest is empty.'
-    }
-    return $Path
 }
 
 function Read-ProjDevMsvcJsonFile {
@@ -252,6 +287,11 @@ function Get-ProjDevMsvcChannelData {
     $RefreshPath = Join-Path $Root (
         ".channel-$([Guid]::NewGuid().ToString('N')).json"
     )
+    $Lock = Enter-ProjDevFileLock -Path (
+        Join-Path $Context.ArtifactLockRoot (
+            "msvc-channel-$($Definition.Channel).lock"
+        )
+    )
     try {
         try {
             Invoke-ProjDevDownload `
@@ -280,8 +320,12 @@ function Get-ProjDevMsvcChannelData {
                 -Description 'cached Visual Studio channel'
         }
     } finally {
-        if ([IO.File]::Exists($RefreshPath)) {
-            [IO.File]::Delete($RefreshPath)
+        try {
+            if ([IO.File]::Exists($RefreshPath)) {
+                [IO.File]::Delete($RefreshPath)
+            }
+        } finally {
+            $Lock.Dispose()
         }
     }
 }

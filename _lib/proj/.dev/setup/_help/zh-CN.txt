@@ -3,8 +3,9 @@
 用法:
   {{INVOCATION}}
 
-当前 V0 处理 Bun、MSVC 与 Rust。安装位置:
+当前 V0 处理 Bun、PowerShell、MSVC 与 Rust。安装位置:
   SWAWKIT_PROJ_DATA_ROOT/dev_env/bun/installs/<version>
+  SWAWKIT_PROJ_DATA_ROOT/dev_env/pwsh/installs/<version>
   SWAWKIT_PROJ_DATA_ROOT/dev_env/msvc/installs/<channel>
   SWAWKIT_PROJ_DATA_ROOT/dev_env/rust/installs/<toolchain>
 
@@ -12,14 +13,27 @@
   SWAWKIT_PROJ_DATA_ROOT/dev_env/env.cmd
   SWAWKIT_PROJ_DATA_ROOT/dev_env/env.ps1
 
-该命令不接受动态参数，也不修改用户或系统 PATH。
+同一 Swaw Kit Home 下的入口共享经过校验的下载缓存:
+  SWAWKIT_PROJ_HOME/data/proj_cache/downloads
 
-Bun 默认通过 GitHub Release API 解析指定版本并使用可用的 digest 校验。
+该命令不接受动态参数，也不修改用户或系统 PATH。
+任何已启用但尚未实现的开发模块声明都会在下载前报错并终止。
+
+Bun 支持精确版本或 latest。latest 只在首次 setup 时解析为精确版本；
+选择记录在项目 dev_env/bun 中，重复 setup 不会隐式升级。
+GitHub Release API 提供的 digest 可用时会用于校验。
 可在 swawkit.cmd 中设置 SWAWKIT_PROJ_BUN_SHA256 进一步锁定安装包；
-未设置时只给出黄色提示，不阻塞安装。
+未设置时只给出黄色提示，不阻塞安装。latest 不能与固定 SHA 同时声明；
+需要固定 SHA 时应同时声明精确版本。
+
+PowerShell 支持精确版本或 latest，语义与 Bun 相同：首次 setup 通过官方
+GitHub Release API 将 latest 解析并锁定为精确版本，重复 setup 不会隐式升级。
+Windows x64 资产名称随版本生成，GitHub digest 可用时会用于校验；也可在
+swawkit.cmd 中通过 SWAWKIT_PROJ_PWSH_SHA256 锁定精确版本的安装包。
 
 MSVC 通过 Visual Studio channel 自动解析最新版 x64 工具链和 Windows SDK。
-所有 VSIX、MSI、CAB 均使用微软 manifest 提供的 SHA-256 校验，
+product manifest 以 channel 身份和实际内容哈希缓存；所有 VSIX、MSI、CAB
+均使用微软 manifest 提供的 SHA-256 严格校验，
 项目只需声明 SWAWKIT_PROJ_MSVC_CHANNEL，不维护版本链接或 hash。
 
 Rust 通过 rustup 安装到隔离的 CARGO_HOME/RUSTUP_HOME，不修改用户 PATH。

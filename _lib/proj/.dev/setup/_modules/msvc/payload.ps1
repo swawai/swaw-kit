@@ -56,31 +56,42 @@ function Get-ProjDevMsvcVerifiedPayload {
     $CacheRoot = Get-ProjDevMsvcPayloadCacheRoot `
         -Context $Context `
         -Definition $Definition
-    [void][IO.Directory]::CreateDirectory($CacheRoot)
     $SafeName = [string]$Payload.LeafName
     if ([string]::IsNullOrWhiteSpace($SafeName) -or
         $SafeName -in @('.', '..') -or
         $SafeName.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0) {
         throw "Invalid Microsoft payload file name: $SafeName"
     }
-    $Path = Join-Path $CacheRoot $SafeName
+    $PayloadSha256 = ([string]$Payload.Sha256).Trim().ToLowerInvariant()
+    if ($PayloadSha256 -cnotmatch '^[a-f0-9]{64}$') {
+        throw "Invalid Microsoft payload SHA-256 for: $SafeName"
+    }
+    $PayloadRoot = Join-Path $CacheRoot $PayloadSha256
     $Lock = Enter-ProjDevFileLock -Path (
-        Join-Path $Context.ArtifactLockRoot "msvc-$($Payload.Sha256).lock"
+        Join-Path $Context.ArtifactLockRoot "msvc-$PayloadSha256.lock"
     )
     try {
+        if ([IO.File]::Exists($PayloadRoot)) {
+            Remove-ProjDevControlledPath `
+                -Path $PayloadRoot `
+                -DataRoot $Context.CacheDataRoot `
+                -Activity 'repairing an invalid MSVC payload cache root'
+        }
+        [void][IO.Directory]::CreateDirectory($PayloadRoot)
+        $Path = Join-Path $PayloadRoot $SafeName
         if ([IO.Directory]::Exists($Path)) {
             Remove-ProjDevControlledPath `
                 -Path $Path `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'repairing an invalid MSVC payload cache'
         }
         if ([IO.File]::Exists($Path)) {
             $Valid = (Get-ProjDevFileSha256 -Path $Path) -ceq
-                [string]$Payload.Sha256
+                $PayloadSha256
             if (-not $Valid) {
                 Remove-ProjDevControlledPath `
                     -Path $Path `
-                    -DataRoot $Context.DataRoot `
+                    -DataRoot $Context.CacheDataRoot `
                     -Activity 'removing a corrupt MSVC payload'
             }
         }
@@ -90,10 +101,10 @@ function Get-ProjDevMsvcVerifiedPayload {
                 -Destination $Path
         }
         if ((Get-ProjDevFileSha256 -Path $Path) -cne
-            [string]$Payload.Sha256) {
+            $PayloadSha256) {
             Remove-ProjDevControlledPath `
                 -Path $Path `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'removing an unverified MSVC payload'
             throw "Microsoft payload verification failed: $SafeName"
         }
@@ -101,6 +112,45 @@ function Get-ProjDevMsvcVerifiedPayload {
     } finally {
         $Lock.Dispose()
     }
+}
+
+function Copy-ProjDevMsvcPayloadToSourceRoot {
+    param(
+        [Parameter(Mandatory = $true)][object]$Context,
+        [Parameter(Mandatory = $true)][object]$Payload,
+        [Parameter(Mandatory = $true)][string]$VerifiedPath,
+        [Parameter(Mandatory = $true)][string]$SourceRoot
+    )
+
+    $SourceRoot = Assert-ProjDevPathInsideDataRoot `
+        -Path $SourceRoot `
+        -DataRoot $Context.DataRoot `
+        -Activity 'staging MSVC installer sources'
+    [void][IO.Directory]::CreateDirectory($SourceRoot)
+    $Destination = Resolve-ProjDevChildPath `
+        -Root $SourceRoot `
+        -RelativePath ([string]$Payload.LeafName) `
+        -Description 'MSVC installer source'
+    $ExpectedSha256 = ([string]$Payload.Sha256).Trim().ToLowerInvariant()
+    if ([IO.File]::Exists($Destination)) {
+        if ((Get-ProjDevFileSha256 -Path $Destination) -cne
+            $ExpectedSha256) {
+            throw (
+                'Conflicting MSVC installer source file: ' +
+                [string]$Payload.LeafName
+            )
+        }
+        return $Destination
+    }
+    [IO.File]::Copy($VerifiedPath, $Destination, $false)
+    if ((Get-ProjDevFileSha256 -Path $Destination) -cne $ExpectedSha256) {
+        Remove-ProjDevControlledPath `
+            -Path $Destination `
+            -DataRoot $Context.DataRoot `
+            -Activity 'removing an invalid MSVC installer source copy'
+        throw "MSVC installer source copy verification failed: $Destination"
+    }
+    return $Destination
 }
 
 function Expand-ProjDevMsvcVsix {
@@ -198,7 +248,8 @@ function Get-ProjDevMsvcCabNames {
 function Invoke-ProjDevMsvcAdministrativeInstall {
     param(
         [Parameter(Mandatory = $true)][string]$MsiPath,
-        [Parameter(Mandatory = $true)][string]$Destination
+        [Parameter(Mandatory = $true)][string]$Destination,
+        [Parameter(Mandatory = $true)][string]$LogPath
     )
 
     $MsiExec = Join-Path $env:SystemRoot 'System32\msiexec.exe'
@@ -206,7 +257,9 @@ function Invoke-ProjDevMsvcAdministrativeInstall {
         throw "Windows Installer is unavailable: $MsiExec"
     }
     [void][IO.Directory]::CreateDirectory($Destination)
-    $LogPath = "$MsiPath.install.log"
+    [void][IO.Directory]::CreateDirectory(
+        (Split-Path -Path $LogPath -Parent)
+    )
     if ([IO.File]::Exists($LogPath)) {
         [IO.File]::Delete($LogPath)
     }

@@ -125,6 +125,18 @@ try {
         } `
         -Pattern "*must contain exactly one 'bun-windows-x64.zip' asset*"
 
+    Assert-ProjBunThrows `
+        -Action {
+            $BadDigestDefinition = Get-ProjDevBunDefinition
+            [void](Resolve-ProjDevBunRelease `
+                -Definition $BadDigestDefinition `
+                -Release (New-ProjBunReleaseFixture `
+                    -Tag 'bun-v1.3.14' `
+                    -Asset 'bun-windows-x64.zip' `
+                    -Digest 'sha256:not-a-digest'))
+        } `
+        -Pattern '*GitHub returned an invalid digest for Bun*'
+
     Write-Host '[PASS] Proj Bun GitHub release resolver test' `
         -ForegroundColor Green
 } finally {

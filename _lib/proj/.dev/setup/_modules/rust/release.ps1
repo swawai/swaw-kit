@@ -48,7 +48,7 @@ function Receive-ProjDevRustupChecksum {
         [IO.Directory]::Exists($ChecksumPath)) {
         Remove-ProjDevControlledPath `
             -Path $ChecksumPath `
-            -DataRoot $Context.DataRoot `
+            -DataRoot $Context.CacheDataRoot `
             -Activity 'refreshing the rustup checksum cache'
     }
     Invoke-ProjDevDownload `
@@ -58,7 +58,7 @@ function Receive-ProjDevRustupChecksum {
     if ([string]::IsNullOrWhiteSpace($Expected)) {
         Remove-ProjDevControlledPath `
             -Path $ChecksumPath `
-            -DataRoot $Context.DataRoot `
+            -DataRoot $Context.CacheDataRoot `
             -Activity 'removing an invalid rustup checksum'
         throw 'The official rustup-init SHA-256 sidecar is invalid.'
     }
@@ -87,7 +87,7 @@ function Get-ProjDevVerifiedRustupInstaller {
         if ([IO.File]::Exists($CacheRoot)) {
             Remove-ProjDevControlledPath `
                 -Path $CacheRoot `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'repairing the rustup cache root'
         }
         [void][IO.Directory]::CreateDirectory($CacheRoot)
@@ -103,14 +103,14 @@ function Get-ProjDevVerifiedRustupInstaller {
         if ([IO.Directory]::Exists($InstallerPath)) {
             Remove-ProjDevControlledPath `
                 -Path $InstallerPath `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'repairing the rustup installer cache'
         }
         if ([IO.File]::Exists($InstallerPath) -and
             (Get-ProjDevFileSha256 -Path $InstallerPath) -cne $Expected) {
             Remove-ProjDevControlledPath `
                 -Path $InstallerPath `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'removing an unverified rustup installer'
         }
         if (-not [IO.File]::Exists($InstallerPath)) {
@@ -128,7 +128,7 @@ function Get-ProjDevVerifiedRustupInstaller {
         if ($Actual -cne $Expected) {
             Remove-ProjDevControlledPath `
                 -Path $InstallerPath `
-                -DataRoot $Context.DataRoot `
+                -DataRoot $Context.CacheDataRoot `
                 -Activity 'removing a rustup installer with the wrong checksum'
             throw 'SHA-256 verification failed for rustup-init.exe.'
         }

@@ -13,6 +13,9 @@ if ($null -eq $BunDefinition) {
         "and run '$($Context.EntryCommand) .dev.setup'."
     )
 }
+$BunDefinition = Get-ProjDevBunResolvedDefinition `
+    -Context $Context `
+    -Definition $BunDefinition
 
 Assert-ProjDevWindowsX64 -ToolName 'Bun'
 $AlreadyActive = Assert-ProjDevActiveEnvironmentCompatible -Context $Context

@@ -48,7 +48,8 @@ try {
     [void][IO.Directory]::CreateDirectory($DataRoot)
     $Context = New-ProjDevContext `
         -ProjectRoot $ProjectRoot `
-        -DataRoot $DataRoot
+        -DataRoot $DataRoot `
+        -CacheDataRoot (Join-Path $TemporaryRoot 'shared cache')
     $Definition = [pscustomobject]@{ Name = 'fixture' }
     $Target = Join-Path $Context.EnvironmentRoot 'fixture\installs\v1'
     $Parent = Split-Path -Path $Target -Parent

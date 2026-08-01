@@ -13,25 +13,82 @@ $BunDefinition = Get-ProjDevBunDefinition
 if ($null -eq $BunDefinition) {
     Write-Host '[OFF] bun is disabled.' -ForegroundColor DarkGray
 } else {
-    $Trust = Get-ProjDevBunTrustStatus `
+    $DeclaredBunDefinition = $BunDefinition
+    $BunDefinition = Find-ProjDevBunResolvedDefinition `
         -Context $Context `
         -Definition $BunDefinition
-    $Ready = $null -ne $Trust.Metadata -and
-        (Test-ProjDevInstalled `
+    if ($null -eq $BunDefinition) {
+        Write-Host (
+            '[MISSING] bun latest unresolved; run ' +
+            "'$($Context.EntryCommand) .dev.setup'"
+        ) -ForegroundColor Yellow
+    } else {
+        $Trust = Get-ProjDevBunTrustStatus `
             -Context $Context `
-            -Definition $BunDefinition)
-    $State = if ($Ready) { 'ready' } else { 'missing' }
-    $Color = if ($Ready) { 'Green' } else { 'Yellow' }
-    Write-Host (
-        "[{0}] bun {1}  {2}  {3}" -f
-            $State.ToUpperInvariant(),
-            $BunDefinition.Version,
-            $Trust.Level,
-            $Trust.Message
-    ) -ForegroundColor $Color
-    Write-ProjDevBunTrustWarning `
+            -Definition $BunDefinition
+        $Ready = $null -ne $Trust.Metadata -and
+            (Test-ProjDevInstalled `
+                -Context $Context `
+                -Definition $BunDefinition)
+        $State = if ($Ready) { 'ready' } else { 'missing' }
+        $Color = if ($Ready) { 'Green' } else { 'Yellow' }
+        $VersionLabel = if (
+            [string]$DeclaredBunDefinition.RequestedVersion -ceq 'latest'
+        ) {
+            "latest -> $($BunDefinition.Version)"
+        } else {
+            [string]$BunDefinition.Version
+        }
+        Write-Host (
+            "[{0}] bun {1}  {2}  {3}" -f
+                $State.ToUpperInvariant(),
+                $VersionLabel,
+                $Trust.Level,
+                $Trust.Message
+        ) -ForegroundColor $Color
+        Write-ProjDevBunTrustWarning `
+            -Context $Context `
+            -Definition $BunDefinition
+    }
+}
+
+$PwshDefinition = Get-ProjDevPwshDefinition
+if ($null -eq $PwshDefinition) {
+    Write-Host '[OFF] pwsh is disabled.' -ForegroundColor DarkGray
+} else {
+    $DeclaredPwshDefinition = $PwshDefinition
+    $PwshDefinition = Find-ProjDevPwshResolvedDefinition `
         -Context $Context `
-        -Definition $BunDefinition
+        -Definition $PwshDefinition
+    if ($null -eq $PwshDefinition) {
+        Write-Host (
+            '[MISSING] pwsh latest unresolved; run ' +
+            "'$($Context.EntryCommand) .dev.setup'"
+        ) -ForegroundColor Yellow
+    } else {
+        $Trust = Get-ProjDevPwshTrustStatus `
+            -Context $Context `
+            -Definition $PwshDefinition
+        $Ready = $null -ne $Trust.Metadata -and
+            (Test-ProjDevInstalled `
+                -Context $Context `
+                -Definition $PwshDefinition)
+        $State = if ($Ready) { 'READY' } else { 'MISSING' }
+        $Color = if ($Ready) { 'Green' } else { 'Yellow' }
+        $VersionLabel = if (
+            [string]$DeclaredPwshDefinition.RequestedVersion -ceq 'latest'
+        ) {
+            "latest -> $($PwshDefinition.Version)"
+        } else {
+            [string]$PwshDefinition.Version
+        }
+        Write-Host (
+            "[$State] pwsh $VersionLabel  $($Trust.Level)  $($Trust.Message)"
+        ) -ForegroundColor $Color
+        Write-ProjDevPwshTrustWarning `
+            -Context $Context `
+            -Definition $PwshDefinition
+    }
 }
 
 $MsvcDefinition = Get-ProjDevMsvcDefinition

@@ -152,6 +152,7 @@ function New-ProjBunTestDefinition {
         Schema = 'swawkit.proj-dev.module.v0'
         Name = 'bun'
         Mode = 'managed'
+        RequestedVersion = '1.2.15'
         Version = '1.2.15'
         Url = $ArchivePath
         SourceIdentity = "fixture:$ArchivePath"
@@ -165,6 +166,8 @@ function New-ProjBunTestDefinition {
         RecipeVersion = 'fixture-1'
         Executable = 'bun.exe'
         RequiredPaths = [string[]]@('bun.exe', 'bunx.cmd')
+        ReleaseResolved = $true
+        SelectionStatus = 'none'
     }
 }
 

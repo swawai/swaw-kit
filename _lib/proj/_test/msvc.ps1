@@ -291,7 +291,8 @@ try {
     [void][IO.Directory]::CreateDirectory($ProjectRoot)
     $Context = New-ProjDevContext `
         -ProjectRoot $ProjectRoot `
-        -DataRoot $DataRoot
+        -DataRoot $DataRoot `
+        -CacheDataRoot (Join-Path $TemporaryRoot 'shared cache')
     $TargetRoot = Get-ProjDevMsvcInstallRoot `
         -Context $Context `
         -Definition $Definition

@@ -1,7 +1,6 @@
 Set-StrictMode -Version 2.0
 
-# Bun installation recipe used only by .dev.setup.
-function Invoke-ProjDevBunVersionProbe {
+function Invoke-ProjDevPwshVersionProbe {
     param(
         [Parameter(Mandatory = $true)][string]$Executable,
         [Parameter(Mandatory = $true)][string]$WorkingDirectory
@@ -9,7 +8,7 @@ function Invoke-ProjDevBunVersionProbe {
 
     $StartInfo = [Diagnostics.ProcessStartInfo]::new()
     $StartInfo.FileName = $Executable
-    $StartInfo.Arguments = '--version'
+    $StartInfo.Arguments = '-Version'
     $StartInfo.WorkingDirectory = $WorkingDirectory
     $StartInfo.UseShellExecute = $false
     $StartInfo.CreateNoWindow = $true
@@ -18,19 +17,15 @@ function Invoke-ProjDevBunVersionProbe {
 
     $Process = [Diagnostics.Process]::Start($StartInfo)
     if ($null -eq $Process) {
-        throw "Failed to start the staged Bun executable: $Executable"
+        throw "Failed to start the staged PowerShell executable: $Executable"
     }
     try {
         $OutputTask = $Process.StandardOutput.ReadToEndAsync()
         $ErrorTask = $Process.StandardError.ReadToEndAsync()
         if (-not $Process.WaitForExit(30000)) {
-            try {
-                $Process.Kill()
-            } catch {
-                # Preserve the timeout as the primary error.
-            }
+            try { $Process.Kill() } catch {}
             try { [void]$Process.WaitForExit(5000) } catch {}
-            throw 'The staged Bun version probe timed out after 30 seconds.'
+            throw 'The staged PowerShell version probe timed out after 30 seconds.'
         }
         $Process.WaitForExit()
         return [pscustomobject][ordered]@{
@@ -43,13 +38,13 @@ function Invoke-ProjDevBunVersionProbe {
     }
 }
 
-function Install-ProjDevBun {
+function Install-ProjDevPwsh {
     param(
         [Parameter(Mandatory = $true)][object]$Context,
         [Parameter(Mandatory = $true)][object]$Definition
     )
 
-    Assert-ProjDevWindowsX64 -ToolName 'Bun'
+    Assert-ProjDevWindowsX64 -ToolName 'PowerShell'
     $Target = Get-ProjDevInstallRoot `
         -Context $Context `
         -Definition $Definition
@@ -62,18 +57,7 @@ function Install-ProjDevBun {
     }
     if ([string]$Definition.Release.Provider -ceq 'github' -and
         -not [bool]$Definition.ReleaseResolved) {
-        [void](Resolve-ProjDevBunRelease -Definition $Definition)
-    }
-    $Prepare = {
-        param($StagedRoot)
-
-        $BunxPath = Join-Path $StagedRoot 'bunx.cmd'
-        $Content = "@echo off`r`n`"%~dp0bun.exe`" x %*`r`n"
-        [IO.File]::WriteAllText(
-            $BunxPath,
-            $Content,
-            [Text.UTF8Encoding]::new($false)
-        )
+        [void](Resolve-ProjDevPwshRelease -Definition $Definition)
     }
     $Validate = {
         param($ValidationContext, $ValidationDefinition, $InstallRoot)
@@ -81,20 +65,25 @@ function Install-ProjDevBun {
         $Executable = Resolve-ProjDevChildPath `
             -Root $InstallRoot `
             -RelativePath ([string]$ValidationDefinition.Executable) `
-            -Description 'Bun executable'
-        $Probe = Invoke-ProjDevBunVersionProbe `
+            -Description 'PowerShell executable'
+        $Probe = Invoke-ProjDevPwshVersionProbe `
             -Executable $Executable `
             -WorkingDirectory $InstallRoot
         if ($Probe.ExitCode -ne 0) {
             throw (
-                "Staged Bun version probe failed with exit code " +
+                'Staged PowerShell version probe failed with exit code ' +
                 "$($Probe.ExitCode): $($Probe.Error)"
             )
         }
-        if ($Probe.Output -cne [string]$ValidationDefinition.Version) {
+        $Match = [regex]::Match(
+            $Probe.Output,
+            '^PowerShell\s+(\S+)$'
+        )
+        if (-not $Match.Success -or
+            $Match.Groups[1].Value -cne [string]$ValidationDefinition.Version) {
             throw (
-                "Staged Bun reports '$($Probe.Output)', expected " +
-                "'$($ValidationDefinition.Version)'."
+                "Staged PowerShell reports '$($Probe.Output)', expected " +
+                "'PowerShell $($ValidationDefinition.Version)'."
             )
         }
         return $true
@@ -102,6 +91,5 @@ function Install-ProjDevBun {
     return Install-ProjDevArchiveTool `
         -Context $Context `
         -Definition $Definition `
-        -Prepare $Prepare `
         -Validate $Validate
 }

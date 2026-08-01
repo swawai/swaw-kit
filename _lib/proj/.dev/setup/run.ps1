@@ -10,6 +10,7 @@ if (@($args).Count -gt 0) {
 
 $Context = New-ProjDevContextFromEnvironment
 $BunDefinition = Get-ProjDevBunDefinition
+$PwshDefinition = Get-ProjDevPwshDefinition
 $MsvcDefinition = Get-ProjDevMsvcDefinition
 $RustDefinition = Get-ProjDevRustDefinition
 if ($null -ne $RustDefinition -and $null -eq $MsvcDefinition) {
@@ -19,6 +20,7 @@ if ($null -ne $RustDefinition -and $null -eq $MsvcDefinition) {
     )
 }
 if ($null -ne $BunDefinition -or
+    $null -ne $PwshDefinition -or
     $null -ne $MsvcDefinition -or
     $null -ne $RustDefinition) {
     Assert-ProjDevWindowsX64 -ToolName 'Managed development tools'
@@ -31,7 +33,6 @@ $ActiveEnvironment = Assert-ProjDevActiveEnvironmentCompatible `
 $PendingModules = foreach ($Pending in @(
     [pscustomobject]@{ Name = 'uv'; Variable = 'SWAWKIT_PROJ_UV_MODE' },
     [pscustomobject]@{ Name = 'python'; Variable = 'SWAWKIT_PROJ_PYTHON_MODE' },
-    [pscustomobject]@{ Name = 'pwsh'; Variable = 'SWAWKIT_PROJ_PWSH_MODE' },
     [pscustomobject]@{ Name = 'go'; Variable = 'SWAWKIT_PROJ_GO_MODE' }
 )) {
     $Mode = [string][Environment]::GetEnvironmentVariable(
@@ -44,7 +45,7 @@ $PendingModules = foreach ($Pending in @(
     }
 }
 if (@($PendingModules).Count -gt 0) {
-    Write-Warning (
+    throw (
         '.dev.setup does not yet handle these enabled declarations: ' +
         "$([string]::Join(', ', $PendingModules))."
     )
@@ -52,17 +53,47 @@ if (@($PendingModules).Count -gt 0) {
 
 $SetupLock = Enter-ProjDevFileLock -Path $Context.SetupLockPath
 try {
+    if ($null -ne $BunDefinition) {
+        $BunDefinition = Resolve-ProjDevBunDefinitionForSetup `
+            -Context $Context `
+            -Definition $BunDefinition
+    }
+    if ($null -ne $PwshDefinition) {
+        $PwshDefinition = Resolve-ProjDevPwshDefinitionForSetup `
+            -Context $Context `
+            -Definition $PwshDefinition
+    }
     $Plan = New-ProjDevEnvironmentPlan -Context $Context
     $BunChanged = $false
+    $PwshChanged = $false
     $MsvcChanged = $false
     $RustChanged = $false
     if ($null -ne $BunDefinition) {
         $BunChanged = Install-ProjDevBun `
             -Context $Context `
             -Definition $BunDefinition
+        if ([string]$BunDefinition.SelectionStatus -ceq 'pending') {
+            Write-ProjDevBunSelection `
+                -Context $Context `
+                -Definition $BunDefinition
+        }
         Add-ProjDevBunEnvironment `
             -Context $Context `
             -Definition $BunDefinition `
+            -Plan $Plan
+    }
+    if ($null -ne $PwshDefinition) {
+        $PwshChanged = Install-ProjDevPwsh `
+            -Context $Context `
+            -Definition $PwshDefinition
+        if ([string]$PwshDefinition.SelectionStatus -ceq 'pending') {
+            Write-ProjDevPwshSelection `
+                -Context $Context `
+                -Definition $PwshDefinition
+        }
+        Add-ProjDevPwshEnvironment `
+            -Context $Context `
+            -Definition $PwshDefinition `
             -Plan $Plan
     }
     if ($null -ne $MsvcDefinition) {
@@ -89,11 +120,35 @@ try {
         -Context $Context `
         -Scripts $Scripts
 
+    $BunVersionLabel = if ($null -ne $BunDefinition -and
+        [string]$BunDefinition.RequestedVersion -ceq 'latest') {
+        "latest -> $($BunDefinition.Version)"
+    } elseif ($null -ne $BunDefinition) {
+        [string]$BunDefinition.Version
+    } else {
+        ''
+    }
+    $PwshVersionLabel = if ($null -ne $PwshDefinition -and
+        [string]$PwshDefinition.RequestedVersion -ceq 'latest') {
+        "latest -> $($PwshDefinition.Version)"
+    } elseif ($null -ne $PwshDefinition) {
+        [string]$PwshDefinition.Version
+    } else {
+        ''
+    }
     if ($null -ne $BunDefinition -and $BunChanged) {
-        Write-Host "[OK] Bun $($BunDefinition.Version) installed and configured." `
+        Write-Host "[OK] Bun $BunVersionLabel installed and configured." `
             -ForegroundColor Green
     } elseif ($null -ne $BunDefinition) {
-        Write-Host "[OK] Bun $($BunDefinition.Version) is ready." `
+        Write-Host "[OK] Bun $BunVersionLabel is ready." `
+            -ForegroundColor Green
+    }
+    if ($null -ne $PwshDefinition -and $PwshChanged) {
+        Write-Host (
+            "[OK] PowerShell $PwshVersionLabel installed and configured."
+        ) -ForegroundColor Green
+    } elseif ($null -ne $PwshDefinition) {
+        Write-Host "[OK] PowerShell $PwshVersionLabel is ready." `
             -ForegroundColor Green
     }
     if ($null -ne $MsvcDefinition -and $MsvcChanged) {
@@ -115,6 +170,7 @@ try {
         ) -ForegroundColor Green
     }
     if ($null -eq $BunDefinition -and
+        $null -eq $PwshDefinition -and
         $null -eq $MsvcDefinition -and
         $null -eq $RustDefinition) {
         Write-Host '[OK] The base development environment is ready.' `
@@ -124,6 +180,11 @@ try {
         Write-ProjDevBunTrustWarning `
             -Context $Context `
             -Definition $BunDefinition
+    }
+    if ($null -ne $PwshDefinition) {
+        Write-ProjDevPwshTrustWarning `
+            -Context $Context `
+            -Definition $PwshDefinition
     }
     if ($EnvironmentChanged) {
         Write-Host "[ENV] $($Context.EnvCmdPath)" -ForegroundColor DarkGray

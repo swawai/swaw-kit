@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-function Get-ProjDevBunReleaseProperty {
+function Get-ProjDevPwshReleaseProperty {
     param(
         [Parameter(Mandatory = $true)][object]$Value,
         [Parameter(Mandatory = $true)][string]$Name
@@ -13,16 +13,15 @@ function Get-ProjDevBunReleaseProperty {
     return $Property.Value
 }
 
-function Request-ProjDevBunGitHubRelease {
+function Request-ProjDevPwshGitHubRelease {
     param([Parameter(Mandatory = $true)][object]$Definition)
 
-    $Repository = [string]$Definition.Release.Repository
     $Tag = ([string]$Definition.Release.TagTemplate).Replace(
         '{version}',
         [string]$Definition.Version
     )
     $Endpoint = 'https://api.github.com/repos/{0}/releases/tags/{1}' -f
-        $Repository,
+        [string]$Definition.Release.Repository,
         [Uri]::EscapeDataString($Tag)
     try {
         return Invoke-RestMethod `
@@ -37,18 +36,17 @@ function Request-ProjDevBunGitHubRelease {
             -ErrorAction Stop
     } catch {
         throw (
-            "Cannot resolve Bun $($Definition.Version) from GitHub Releases: " +
-            $_.Exception.Message
+            "Cannot resolve PowerShell $($Definition.Version) from GitHub " +
+            "Releases: $($_.Exception.Message)"
         )
     }
 }
 
-function Request-ProjDevBunGitHubLatestRelease {
+function Request-ProjDevPwshGitHubLatestRelease {
     param([Parameter(Mandatory = $true)][object]$Definition)
 
-    $Repository = [string]$Definition.Release.Repository
     $Endpoint = 'https://api.github.com/repos/{0}/releases/latest' -f
-        $Repository
+        [string]$Definition.Release.Repository
     try {
         return Invoke-RestMethod `
             -Uri $Endpoint `
@@ -62,24 +60,23 @@ function Request-ProjDevBunGitHubLatestRelease {
             -ErrorAction Stop
     } catch {
         throw (
-            'Cannot resolve the latest Bun release from GitHub Releases: ' +
-            $_.Exception.Message
+            'Cannot resolve the latest PowerShell release from GitHub ' +
+            "Releases: $($_.Exception.Message)"
         )
     }
 }
 
-function Set-ProjDevBunResolvedVersion {
+function Set-ProjDevPwshResolvedVersion {
     param(
         [Parameter(Mandatory = $true)][object]$Definition,
         [Parameter(Mandatory = $true)][string]$Version
     )
 
     if ($Version -cnotmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
-        throw "GitHub returned an invalid Bun release version '$Version'."
+        throw "GitHub returned an invalid PowerShell release version '$Version'."
     }
-    $Manifest = Get-ProjDevBunManifest
-    $Coordinates = Get-ProjDevBunReleaseCoordinates `
-        -Manifest $Manifest `
+    $Coordinates = Get-ProjDevPwshReleaseCoordinates `
+        -Manifest (Get-ProjDevPwshManifest) `
         -Version $Version
     $Definition.Version = $Version
     $Definition.Url = [string]$Coordinates.Url
@@ -87,77 +84,74 @@ function Set-ProjDevBunResolvedVersion {
     return $Definition
 }
 
-function Resolve-ProjDevBunLatestRelease {
+function Resolve-ProjDevPwshLatestRelease {
     param(
         [Parameter(Mandatory = $true)][object]$Definition,
         [AllowNull()][object]$Release = $null
     )
 
     if ([string]$Definition.RequestedVersion -cne 'latest') {
-        throw 'The Bun definition does not declare the latest selector.'
+        throw 'The PowerShell definition does not declare the latest selector.'
     }
     if ($null -eq $Release) {
-        $Release = Request-ProjDevBunGitHubLatestRelease `
+        $Release = Request-ProjDevPwshGitHubLatestRelease `
             -Definition $Definition
     }
-    $Tag = [string](Get-ProjDevBunReleaseProperty `
+    $Tag = [string](Get-ProjDevPwshReleaseProperty `
         -Value $Release `
         -Name 'tag_name')
-    $Prefix = 'bun-v'
-    if (-not $Tag.StartsWith($Prefix, [StringComparison]::Ordinal)) {
-        throw "GitHub returned an invalid latest Bun release tag '$Tag'."
+    if (-not $Tag.StartsWith('v', [StringComparison]::Ordinal)) {
+        throw "GitHub returned an invalid latest PowerShell release tag '$Tag'."
     }
-    [void](Set-ProjDevBunResolvedVersion `
+    [void](Set-ProjDevPwshResolvedVersion `
         -Definition $Definition `
-        -Version $Tag.Substring($Prefix.Length))
-    [void](Resolve-ProjDevBunRelease `
+        -Version $Tag.Substring(1))
+    [void](Resolve-ProjDevPwshRelease `
         -Definition $Definition `
         -Release $Release)
     $Definition.SelectionStatus = 'pending'
     return $Definition
 }
 
-function Resolve-ProjDevBunRelease {
+function Resolve-ProjDevPwshRelease {
     param(
         [Parameter(Mandatory = $true)][object]$Definition,
         [AllowNull()][object]$Release = $null
     )
 
     if ($null -eq $Release) {
-        $Release = Request-ProjDevBunGitHubRelease -Definition $Definition
+        $Release = Request-ProjDevPwshGitHubRelease -Definition $Definition
     }
-    $ExpectedTag = ([string]$Definition.Release.TagTemplate).Replace(
-        '{version}',
-        [string]$Definition.Version
-    )
-    $ActualTag = [string](Get-ProjDevBunReleaseProperty `
+    $Coordinates = Get-ProjDevPwshReleaseCoordinates `
+        -Manifest (Get-ProjDevPwshManifest) `
+        -Version ([string]$Definition.Version)
+    $ActualTag = [string](Get-ProjDevPwshReleaseProperty `
         -Value $Release `
         -Name 'tag_name')
-    if ($ActualTag -cne $ExpectedTag) {
+    if ($ActualTag -cne [string]$Coordinates.Tag) {
         throw (
-            "GitHub returned Bun release tag '$ActualTag'; expected " +
-            "'$ExpectedTag'."
+            "GitHub returned PowerShell release tag '$ActualTag'; expected " +
+            "'$($Coordinates.Tag)'."
         )
     }
 
-    $ExpectedAsset = [string]$Definition.Release.Asset
-    $Assets = @(Get-ProjDevBunReleaseProperty `
+    $Assets = @(Get-ProjDevPwshReleaseProperty `
         -Value $Release `
         -Name 'assets')
     $Matches = @($Assets | Where-Object {
-        [string](Get-ProjDevBunReleaseProperty `
+        [string](Get-ProjDevPwshReleaseProperty `
             -Value $_ `
-            -Name 'name') -ceq $ExpectedAsset
+            -Name 'name') -ceq [string]$Coordinates.Asset
     })
     if ($Matches.Count -ne 1) {
         throw (
-            "GitHub release '$ExpectedTag' must contain exactly one " +
-            "'$ExpectedAsset' asset; found $($Matches.Count)."
+            "GitHub release '$($Coordinates.Tag)' must contain exactly one " +
+            "'$($Coordinates.Asset)' asset; found $($Matches.Count)."
         )
     }
 
     $Asset = $Matches[0]
-    $UrlText = [string](Get-ProjDevBunReleaseProperty `
+    $UrlText = [string](Get-ProjDevPwshReleaseProperty `
         -Value $Asset `
         -Name 'browser_download_url')
     $Url = $null
@@ -167,11 +161,12 @@ function Resolve-ProjDevBunRelease {
         [ref]$Url
     ) -or
         $Url.Scheme -cne 'https' -or
-        $Url.Host -cne 'github.com') {
-        throw "GitHub returned an invalid Bun asset URL: $UrlText"
+        $Url.Host -cne 'github.com' -or
+        $Url.AbsoluteUri -cne [string]$Coordinates.Url) {
+        throw "GitHub returned an invalid PowerShell asset URL: $UrlText"
     }
 
-    $Digest = [string](Get-ProjDevBunReleaseProperty `
+    $Digest = [string](Get-ProjDevPwshReleaseProperty `
         -Value $Asset `
         -Name 'digest')
     $GitHubSha256 = ''
@@ -182,7 +177,7 @@ function Resolve-ProjDevBunRelease {
         )
         if (-not $DigestMatch.Success) {
             throw (
-                "GitHub returned an invalid digest for Bun " +
+                "GitHub returned an invalid digest for PowerShell " +
                 "$($Definition.Version): $Digest"
             )
         }
@@ -194,8 +189,8 @@ function Resolve-ProjDevBunRelease {
         -not [string]::IsNullOrWhiteSpace($GitHubSha256) -and
         $ProjectSha256 -cne $GitHubSha256) {
         throw (
-            "SWAWKIT_PROJ_BUN_SHA256 does not match the GitHub Release " +
-            "digest for Bun $($Definition.Version)."
+            'SWAWKIT_PROJ_PWSH_SHA256 does not match the GitHub Release ' +
+            "digest for PowerShell $($Definition.Version)."
         )
     }
 
