@@ -20,5 +20,5 @@ if ($null -eq $TargetAddress) {
 Write-ProjHelp `
     -KernelRoot ([IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))) `
     -ActionRoot $ProjectContext.ActionRoot `
-    -CommandName $ProjectContext.EntryCommand `
+    -CommandName $ProjectContext.EntryName `
     -TargetAddress $TargetAddress

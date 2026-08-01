@@ -11,7 +11,6 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_ID',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
@@ -59,7 +58,6 @@ try {
         -ActionRoot $ActionRoot `
         -EntryFile $EntryFile)
     $ConsumerContext = New-ProjDevContext `
-        -ProjectId 'bun-consumer' `
         -ProjectRoot $ProjectRoot `
         -DataRoot $ConsumerDataRoot `
         -EntryCommand 'swawkit' `
@@ -111,7 +109,6 @@ try {
     $ForeignDataRoot = Join-Path $TemporaryRoot 'foreign setup data'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_ID = 'foreign-setup'
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $ForeignDataRoot
@@ -138,7 +135,6 @@ try {
 
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_ID = $ConsumerContext.ProjectId
         SWAWKIT_PROJ_DIR = $ConsumerContext.ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $ConsumerContext.DataRoot

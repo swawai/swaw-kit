@@ -11,7 +11,6 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_ID',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
@@ -64,7 +63,6 @@ try {
         -ArchivePath $ArchivePath `
         -Sha256 (Get-ProjDevFileSha256 -Path $ArchivePath)
     $Context = New-ProjDevContext `
-        -ProjectId 'bun-test' `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
         -EntryCommand 'swawkit' `
@@ -131,7 +129,6 @@ try {
     $UnpinnedDefinition.Sha256 = ''
     $UnpinnedDefinition.Verification = 'unverified'
     $UnpinnedContext = New-ProjDevContext `
-        -ProjectId 'bun-unpinned' `
         -ProjectRoot $ProjectRoot `
         -DataRoot (Join-Path $TemporaryRoot 'unpinned-data')
     Assert-ProjBunTest `
@@ -197,7 +194,6 @@ try {
 
     $BadDataRoot = Join-Path $TemporaryRoot 'bad-data'
     $BadContext = New-ProjDevContext `
-        -ProjectId 'bun-bad' `
         -ProjectRoot $ProjectRoot `
         -DataRoot $BadDataRoot
     $BadDefinition = New-ProjBunTestDefinition `
@@ -247,7 +243,6 @@ try {
     $HelpDataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_ID = 'bun-help'
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $null
@@ -269,7 +264,6 @@ try {
         -Message '.dev.setup --help created development state'
 
     $SetupDataRoot = Join-Path $TemporaryRoot 'setup entry data'
-    $env:SWAWKIT_PROJ_ID = 'bun-setup'
     $env:SWAWKIT_PROJ_DATA_ROOT = $SetupDataRoot
     $SetupEntry = Join-Path $ProjRoot '.dev\setup\run.ps1'
     $SetupResult = Invoke-ProjBunEntryFixture `

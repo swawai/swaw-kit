@@ -70,7 +70,6 @@ function Assert-ProjDevActivatedEnvironmentIdentity {
         throw "Unsupported generated environment schema. Run '.dev.setup'."
     }
     foreach ($Name in @(
-        'SWAWKIT_DEV_PROJECT_ID',
         'SWAWKIT_DEV_PROJECT_ROOT',
         'SWAWKIT_DEV_ENV_ROOT'
     )) {
@@ -80,8 +79,7 @@ function Assert-ProjDevActivatedEnvironmentIdentity {
             throw "Generated environment is missing $Name. Run '.dev.setup'."
         }
     }
-    if ([string]$env:SWAWKIT_DEV_PROJECT_ID -cne $Context.ProjectId -or
-        -not (Get-ProjDevCanonicalPath -Path (
+    if (-not (Get-ProjDevCanonicalPath -Path (
             [string]$env:SWAWKIT_DEV_PROJECT_ROOT
         )).Equals(
             $Context.CanonicalProjectRoot,
@@ -115,7 +113,6 @@ function Import-ProjDevGeneratedEnvironment {
 
     return [pscustomobject][ordered]@{
         GenerationId = $GenerationId
-        ProjectId = [string]$env:SWAWKIT_DEV_PROJECT_ID
         ProjectRoot = [string]$env:SWAWKIT_DEV_PROJECT_ROOT
         EnvironmentRoot = [string]$env:SWAWKIT_DEV_ENV_ROOT
     }

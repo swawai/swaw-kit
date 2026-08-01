@@ -30,16 +30,16 @@ $TemporaryRoot = Join-Path $TestTemporaryBase (
     "swawkit-proj-core-environment-$([Guid]::NewGuid().ToString('N'))"
 )
 $ProjectRoot = Join-Path $TemporaryRoot 'project'
+$EntryRoot = Join-Path $TemporaryRoot 'entries'
 $ActionRoot = Join-Path $ProjectRoot '.swaw'
 $CommandRoot = Join-Path $ActionRoot 'probe'
 $DataRoot = Join-Path $ProjectRoot 'data\proj.fixture'
 $EnvironmentRoot = Join-Path $DataRoot 'dev_env'
-$EntryPath = Join-Path $ProjectRoot 'fixture.cmd'
+$EntryPath = Join-Path $EntryRoot 'fixture.cmd'
 $CapturePath = Join-Path $TemporaryRoot 'capture.txt'
 
 $OwnedVariables = @(
     'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_ID',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
@@ -72,6 +72,7 @@ foreach ($Name in [string[]]@($ProcessEnvironment.Keys)) {
 
 try {
     [void][IO.Directory]::CreateDirectory($CommandRoot)
+    [void][IO.Directory]::CreateDirectory($EntryRoot)
     [IO.File]::WriteAllText($EntryPath, '@exit /b 0')
     [Environment]::SetEnvironmentVariable(
         'SWAWKIT_PROJ_DATA_ROOT',
@@ -89,45 +90,43 @@ try {
 $ErrorActionPreference = 'Stop'
 [IO.File]::WriteAllText(
     $env:SWAWKIT_TEST_CORE_ENV_CAPTURE,
-    [string]$env:SWAWKIT_TEST_CORE_ENV_MARKER
+    "$env:SWAWKIT_TEST_CORE_ENV_MARKER|$env:SWAWKIT_PROJ_ENTRY_COMMAND"
 )
 $global:LASTEXITCODE = 0
 '@
     )
 
     $env:SWAWKIT_PROJ_PROTOCOL = '1'
-    $env:SWAWKIT_PROJ_ID = 'core-environment-fixture'
     $env:SWAWKIT_PROJ_DIR = $ProjectRoot
     $env:SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
     $env:SWAWKIT_PROJ_DATA_ROOT = $DataRoot
-    $env:SWAWKIT_PROJ_ENTRY_COMMAND = 'fixture'
+    $env:SWAWKIT_PROJ_ENTRY_COMMAND = 'spoofed-entry-name'
     $env:SWAWKIT_PROJ_ENTRY_FILE = $EntryPath
     $env:SWAWKIT_TEST_CORE_ENV_CAPTURE = $CapturePath
     $env:SWAWKIT_TEST_CORE_ENV_MARKER = 'ambient'
 
-    $NestedDirectory = Join-Path $ProjectRoot 'nested'
-    $NestedEntry = Join-Path $NestedDirectory 'fixture.cmd'
-    [void][IO.Directory]::CreateDirectory($NestedDirectory)
-    [IO.File]::WriteAllText($NestedEntry, '@exit /b 0')
-    $env:SWAWKIT_PROJ_ENTRY_FILE = $NestedEntry
-    $RejectedNestedEntry = $false
-    try {
-        [void](Get-ProjProjectContext)
-    } catch {
-        $RejectedNestedEntry = $_.Exception.Message -like (
-            '*entry file must be located directly*'
-        )
-    }
+    $ProjectContext = Get-ProjProjectContext
     Assert-ProjCoreEnvironmentTest `
-        -Condition $RejectedNestedEntry `
-        -Message 'an entry below the project root was accepted'
-    $env:SWAWKIT_PROJ_ENTRY_FILE = $EntryPath
+        -Condition ([string]$ProjectContext.EntryName -ceq 'fixture') `
+        -Message 'the entry name was not derived from the real entry file'
+    Assert-ProjCoreEnvironmentTest `
+        -Condition (-not ([IO.Path]::GetDirectoryName(
+            [string]$ProjectContext.EntryFile
+        )).Equals(
+            [string]$ProjectContext.ProjectRoot,
+            [StringComparison]::OrdinalIgnoreCase
+        )) `
+        -Message 'the fixture did not exercise an entry outside the project root'
 
     $ExitCode = Invoke-ProjMain -KernelRoot $ProjRoot -Arguments @('probe')
     Assert-ProjCoreEnvironmentTest `
         -Condition ($ExitCode -eq 0 -and
-            [IO.File]::ReadAllText($CapturePath) -ceq 'ambient') `
+            [IO.File]::ReadAllText($CapturePath) -ceq 'ambient|fixture') `
         -Message 'a project without a managed environment lost the ambient PATH contract'
+    Assert-ProjCoreEnvironmentTest `
+        -Condition ([string]$env:SWAWKIT_PROJ_ENTRY_COMMAND -ceq
+            'spoofed-entry-name') `
+        -Message 'the Core did not restore the caller environment after execution'
 
     $GenerationId = '0123456789abcdef'
     [IO.File]::WriteAllText(
@@ -137,7 +136,6 @@ $global:LASTEXITCODE = 0
     $Ps1 = @(
         "`$env:SWAWKIT_DEV_GENERATION_ID = '$GenerationId'"
         "`$env:SWAWKIT_DEV_ENV_SCHEMA = 'swawkit.proj-dev.environment.v0'"
-        "`$env:SWAWKIT_DEV_PROJECT_ID = 'core-environment-fixture'"
         (
             "`$env:SWAWKIT_DEV_PROJECT_ROOT = " +
             (ConvertTo-ProjCoreEnvironmentLiteral -Value $ProjectRoot)
@@ -161,14 +159,13 @@ $global:LASTEXITCODE = 0
         $ExitCode = Invoke-ProjMain -KernelRoot $ProjRoot -Arguments @('probe')
         Assert-ProjCoreEnvironmentTest `
             -Condition ($ExitCode -eq 0 -and
-                [IO.File]::ReadAllText($CapturePath) -ceq 'managed') `
+                [IO.File]::ReadAllText($CapturePath) -ceq 'managed|fixture') `
             -Message 'the Core did not activate the published environment before the Action'
     }
     Assert-ProjCoreEnvironmentTest `
         -Condition ([string]$env:SWAWKIT_TEST_CORE_ENV_LOAD_COUNT -ceq '1') `
         -Message 'the Core imported the same environment generation more than once'
 
-    $env:SWAWKIT_DEV_PROJECT_ID = 'foreign-project'
     $env:SWAWKIT_DEV_PROJECT_ROOT = Join-Path $TemporaryRoot 'foreign-project'
     $env:SWAWKIT_DEV_ENV_ROOT = Join-Path $TemporaryRoot (
         'foreign-project\data\dev_env'

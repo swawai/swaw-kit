@@ -98,7 +98,8 @@ $Info = Invoke-ProjEntryTest `
 Assert-ProjEntryTest ($Info.ExitCode -eq 0) ".info failed: $($Info.Text)"
 foreach ($Expected in @(
     'command              .info',
-    'projectId            swaw-kit',
+    'entryName            swawkit',
+    "entryFile            $EntryPath",
     $RepoRoot,
     $ExpectedInvocationDirectory
 )) {
@@ -152,7 +153,7 @@ Assert-ProjEntryTest `
 foreach ($Expected in @(
     'SWAW Action demo.echo',
     'commandAddress=demo.echo',
-    'projectId=swaw-kit',
+    'entryName=swawkit',
     "currentDirectory=$RepoRoot",
     'argumentCount=3',
     'arg[0]=""',
@@ -296,10 +297,8 @@ Assert-ProjEntryTest `
 
 $RequiredProjectDeclarations = @(
     'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_ID',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
-    'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_ENTRY_FILE'
 )
 $SavedDeclarations = @{}

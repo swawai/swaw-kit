@@ -1,9 +1,8 @@
 @echo off & chcp 65001 >nul & setlocal DisableDelayedExpansion & set "SWAWKIT_PROJ_PROTOCOL=1"
 
 :: Required project resource
-set "SWAWKIT_PROJ_ID=swaw-kit"
-set "SWAWKIT_PROJ_DIR=%~dp0"
-set "SWAWKIT_PROJ_ACTION_ROOT=%SWAWKIT_PROJ_DIR%.swaw"
+set "SWAWKIT_PROJ_DIR=%~dp0."
+set "SWAWKIT_PROJ_ACTION_ROOT=%SWAWKIT_PROJ_DIR%\.swaw"
 
 
 :: Optional project behavior
@@ -78,7 +77,6 @@ echo   "%SWAWKIT_SYSTEM_POWERSHELL%"
 exit /b 1
 )
 
-set "SWAWKIT_PROJ_ENTRY_COMMAND=%~n0"
 set "SWAWKIT_PROJ_ENTRY_FILE=%~f0"
 
 :: Relay argv as data. Expanding %%* on another command line would make CMD

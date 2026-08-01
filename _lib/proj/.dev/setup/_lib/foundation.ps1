@@ -47,16 +47,12 @@ function Get-ProjDevRequiredEnvironmentValue {
 
 function New-ProjDevContext {
     param(
-        [Parameter(Mandatory = $true)][string]$ProjectId,
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
         [Parameter(Mandatory = $true)][string]$DataRoot,
         [string]$EntryCommand = 'swawkit',
         [AllowNull()][string]$InvocationDirectory = $null
     )
 
-    $ResolvedProjectId = Get-ProjDevSafeSegment `
-        -Value $ProjectId `
-        -Description 'SWAWKIT_PROJ_ID'
     $ResolvedProjectRoot = Get-ProjDevFullPath -Path $ProjectRoot
     $ResolvedDataRoot = Get-ProjDevFullPath -Path $DataRoot
     if (-not [IO.Directory]::Exists($ResolvedProjectRoot)) {
@@ -75,7 +71,6 @@ function New-ProjDevContext {
     $EnvironmentRoot = Join-Path $ResolvedDataRoot 'dev_env'
     $LockRoot = Join-Path $ResolvedDataRoot '_locks'
     return [pscustomobject][ordered]@{
-        ProjectId = $ResolvedProjectId
         ProjectRoot = $ResolvedProjectRoot
         CanonicalProjectRoot = Get-ProjDevCanonicalPath -Path $ResolvedProjectRoot
         DataRoot = $ResolvedDataRoot
@@ -101,7 +96,6 @@ function New-ProjDevContextFromEnvironment {
         [EnvironmentVariableTarget]::Process
     )
     return New-ProjDevContext `
-        -ProjectId (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_ID') `
         -ProjectRoot (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_DIR') `
         -DataRoot (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_DATA_ROOT') `
         -EntryCommand (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_ENTRY_COMMAND') `

@@ -5,7 +5,8 @@ if ($args.Count -ne 0) {
 $Rows = [ordered]@{
     command = $env:SWAWKIT_COMMAND_ADDRESS
     commandDirectory = $env:SWAWKIT_COMMAND_DIR
-    projectId = $env:SWAWKIT_PROJ_ID
+    entryName = $env:SWAWKIT_PROJ_ENTRY_COMMAND
+    entryFile = $env:SWAWKIT_PROJ_ENTRY_FILE
     projectRoot = $env:SWAWKIT_PROJ_DIR
     actionRoot = $env:SWAWKIT_PROJ_ACTION_ROOT
     dataRoot = $env:SWAWKIT_PROJ_DATA_ROOT

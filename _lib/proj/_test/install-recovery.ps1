@@ -47,7 +47,6 @@ try {
     [void][IO.Directory]::CreateDirectory($ProjectRoot)
     [void][IO.Directory]::CreateDirectory($DataRoot)
     $Context = New-ProjDevContext `
-        -ProjectId 'recovery-test' `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot
     $Definition = [pscustomobject]@{ Name = 'fixture' }

@@ -7,7 +7,6 @@ function New-ProjDevEnvironmentPlan {
 
     $Variables = [Collections.Specialized.OrderedDictionary]::new()
     $Variables.Add('SWAWKIT_DEV_ENV_SCHEMA', 'swawkit.proj-dev.environment.v0')
-    $Variables.Add('SWAWKIT_DEV_PROJECT_ID', [string]$Context.ProjectId)
     $Variables.Add('SWAWKIT_DEV_PROJECT_ROOT', [string]$Context.ProjectRoot)
     $Variables.Add('SWAWKIT_DEV_ENV_ROOT', [string]$Context.EnvironmentRoot)
     return [pscustomobject][ordered]@{

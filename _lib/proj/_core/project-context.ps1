@@ -1,10 +1,8 @@
 Set-StrictMode -Version 2.0
 
 $script:ProjRequiredProjectDeclarations = @(
-    'SWAWKIT_PROJ_ID',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
-    'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_ENTRY_FILE'
 )
 
@@ -61,11 +59,6 @@ function Get-ProjProjectContext {
         $Declarations[$Name] = Get-ProjRequiredProjectDeclaration -Name $Name
     }
 
-    $ProjectId = $Declarations['SWAWKIT_PROJ_ID']
-    if ($ProjectId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*$') {
-        throw "Invalid SWAWKIT_PROJ_ID '$ProjectId'."
-    }
-
     $ProjectRoot = Get-ProjDeclaredFullPath `
         -Value $Declarations['SWAWKIT_PROJ_DIR'] `
         -Name 'SWAWKIT_PROJ_DIR'
@@ -82,15 +75,9 @@ function Get-ProjProjectContext {
     if (-not [IO.File]::Exists($EntryFile)) {
         throw "Declared project entry file does not exist: $EntryFile"
     }
-    $EntryDirectory = [IO.Path]::GetDirectoryName($EntryFile)
-    if (-not $EntryDirectory.Equals(
-        $ProjectRoot,
-        [StringComparison]::OrdinalIgnoreCase
-    )) {
-        throw (
-            'The project entry file must be located directly in the project ' +
-            "root: $EntryFile"
-        )
+    $EntryName = [IO.Path]::GetFileNameWithoutExtension($EntryFile)
+    if ([string]::IsNullOrWhiteSpace($EntryName)) {
+        throw "The project entry file has no usable entry name: $EntryFile"
     }
     $DataRoot = Resolve-ProjProjectDataRoot `
         -ProjectRoot $ProjectRoot `
@@ -99,11 +86,10 @@ function Get-ProjProjectContext {
 
     return [pscustomobject]@{
         Protocol = '1'
-        ProjectId = $ProjectId
         ProjectRoot = $ProjectRoot
         ActionRoot = $ActionRoot
         DataRoot = $DataRoot
-        EntryCommand = $Declarations['SWAWKIT_PROJ_ENTRY_COMMAND']
+        EntryName = $EntryName
         EntryFile = $EntryFile
     }
 }

@@ -11,7 +11,6 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_ID',
     'SWAWKIT_PROJ_DIR',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
@@ -44,7 +43,6 @@ try {
     $DataRoot = Join-Path $ProjectRoot 'data\proj.entry'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_ID = 'bun-status'
         SWAWKIT_PROJ_DIR = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $null

@@ -47,7 +47,6 @@ function Invoke-ProjResolvedCommand {
         'SWAWKIT_INVOCATION_DIR',
         'SWAWKIT_HELP_TARGET_ADDRESS',
         'SWAWKIT_PROJ_PROTOCOL',
-        'SWAWKIT_PROJ_ID',
         'SWAWKIT_PROJ_DIR',
         'SWAWKIT_PROJ_ACTION_ROOT',
         'SWAWKIT_PROJ_DATA_ROOT',
@@ -82,11 +81,10 @@ function Invoke-ProjResolvedCommand {
             $env:SWAWKIT_HELP_TARGET_ADDRESS = $HelpTargetAddress
         }
         $env:SWAWKIT_PROJ_PROTOCOL = $ProjectContext.Protocol
-        $env:SWAWKIT_PROJ_ID = $ProjectContext.ProjectId
         $env:SWAWKIT_PROJ_DIR = $ProjectContext.ProjectRoot
         $env:SWAWKIT_PROJ_ACTION_ROOT = $ProjectContext.ActionRoot
         $env:SWAWKIT_PROJ_DATA_ROOT = $ProjectContext.DataRoot
-        $env:SWAWKIT_PROJ_ENTRY_COMMAND = $ProjectContext.EntryCommand
+        $env:SWAWKIT_PROJ_ENTRY_COMMAND = $ProjectContext.EntryName
         $env:SWAWKIT_PROJ_ENTRY_FILE = $ProjectContext.EntryFile
 
         switch ($Command.Entry.Adapter) {

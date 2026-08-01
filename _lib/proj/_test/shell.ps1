@@ -50,7 +50,7 @@ $Cmd = Invoke-ProjShellTest `
     -Address '.cmd' `
     -InputLines @(
         'echo SHELL_KIND=cmd'
-        'echo PROJECT_ID=%SWAWKIT_PROJ_ID%'
+        'echo ENTRY_NAME=%SWAWKIT_PROJ_ENTRY_COMMAND%'
         'echo COMMAND_ADDRESS=%SWAWKIT_COMMAND_ADDRESS%'
         'echo DATA_ROOT=%SWAWKIT_PROJ_DATA_ROOT%'
         'echo RUNTIME_BIN=%SWAWKIT_PROJ_RUNTIME_BIN%'
@@ -63,7 +63,7 @@ Assert-ProjShellTest `
     -Message ".cmd did not return the child shell exit code: $($Cmd.Text)"
 foreach ($Expected in @(
     'SHELL_KIND=cmd',
-    'PROJECT_ID=swaw-kit',
+    'ENTRY_NAME=swawkit',
     'COMMAND_ADDRESS=.cmd',
     "DATA_ROOT=$DataRoot",
     "RUNTIME_BIN=$RuntimeBin",
@@ -84,7 +84,7 @@ $PowerShell = Invoke-ProjShellTest `
         'Write-Output "SHELL_KIND=ps"'
         'Write-Output "PS_MAJOR=$($PSVersionTable.PSVersion.Major)"'
         'Write-Output "PS_HOME=$PSHOME"'
-        'Write-Output "PROJECT_ID=$env:SWAWKIT_PROJ_ID"'
+        'Write-Output "ENTRY_NAME=$env:SWAWKIT_PROJ_ENTRY_COMMAND"'
         'Write-Output "COMMAND_ADDRESS=$env:SWAWKIT_COMMAND_ADDRESS"'
         'Write-Output "DATA_ROOT=$env:SWAWKIT_PROJ_DATA_ROOT"'
         'Write-Output "RUNTIME_BIN=$env:SWAWKIT_PROJ_RUNTIME_BIN"'
@@ -102,7 +102,7 @@ foreach ($Expected in @(
     'SHELL_KIND=ps',
     'PS_MAJOR=5',
     "PS_HOME=$ExpectedPsHome",
-    'PROJECT_ID=swaw-kit',
+    'ENTRY_NAME=swawkit',
     'COMMAND_ADDRESS=.ps',
     "DATA_ROOT=$DataRoot",
     "RUNTIME_BIN=$RuntimeBin",

@@ -27,7 +27,6 @@ function Assert-ProjActiveDevelopmentEnvironmentOwner {
 
     foreach ($Name in @(
         'SWAWKIT_DEV_ENV_SCHEMA',
-        'SWAWKIT_DEV_PROJECT_ID',
         'SWAWKIT_DEV_PROJECT_ROOT',
         'SWAWKIT_DEV_ENV_ROOT'
     )) {
@@ -57,9 +56,7 @@ function Assert-ProjActiveDevelopmentEnvironmentOwner {
     $ActiveEnvironmentRoot = Get-ProjDeclaredFullPath `
         -Value ([string]$env:SWAWKIT_DEV_ENV_ROOT) `
         -Name 'SWAWKIT_DEV_ENV_ROOT'
-    if ([string]$env:SWAWKIT_DEV_PROJECT_ID -cne
-            [string]$ProjectContext.ProjectId -or
-        -not $ActiveProjectRoot.Equals(
+    if (-not $ActiveProjectRoot.Equals(
             [string]$ProjectContext.ProjectRoot,
             [StringComparison]::OrdinalIgnoreCase
         ) -or
@@ -124,7 +121,7 @@ function Assert-ProjDevelopmentEnvironmentIdentity {
     if ([string]$env:SWAWKIT_DEV_GENERATION_ID -cne $GenerationId) {
         throw (
             'The active development environment generation is stale. Run ' +
-            "'$($ProjectContext.EntryCommand) .dev.setup' outside the active " +
+            "'$($ProjectContext.EntryName) .dev.setup' outside the active " +
             'project shell, then start a new shell.'
         )
     }
@@ -141,7 +138,7 @@ function Import-ProjDevelopmentEnvironment {
     $AlreadyActive = Test-ProjDevelopmentEnvironmentActive
     $GenerationId = Get-ProjDevelopmentEnvironmentGeneration `
         -EnvironmentRoot $EnvironmentRoot `
-        -EntryCommand $ProjectContext.EntryCommand
+        -EntryCommand $ProjectContext.EntryName
 
     if ($null -eq $GenerationId) {
         if ($AlreadyActive) {

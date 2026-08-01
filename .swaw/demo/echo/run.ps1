@@ -4,7 +4,7 @@ Set-StrictMode -Version 2.0
 
 [Console]::WriteLine('SWAW Action demo.echo')
 [Console]::WriteLine("commandAddress=$env:SWAWKIT_COMMAND_ADDRESS")
-[Console]::WriteLine("projectId=$env:SWAWKIT_PROJ_ID")
+[Console]::WriteLine("entryName=$env:SWAWKIT_PROJ_ENTRY_COMMAND")
 [Console]::WriteLine("projectRoot=$env:SWAWKIT_PROJ_DIR")
 [Console]::WriteLine("currentDirectory=$((Get-Location).ProviderPath)")
 [Console]::WriteLine("invocationDirectory=$env:SWAWKIT_INVOCATION_DIR")

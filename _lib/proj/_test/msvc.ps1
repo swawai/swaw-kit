@@ -290,7 +290,6 @@ try {
     $DataRoot = Join-Path $TemporaryRoot 'data'
     [void][IO.Directory]::CreateDirectory($ProjectRoot)
     $Context = New-ProjDevContext `
-        -ProjectId 'msvc-test' `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot
     $TargetRoot = Get-ProjDevMsvcInstallRoot `

@@ -38,12 +38,10 @@ function Assert-ProjRustThrows {
 function New-ProjRustTestContext {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
-        [Parameter(Mandatory = $true)][string]$DataRoot,
-        [Parameter(Mandatory = $true)][string]$ProjectId
+        [Parameter(Mandatory = $true)][string]$DataRoot
     )
 
     return New-ProjDevContext `
-        -ProjectId $ProjectId `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot
 }
@@ -120,8 +118,7 @@ try {
     $BadDefinition.RustupInitChecksumUrl = $BadChecksum
     $BadContext = New-ProjRustTestContext `
         -ProjectRoot $ProjectRoot `
-        -DataRoot (Join-Path $TemporaryRoot 'bad data') `
-        -ProjectId 'rust-bad'
+        -DataRoot (Join-Path $TemporaryRoot 'bad data')
     Assert-ProjRustThrows `
         -Action {
             [void](Get-ProjDevVerifiedRustupInstaller `
@@ -132,8 +129,7 @@ try {
 
     $Context = New-ProjRustTestContext `
         -ProjectRoot $ProjectRoot `
-        -DataRoot (Join-Path $TemporaryRoot 'data root') `
-        -ProjectId 'rust-test'
+        -DataRoot (Join-Path $TemporaryRoot 'data root')
     $Installer = Get-ProjDevVerifiedRustupInstaller `
         -Context $Context `
         -Definition $Definition
