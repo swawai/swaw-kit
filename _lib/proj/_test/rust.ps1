@@ -364,6 +364,39 @@ try {
         ) `
         -Message 'rustup child-process isolation is incorrect'
 
+    $InstallerRoot = Join-Path $TemporaryRoot 'installer environment'
+    [void][IO.Directory]::CreateDirectory((Join-Path $InstallerRoot 'cargo'))
+    [void][IO.Directory]::CreateDirectory((Join-Path $InstallerRoot 'rustup'))
+    $InstallerInfo = [Diagnostics.ProcessStartInfo]::new()
+    $InstallerInfo.FileName = $env:ComSpec
+    $InstallerInfo.UseShellExecute = $false
+    $null = $InstallerInfo.EnvironmentVariables
+    $InstallerInfo.EnvironmentVariables['RUSTUP_INIT_SKIP_PATH_CHECK'] = 'yes'
+    Set-ProjDevRustupInstallerEnvironment `
+        -Info $InstallerInfo `
+        -InstallRoot $InstallerRoot
+    Assert-ProjRustTest `
+        -Condition (
+            $InstallerInfo.EnvironmentVariables[
+                'RUSTUP_INIT_SKIP_EXISTENCE_CHECKS'
+            ] -ceq 'yes' -and
+            -not $InstallerInfo.EnvironmentVariables.ContainsKey(
+                'RUSTUP_INIT_SKIP_PATH_CHECK'
+            )
+        ) `
+        -Message 'rustup installer existence checks were not isolated'
+    [IO.File]::WriteAllText(
+        (Join-Path $InstallerRoot 'rustup\settings.toml'),
+        'stale'
+    )
+    Assert-ProjRustThrows `
+        -Action {
+            Set-ProjDevRustupInstallerEnvironment `
+                -Info $InstallerInfo `
+                -InstallRoot $InstallerRoot
+        } `
+        -Pattern '*Rust staging root is not clean*'
+
     $ExtraPath = Join-Path $TargetRoot (
         "rustup\toolchains\$($Definition.ToolchainName)\bin\untracked.dll"
     )

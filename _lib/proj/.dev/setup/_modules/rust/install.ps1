@@ -1,5 +1,38 @@
 Set-StrictMode -Version 2.0
 
+function Set-ProjDevRustupInstallerEnvironment {
+    param(
+        [Parameter(Mandatory = $true)][Diagnostics.ProcessStartInfo]$Info,
+        [Parameter(Mandatory = $true)][string]$InstallRoot
+    )
+
+    foreach ($RelativeRoot in @('cargo', 'rustup')) {
+        $Root = Join-Path $InstallRoot $RelativeRoot
+        if (-not [IO.Directory]::Exists($Root)) {
+            throw "Rust staging directory is missing: $Root"
+        }
+        $Unexpected = [IO.Directory]::EnumerateFileSystemEntries($Root) |
+            Select-Object -First 1
+        if ($null -ne $Unexpected) {
+            throw "Rust staging root is not clean: $Unexpected"
+        }
+    }
+    Set-ProjDevRustProcessEnvironment `
+        -Info $Info `
+        -InstallRoot $InstallRoot
+
+    # rustup 1.29 creates settings.toml while loading a fresh configuration,
+    # then its legacy existence check mistakes that file for an older install.
+    # This staging root is unique and empty, so skip both existence
+    # checks instead of exposing rustup's false-positive warning to the user.
+    $Info.EnvironmentVariables['RUSTUP_INIT_SKIP_EXISTENCE_CHECKS'] = 'yes'
+    if ($Info.EnvironmentVariables.ContainsKey(
+        'RUSTUP_INIT_SKIP_PATH_CHECK'
+    )) {
+        $Info.EnvironmentVariables.Remove('RUSTUP_INIT_SKIP_PATH_CHECK')
+    }
+}
+
 function Invoke-ProjDevRustupInstaller {
     param(
         [Parameter(Mandatory = $true)][object]$Definition,
@@ -22,10 +55,9 @@ function Invoke-ProjDevRustupInstaller {
     $Info.WorkingDirectory = $InstallRoot
     $Info.UseShellExecute = $false
     $Info.CreateNoWindow = $false
-    Set-ProjDevRustProcessEnvironment `
+    Set-ProjDevRustupInstallerEnvironment `
         -Info $Info `
         -InstallRoot $InstallRoot
-    $Info.EnvironmentVariables['RUSTUP_INIT_SKIP_PATH_CHECK'] = 'yes'
     $Process = [Diagnostics.Process]::Start($Info)
     if ($null -eq $Process) {
         throw 'Failed to start rustup-init.exe.'
