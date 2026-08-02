@@ -289,6 +289,29 @@ Assert-ProjEntryTest `
     $InfoHelp.Text.Contains('swawkit .info') `
     '.info .h should render the module-local help text'
 
+$WebHelp = Invoke-ProjEntryTest `
+    -Arguments @('.web', '.help') `
+    -WorkingDirectory $InvocationDirectory
+Assert-ProjEntryTest `
+    ($WebHelp.ExitCode -eq 0) `
+    ".web .help failed: $($WebHelp.Text)"
+Assert-ProjEntryTest `
+    $WebHelp.Text.Contains('swawkit .web') `
+    '.web should be discoverable through module-local help'
+Assert-ProjEntryTest `
+    $WebHelp.Text.Contains('swawkit proj.build.app') `
+    '.web help should point to the application build Action'
+
+$AppBuildHelp = Invoke-ProjEntryTest `
+    -Arguments @('proj.build.app', '.help') `
+    -WorkingDirectory $InvocationDirectory
+Assert-ProjEntryTest `
+    ($AppBuildHelp.ExitCode -eq 0) `
+    "proj.build.app .help failed: $($AppBuildHelp.Text)"
+Assert-ProjEntryTest `
+    $AppBuildHelp.Text.Contains('swawkit proj.build.app') `
+    'the application build Action should be discoverable through local help'
+
 $MissingHelp = Invoke-ProjEntryTest `
     -Arguments @('missing-command', '.help') `
     -WorkingDirectory $InvocationDirectory
@@ -315,6 +338,9 @@ Assert-ProjEntryTest ($Root.ExitCode -eq 0) "root command failed: $($Root.Text)"
 Assert-ProjEntryTest `
     $Root.Text.Contains('Swaw Kit Proj command tree is ready.') `
     'the root command should execute the promoted Proj entry'
+Assert-ProjEntryTest `
+    $Root.Text.Contains('swawkit .web') `
+    'the root command should point to the explicit local web entry'
 
 $SlashHelp = Invoke-ProjEntryTest `
     -Arguments @('/?') `

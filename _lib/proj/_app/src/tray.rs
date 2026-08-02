@@ -1,0 +1,248 @@
+use std::error::Error;
+
+use tokio::sync::oneshot;
+use tray_icon::{
+    menu::{Menu, MenuEvent, MenuItem},
+    Icon, TrayIcon, TrayIconBuilder,
+};
+use winit::{
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
+    window::WindowId,
+};
+
+use swawkit_proj::server::{self, ServerEvent};
+
+const STATUS_ID: &str = "tray.status";
+const OPEN_ID: &str = "tray.open";
+const QUIT_ID: &str = "tray.quit";
+
+#[derive(Debug)]
+enum AppEvent {
+    Menu(MenuEvent),
+    Server(ServerEvent),
+}
+
+struct App {
+    tray: Option<TrayIcon>,
+    status_item: Option<MenuItem>,
+    open_item: Option<MenuItem>,
+    quit_item: Option<MenuItem>,
+    server_url: Option<String>,
+    server_error: Option<String>,
+    shutdown: Option<oneshot::Sender<()>>,
+    browser_opened: bool,
+    server_stopped: bool,
+    shutting_down: bool,
+}
+
+impl App {
+    fn new(shutdown: oneshot::Sender<()>) -> Self {
+        Self {
+            tray: None,
+            status_item: None,
+            open_item: None,
+            quit_item: None,
+            server_url: None,
+            server_error: None,
+            shutdown: Some(shutdown),
+            browser_opened: false,
+            server_stopped: false,
+            shutting_down: false,
+        }
+    }
+
+    fn create_tray(&mut self) -> Result<(), Box<dyn Error>> {
+        let (status_text, tooltip) = self.status_text();
+        let status = MenuItem::with_id(STATUS_ID, status_text, false, None);
+        let open = MenuItem::with_id(
+            OPEN_ID,
+            "打开控制台",
+            self.server_url.is_some() && !self.shutting_down,
+            None,
+        );
+        let quit = MenuItem::with_id(QUIT_ID, "退出", !self.shutting_down, None);
+        let menu = Menu::with_items(&[&status, &open, &quit])?;
+        let tray = TrayIconBuilder::new()
+            .with_tooltip(tooltip)
+            .with_icon(solid_icon()?)
+            .with_menu(Box::new(menu))
+            .build()?;
+
+        self.status_item = Some(status);
+        self.open_item = Some(open);
+        self.quit_item = Some(quit);
+        self.tray = Some(tray);
+        Ok(())
+    }
+
+    fn status_text(&self) -> (String, String) {
+        if self.shutting_down {
+            return (
+                "正在停止…".to_owned(),
+                "Swaw Kit — 正在停止".to_owned(),
+            );
+        }
+        if let Some(url) = &self.server_url {
+            return (format!("在线 — {url}"), format!("Swaw Kit — {url}"));
+        }
+        if self.server_error.is_some() {
+            return (
+                "离线 — 服务启动失败".to_owned(),
+                "Swaw Kit — 服务启动失败".to_owned(),
+            );
+        }
+        (
+            "正在启动…".to_owned(),
+            "Swaw Kit — 正在启动".to_owned(),
+        )
+    }
+
+    fn update_tray_status(&self) {
+        let (status_text, tooltip) = self.status_text();
+        if let Some(status) = &self.status_item {
+            status.set_text(status_text);
+        }
+        if let Some(open) = &self.open_item {
+            open.set_enabled(self.server_url.is_some() && !self.shutting_down);
+        }
+        if let Some(quit) = &self.quit_item {
+            quit.set_enabled(!self.shutting_down);
+        }
+        if let Some(tray) = &self.tray {
+            let _ = tray.set_tooltip(Some(tooltip));
+        }
+    }
+
+    fn server_ready(&mut self, url: String) {
+        self.server_url = Some(url);
+        self.server_error = None;
+        if self.shutting_down {
+            return;
+        }
+
+        self.update_tray_status();
+        if !self.browser_opened {
+            self.browser_opened = true;
+            self.open_browser();
+        }
+    }
+
+    fn server_stopped(&mut self, result: Result<(), String>) {
+        self.server_stopped = true;
+        self.server_url = None;
+        self.server_error = result.err();
+        self.update_tray_status();
+    }
+
+    fn open_browser(&self) {
+        let Some(url) = self.server_url.as_deref() else {
+            return;
+        };
+        let _ = webbrowser::open(url);
+    }
+
+    fn request_shutdown(&mut self) {
+        if self.shutting_down {
+            return;
+        }
+        self.shutting_down = true;
+        self.update_tray_status();
+        if let Some(shutdown) = self.shutdown.take() {
+            let _ = shutdown.send(());
+        }
+    }
+}
+
+impl ApplicationHandler<AppEvent> for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.tray.is_some() {
+            return;
+        }
+        if self.create_tray().is_err() {
+            self.request_shutdown();
+            event_loop.exit();
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        _event: WindowEvent,
+    ) {
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: AppEvent) {
+        match event {
+            AppEvent::Menu(event) => match event.id().as_ref() {
+                OPEN_ID => self.open_browser(),
+                QUIT_ID => {
+                    self.request_shutdown();
+                    if self.server_stopped {
+                        event_loop.exit();
+                    }
+                }
+                _ => {}
+            },
+            AppEvent::Server(ServerEvent::Ready(url)) => self.server_ready(url),
+            AppEvent::Server(ServerEvent::Stopped(result)) => {
+                self.server_stopped(result);
+                if self.shutting_down {
+                    event_loop.exit();
+                }
+            }
+        }
+    }
+}
+
+pub fn run() -> Result<(), Box<dyn Error>> {
+    let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
+    event_loop.set_control_flow(ControlFlow::Wait);
+
+    let menu_proxy = event_loop.create_proxy();
+    MenuEvent::set_event_handler(Some(move |event| {
+        let _ = menu_proxy.send_event(AppEvent::Menu(event));
+    }));
+
+    let (shutdown, shutdown_receiver) = oneshot::channel();
+    let server_proxy = event_loop.create_proxy();
+    let server_thread = server::spawn(
+        move |event| {
+            server_proxy
+                .send_event(AppEvent::Server(event))
+                .map_err(|_| "application event loop has stopped".to_owned())
+        },
+        shutdown_receiver,
+    )?;
+    let mut app = App::new(shutdown);
+
+    let event_loop_result = event_loop.run_app(&mut app);
+    app.request_shutdown();
+    if server_thread.join().is_err() {
+        return Err("Axum server thread panicked".into());
+    }
+    event_loop_result?;
+    Ok(())
+}
+
+fn solid_icon() -> Result<Icon, tray_icon::BadIcon> {
+    const WIDTH: u32 = 32;
+    const HEIGHT: u32 = 32;
+    let mut rgba = Vec::with_capacity((WIDTH * HEIGHT * 4) as usize);
+
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let inset = x < 4 || y < 4 || x >= WIDTH - 4 || y >= HEIGHT - 4;
+            let pixel = if inset {
+                [18, 52, 86, 255]
+            } else {
+                [48, 146, 220, 255]
+            };
+            rgba.extend_from_slice(&pixel);
+        }
+    }
+
+    Icon::from_rgba(rgba, WIDTH, HEIGHT)
+}

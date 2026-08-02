@@ -6,7 +6,8 @@ foreach ($RelativePath in @(
     '_lib\state.ps1',
     '_lib\activation.ps1',
     '_modules\msvc\module.ps1',
-    '_modules\msvc\environment.ps1'
+    '_modules\msvc\environment.ps1',
+    '_modules\msvc\command.ps1'
 )) {
     . (Join-Path $SetupRoot $RelativePath)
 }

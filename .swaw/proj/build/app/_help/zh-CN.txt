@@ -1,0 +1,10 @@
+使用当前项目受管的 Rust 与 MSVC 工具链构建 Swaw Kit Proj 主程序。
+
+用法:
+  {{INVOCATION}}
+
+输出位于当前入口独享的 DataRoot：
+  _build/app/release/swawkit-proj.exe
+
+当前纵向切片是单一 Windows EXE：主线程运行系统托盘，后台线程运行仅监听
+127.0.0.1 随机端口的 Axum Web Adapter。该 Action 不接受动态参数。

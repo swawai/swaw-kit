@@ -19,6 +19,7 @@ $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'bun.ps1')
 & (Join-Path $PSScriptRoot 'pwsh.ps1')
 & (Join-Path $PSScriptRoot 'msvc.ps1')
+& (Join-Path $PSScriptRoot 'msvc.command.ps1')
 & (Join-Path $PSScriptRoot 'msvc.cache.ps1')
 & (Join-Path $PSScriptRoot 'rust.ps1')
 & (Join-Path $PSScriptRoot 'rust.strict.ps1')

@@ -1,0 +1,16 @@
+[package]
+name = "swawkit-proj"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[dependencies]
+axum = { version = "0.8.9", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "~1.51.0", features = ["macros", "net", "rt", "sync"] }
+tray-icon = "0.24.2"
+webbrowser = { version = "1.2.1", features = ["hardened"] }
+winit = "0.30.13"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
