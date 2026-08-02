@@ -13,6 +13,10 @@ try {
         -Arguments $CliArguments
     exit $ExitCode
 } catch {
-    [Console]::Error.WriteLine("[ERROR] $($_.Exception.Message)")
+    if ($_.Exception.Data['SwawKit.Proj.SuppressErrorPrefix'] -eq $true) {
+        [Console]::Error.WriteLine($_.Exception.Message)
+    } else {
+        [Console]::Error.WriteLine("[ERROR] $($_.Exception.Message)")
+    }
     exit 1
 }

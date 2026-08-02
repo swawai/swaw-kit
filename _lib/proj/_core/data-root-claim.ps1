@@ -1,5 +1,15 @@
 Set-StrictMode -Version 2.0
 
+function New-ProjDataRootClaimException {
+    param(
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+
+    $Exception = [InvalidOperationException]::new($Message)
+    $Exception.Data['SwawKit.Proj.SuppressErrorPrefix'] = $true
+    return $Exception
+}
+
 function New-ProjDataRootClaim {
     param(
         [Parameter(Mandatory = $true)][object]$Plan,
@@ -107,31 +117,30 @@ function Confirm-ProjDataRootClaim {
     }
     Write-Host "  reason:                   $($Claim.Reason)"
     if ([Console]::IsInputRedirected) {
-        Write-Host (
-            '[CLAIM FAILED] Confirmation input is redirected; no ownership ' +
-            'change was made.'
-        ) -ForegroundColor Red
-        throw (
-            'DataRoot claim requires an interactive terminal. Re-run the ' +
-            'entry directly and review the claim details.'
-        )
+        Write-Host '[FAILED] Confirmation input is redirected.' `
+            -ForegroundColor Red
+        throw (New-ProjDataRootClaimException -Message (
+            'Project DataRoot claim requires an interactive terminal.'
+        ))
     }
     $Answer = Read-ProjTimedClaimAnswer `
-        -Prompt "Type entry name '$($Claim.EntryName)' to confirm" `
+        -Prompt "Type the new name '$($Claim.EntryName)' to confirm" `
         -TimeoutSeconds $TimeoutSeconds
     if ($null -eq $Answer) {
-        Write-Host (
-            "[CLAIM FAILED] No confirmation was received within " +
-            "$TimeoutSeconds seconds; no ownership change was made."
-        ) -ForegroundColor Red
-        throw 'Project DataRoot claim timed out.'
+        Write-Host "[FAILED] No input within $TimeoutSeconds seconds." `
+            -ForegroundColor Red
+        throw (New-ProjDataRootClaimException -Message (
+            'Project DataRoot claim timed out.'
+        ))
     }
     if ([string]$Answer -cne [string]$Claim.EntryName) {
         Write-Host (
-            '[CLAIM FAILED] Confirmation did not match the entry name; no ' +
-            'ownership change was made.'
+            "[FAILED] Expected '$($Claim.EntryName)'; " +
+            "you typed '$Answer'."
         ) -ForegroundColor Red
-        throw 'Project DataRoot claim was not confirmed.'
+        throw (New-ProjDataRootClaimException -Message (
+            'Project DataRoot claim was not confirmed.'
+        ))
     }
     return $true
 }
