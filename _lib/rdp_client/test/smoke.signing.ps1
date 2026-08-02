@@ -87,7 +87,70 @@ try {
         if ($TestCertificate.Thumbprint.Length -ne 40 -or
             $Sha256Fingerprint.Length -ne 64 -or
             $Sha256Fingerprint -eq $TestCertificate.Thumbprint) {
-            throw 'The SHA-256 signing fingerprint must not use the SHA-1 Thumbprint property.'
+            throw 'Certificate SHA-1 and SHA-256 identifiers were not calculated independently.'
+        }
+
+        $script:RdpSignMockMode = 'Sha256Success'
+        $script:RdpSignMockCalls = New-Object 'Collections.Generic.List[string]'
+        function Invoke-RdpClientRdpSignProcess {
+            param(
+                [Parameter(Mandatory = $true)][string]$Path,
+                [Parameter(Mandatory = $true)][string]$CertificateHash
+            )
+
+            $null = $Path
+            $script:RdpSignMockCalls.Add($CertificateHash)
+            if ($script:RdpSignMockMode -eq 'Sha256Success') {
+                return [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            if ($script:RdpSignMockMode -eq 'FallbackSuccess') {
+                if ($CertificateHash -eq $Sha256Fingerprint) {
+                    return [pscustomobject]@{
+                        ExitCode = 0x80092004
+                        Output   = 'Unable to locate the certificate specified.'
+                    }
+                }
+                return [pscustomobject]@{ ExitCode = 0; Output = '' }
+            }
+            return [pscustomobject]@{
+                ExitCode = 5
+                Output   = 'Access is denied.'
+            }
+        }
+
+        $null = Invoke-RdpClientRdpSignCompatible `
+            -Path 'ignored.rdp' `
+            -Certificate $TestCertificate
+        if ($script:RdpSignMockCalls.Count -ne 1 -or
+            $script:RdpSignMockCalls[0] -ne $Sha256Fingerprint) {
+            throw 'rdpsign compatibility should prefer the documented SHA-256 fingerprint.'
+        }
+
+        $script:RdpSignMockMode = 'FallbackSuccess'
+        $script:RdpSignMockCalls.Clear()
+        $null = Invoke-RdpClientRdpSignCompatible `
+            -Path 'ignored.rdp' `
+            -Certificate $TestCertificate
+        if ($script:RdpSignMockCalls.Count -ne 2 -or
+            $script:RdpSignMockCalls[0] -ne $Sha256Fingerprint -or
+            $script:RdpSignMockCalls[1] -ne $TestCertificate.Thumbprint) {
+            throw 'rdpsign compatibility should retry SHA-1 only after certificate lookup fails.'
+        }
+
+        $script:RdpSignMockMode = 'FatalFailure'
+        $script:RdpSignMockCalls.Clear()
+        $FatalFailure = $null
+        try {
+            $null = Invoke-RdpClientRdpSignCompatible `
+                -Path 'ignored.rdp' `
+                -Certificate $TestCertificate
+        } catch {
+            $FatalFailure = $_.Exception.Message
+        }
+        if ($script:RdpSignMockCalls.Count -ne 1 -or
+            [string]::IsNullOrWhiteSpace($FatalFailure) -or
+            -not $FatalFailure.Contains('Access is denied.')) {
+            throw 'rdpsign compatibility must not hide or retry unrelated signing failures.'
         }
     } finally {
         $TestCertificate.Dispose()
@@ -179,11 +242,6 @@ if (-not $SigningScript.Contains(
     '$PublicCertificate.FriendlyName = $Configuration.RootTrustFriendlyName'
 )) {
     throw 'The Root trust copy should receive its own maintenance label before import.'
-}
-$SigningCoreScript = [IO.File]::ReadAllText($CoreScript, [Text.Encoding]::UTF8)
-if (-not $SigningCoreScript.Contains('/sha256 $CertificateFingerprint') -or
-    $SigningCoreScript.Contains('/sha256 $State.Certificate.Thumbprint')) {
-    throw 'rdpsign /sha256 must receive the certificate SHA-256 fingerprint.'
 }
 $RemoveStart = $SigningScript.IndexOf('function Remove-RdpClientSigning')
 $RemoveEnd = $SigningScript.IndexOf('function Open-RdpClientCertificateManager')

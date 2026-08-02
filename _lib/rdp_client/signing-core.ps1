@@ -301,6 +301,70 @@ function Get-RdpClientSigningState {
     }
 }
 
+function Invoke-RdpClientRdpSignProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$CertificateHash
+    )
+
+    $PreviousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $NativeOutput = & (Get-RdpClientRdpSignPath) `
+            /sha256 $CertificateHash /q $Path 2>&1 | Out-String
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousPreference
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $ExitCode
+        Output   = $NativeOutput.Trim()
+    }
+}
+
+function Invoke-RdpClientRdpSignCompatible {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)]
+        [Security.Cryptography.X509Certificates.X509Certificate2]$Certificate
+    )
+
+    # Microsoft documents /sha256 as accepting the certificate's SHA-256
+    # fingerprint. Windows 11 build 26100 instead resolves CurrentUser\My by
+    # the traditional SHA-1 Thumbprint even when /sha256 selects the signing
+    # mode. Prefer the documented identifier, and retry only for the exact
+    # certificate-not-found result so unrelated signing failures stay visible.
+    $Sha256Fingerprint = Get-RdpClientCertificateFingerprintSha256 `
+        -Certificate $Certificate
+    $PrimaryResult = Invoke-RdpClientRdpSignProcess `
+        -Path $Path `
+        -CertificateHash $Sha256Fingerprint
+    if ($PrimaryResult.ExitCode -eq 0) {
+        return $PrimaryResult
+    }
+    if ($PrimaryResult.ExitCode -ne 0x80092004) {
+        throw "rdpsign.exe failed with exit code $($PrimaryResult.ExitCode). $($PrimaryResult.Output)"
+    }
+
+    Write-Verbose (
+        'rdpsign.exe could not resolve the SHA-256 certificate fingerprint; ' +
+        'retrying with the certificate SHA-1 Thumbprint.'
+    )
+    $FallbackResult = Invoke-RdpClientRdpSignProcess `
+        -Path $Path `
+        -CertificateHash $Certificate.Thumbprint
+    if ($FallbackResult.ExitCode -ne 0) {
+        throw (
+            'rdpsign.exe could not select the signing certificate by either ' +
+            "supported identifier. SHA-256 exit code $($PrimaryResult.ExitCode): " +
+            "$($PrimaryResult.Output) SHA-1 fallback exit code " +
+            "$($FallbackResult.ExitCode): $($FallbackResult.Output)"
+        )
+    }
+    return $FallbackResult
+}
+
 function Invoke-RdpClientFileSigning {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -318,20 +382,9 @@ function Invoke-RdpClientFileSigning {
         throw "RDP signing state is $($State.Name): $($State.Reason) Run `"$CommandName .sign status`" for details."
     }
 
-    $PreviousPreference = $ErrorActionPreference
-    $CertificateFingerprint = Get-RdpClientCertificateFingerprintSha256 `
+    $null = Invoke-RdpClientRdpSignCompatible `
+        -Path $Path `
         -Certificate $State.Certificate
-    try {
-        $ErrorActionPreference = 'Continue'
-        $NativeOutput = & (Get-RdpClientRdpSignPath) `
-            /sha256 $CertificateFingerprint /q $Path 2>&1 | Out-String
-        $ExitCode = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $PreviousPreference
-    }
-    if ($ExitCode -ne 0) {
-        throw "rdpsign.exe failed with exit code $ExitCode. $($NativeOutput.Trim())"
-    }
 
     $SignedText = [IO.File]::ReadAllText($Path, [Text.Encoding]::Unicode)
     if ($SignedText -notmatch '(?m)^signscope:s:' -or
