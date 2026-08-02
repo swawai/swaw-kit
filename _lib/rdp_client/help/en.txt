@@ -1,0 +1,37 @@
+# RDP client entry
+
+One entry command represents one remote account and one generated .rdp file. Start by copying and editing Favorites\template.rdp1.cmd.
+
+# Commands:
+  {{COMMAND}} .help en                    Show English help
+  {{COMMAND}} .help zh                    Show Chinese help
+  {{COMMAND}}                             Rebuild the RDP file and start Remote Desktop
+  {{COMMAND}} .rdp create                 Generate only; refuse to overwrite an existing target
+  {{COMMAND}} .rdp create --force         Generate and overwrite an existing target
+
+
+  {{COMMAND}} .hosts status               Show the hosts mapping state for this entry
+  {{COMMAND}} .hosts install              Non-interactive install or repair; fail if elevation is required
+  {{COMMAND}} .hosts install --uac        Install or repair; prompt for UAC only when elevation is required
+  {{COMMAND}} .hosts remove               Non-interactive removal for this entry; fail if elevation is required
+  {{COMMAND}} .hosts remove --uac         Remove this entry's mapping; prompt for UAC only when required
+  {{COMMAND}} .hosts cleanup --dry-run    Show removable managed mappings without changing hosts
+  {{COMMAND}} .hosts cleanup              Non-interactive orphan cleanup; fail if elevation is required
+  {{COMMAND}} .hosts cleanup --uac        Clean orphaned mappings; prompt for UAC only when required
+
+  {{COMMAND}} .sign status                Show My, Root, and mstsc trust-policy state
+  {{COMMAND}} .sign install               Create the My private-key certificate, Root trust copy, and mstsc trust entry
+  {{COMMAND}} .sign install --dry-run     List those ADD operations without changing stores or the registry
+  {{COMMAND}} .sign remove                Remove the dedicated certificates and their mstsc trust entry
+  {{COMMAND}} .sign open                  Open Certificates - Current User
+
+  .sign changes only CurrentUser certificate stores and HKCU. It neither needs nor supports --uac; Windows may still show a certificate trust confirmation.
+
+
+
+# RDP property references:
+  Microsoft Learn: https://learn.microsoft.com/en-us/azure/virtual-desktop/rdp-properties
+  RDP file properties: https://www.cnblogs.com/Tuzki/p/4515279.html
+  RDP file security policy: https://learn.microsoft.com/windows-server/remote/remote-desktop-services/remotepc/manage-rdp-file-security-settings-with-group-policy
+  Windows self-signed code-signing trust: https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_signing
+  rdpsign: https://learn.microsoft.com/windows-server/administration/windows-commands/rdpsign
