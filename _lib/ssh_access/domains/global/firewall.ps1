@@ -15,10 +15,11 @@ function New-SshAccessUnknownFirewallRuleState {
     )
 
     return [pscustomobject]@{
-        Name   = $Name
-        Status = 'Unknown'
-        Port   = $null
-        Error  = $Error
+        Name    = $Name
+        Status  = 'Unknown'
+        Port    = $null
+        Profile = $null
+        Error   = $Error
     }
 }
 
@@ -26,10 +27,11 @@ function New-SshAccessMissingFirewallRuleState {
     param([Parameter(Mandatory = $true)][string]$Name)
 
     return [pscustomobject]@{
-        Name   = $Name
-        Status = 'Missing'
-        Port   = $null
-        Error  = $null
+        Name    = $Name
+        Status  = 'Missing'
+        Port    = $null
+        Profile = $null
+        Error   = $null
     }
 }
 
@@ -58,6 +60,32 @@ function Test-SshAccessFirewallRuleEnabled {
 
     $Enabled = [string]$Rule.Enabled
     return $Enabled -eq 'True' -or $Enabled -eq '1'
+}
+
+function Get-SshAccessFirewallProfileText {
+    param([Parameter(Mandatory = $true)][object]$Rule)
+
+    $Profile = ([string]$Rule.Profile).Trim()
+    if ([string]::IsNullOrWhiteSpace($Profile)) {
+        return 'Unknown'
+    }
+    return $Profile
+}
+
+function Test-SshAccessFirewallProfileAny {
+    param([Parameter(Mandatory = $true)][object]$Rule)
+
+    $Profile = (Get-SshAccessFirewallProfileText -Rule $Rule).Replace(' ', '')
+    if ($Profile -eq 'Any' -or $Profile -eq '0') {
+        return $true
+    }
+
+    $Profiles = @($Profile.Split(',') | ForEach-Object {
+        $_.ToLowerInvariant()
+    })
+    return $Profiles -contains 'domain' -and
+        $Profiles -contains 'private' -and
+        $Profiles -contains 'public'
 }
 
 function Test-SshAccessFirewallPortFilter {
@@ -99,7 +127,6 @@ function Get-SshAccessFirewallRuleState {
             [string]$Rule.Action -ne 'Allow') {
             continue
         }
-
         try {
             $Filters = @($Rule | Get-NetFirewallPortFilter -ErrorAction Stop)
         } catch {
@@ -110,20 +137,25 @@ function Get-SshAccessFirewallRuleState {
         foreach ($Filter in $Filters) {
             if (Test-SshAccessFirewallPortFilter -Filter $Filter -Port $Port) {
                 return [pscustomobject]@{
-                    Name   = $Name
-                    Status = 'Ready'
-                    Port   = $Port
-                    Error  = $null
+                    Name    = $Name
+                    Status  = 'Ready'
+                    Port    = $Port
+                    Profile = Get-SshAccessFirewallProfileText -Rule $Rule
+                    Error   = $null
                 }
             }
         }
     }
 
+    $Profiles = @($Rules | ForEach-Object {
+        Get-SshAccessFirewallProfileText -Rule $_
+    } | Sort-Object -Unique)
     return [pscustomobject]@{
-        Name   = $Name
-        Status = 'Misconfigured'
-        Port   = $null
-        Error  = $null
+        Name    = $Name
+        Status  = 'Misconfigured'
+        Port    = $null
+        Profile = [string]::Join(', ', [string[]]$Profiles)
+        Error   = $null
     }
 }
 
@@ -162,31 +194,25 @@ function Get-SshAccessFirewallState {
         -Name (Get-SshAccessManagedFirewallRuleName) `
         -AllRules $AllRules `
         -Port $Port
+    if ($Managed.Status -eq 'Ready' -and
+        -not (Test-SshAccessFirewallProfileAny -Rule $Managed)) {
+        $Managed.Status = 'Misconfigured'
+        $Managed.Port = $null
+    }
 
     $Status = 'Missing'
     $Source = $null
     $RuleName = $null
     $ErrorText = $null
-    if ($Canonical.Status -eq 'Ready') {
-        $Status = 'Ready'
-        $Source = 'Canonical'
-        $RuleName = $Canonical.Name
-    } elseif ($Managed.Status -eq 'Ready') {
+    if ($Managed.Status -eq 'Ready') {
         $Status = 'Ready'
         $Source = 'Managed'
         $RuleName = $Managed.Name
-    } else {
-        $States = @($Canonical, $Managed)
-        $Unknown = @($States | Where-Object Status -eq 'Unknown')
-        $Misconfigured = @(
-            $States | Where-Object Status -eq 'Misconfigured'
-        )
-        if ($Unknown.Count -gt 0) {
-            $Status = 'Unknown'
-            $ErrorText = [string]$Unknown[0].Error
-        } elseif ($Misconfigured.Count -gt 0) {
-            $Status = 'Misconfigured'
-        }
+    } elseif ($Managed.Status -eq 'Unknown') {
+        $Status = 'Unknown'
+        $ErrorText = [string]$Managed.Error
+    } elseif ($Managed.Status -eq 'Misconfigured') {
+        $Status = 'Misconfigured'
     }
 
     return [pscustomobject]@{
@@ -272,16 +298,8 @@ function Ensure-SshAccessServerFirewall {
         throw "Cannot inspect Windows firewall state. $($State.Error)"
     }
 
-    if ($State.Canonical.Status -eq 'Ready') {
-        $Removed = @(Remove-SshAccessOwnedFirewallRules)
-        Write-Host "Using the Windows OpenSSH firewall rule '$($State.Canonical.Name)' for TCP/$Port."
-        if ($Removed.Count -gt 0) {
-            Write-Host "Removed superseded SSH Access rule(s): $($Removed -join ', ')"
-        }
-        return
-    }
-    if ($State.Managed.Status -eq 'Ready') {
-        Write-Host "Using the SSH Access firewall rule '$($State.Managed.Name)' for TCP/$Port."
+    if ($State.Status -eq 'Ready') {
+        Write-Host "Using the SSH Access firewall rule '$($State.RuleName)' for TCP/$Port."
         return
     }
 
@@ -290,6 +308,16 @@ function Ensure-SshAccessServerFirewall {
     if ($Removed.Count -gt 0) {
         Write-Host "Replaced SSH Access rule(s): $($Removed -join ', ')"
     }
+}
+
+function Format-SshAccessFirewallRuleState {
+    param([Parameter(Mandatory = $true)][object]$State)
+
+    $Text = "$($State.Status): $($State.Name)"
+    if (-not [string]::IsNullOrWhiteSpace([string]$State.Profile)) {
+        return "$Text [$($State.Profile)]"
+    }
+    return $Text
 }
 
 function Show-SshAccessFirewallState {
@@ -313,10 +341,10 @@ function Show-SshAccessFirewallState {
     Write-SshAccessField -Name 'Active rule' -Value $State.RuleName
     Write-SshAccessField `
         -Name 'Windows rule' `
-        -Value "$($State.Canonical.Status): $($State.Canonical.Name)"
+        -Value (Format-SshAccessFirewallRuleState -State $State.Canonical)
     Write-SshAccessField `
         -Name 'Managed rule' `
-        -Value "$($State.Managed.Status): $($State.Managed.Name)"
+        -Value (Format-SshAccessFirewallRuleState -State $State.Managed)
     if (-not [string]::IsNullOrWhiteSpace($State.Error)) {
         Write-SshAccessField -Name 'Firewall note' -Value $State.Error
     }
@@ -342,8 +370,9 @@ function Remove-SshAccessServerFirewall {
     $State = Get-SshAccessFirewallState -Port $PortState.Port
     if ($State.Canonical.Status -eq 'Ready') {
         Write-SshAccessWarning -Message (
-            "TCP/$($PortState.Port) remains allowed by the Windows-owned rule " +
-            "'$($State.Canonical.Name)'."
+            "The Windows-owned rule '$($State.Canonical.Name)' still allows " +
+            "TCP/$($PortState.Port) on firewall profile(s) " +
+            "'$($State.Canonical.Profile)'."
         )
     }
 }
