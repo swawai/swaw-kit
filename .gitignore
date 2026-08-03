@@ -5,8 +5,13 @@
 
 # Root CMD files are user-local copies unless explicitly kept.
 /*.cmd
+!/*.dev.cmd
 !/PathHereAdd.cmd
 !/PathHereRemove.cmd
 !/swawkit.cmd
 
 /Favorites/template.proj1.exe
+
+.xvenv/
+/_lib/project_kit
+/skills/
