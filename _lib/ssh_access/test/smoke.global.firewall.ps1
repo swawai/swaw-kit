@@ -190,4 +190,86 @@ Assert-SshAccessTestEqual `
     1 `
     'The Windows-owned OpenSSH rule must survive SSH Access cleanup.'
 
+Write-Host '[TEST] Server install creates managed coverage for the default SSH port'
+$script:InstallStartupType = $null
+$script:InstallStartCalls = 0
+function Install-SshAccessWindowsCapability {
+    param([string]$Name)
+
+    return [pscustomobject]@{
+        Changed       = $false
+        RestartNeeded = $false
+    }
+}
+
+function Get-SshAccessOptionalServerService {
+    return [pscustomobject]@{ Status = 'Stopped' }
+}
+
+function Set-Service {
+    [CmdletBinding()]
+    param(
+        [string]$Name,
+        [string]$StartupType
+    )
+
+    $script:InstallStartupType = $StartupType
+}
+
+function Start-Service {
+    [CmdletBinding()]
+    param([string]$Name)
+
+    $script:InstallStartCalls++
+}
+
+function Get-SshAccessRequiredServerService {
+    return [pscustomobject]@{ Status = 'Running' }
+}
+
+function Wait-SshAccessServerService {
+    param(
+        [object]$Service,
+        [string]$Status
+    )
+}
+
+function Get-SshAccessServerPortConfigurationState {
+    param([pscustomobject]$Context)
+
+    return [pscustomobject]@{
+        Status = 'Known'
+        Port   = 22
+        Source = 'Default'
+    }
+}
+
+function Assert-SshAccessManagedServerPortState {
+    param([pscustomobject]$State)
+
+    return [int]$State.Port
+}
+
+$script:CreatedFirewallPorts.Clear()
+Install-SshAccessServer -Context ([pscustomobject]@{})
+Assert-SshAccessTestEqual `
+    $script:InstallStartupType `
+    'Automatic' `
+    'Server install should configure automatic startup.'
+Assert-SshAccessTestEqual `
+    $script:InstallStartCalls `
+    1 `
+    'Server install should start a stopped sshd service.'
+Assert-SshAccessTestEqual `
+    ([string]::Join(',', [int[]]@($script:CreatedFirewallPorts))) `
+    '22' `
+    'Server install should request managed coverage for the default SSH port.'
+$Managed = @(
+    $script:FirewallRules |
+        Where-Object Name -eq 'swaw-kit-ssh-access-sshd-inbound-tcp'
+)
+Assert-SshAccessTestEqual $Managed.Count 1 'Server install should create one managed rule.'
+Assert-SshAccessTestEqual $Managed[0].Port 22 'Server install should cover the default SSH port.'
+Assert-SshAccessTestEqual $Managed[0].Profile 'Any' 'Server install should cover every profile.'
+
 Write-Host 'ssh access global firewall tests: PASS' -ForegroundColor Green
