@@ -81,7 +81,7 @@ try {
         'full address:s:swaw-kit.administrator.rdp.home.arpa:3389',
         'username:s:administrator',
         'remoteapplicationmode:i:0',
-        'drivestoredirect:s:D:\;'
+        'redirectclipboard:i:1'
     )) {
         if (-not $RdpText.Contains($Expected)) {
             throw "Generated RDP file is missing '$Expected'.`n$RdpText"
@@ -89,6 +89,7 @@ try {
     }
     foreach ($Forbidden in @(
         'full address:s:192.168.1.115:3389',
+        'drivestoredirect:',
         '::',
         'goto :RdpClientAfterEmbeddedRdpProperties',
         'set "RDP_HOST_ALIAS='

@@ -47,9 +47,9 @@ use multimon:i:0
 keyboardhook:i:1
 
 :: 剪贴板重定向：0=禁用，1=启用:
-redirectclipboard:i:0
+redirectclipboard:i:1
 :: 驱动器重定向；多个盘符以分号分隔，空值表示禁用:
-drivestoredirect:s:D:\;
+:: drivestoredirect:s:D:\;
 :: 打印机重定向：0=禁用，1=启用:
 redirectprinters:i:0
 :: 串口重定向：0=禁用，1=启用:
