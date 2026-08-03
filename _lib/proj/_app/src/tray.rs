@@ -12,7 +12,11 @@ use winit::{
     window::WindowId,
 };
 
-use swawkit_proj::server::{self, ServerEvent};
+use swawkit_proj::{
+    catalog_reader::CatalogReader,
+    context::AppContext,
+    server::{self, ServerEvent},
+};
 
 const STATUS_ID: &str = "tray.status";
 const OPEN_ID: &str = "tray.open";
@@ -198,6 +202,8 @@ impl ApplicationHandler<AppEvent> for App {
 }
 
 pub fn run() -> Result<(), Box<dyn Error>> {
+    let context = AppContext::from_env()?;
+    let catalog_reader = CatalogReader::new(context);
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
@@ -209,6 +215,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let (shutdown, shutdown_receiver) = oneshot::channel();
     let server_proxy = event_loop.create_proxy();
     let server_thread = server::spawn(
+        catalog_reader,
         move |event| {
             server_proxy
                 .send_event(AppEvent::Server(event))

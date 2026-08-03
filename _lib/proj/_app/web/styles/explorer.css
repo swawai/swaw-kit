@@ -1,0 +1,218 @@
+.explorer-frame {
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.explorer-flow {
+  width: 100%;
+  height: 100%;
+  min-height: 350px;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-scrollbar) var(--ui-scrollbar-track);
+}
+
+.finder-columns {
+  height: 100%;
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.finder-column {
+  width: var(--column-width);
+  height: 100%;
+  min-height: 0;
+  flex: 0 0 var(--column-width);
+  padding: 8px 8px 24px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-scrollbar) var(--ui-scrollbar-track);
+}
+
+.column-section + .column-section {
+  margin-top: 12px;
+}
+
+.column-label {
+  margin: 0;
+  padding: 7px 9px 5px;
+  color: var(--ui-text-subtle);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.column-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.command-row {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 15px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-row:hover {
+  background: var(--ui-surface-hover);
+}
+
+.command-row[aria-current="page"] {
+  color: var(--ui-selection-text);
+  background: var(--ui-selection-bg);
+}
+
+.command-row[aria-current="page"]:focus-visible {
+  outline-color: var(--ui-selection-text);
+  outline-offset: -3px;
+}
+
+.row-icon {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  color: var(--ui-text-muted);
+  background: var(--ui-surface-pressed);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.command-row:is([data-kind="group"], [data-kind="system"]) .row-icon {
+  color: var(--ui-text);
+}
+
+.command-row[aria-current="page"] .row-icon {
+  color: var(--ui-selection-bg);
+  background: var(--ui-selection-text);
+}
+
+.row-copy {
+  min-width: 0;
+}
+
+.row-name,
+.row-summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.row-summary {
+  margin-top: 2px;
+  color: var(--ui-text-subtle);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.command-row[aria-current="page"] .row-summary {
+  color: var(--ui-selection-text);
+}
+
+.row-chevron {
+  color: var(--ui-text-subtle);
+  font-size: 17px;
+  line-height: 1;
+}
+
+.command-row[aria-current="page"] .row-chevron {
+  color: var(--ui-selection-text);
+}
+
+.empty-column {
+  padding: 32px 18px;
+  color: var(--ui-text-subtle);
+  font-size: 12px;
+  text-align: center;
+}
+
+.finder-state {
+  position: absolute;
+  inset: 0;
+  min-height: 350px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface);
+  text-align: center;
+}
+
+.finder-state h2 {
+  margin: 13px 0 5px;
+  color: var(--ui-text);
+  font-size: 16px;
+}
+
+.finder-state p {
+  max-width: 45ch;
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--ui-border-strong);
+  border-top-color: var(--ui-text);
+  border-radius: var(--radius-pill);
+  animation: spin 720ms linear infinite;
+}
+
+.state-symbol {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  color: var(--ui-status-error);
+  background: var(--ui-status-error-surface);
+  font-weight: 700;
+}
+
+.finder-state .secondary-button {
+  margin-top: 10px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 560px) {
+  .finder-column {
+    width: min(82vw, 290px);
+    flex-basis: min(82vw, 290px);
+  }
+}

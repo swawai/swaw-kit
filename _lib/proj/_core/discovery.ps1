@@ -86,7 +86,6 @@ function Get-ProjCommandDiscoveries {
                     Entry = if ($null -ne $Entry.Selected) { $Entry.Selected.Name } else { $null }
                     Adapter = if ($null -ne $Entry.Selected) { $Entry.Selected.Adapter } else { $null }
                     Unsupported = @($Entry.Unsupported | ForEach-Object Name)
-                    HasView = $Entry.HasView
                     Diagnostic = $null
                 })
             }
@@ -100,7 +99,6 @@ function Get-ProjCommandDiscoveries {
                     Entry = $null
                     Adapter = $null
                     Unsupported = @()
-                    HasView = $false
                     Diagnostic = $_.Exception.Message
                 })
             }

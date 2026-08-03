@@ -1,0 +1,49 @@
+use axum::{
+    extract::Path,
+    http::{header::CONTENT_TYPE, StatusCode},
+    response::{Html, IntoResponse, Response},
+};
+
+const INDEX_HTML: &str = include_str!("../web/index.html");
+
+const APP_CSS: &str = include_str!("../web/app.css");
+const THEME_CSS: &str = include_str!("../web/styles/theme.css");
+const BASE_CSS: &str = include_str!("../web/styles/base.css");
+const SHELL_CSS: &str = include_str!("../web/styles/shell.css");
+const EXPLORER_CSS: &str = include_str!("../web/styles/explorer.css");
+const DETAIL_CSS: &str = include_str!("../web/styles/detail.css");
+
+const APP_JS: &str = include_str!("../web/app.js");
+const CATALOG_MODEL_JS: &str = include_str!("../web/catalog-model.js");
+const EXPLORER_JS: &str = include_str!("../web/explorer.js");
+const DETAIL_JS: &str = include_str!("../web/detail.js");
+const SYSTEM_JS: &str = include_str!("../web/system.js");
+
+pub(crate) async fn index() -> Html<&'static str> {
+    Html(INDEX_HTML)
+}
+
+pub(crate) async fn asset(Path(path): Path<String>) -> Response {
+    let asset = match path.as_str() {
+        "app.css" => Some(("text/css; charset=utf-8", APP_CSS)),
+        "styles/theme.css" => Some(("text/css; charset=utf-8", THEME_CSS)),
+        "styles/base.css" => Some(("text/css; charset=utf-8", BASE_CSS)),
+        "styles/shell.css" => Some(("text/css; charset=utf-8", SHELL_CSS)),
+        "styles/explorer.css" => Some(("text/css; charset=utf-8", EXPLORER_CSS)),
+        "styles/detail.css" => Some(("text/css; charset=utf-8", DETAIL_CSS)),
+        "app.js" => Some(("text/javascript; charset=utf-8", APP_JS)),
+        "catalog-model.js" => Some((
+            "text/javascript; charset=utf-8",
+            CATALOG_MODEL_JS,
+        )),
+        "explorer.js" => Some(("text/javascript; charset=utf-8", EXPLORER_JS)),
+        "detail.js" => Some(("text/javascript; charset=utf-8", DETAIL_JS)),
+        "system.js" => Some(("text/javascript; charset=utf-8", SYSTEM_JS)),
+        _ => None,
+    };
+
+    let Some((content_type, body)) = asset else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    ([(CONTENT_TYPE, content_type)], body).into_response()
+}

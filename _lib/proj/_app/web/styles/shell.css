@@ -1,0 +1,53 @@
+.app-shell {
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--ui-surface);
+}
+
+.workspace,
+.catalog-canvas {
+  height: 100%;
+  min-height: 0;
+  background: var(--ui-surface);
+}
+
+.catalog-canvas {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.breadcrumb {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px;
+  color: var(--ui-text-muted);
+  background: var(--ui-surface);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-scrollbar) var(--ui-scrollbar-track);
+}
+
+.breadcrumb-home,
+.breadcrumb-item {
+  font-weight: 600;
+}
+
+.breadcrumb-item {
+  color: var(--ui-text);
+}
+
+.breadcrumb-separator {
+  color: var(--ui-text-subtle);
+}
+
+@media (max-width: 560px) {
+  .breadcrumb {
+    min-height: 44px;
+    padding: 0 12px;
+  }
+}

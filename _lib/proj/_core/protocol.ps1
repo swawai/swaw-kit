@@ -75,29 +75,10 @@ function Get-ProjEntryResolution {
         $null
     }
 
-    $ViewMatches = @($FileNames | Where-Object {
-        $_.Equals('index.html', [StringComparison]::OrdinalIgnoreCase)
-    })
-    if ($ViewMatches.Count -gt 1) {
-        throw "GUI view name collision in '$Directory': $($ViewMatches -join ', ')"
-    }
-    $HasView = $ViewMatches.Count -eq 1
-    if ($HasView) {
-        if (-not $ViewMatches[0].Equals('index.html', [StringComparison]::Ordinal)) {
-            throw "Non-canonical GUI view '$($ViewMatches[0])' in '$Directory'; expected 'index.html'."
-        }
-        $ViewPath = Join-Path $Directory 'index.html'
-        $ViewItem = Get-Item -LiteralPath $ViewPath -Force
-        if (($ViewItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-            throw "GUI view cannot be a reparse point: $ViewPath"
-        }
-    }
-
     return [pscustomobject]@{
         Selected = $SelectedEntry
         Unsupported = @($Existing | Where-Object { -not $_.Supported })
         Existing = @($Existing)
-        HasView = $HasView
     }
 }
 
@@ -268,7 +249,6 @@ function Resolve-ProjCommandNode {
         Directory = $Directory
         Entry = $Entry.Selected
         Unsupported = $Entry.Unsupported
-        HasView = $Entry.HasView
     }
 }
 
@@ -289,9 +269,6 @@ function Resolve-ProjCommand {
     if ($Node.Unsupported.Count -gt 0) {
         $Names = @($Node.Unsupported | ForEach-Object Name) -join ', '
         throw "Command '$Address' exists, but this Core does not support its entries: $Names"
-    }
-    if ($Node.HasView) {
-        throw "Command '$Address' is a GUI-only node and has no executable entry."
     }
     throw "Command '$Address' has no recognized executable entry."
 }

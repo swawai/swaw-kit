@@ -3,31 +3,147 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#ffffff">
     <title>Swaw Kit Proj</title>
     <link rel="stylesheet" href="/assets/app.css">
+    <script type="module" src="/assets/app.js"></script>
   </head>
   <body>
-    <main>
-      <p class="eyebrow">SWAW KIT PROJECT CONSOLE</p>
-      <h1>Swaw Kit Proj 已在线</h1>
-      <p class="summary">
-        本地 HTTP 服务和系统托盘生命周期已经接通。当前切片保持只读，
-        尚未向浏览器发布文件系统命令。
-      </p>
-      <dl>
-        <div>
-          <dt>监听范围</dt>
-          <dd>仅本机 IPv4 回环地址</dd>
-        </div>
-        <div>
-          <dt>端口</dt>
-          <dd>由系统随机分配</dd>
-        </div>
-        <div>
-          <dt>退出方式</dt>
-          <dd>托盘菜单 → 退出</dd>
-        </div>
-      </dl>
-    </main>
+    <div class="app-shell">
+      <main class="workspace">
+        <section class="catalog-canvas" aria-labelledby="browser-title">
+          <h1 class="sr-only" id="browser-title">Swaw Kit Project Console</h1>
+
+          <nav class="breadcrumb" id="breadcrumb" aria-label="当前命令路径">
+            <span class="breadcrumb-home">控制台</span>
+          </nav>
+
+          <div class="explorer-frame" id="explorer-frame">
+            <div class="finder-state" id="loading-state">
+              <span class="spinner" aria-hidden="true"></span>
+              <p>正在从 Host 读取命令目录</p>
+            </div>
+
+            <div class="finder-state" id="error-state" hidden>
+              <span class="state-symbol" aria-hidden="true">!</span>
+              <h2>命令目录暂时不可用</h2>
+              <p id="error-message">无法连接 Host。</p>
+              <button class="secondary-button" id="retry-button" type="button">重新加载</button>
+            </div>
+
+            <div class="explorer-flow" id="explorer-flow" hidden>
+              <div class="finder-columns" id="finder-columns" aria-label="命令层级"></div>
+
+              <aside class="detail-panel" id="detail-panel" tabindex="-1" aria-label="详情">
+                <p class="sr-only" id="selection-status" aria-live="polite"></p>
+
+                <article class="system-detail" id="system-detail" hidden>
+                  <header class="detail-heading">
+                    <h2>Swaw Kit</h2>
+                    <p>Project Console</p>
+                  </header>
+
+                  <section class="detail-section" aria-labelledby="host-title">
+                    <h3 id="host-title">Host</h3>
+                    <dl class="properties">
+                      <div>
+                        <dt>Status</dt>
+                        <dd>
+                          <p class="connection" id="connection-status" data-state="loading" role="status">
+                            <span class="status-dot" aria-hidden="true"></span>
+                            <span id="connection-label">正在读取命令目录…</span>
+                          </p>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Address</dt>
+                        <dd><code id="host-address"></code></dd>
+                      </div>
+                    </dl>
+                  </section>
+
+                  <section class="detail-section" aria-labelledby="catalog-title">
+                    <h3 id="catalog-title">Catalog</h3>
+                    <dl class="properties">
+                      <div>
+                        <dt>Entry</dt>
+                        <dd><code id="entry-name">swawkit</code></dd>
+                      </div>
+                      <div>
+                        <dt>Protocol</dt>
+                        <dd><code id="protocol-name">Catalog</code></dd>
+                      </div>
+                      <div>
+                        <dt>Nodes</dt>
+                        <dd id="catalog-count">—</dd>
+                      </div>
+                      <div>
+                        <dt>Kernel</dt>
+                        <dd id="kernel-count">—</dd>
+                      </div>
+                      <div>
+                        <dt>Actions</dt>
+                        <dd id="action-count">—</dd>
+                      </div>
+                    </dl>
+                  </section>
+
+                  <section class="detail-section" aria-labelledby="system-actions-title">
+                    <h3 id="system-actions-title">操作</h3>
+                    <button class="secondary-button" id="refresh-button" type="button">刷新命令目录</button>
+                  </section>
+                </article>
+
+                <article class="command-detail" id="command-detail" hidden>
+                  <header class="detail-heading">
+                    <h2 id="detail-address"></h2>
+                    <p id="detail-summary"></p>
+                  </header>
+
+                  <section class="issue-card" id="issue-card" hidden>
+                    <span aria-hidden="true">!</span>
+                    <div>
+                      <h3>协议问题</h3>
+                      <p id="detail-issue"></p>
+                    </div>
+                  </section>
+
+                  <section class="detail-section" id="invocation-section" aria-labelledby="invocation-title">
+                    <h3 id="invocation-title">CLI 调用</h3>
+                    <div class="command-copy">
+                      <code id="cli-command"></code>
+                      <button id="copy-button" type="button" aria-label="复制 CLI 调用">
+                        <span class="copy-label" id="copy-label">复制</span>
+                      </button>
+                    </div>
+                    <p class="copy-feedback" id="copy-feedback" aria-live="polite"></p>
+                  </section>
+
+                  <section class="detail-section" aria-labelledby="properties-title">
+                    <h3 id="properties-title">命令属性</h3>
+                    <dl class="properties">
+                      <div>
+                        <dt>Address</dt>
+                        <dd><code id="property-address"></code></dd>
+                      </div>
+                      <div id="property-entry-row">
+                        <dt>Entry</dt>
+                        <dd><code id="property-entry"></code></dd>
+                      </div>
+                    </dl>
+                  </section>
+
+                  <section class="detail-section help-section" id="help-section" aria-labelledby="help-title">
+                    <h3 id="help-title">帮助</h3>
+                    <pre id="detail-help"></pre>
+                  </section>
+                </article>
+              </aside>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
   </body>
 </html>

@@ -38,7 +38,6 @@ $Info = Resolve-ProjCommand `
     -ActionRoot $ActionRoot `
     -Address '.info'
 Assert-ProjSmoke ($Info.Entry.Name -ceq 'run.ps1') '.info must select run.ps1'
-Assert-ProjSmoke $Info.HasView '.info must expose index.html as its GUI view'
 Assert-ProjSmoke `
     ($Info.Directory.EndsWith('.info')) `
     '.info must use the real root .info directory without name translation'
@@ -112,11 +111,10 @@ try {
     $DotActionDirectory = Join-Path $ResolvedActionRoot '.kernel-looking'
     [void][IO.Directory]::CreateDirectory($DotActionDirectory)
     [IO.File]::WriteAllText((Join-Path $DotActionDirectory 'run.ps1'), '')
-    $ViewOnlyDirectory = Join-Path $ResolvedActionRoot 'about'
-    [void][IO.Directory]::CreateDirectory($ViewOnlyDirectory)
-    [IO.File]::WriteAllText((Join-Path $ViewOnlyDirectory 'index.html'), '')
+    $CommandGroupDirectory = Join-Path $ResolvedActionRoot 'about'
+    [void][IO.Directory]::CreateDirectory($CommandGroupDirectory)
 
-    $AboutHelpDirectory = Join-Path $ViewOnlyDirectory '_help'
+    $AboutHelpDirectory = Join-Path $CommandGroupDirectory '_help'
     [void][IO.Directory]::CreateDirectory($AboutHelpDirectory)
     Assert-ProjSmoke `
         (-not (Test-ProjUsesLocalHelp `
@@ -162,28 +160,27 @@ try {
     Assert-ProjSmoke `
         ($DiscoveredCheck.Count -eq 1) `
         'dynamic discovery must merge the Action Root'
-    $DiscoveredViewOnly = @($AllDiscoveries | Where-Object {
+    $DiscoveredCommandGroup = @($AllDiscoveries | Where-Object {
         $_.Source -ceq 'Action' -and $_.Address -ceq 'about'
     })
     Assert-ProjSmoke `
-        ($DiscoveredViewOnly.Count -eq 1 -and
-            -not $DiscoveredViewOnly[0].Executable -and
-            $DiscoveredViewOnly[0].HasView) `
-        'index.html alone must describe a GUI-only node'
-    $RejectedViewOnlyExecution = $false
+        ($DiscoveredCommandGroup.Count -eq 1 -and
+            -not $DiscoveredCommandGroup[0].Executable) `
+        'a directory without run.* must remain a discoverable command group'
+    $RejectedCommandGroupExecution = $false
     try {
         [void](Resolve-ProjCommand `
             -KernelRoot $KernelRoot `
             -ActionRoot $ResolvedActionRoot `
             -Address 'about')
     } catch {
-        $RejectedViewOnlyExecution = $_.Exception.Message.Contains(
-            'GUI-only node'
+        $RejectedCommandGroupExecution = $_.Exception.Message.Contains(
+            'no recognized executable entry'
         )
     }
     Assert-ProjSmoke `
-        $RejectedViewOnlyExecution `
-        'a GUI-only node must not become CLI-executable'
+        $RejectedCommandGroupExecution `
+        'a command group without run.* must not become CLI-executable'
     $ActionDirectories = @($AllDiscoveries | Where-Object {
         $_.Source -ceq 'Action'
     } | ForEach-Object Directory)

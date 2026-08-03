@@ -1,0 +1,36 @@
+/*
+ * Theme contract: customize semantic tokens here. Feature styles consume
+ * these tokens and must not define their own palette.
+ */
+:root {
+  color-scheme: light;
+
+  --font-ui: system-ui, "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+
+  --ui-canvas: #ffffff;
+  --ui-surface: #ffffff;
+  --ui-surface-muted: #f5f5f6;
+  --ui-surface-hover: #eeeeef;
+  --ui-surface-pressed: #e5e5e7;
+  --ui-text: #1c1c1f;
+  --ui-text-muted: #5f5f66;
+  --ui-text-subtle: var(--ui-text-muted);
+  --ui-border: #e1e1e4;
+  --ui-border-strong: #76767d;
+  --ui-selection-bg: #1c1c1f;
+  --ui-selection-text: #ffffff;
+  --ui-focus-ring: #1c1c1f;
+  --ui-scrollbar: #8c8c92;
+  --ui-scrollbar-track: transparent;
+
+  --ui-status-ok: #087443;
+  --ui-status-warning: #7a4b00;
+  --ui-status-error: #a52231;
+  --ui-status-error-surface: #fff0f2;
+
+  --radius-control: 3px;
+  --radius-pill: 999px;
+  --column-width: clamp(230px, 23vw, 292px);
+  --detail-width: clamp(340px, 32vw, 470px);
+}

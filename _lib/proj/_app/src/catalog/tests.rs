@@ -1,0 +1,162 @@
+use super::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+struct Fixture {
+    root: PathBuf,
+}
+
+impl Fixture {
+    fn new() -> Self {
+        let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!(
+            "swawkit-catalog-{}-{sequence}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).expect("create fixture root");
+        Self { root }
+    }
+
+    fn directory(&self, relative: &str) -> PathBuf {
+        let path = self.root.join(relative);
+        fs::create_dir_all(&path).expect("create fixture directory");
+        path
+    }
+
+    fn file(&self, relative: &str, text: &str) {
+        let path = self.root.join(relative);
+        fs::create_dir_all(path.parent().expect("fixture file parent"))
+            .expect("create fixture file parent");
+        fs::write(path, text).expect("write fixture file");
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+#[test]
+fn discovers_kernel_actions_hierarchy_help_and_hides_private_directories() {
+    let fixture = Fixture::new();
+    let kernel = fixture.directory("home/_lib/proj");
+    let actions = fixture.directory("project/.swaw");
+
+    fixture.file("home/_lib/proj/run.ps1", "");
+    fixture.file("home/_lib/proj/.dev/run.ps1", "");
+    fixture.file("home/_lib/proj/.dev/setup/run.cmd", "");
+    fixture.file("home/_lib/proj/.help/run.ps1", "");
+    fixture.file("home/_lib/proj/.h/run.ps1", "");
+    fixture.file("home/_lib/proj/-con/run.ps1", "");
+    fixture.file("home/_lib/proj/--nul/run.ps1", "");
+    fixture.file(
+        "home/_lib/proj/.info/_help/zh-CN.txt",
+        "\n  Inspect {{COMMAND}}.  \nUse {{INVOCATION}}.",
+    );
+    fixture.file("home/_lib/proj/_private/run.ps1", "");
+    fixture.file("home/_lib/proj/ordinary/run.ps1", "");
+    fixture.file("home/_lib/proj/.Bad/run.ps1", "");
+
+    fixture.file("project/.swaw/build/host/run.exe", "");
+    fixture.file(
+        "project/.swaw/build/host/_help/zh-CN.txt",
+        "Build at {{ADDRESS}}\n{{INVOCATION}}",
+    );
+    fixture.file("project/.swaw/_private/run.ps1", "");
+    fixture.file("project/.swaw/Bad/run.ps1", "");
+
+    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture")
+        .expect("catalog");
+    let addresses: Vec<(CommandSource, &str)> = snapshot
+        .commands
+        .iter()
+        .map(|node| (node.source, node.address.as_str()))
+        .collect();
+
+    assert_eq!(
+        addresses,
+        [
+            (CommandSource::Kernel, ""),
+            (CommandSource::Kernel, "--nul"),
+            (CommandSource::Kernel, "-con"),
+            (CommandSource::Kernel, ".dev"),
+            (CommandSource::Kernel, ".dev.setup"),
+            (CommandSource::Kernel, ".h"),
+            (CommandSource::Kernel, ".help"),
+            (CommandSource::Kernel, ".info"),
+            (CommandSource::Action, "build"),
+            (CommandSource::Action, "build.host"),
+        ]
+    );
+
+    let setup = node(&snapshot, CommandSource::Kernel, ".dev.setup");
+    assert_eq!(setup.parent.as_deref(), Some(".dev"));
+    assert_eq!(setup.entry.as_deref(), Some("run.cmd"));
+    assert_eq!(setup.adapter.as_deref(), Some("cmd"));
+
+    let info = node(&snapshot, CommandSource::Kernel, ".info");
+    let help = info.help.as_ref().expect("info help");
+    assert_eq!(help.summary, "Inspect fixture.");
+    assert!(help.text.contains("Use fixture .info."));
+
+    let help_alias = node(&snapshot, CommandSource::Kernel, ".h");
+    assert_eq!(help_alias.alias_of.as_deref(), Some(".help"));
+
+    let build = node(&snapshot, CommandSource::Action, "build");
+    assert_eq!(build.parent.as_deref(), Some(""));
+    assert!(!build.runnable);
+
+    let host = node(&snapshot, CommandSource::Action, "build.host");
+    assert_eq!(host.parent.as_deref(), Some("build"));
+    assert_eq!(
+        host.help.as_ref().map(|help| help.summary.as_str()),
+        Some("Build at build.host")
+    );
+}
+
+#[test]
+fn reports_multiple_and_non_canonical_run_entries_without_stopping_discovery() {
+    let fixture = Fixture::new();
+    let kernel = fixture.directory("home/_lib/proj");
+    let actions = fixture.directory("project/.swaw");
+    fixture.file("home/_lib/proj/.multi/run.ps1", "");
+    fixture.file("home/_lib/proj/.multi/run.cmd", "");
+    fixture.file("home/_lib/proj/.case/RUN.PS1", "");
+    fixture.file("home/_lib/proj/.ok/run.exe", "");
+
+    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture")
+        .expect("catalog");
+    let multiple = node(&snapshot, CommandSource::Kernel, ".multi");
+    assert!(!multiple.runnable);
+    assert!(
+        multiple
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("multiple run entries"))
+    );
+
+    let non_canonical = node(&snapshot, CommandSource::Kernel, ".case");
+    assert!(!non_canonical.runnable);
+    assert!(
+        non_canonical
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("non-canonical entry name"))
+    );
+
+    assert!(node(&snapshot, CommandSource::Kernel, ".ok").runnable);
+}
+
+fn node<'a>(
+    snapshot: &'a CatalogSnapshot,
+    source: CommandSource,
+    address: &str,
+) -> &'a CommandNode {
+    snapshot
+        .commands
+        .iter()
+        .find(|node| node.source == source && node.address == address)
+        .unwrap_or_else(|| panic!("missing node {source:?} {address}"))
+}
