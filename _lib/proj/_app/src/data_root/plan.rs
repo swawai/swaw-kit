@@ -238,11 +238,11 @@ fn normalize_inherited(path: Option<&Path>) -> Result<Option<PathBuf>, DataRootP
         .map_err(|_| DataRootPlanError::InheritedNotAbsolute(path.to_path_buf()))
 }
 
-fn ordinal_path_eq(left: &Path, right: &Path) -> bool {
+pub(crate) fn ordinal_path_eq(left: &Path, right: &Path) -> bool {
     ordinal_os_eq(left.as_os_str(), right.as_os_str())
 }
 
-fn ordinal_text_eq(left: &str, right: &str) -> bool {
+pub(crate) fn ordinal_text_eq(left: &str, right: &str) -> bool {
     ordinal_wide_eq(
         &left.encode_utf16().collect::<Vec<_>>(),
         &right.encode_utf16().collect::<Vec<_>>(),
