@@ -5,6 +5,11 @@ import {
   leafName,
   sortCommands,
 } from "./catalog-model.js";
+import {
+  createSystemNavigationColumn,
+  isSystemPage,
+  systemPageLabel,
+} from "./system-navigation.js";
 
 const sourceLabels = {
   kernel: "Kernel Commands",
@@ -23,6 +28,8 @@ export function createExplorerView({
   let catalog = null;
   let selectedPath = [];
   let systemSelected = true;
+  let selectedSystemPage = "overview";
+  let setupRequired = false;
 
   function createCommandRow(command, depth) {
     const item = document.createElement("li");
@@ -43,6 +50,7 @@ export function createExplorerView({
     button.dataset.depth = String(depth);
     button.dataset.kind = group ? "group" : "command";
     button.dataset.navigationKey = command.address;
+    button.disabled = setupRequired;
     if (selected) {
       button.setAttribute("aria-current", "page");
     }
@@ -52,7 +60,7 @@ export function createExplorerView({
         button.setAttribute("aria-controls", `finder-column-${depth + 1}`);
       }
     }
-    button.title = command.address;
+    button.title = setupRequired ? "完成首次设置后可用" : command.address;
 
     icon.className = "row-icon";
     icon.textContent = group ? "⌑" : ">_";
@@ -104,6 +112,7 @@ export function createExplorerView({
     button.dataset.kind = "system";
     button.dataset.navigationKey = SYSTEM_KEY;
     button.title = "系统信息";
+    button.setAttribute("aria-expanded", String(systemSelected));
     if (systemSelected) {
       button.setAttribute("aria-current", "page");
     }
@@ -116,10 +125,11 @@ export function createExplorerView({
     name.className = "row-name";
     name.textContent = "Swaw Kit";
     summary.className = "row-summary";
-    summary.textContent = "Host 已连接";
+    summary.textContent = setupRequired ? "需要完成首次设置" : "Host 已连接";
     copy.append(name, summary);
 
     chevron.className = "row-chevron";
+    chevron.textContent = setupRequired ? "" : "›";
     chevron.setAttribute("aria-hidden", "true");
 
     button.append(icon, copy, chevron);
@@ -209,6 +219,12 @@ export function createExplorerView({
     scrollTarget = null,
   } = {}) {
     columns.replaceChildren(createRootColumn());
+    if (systemSelected && !setupRequired) {
+      columns.append(createSystemNavigationColumn({
+        selectedPage: selectedSystemPage,
+        onSelect: selectSystemPage,
+      }));
+    }
     for (const [depth, address] of selectedPath.entries()) {
       if (hasChildren(catalog, catalog.commandByAddress.get(address))) {
         columns.append(createChildColumn(address, depth + 1));
@@ -247,7 +263,9 @@ export function createExplorerView({
     fragment.append(home);
 
     const items = systemSelected
-      ? ["系统"]
+      ? setupRequired
+        ? ["首次设置"]
+        : ["系统", systemPageLabel(selectedSystemPage)]
       : selectedPath.map((address, depth) => (
         depth === 0 ? address : leafName(address)
       ));
@@ -266,6 +284,9 @@ export function createExplorerView({
   }
 
   function selectCommand(address, depth, options = {}) {
+    if (setupRequired) {
+      return;
+    }
     const command = catalog.commandByAddress.get(address);
     if (!command) {
       return;
@@ -288,10 +309,27 @@ export function createExplorerView({
   function selectSystem(options = {}) {
     systemSelected = true;
     selectedPath = [];
-    onSelectSystem();
+    selectedSystemPage = setupRequired ? "setup" : "overview";
+    onSelectSystem(selectedSystemPage);
     renderBreadcrumb();
     renderColumns({
       focusKey: SYSTEM_KEY,
+      focusDetail: options.focusDetail === true,
+      scrollTarget: setupRequired ? "detail" : "navigation",
+    });
+  }
+
+  function selectSystemPage(page, options = {}) {
+    if (setupRequired || !isSystemPage(page)) {
+      return;
+    }
+    systemSelected = true;
+    selectedPath = [];
+    selectedSystemPage = page;
+    onSelectSystem(page);
+    renderBreadcrumb();
+    renderColumns({
+      focusKey: `__system__.${page}`,
       focusDetail: options.focusDetail === true,
       scrollTarget: "detail",
     });
@@ -319,6 +357,14 @@ export function createExplorerView({
     ) {
       event.preventDefault();
       selectSystem({ focusDetail: true });
+      return;
+    }
+    if (
+      button.dataset.kind === "system-page"
+      && (event.key === "Enter" || event.key === " ")
+    ) {
+      event.preventDefault();
+      selectSystemPage(button.dataset.page, { focusDetail: true });
       return;
     }
 
@@ -350,15 +396,30 @@ export function createExplorerView({
     catalog = nextCatalog;
     selectedPath = [];
     systemSelected = true;
-    onSelectSystem();
+    selectedSystemPage = setupRequired ? "setup" : "overview";
+    onSelectSystem(selectedSystemPage);
     renderBreadcrumb();
     renderColumns();
+  }
+
+  function setSetupRequired(required) {
+    setupRequired = required;
+    systemSelected = true;
+    selectedPath = [];
+    selectedSystemPage = required ? "setup" : "overview";
+    if (catalog) {
+      onSelectSystem(selectedSystemPage);
+      renderBreadcrumb();
+      renderColumns();
+    }
   }
 
   return {
     handleKeyboard,
     selectCommand,
     selectSystem,
+    selectSystemPage,
     setCatalog,
+    setSetupRequired,
   };
 }

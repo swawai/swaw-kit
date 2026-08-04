@@ -8,12 +8,12 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use swawkit_proj::{
-    binding::{ProjectBindingState, ProjectBindingStore},
     catalog::{CatalogSnapshot, is_help_marker},
     command::{CommandExecutionContext, CommandExecutor},
     context::EntryContext,
     data_root::{DataRootClaimApprover, ResolveDataRootRequest, resolve_data_root},
     help::{HelpRenderError, render_help},
+    profile::{EntryProfileState, EntryProfileStore},
 };
 
 use claim::ConsoleClaimApprover;
@@ -57,25 +57,28 @@ fn run_with_approver(
         eprintln!("[WARNING] {warning}");
     }
 
-    let binding_state = ProjectBindingStore::new(&context.swawkit_home, &resolved.path).read();
-    let snapshot = CatalogSnapshot::discover(context, binding_state.ready())
-        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    let profile_state = EntryProfileStore::new(&context.swawkit_home, &resolved.path).read();
+    let snapshot = CatalogSnapshot::discover(
+        context,
+        profile_state.ready().map(|profile| profile.binding()),
+    )
+    .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
     if let Some(output) = protocol_help(&snapshot, argv)? {
         write_output(&output)
             .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
         return Ok(0);
     }
-    let binding = match binding_state {
-        ProjectBindingState::Ready(binding) => binding,
-        ProjectBindingState::Missing { path } => {
+    let profile = match profile_state {
+        EntryProfileState::Ready(profile) => profile,
+        EntryProfileState::Missing { path } => {
             return Err(CliError::new(format!(
-                "this entry has no target project binding: {}. Open its Web console to bind one",
+                "this entry has no profile: {}. Open its Web console to complete initial setup",
                 path.display()
             )));
         }
-        ProjectBindingState::Invalid { path, error, .. } => {
+        EntryProfileState::Invalid { path, error, .. } => {
             return Err(CliError::new(format!(
-                "invalid target project binding '{}': {error}",
+                "invalid entry profile '{}': {error}",
                 path.display()
             )));
         }
@@ -83,7 +86,7 @@ fn run_with_approver(
     CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
         .map_err(|error| CliError::new(error.to_string()))?;
 
-    let execution_context = CommandExecutionContext::new(context, &binding, resolved.path);
+    let execution_context = CommandExecutionContext::new(context, &profile, resolved.path);
     CommandExecutor::new(&execution_context, &snapshot)
         .execute(argv)
         .map_err(|error| CliError::new(error.to_string()))

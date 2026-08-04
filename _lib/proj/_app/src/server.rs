@@ -16,20 +16,20 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tokio::{net::TcpListener, sync::oneshot};
 
 use crate::{
-    binding::{ProjectBindingState, ProjectBindingStore},
     catalog::CatalogSnapshot,
     catalog_reader::CatalogReader,
+    profile::{EntryProfileRecord, EntryProfileState, EntryProfileStore},
     web_assets,
 };
 
 #[derive(Clone)]
 struct ServerState {
     catalog_reader: CatalogReader,
-    binding_store: ProjectBindingStore,
+    profile_store: EntryProfileStore,
 }
 
 #[derive(Debug)]
@@ -40,7 +40,7 @@ pub enum ServerEvent {
 
 pub fn spawn<F>(
     catalog_reader: CatalogReader,
-    binding_store: ProjectBindingStore,
+    profile_store: EntryProfileStore,
     notify: F,
     shutdown: oneshot::Receiver<()>,
 ) -> io::Result<thread::JoinHandle<()>>
@@ -56,7 +56,7 @@ where
             {
                 Ok(runtime) => runtime.block_on(run_server(
                     catalog_reader,
-                    binding_store,
+                    profile_store,
                     |url| notify(ServerEvent::Ready(url)),
                     shutdown,
                 )),
@@ -69,7 +69,7 @@ where
 
 async fn run_server<F>(
     catalog_reader: CatalogReader,
-    binding_store: ProjectBindingStore,
+    profile_store: EntryProfileStore,
     notify_ready: F,
     shutdown: oneshot::Receiver<()>,
 ) -> Result<(), String>
@@ -83,7 +83,7 @@ where
 
     notify_ready(url)?;
 
-    axum::serve(listener, router(authority, catalog_reader, binding_store))
+    axum::serve(listener, router(authority, catalog_reader, profile_store))
         .with_graceful_shutdown(async move {
             let _ = shutdown.await;
         })
@@ -98,13 +98,13 @@ async fn bind_loopback() -> io::Result<TcpListener> {
 fn router(
     expected_authority: String,
     catalog_reader: CatalogReader,
-    binding_store: ProjectBindingStore,
+    profile_store: EntryProfileStore,
 ) -> Router {
     Router::new()
         .route("/", get(web_assets::index))
         .route("/assets/{*path}", get(web_assets::asset))
         .route("/api/v1/catalog", get(get_catalog))
-        .route("/api/v1/binding", get(get_binding).put(put_binding))
+        .route("/api/v1/profile", get(get_profile).put(put_profile))
         .route("/healthz", get(health))
         .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn_with_state(
@@ -113,7 +113,7 @@ fn router(
         ))
         .with_state(ServerState {
             catalog_reader,
-            binding_store,
+            profile_store,
         })
 }
 
@@ -167,48 +167,46 @@ async fn get_catalog(
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct BindingResponse {
+struct ProfileResponse {
     status: &'static str,
-    target_project_root: Option<String>,
+    required_complete: bool,
+    profile: EntryProfileRecord,
     resolved_target_project_root: Option<String>,
     error: Option<String>,
 }
 
-impl BindingResponse {
-    fn from_state(state: ProjectBindingState) -> Self {
+impl ProfileResponse {
+    fn from_state(state: EntryProfileState) -> Self {
         match state {
-            ProjectBindingState::Missing { .. } => Self {
-                status: "unbound",
-                target_project_root: None,
+            EntryProfileState::Missing { .. } => Self {
+                status: "setupRequired",
+                required_complete: false,
+                profile: EntryProfileRecord::default(),
                 resolved_target_project_root: None,
                 error: None,
             },
-            ProjectBindingState::Invalid {
-                configured_target_project_root,
-                error,
-                ..
-            } => Self {
+            EntryProfileState::Invalid { record, error, .. } => Self {
                 status: "invalid",
-                target_project_root: configured_target_project_root,
+                required_complete: false,
+                profile: record.unwrap_or_default(),
                 resolved_target_project_root: None,
                 error: Some(error),
             },
-            ProjectBindingState::Ready(binding) => Self {
+            EntryProfileState::Ready(profile) => Self {
                 status: "ready",
-                target_project_root: Some(binding.configured_target_project_root().to_owned()),
+                required_complete: true,
                 resolved_target_project_root: Some(
-                    binding.target_project_root().display().to_string(),
+                    profile
+                        .binding()
+                        .target_project_root()
+                        .display()
+                        .to_string(),
                 ),
+                profile: profile.record().clone(),
                 error: None,
             },
         }
     }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct UpdateBindingRequest {
-    target_project_root: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -216,20 +214,20 @@ struct ApiError {
     error: String,
 }
 
-async fn get_binding(State(state): State<ServerState>) -> Json<BindingResponse> {
-    Json(BindingResponse::from_state(state.binding_store.read()))
+async fn get_profile(State(state): State<ServerState>) -> Json<ProfileResponse> {
+    Json(ProfileResponse::from_state(state.profile_store.read()))
 }
 
-async fn put_binding(
+async fn put_profile(
     State(state): State<ServerState>,
-    Json(request): Json<UpdateBindingRequest>,
-) -> Result<Json<BindingResponse>, (StatusCode, Json<ApiError>)> {
+    Json(profile): Json<EntryProfileRecord>,
+) -> Result<Json<ProfileResponse>, (StatusCode, Json<ApiError>)> {
     state
-        .binding_store
-        .save(&request.target_project_root)
-        .map(|binding| {
-            Json(BindingResponse::from_state(ProjectBindingState::Ready(
-                binding,
+        .profile_store
+        .save(profile)
+        .map(|profile| {
+            Json(ProfileResponse::from_state(EntryProfileState::Ready(
+                profile,
             )))
         })
         .map_err(|error| {

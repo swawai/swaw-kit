@@ -40,10 +40,11 @@
 
                 <article class="system-detail" id="system-detail" hidden>
                   <header class="detail-heading">
-                    <h2>Swaw Kit</h2>
-                    <p>Project Console</p>
+                    <h2 id="system-title">Swaw Kit</h2>
+                    <p id="system-summary">Project Console</p>
                   </header>
 
+                  <div id="system-overview">
                   <section class="detail-section" aria-labelledby="host-title">
                     <h3 id="host-title">Host</h3>
                     <dl class="properties">
@@ -89,39 +90,198 @@
                     </dl>
                   </section>
 
-                  <section class="detail-section" aria-labelledby="binding-title">
-                    <h3 id="binding-title">项目绑定</h3>
-                    <p class="binding-state" id="binding-state" data-state="loading">
-                      正在读取目标项目绑定…
-                    </p>
-                    <form class="binding-form" id="binding-form">
-                      <label for="binding-target-project-root">Target Project Root</label>
-                      <input
-                        id="binding-target-project-root"
-                        name="targetProjectRoot"
-                        type="text"
-                        value="${SWAWKIT_HOME}"
-                        autocomplete="off"
-                        spellcheck="false"
-                      >
-                      <p>使用 <code>${SWAWKIT_HOME}</code> 绑定控制面自身，或填写目标项目绝对路径。</p>
-                      <button class="secondary-button" id="binding-save-button" type="submit">
-                        保存绑定
-                      </button>
-                      <p class="binding-feedback" id="binding-feedback" aria-live="polite"></p>
-                    </form>
-                    <dl class="properties binding-properties">
-                      <div>
-                        <dt>Resolved</dt>
-                        <dd><code id="binding-resolved-root">—</code></dd>
-                      </div>
-                    </dl>
-                  </section>
-
                   <section class="detail-section" aria-labelledby="system-actions-title">
                     <h3 id="system-actions-title">操作</h3>
                     <button class="secondary-button" id="refresh-button" type="button">刷新命令目录</button>
                   </section>
+                  </div>
+
+                  <form class="profile-form" id="profile-form" hidden>
+                    <p class="profile-state" id="profile-state" data-state="loading">
+                      正在读取 Entry 配置…
+                    </p>
+
+                    <section class="detail-section profile-section" data-profile-section="project">
+                      <h3>项目绑定</h3>
+                      <div class="form-field form-field-wide">
+                        <label for="profile-target-project-root">Target Project Root <span aria-hidden="true">*</span></label>
+                        <input id="profile-target-project-root" name="targetProjectRoot" type="text"
+                          value="${SWAWKIT_HOME}" required autocomplete="off" spellcheck="false">
+                        <p>使用 <code>${SWAWKIT_HOME}</code> 绑定控制面自身，或填写目标项目绝对路径。</p>
+                      </div>
+                      <dl class="properties profile-properties">
+                        <div>
+                          <dt>Resolved</dt>
+                          <dd><code id="profile-resolved-root">—</code></dd>
+                        </div>
+                      </dl>
+                    </section>
+
+                    <section class="detail-section profile-section" data-profile-section="preferences">
+                      <h3>交互偏好</h3>
+                      <div class="form-grid">
+                        <div class="form-field">
+                          <label for="profile-default-shell">Default Shell</label>
+                          <input id="profile-default-shell" name="preferences.defaultShell" type="text" required autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                          <label for="profile-default-ide">Default IDE</label>
+                          <input id="profile-default-ide" name="preferences.defaultIde" type="text" required autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                          <label for="profile-help-language">Help Language</label>
+                          <input id="profile-help-language" name="preferences.helpLanguage" type="text" placeholder="跟随系统" autocomplete="off">
+                        </div>
+                      </div>
+                    </section>
+
+                    <section class="detail-section profile-section" data-profile-section="development">
+                      <h3>开发环境</h3>
+                      <div class="tool-settings">
+                        <fieldset class="tool-setting">
+                          <legend>Bun</legend>
+                          <div class="form-grid">
+                            <div class="form-field">
+                              <label for="profile-bun-mode">Mode</label>
+                              <select id="profile-bun-mode" name="development.bun.mode">
+                                <option value="managed">Managed</option>
+                                <option value="disabled">Disabled</option>
+                              </select>
+                            </div>
+                            <div class="form-field">
+                              <label for="profile-bun-version">Version</label>
+                              <input id="profile-bun-version" name="development.bun.version" type="text" autocomplete="off">
+                            </div>
+                            <div class="form-field form-field-wide">
+                              <label for="profile-bun-sha256">SHA-256</label>
+                              <input id="profile-bun-sha256" name="development.bun.sha256" type="text" placeholder="可选内容锁定" autocomplete="off" spellcheck="false">
+                            </div>
+                          </div>
+                        </fieldset>
+
+                        <fieldset class="tool-setting">
+                          <legend>PowerShell</legend>
+                          <div class="form-grid">
+                            <div class="form-field">
+                              <label for="profile-pwsh-mode">Mode</label>
+                              <select id="profile-pwsh-mode" name="development.pwsh.mode">
+                                <option value="managed">Managed</option>
+                                <option value="disabled">Disabled</option>
+                              </select>
+                            </div>
+                            <div class="form-field">
+                              <label for="profile-pwsh-version">Version</label>
+                              <input id="profile-pwsh-version" name="development.pwsh.version" type="text" autocomplete="off">
+                            </div>
+                            <div class="form-field form-field-wide">
+                              <label for="profile-pwsh-sha256">SHA-256</label>
+                              <input id="profile-pwsh-sha256" name="development.pwsh.sha256" type="text" placeholder="可选内容锁定" autocomplete="off" spellcheck="false">
+                            </div>
+                          </div>
+                        </fieldset>
+
+                        <fieldset class="tool-setting">
+                          <legend>MSVC</legend>
+                          <div class="form-grid">
+                            <div class="form-field">
+                              <label for="profile-msvc-mode">Mode</label>
+                              <select id="profile-msvc-mode" name="development.msvc.mode">
+                                <option value="managed">Managed</option>
+                                <option value="disabled">Disabled</option>
+                              </select>
+                            </div>
+                            <div class="form-field">
+                              <label for="profile-msvc-channel">Channel</label>
+                              <input id="profile-msvc-channel" name="development.msvc.channel" type="text" autocomplete="off">
+                            </div>
+                          </div>
+                        </fieldset>
+
+                        <fieldset class="tool-setting">
+                          <legend>Rust</legend>
+                          <div class="form-grid">
+                            <div class="form-field">
+                              <label for="profile-rust-mode">Mode</label>
+                              <select id="profile-rust-mode" name="development.rust.mode">
+                                <option value="rustup">Rustup</option>
+                                <option value="disabled">Disabled</option>
+                              </select>
+                            </div>
+                            <div class="form-field">
+                              <label for="profile-rust-toolchain">Toolchain</label>
+                              <input id="profile-rust-toolchain" name="development.rust.toolchain" type="text" autocomplete="off">
+                            </div>
+                          </div>
+                          <input name="development.rust.profile" type="hidden" value="minimal">
+                          <input name="development.rust.host" type="hidden" value="x86_64-pc-windows-msvc">
+                        </fieldset>
+
+                        <fieldset class="tool-setting">
+                          <legend>系统工具</legend>
+                          <div class="form-grid form-grid-three">
+                            <div class="form-field">
+                              <label for="profile-gh-mode">GitHub CLI</label>
+                              <select id="profile-gh-mode" name="development.gh.mode">
+                                <option value="system">System</option>
+                                <option value="disabled">Disabled</option>
+                              </select>
+                            </div>
+                            <div class="form-field">
+                              <label for="profile-vscode-mode">VS Code</label>
+                              <select id="profile-vscode-mode" name="development.vscode.mode">
+                                <option value="system">System</option>
+                                <option value="disabled">Disabled</option>
+                              </select>
+                            </div>
+                            <div class="form-field">
+                              <label for="profile-cursor-mode">Cursor</label>
+                              <select id="profile-cursor-mode" name="development.cursor.mode">
+                                <option value="system">System</option>
+                                <option value="disabled">Disabled</option>
+                              </select>
+                            </div>
+                          </div>
+                        </fieldset>
+                      </div>
+                      <p class="form-note">uv、Python 与 Go 目前仅保留 Disabled 声明；在安装协议实现前不提供无效的启用选项。</p>
+                      <input name="development.uv.mode" type="hidden" value="disabled">
+                      <input name="development.uv.version" type="hidden" value="0.10.2">
+                      <input name="development.uv.sha256" type="hidden" value="">
+                      <input name="development.python.mode" type="hidden" value="disabled">
+                      <input name="development.python.version" type="hidden" value="3.13">
+                      <input name="development.python.sha256" type="hidden" value="">
+                      <input name="development.go.mode" type="hidden" value="disabled">
+                      <input name="development.go.version" type="hidden" value="">
+                      <input name="development.go.sha256" type="hidden" value="">
+                    </section>
+
+                    <section class="detail-section profile-section" data-profile-section="git">
+                      <h3>Git 与仓库</h3>
+                      <div class="form-grid">
+                        <div class="form-field">
+                          <label for="profile-git-name">Identity Name</label>
+                          <input id="profile-git-name" name="git.name" type="text" autocomplete="off">
+                        </div>
+                        <div class="form-field">
+                          <label for="profile-git-email">Identity Email</label>
+                          <input id="profile-git-email" name="git.email" type="email" autocomplete="off">
+                        </div>
+                        <div class="form-field form-field-wide">
+                          <label for="profile-git-access">Access Command</label>
+                          <input id="profile-git-access" name="git.access" type="text" autocomplete="off" spellcheck="false">
+                        </div>
+                        <div class="form-field form-field-wide">
+                          <label for="profile-repo-remote">Repository Remote</label>
+                          <input id="profile-repo-remote" name="repository.remote" type="text" autocomplete="off" spellcheck="false">
+                        </div>
+                      </div>
+                    </section>
+
+                    <div class="profile-actions">
+                      <button class="secondary-button" id="profile-save-button" type="submit">保存配置</button>
+                      <p class="profile-feedback" id="profile-feedback" aria-live="polite"></p>
+                    </div>
+                  </form>
                 </article>
 
                 <article class="command-detail" id="command-detail" hidden>

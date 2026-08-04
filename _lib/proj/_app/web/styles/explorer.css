@@ -76,6 +76,17 @@
   background: var(--ui-surface-hover);
 }
 
+.command-row:disabled {
+  color: var(--ui-text-muted);
+  background: var(--ui-surface);
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.command-row:disabled:hover {
+  background: var(--ui-surface);
+}
+
 .command-row[aria-current="page"] {
   color: var(--ui-selection-text);
   background: var(--ui-selection-bg);

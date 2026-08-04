@@ -150,13 +150,47 @@ try {
         ) `
         -Message 'Launcher did not support the SWAWKIT_HOME root layout'
 
-    $Binding = [ordered]@{
-        schema = 'swawkit.project-binding/v1'
+    $Profile = [ordered]@{
+        schema = 'swawkit.entry-profile/v1'
         targetProjectRoot = $TargetRoot
+        preferences = [ordered]@{
+            defaultShell = 'pwsh'
+            defaultIde = 'code'
+            helpLanguage = ''
+        }
+        development = [ordered]@{
+            bun = [ordered]@{
+                mode = 'managed'; version = '1.2.15'; sha256 = ''
+            }
+            pwsh = [ordered]@{
+                mode = 'managed'; version = 'latest'; sha256 = ''
+            }
+            msvc = [ordered]@{ mode = 'managed'; channel = '17' }
+            rust = [ordered]@{
+                mode = 'rustup'
+                toolchain = 'stable'
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+            uv = [ordered]@{
+                mode = 'disabled'; version = '0.10.2'; sha256 = ''
+            }
+            python = [ordered]@{
+                mode = 'disabled'; version = '3.13'; sha256 = ''
+            }
+            go = [ordered]@{
+                mode = 'disabled'; version = ''; sha256 = ''
+            }
+            gh = [ordered]@{ mode = 'system' }
+            vscode = [ordered]@{ mode = 'system' }
+            cursor = [ordered]@{ mode = 'system' }
+        }
+        git = [ordered]@{ name = ''; email = ''; access = '' }
+        repository = [ordered]@{ remote = '' }
     }
     [IO.File]::WriteAllText(
-        (Join-Path $DataRoot '_binding.json'),
-        (($Binding | ConvertTo-Json) + "`n"),
+        (Join-Path $DataRoot '_profile.json'),
+        (($Profile | ConvertTo-Json -Depth 8) + "`n"),
         [Text.UTF8Encoding]::new($false)
     )
     [IO.File]::WriteAllText(
@@ -172,6 +206,7 @@ $Payload = [ordered]@{
     invocationDirectory = [string]$env:SWAWKIT_PROJ_INVOCATION_DIR
     launchMode = [string]$env:SWAWKIT_PROJ_LAUNCH_MODE
     legacyArgvProtocol = [string]$env:SWAWKIT_PROJ_ARGV_PROTOCOL
+    bunVersion = [string]$env:SWAWKIT_PROJ_BUN_VERSION
 }
 [IO.File]::WriteAllText(
     $env:SWAWKIT_PROJ_TEST_LAUNCHER_CAPTURE,
@@ -221,6 +256,7 @@ exit 37
         invocationDirectory = $InvocationRoot
         launchMode = 'cli'
         legacyArgvProtocol = ''
+        bunVersion = '1.2.15'
     }
     foreach ($Expectation in $Expectations.GetEnumerator()) {
         Assert-ProjLauncherRuntimeTest `

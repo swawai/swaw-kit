@@ -19,6 +19,7 @@ const CATALOG_MODEL_JS: &str = include_str!("../web/catalog-model.js");
 const EXPLORER_JS: &str = include_str!("../web/explorer.js");
 const DETAIL_JS: &str = include_str!("../web/detail.js");
 const SYSTEM_JS: &str = include_str!("../web/system.js");
+const SYSTEM_NAVIGATION_JS: &str = include_str!("../web/system-navigation.js");
 
 pub(crate) async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
@@ -38,6 +39,7 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "explorer.js" => Some(("text/javascript; charset=utf-8", EXPLORER_JS)),
         "detail.js" => Some(("text/javascript; charset=utf-8", DETAIL_JS)),
         "system.js" => Some(("text/javascript; charset=utf-8", SYSTEM_JS)),
+        "system-navigation.js" => Some(("text/javascript; charset=utf-8", SYSTEM_NAVIGATION_JS)),
         _ => None,
     };
 

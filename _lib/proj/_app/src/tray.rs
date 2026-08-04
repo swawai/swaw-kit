@@ -13,9 +13,9 @@ use winit::{
 };
 
 use swawkit_proj::{
-    binding::ProjectBindingStore,
     catalog_reader::CatalogReader,
     context::EntryContext,
+    profile::EntryProfileStore,
     server::{self, ServerEvent},
 };
 
@@ -196,11 +196,8 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
-pub fn run(
-    context: EntryContext,
-    binding_store: ProjectBindingStore,
-) -> Result<(), Box<dyn Error>> {
-    let catalog_reader = CatalogReader::new(context, binding_store.clone());
+pub fn run(context: EntryContext, profile_store: EntryProfileStore) -> Result<(), Box<dyn Error>> {
+    let catalog_reader = CatalogReader::new(context, profile_store.clone());
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
@@ -213,7 +210,7 @@ pub fn run(
     let server_proxy = event_loop.create_proxy();
     let server_thread = server::spawn(
         catalog_reader,
-        binding_store,
+        profile_store,
         move |event| {
             server_proxy
                 .send_event(AppEvent::Server(event))

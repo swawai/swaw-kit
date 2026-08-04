@@ -1,11 +1,11 @@
 use super::*;
-use crate::binding::SWAWKIT_HOME_PLACEHOLDER;
+use crate::{binding::SWAWKIT_HOME_PLACEHOLDER, profile::EntryProfileRecord};
 
 async fn send_json(app: Router, value: Value) -> Response {
     app.oneshot(
         Request::builder()
             .method(Method::PUT)
-            .uri("/api/v1/binding")
+            .uri("/api/v1/profile")
             .header(HOST, AUTHORITY)
             .header(CONTENT_TYPE, "application/json")
             .body(Body::from(value.to_string()))
@@ -23,22 +23,26 @@ async fn response_document(response: Response) -> Value {
 }
 
 #[tokio::test]
-async fn publishes_a_validated_target_and_enables_its_actions() {
+async fn publishes_a_validated_profile_and_enables_its_actions() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
     fixture.file("home/.swaw/demo/run.ps1", "");
     let app = fixture.app();
 
-    let before = send(app.clone(), Method::GET, "/api/v1/binding", Some(AUTHORITY)).await;
+    let before = send(app.clone(), Method::GET, "/api/v1/profile", Some(AUTHORITY)).await;
     assert_eq!(before.status(), StatusCode::OK);
-    assert_eq!(response_document(before).await["status"], "unbound");
+    let document = response_document(before).await;
+    assert_eq!(document["status"], "setupRequired");
+    assert_eq!(document["requiredComplete"], false);
+    assert_eq!(
+        document["profile"]["targetProjectRoot"],
+        SWAWKIT_HOME_PLACEHOLDER
+    );
     assert!(command(&catalog_document(app.clone()).await, "demo").is_none());
 
-    let invalid = send_json(
-        app.clone(),
-        json!({ "targetProjectRoot": "relative/project" }),
-    )
-    .await;
+    let mut invalid = serde_json::to_value(EntryProfileRecord::default()).unwrap();
+    invalid["targetProjectRoot"] = Value::String("relative/project".to_owned());
+    let invalid = send_json(app.clone(), invalid).await;
     assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert!(
         response_document(invalid).await["error"]
@@ -48,16 +52,19 @@ async fn publishes_a_validated_target_and_enables_its_actions() {
 
     let saved = send_json(
         app.clone(),
-        json!({ "targetProjectRoot": SWAWKIT_HOME_PLACEHOLDER }),
+        serde_json::to_value(EntryProfileRecord::default()).unwrap(),
     )
     .await;
     assert_eq!(saved.status(), StatusCode::OK);
     let document = response_document(saved).await;
     assert_eq!(document["status"], "ready");
-    assert_eq!(document["targetProjectRoot"], SWAWKIT_HOME_PLACEHOLDER);
+    assert_eq!(document["requiredComplete"], true);
     assert_eq!(
-        command(&catalog_document(app).await, "demo")
-            .and_then(|node| node["source"].as_str()),
+        document["profile"]["targetProjectRoot"],
+        SWAWKIT_HOME_PLACEHOLDER
+    );
+    assert_eq!(
+        command(&catalog_document(app).await, "demo").and_then(|node| node["source"].as_str()),
         Some("action")
     );
 }

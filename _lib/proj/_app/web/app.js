@@ -5,12 +5,6 @@ import { createSystemView } from "./system.js";
 
 const elements = {
   actionCount: document.querySelector("#action-count"),
-  bindingFeedback: document.querySelector("#binding-feedback"),
-  bindingForm: document.querySelector("#binding-form"),
-  bindingResolvedRoot: document.querySelector("#binding-resolved-root"),
-  bindingSaveButton: document.querySelector("#binding-save-button"),
-  bindingState: document.querySelector("#binding-state"),
-  bindingTargetProjectRoot: document.querySelector("#binding-target-project-root"),
   breadcrumb: document.querySelector("#breadcrumb"),
   catalogCount: document.querySelector("#catalog-count"),
   cliCommand: document.querySelector("#cli-command"),
@@ -40,16 +34,28 @@ const elements = {
   propertyEntry: document.querySelector("#property-entry"),
   propertyEntryRow: document.querySelector("#property-entry-row"),
   protocolName: document.querySelector("#protocol-name"),
+  profileFeedback: document.querySelector("#profile-feedback"),
+  profileForm: document.querySelector("#profile-form"),
+  profileResolvedRoot: document.querySelector("#profile-resolved-root"),
+  profileSaveButton: document.querySelector("#profile-save-button"),
+  profileState: document.querySelector("#profile-state"),
   refreshButton: document.querySelector("#refresh-button"),
   retryButton: document.querySelector("#retry-button"),
   selectionStatus: document.querySelector("#selection-status"),
   systemDetail: document.querySelector("#system-detail"),
+  systemOverview: document.querySelector("#system-overview"),
+  systemSummary: document.querySelector("#system-summary"),
+  systemTitle: document.querySelector("#system-title"),
 };
 
 let catalog = null;
 const detail = createDetailView(elements);
 const system = createSystemView(elements, {
-  onBindingChanged: loadCatalog,
+  async onProfileChanged(document, page) {
+    explorer.setSetupRequired(!document.requiredComplete);
+    await loadCatalog();
+    explorer.selectSystemPage(page === "setup" ? "project" : page);
+  },
 });
 const explorer = createExplorerView({
   breadcrumb: elements.breadcrumb,
@@ -58,8 +64,8 @@ const explorer = createExplorerView({
   onSelectCommand(command) {
     detail.render(catalog, command);
   },
-  onSelectSystem() {
-    system.render();
+  onSelectSystem(page) {
+    system.render(page);
   },
 });
 
@@ -102,14 +108,37 @@ async function loadCatalog() {
   }
 }
 
+async function loadApplication() {
+  setLoadState("loading");
+  try {
+    const document = await system.loadProfile();
+    explorer.setSetupRequired(!document.requiredComplete);
+    const response = await fetch("/api/v1/catalog", {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      throw new Error(`Host 返回 HTTP ${response.status}`);
+    }
+    catalog = createCatalog(await response.json());
+    system.setCatalog(catalog);
+    explorer.setCatalog(catalog);
+    setLoadState("ready");
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : "读取控制台状态时发生未知错误。";
+    setLoadState("error", message);
+  }
+}
+
 elements.copyButton.addEventListener("click", detail.copyInvocation);
-elements.bindingForm.addEventListener("submit", (event) => {
+elements.profileForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  system.saveBinding();
+  system.saveProfile();
 });
 elements.finderColumns.addEventListener("keydown", explorer.handleKeyboard);
 elements.refreshButton.addEventListener("click", loadCatalog);
 elements.retryButton.addEventListener("click", loadCatalog);
 
-loadCatalog();
-system.loadBinding();
+loadApplication();

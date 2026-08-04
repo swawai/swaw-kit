@@ -1,24 +1,52 @@
-.binding-state {
-  margin: 0 0 12px;
+.profile-form {
+  display: block;
+}
+
+.profile-state {
+  margin: 18px 0 0;
   color: var(--ui-text-muted);
   font-size: 12px;
   line-height: 1.55;
 }
 
-.binding-state[data-state="ready"] {
+.profile-state[data-state="ready"] {
   color: var(--ui-status-ok);
 }
 
-.binding-state[data-state="invalid"] {
+.profile-state[data-state="invalid"] {
   color: var(--ui-status-error);
 }
 
-.binding-form {
-  display: grid;
-  gap: 8px;
+.profile-section > h3 {
+  margin-bottom: 13px;
 }
 
-.binding-form label {
+.profile-form:not([data-page="setup"]) .profile-section > h3 {
+  display: none;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+}
+
+.form-grid-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.form-field {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.form-field-wide {
+  grid-column: 1 / -1;
+}
+
+.form-field label {
   color: var(--ui-text-muted);
   font-size: 11px;
   font-weight: 700;
@@ -26,10 +54,11 @@
   text-transform: uppercase;
 }
 
-.binding-form input {
+.form-field input,
+.form-field select {
   width: 100%;
   min-height: 40px;
-  padding: 9px 10px;
+  padding: 8px 10px;
   border: 1px solid var(--ui-border-strong);
   border-radius: var(--radius-control);
   color: var(--ui-text);
@@ -38,27 +67,79 @@
   font-size: 12px;
 }
 
-.binding-form > p {
+.form-field select {
+  font-family: var(--font-ui);
+}
+
+.form-field input:focus-visible,
+.form-field select:focus-visible {
+  outline: 2px solid var(--ui-focus-ring);
+  outline-offset: 2px;
+}
+
+.form-field > p,
+.form-note {
   margin: 0;
   color: var(--ui-text-muted);
   font-size: 11px;
   line-height: 1.55;
 }
 
-.binding-form .secondary-button {
-  justify-self: start;
-  margin-top: 3px;
+.tool-settings {
+  display: grid;
+  gap: 19px;
 }
 
-.binding-form .binding-feedback {
+.tool-setting {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.tool-setting legend {
+  width: 100%;
+  margin-bottom: 9px;
+  padding: 0 0 7px;
+  border-bottom: 1px solid var(--ui-border);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.form-note {
+  margin-top: 18px;
+}
+
+.profile-properties {
+  margin-top: 14px;
+}
+
+.profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 27px;
+  padding-bottom: 8px;
+}
+
+.profile-feedback {
   min-height: 17px;
+  margin: 0;
   color: var(--ui-status-ok);
+  font-size: 11px;
 }
 
-.binding-form .binding-feedback[data-state="error"] {
+.profile-feedback[data-state="error"] {
   color: var(--ui-status-error);
 }
 
-.binding-properties {
-  margin-top: 12px;
+@media (max-width: 560px) {
+  .form-grid,
+  .form-grid-three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .form-field-wide {
+    grid-column: auto;
+  }
 }

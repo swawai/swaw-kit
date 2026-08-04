@@ -1,27 +1,27 @@
 use std::io;
 
-use crate::{binding::ProjectBindingStore, catalog::CatalogSnapshot, context::EntryContext};
+use crate::{catalog::CatalogSnapshot, context::EntryContext, profile::EntryProfileStore};
 
 #[derive(Debug, Clone)]
 pub struct CatalogReader {
     context: EntryContext,
-    binding_store: ProjectBindingStore,
+    profile_store: EntryProfileStore,
 }
 
 impl CatalogReader {
-    pub fn new(context: EntryContext, binding_store: ProjectBindingStore) -> Self {
+    pub fn new(context: EntryContext, profile_store: EntryProfileStore) -> Self {
         Self {
             context,
-            binding_store,
+            profile_store,
         }
     }
 
     pub async fn read(&self) -> io::Result<CatalogSnapshot> {
         let context = self.context.clone();
-        let binding_store = self.binding_store.clone();
+        let profile_store = self.profile_store.clone();
         tokio::task::spawn_blocking(move || {
-            let state = binding_store.read();
-            CatalogSnapshot::discover(&context, state.ready())
+            let state = profile_store.read();
+            CatalogSnapshot::discover(&context, state.ready().map(|profile| profile.binding()))
         })
         .await
         .map_err(|error| io::Error::other(format!("catalog worker failed: {error}")))?

@@ -4,7 +4,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::catalog::{CatalogSnapshot, CommandAdapter};
+use crate::{
+    catalog::{CatalogSnapshot, CommandAdapter},
+    profile::EntryProfileRecord,
+};
 
 use super::{
     CommandExecutionContext, CommandExecutor, ExecutionPhase, GuardPlan, GuardScope, Invocation,
@@ -75,6 +78,7 @@ impl Fixture {
             entry_name: "fixture".to_owned(),
             entry_file: self.root.join("fixture.exe"),
             invocation_directory: self.target_project_root.clone(),
+            profile: EntryProfileRecord::default(),
         }
     }
 }
@@ -158,6 +162,11 @@ fn process_environment_is_declarative_and_phase_specific() {
         run.value("SWAWKIT_HOME"),
         Some(Some(fixture.root.as_os_str()))
     );
+    assert_eq!(
+        run.value("SWAWKIT_PROJ_BUN_VERSION"),
+        Some(Some(OsStr::new("1.2.15")))
+    );
+    assert_eq!(run.value("SWAWKIT_PROJ_GIT_ID_EMAIL"), Some(None));
     let guard = ProcessEnvironment::for_command(
         &context,
         &command,

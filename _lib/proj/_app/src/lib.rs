@@ -8,5 +8,6 @@ pub mod data_root;
 pub mod entry;
 pub mod help;
 pub mod launch;
+pub mod profile;
 pub mod server;
 mod web_assets;

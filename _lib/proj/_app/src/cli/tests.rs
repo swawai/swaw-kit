@@ -3,11 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use swawkit_proj::binding::ProjectBindingStore;
 use swawkit_proj::context::EntryContext;
 use swawkit_proj::data_root::{
     ClaimApprovalError, DataRootClaim, ResolveDataRootRequest, read_entry_record, resolve_data_root,
 };
+use swawkit_proj::profile::{EntryProfileRecord, EntryProfileStore};
 
 use super::*;
 
@@ -71,13 +71,15 @@ impl Fixture {
             &mut approve,
         )
         .expect("resolve fixture DataRoot");
-        ProjectBindingStore::new(&self.context.swawkit_home, resolved.path)
-            .save(
-                self.target_project_root
-                    .to_str()
-                    .expect("Unicode fixture path"),
-            )
-            .expect("save fixture binding");
+        let mut profile = EntryProfileRecord::default();
+        profile.target_project_root = self
+            .target_project_root
+            .to_str()
+            .expect("Unicode fixture path")
+            .to_owned();
+        EntryProfileStore::new(&self.context.swawkit_home, resolved.path)
+            .save(profile)
+            .expect("save fixture profile");
     }
 
     fn command(&self, address: &str, entry_name: &str, body: &str) -> PathBuf {
@@ -102,7 +104,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn protocol_help_initializes_the_entry_without_requiring_a_project_binding() {
+fn protocol_help_initializes_the_entry_without_requiring_an_entry_profile() {
     let fixture = Fixture::new();
     fixture.command("", "run.ps1", "exit 0");
     fs::create_dir_all(fixture.context.kernel_root().join("_help")).unwrap();
@@ -255,7 +257,7 @@ fn an_unbound_candidate_requires_approval_before_execution() {
         &mut approve,
     )
     .unwrap_err();
-    assert!(error.to_string().contains("no target project binding"));
+    assert!(error.to_string().contains("no profile"));
     assert!(saw_claim);
     assert!(
         read_entry_record(&fixture.data_root())

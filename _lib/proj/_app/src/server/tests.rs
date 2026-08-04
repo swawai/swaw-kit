@@ -18,9 +18,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use super::*;
-use crate::{binding::ProjectBindingStore, context::EntryContext};
+use crate::{context::EntryContext, profile::EntryProfileStore};
 
-mod binding;
+mod profile;
 
 const AUTHORITY: &str = "127.0.0.1:43127";
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -59,18 +59,18 @@ impl Fixture {
                 entry_name: "swawkit".to_owned(),
                 invocation_directory: self.root.clone(),
             },
-            self.binding_store(),
+            self.profile_store(),
         )
     }
 
-    fn binding_store(&self) -> ProjectBindingStore {
+    fn profile_store(&self) -> EntryProfileStore {
         let data_root = self.root.join("home/data/proj.swawkit");
         fs::create_dir_all(&data_root).expect("create fixture DataRoot");
-        ProjectBindingStore::new(self.root.join("home"), data_root)
+        EntryProfileStore::new(self.root.join("home"), data_root)
     }
 
     fn app(&self) -> Router {
-        router(AUTHORITY.to_owned(), self.reader(), self.binding_store())
+        router(AUTHORITY.to_owned(), self.reader(), self.profile_store())
     }
 }
 
@@ -140,6 +140,10 @@ async fn serves_only_the_declared_local_surface() {
         ("/assets/explorer.js", "text/javascript; charset=utf-8"),
         ("/assets/detail.js", "text/javascript; charset=utf-8"),
         ("/assets/system.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/system-navigation.js",
+            "text/javascript; charset=utf-8",
+        ),
     ] {
         let response = send(app.clone(), Method::GET, path, Some(AUTHORITY)).await;
         assert_eq!(response.status(), StatusCode::OK, "{path}");
@@ -330,7 +334,7 @@ fn shutdown_signal_stops_the_live_http_server() {
     let (shutdown, shutdown_receiver) = oneshot::channel();
     let server_thread = spawn(
         fixture.reader(),
-        fixture.binding_store(),
+        fixture.profile_store(),
         move |event| events.send(event).map_err(|error| error.to_string()),
         shutdown_receiver,
     )

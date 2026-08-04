@@ -8,10 +8,10 @@ use std::error::Error;
 use std::{env, path::PathBuf};
 
 use swawkit_proj::{
-    binding::ProjectBindingStore,
     context::EntryContext,
     data_root::{ClaimApprovalError, ResolveDataRootRequest, resolve_data_root},
     launch::{LaunchMode, LaunchRequest},
+    profile::EntryProfileStore,
 };
 
 fn main() {
@@ -57,8 +57,8 @@ fn run() -> Result<i32, Box<dyn Error>> {
             for warning in resolved.warnings {
                 eprintln!("[WARNING] {warning}");
             }
-            let binding_store = ProjectBindingStore::new(&context.swawkit_home, resolved.path);
-            tray::run(context, binding_store)?;
+            let profile_store = EntryProfileStore::new(&context.swawkit_home, resolved.path);
+            tray::run(context, profile_store)?;
             Ok(0)
         }
     }
