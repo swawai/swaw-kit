@@ -5,8 +5,8 @@ if ($args.Count -ne 0) {
     throw '.web does not accept dynamic arguments.'
 }
 
-$ProjHome = [string]$env:SWAWKIT_PROJ_HOME
-$ProjectRoot = [string]$env:SWAWKIT_PROJ_DIR
+$ProjHome = [string]$env:SWAWKIT_HOME
+$ProjectRoot = [string]$env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT
 $CommandName = [string]$env:SWAWKIT_PROJ_ENTRY_COMMAND
 if ([string]::IsNullOrWhiteSpace($ProjHome) -or
     [string]::IsNullOrWhiteSpace($ProjectRoot) -or

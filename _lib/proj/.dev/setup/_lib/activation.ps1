@@ -23,7 +23,7 @@ function Clear-ProjDevProcessEnvironmentVariables {
     )
     foreach ($Name in [string[]]@($ProcessEnvironment.Keys)) {
         if ($Name.StartsWith(
-            'SWAWKIT_DEV_',
+            'SWAWKIT_PROJ_DEV_',
             [StringComparison]::OrdinalIgnoreCase
         )) {
             [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
@@ -37,19 +37,19 @@ function Assert-ProjDevActivatedEnvironmentIdentity {
         [Parameter(Mandatory = $true)][string]$GenerationId
     )
 
-    if ([string]$env:SWAWKIT_DEV_GENERATION_ID -cne $GenerationId) {
+    if ([string]$env:SWAWKIT_PROJ_DEV_GENERATION_ID -cne $GenerationId) {
         throw (
             'The active development environment generation is stale. ' +
             'Exit this shell and start a new project shell.'
         )
     }
-    if ([string]$env:SWAWKIT_DEV_ENV_SCHEMA -cne
+    if ([string]$env:SWAWKIT_PROJ_DEV_ENV_SCHEMA -cne
         'swawkit.proj-dev.environment.v0') {
         throw "Unsupported generated environment schema. Run '.dev.setup'."
     }
     foreach ($Name in @(
-        'SWAWKIT_DEV_PROJECT_ROOT',
-        'SWAWKIT_DEV_ENV_ROOT'
+        'SWAWKIT_PROJ_DEV_PROJECT_ROOT',
+        'SWAWKIT_PROJ_DEV_ENV_ROOT'
     )) {
         if ([string]::IsNullOrWhiteSpace(
             [Environment]::GetEnvironmentVariable($Name, 'Process')
@@ -58,13 +58,13 @@ function Assert-ProjDevActivatedEnvironmentIdentity {
         }
     }
     if (-not (Get-ProjDevCanonicalPath -Path (
-            [string]$env:SWAWKIT_DEV_PROJECT_ROOT
+            [string]$env:SWAWKIT_PROJ_DEV_PROJECT_ROOT
         )).Equals(
             $Context.CanonicalProjectRoot,
             [StringComparison]::OrdinalIgnoreCase
         ) -or
         -not (Get-ProjDevCanonicalPath -Path (
-            [string]$env:SWAWKIT_DEV_ENV_ROOT
+            [string]$env:SWAWKIT_PROJ_DEV_ENV_ROOT
         )).Equals(
             (Get-ProjDevCanonicalPath -Path $Context.EnvironmentRoot),
             [StringComparison]::OrdinalIgnoreCase
@@ -91,7 +91,7 @@ function Import-ProjDevGeneratedEnvironment {
 
     return [pscustomobject][ordered]@{
         GenerationId = $GenerationId
-        ProjectRoot = [string]$env:SWAWKIT_DEV_PROJECT_ROOT
-        EnvironmentRoot = [string]$env:SWAWKIT_DEV_ENV_ROOT
+        ProjectRoot = [string]$env:SWAWKIT_PROJ_DEV_PROJECT_ROOT
+        EnvironmentRoot = [string]$env:SWAWKIT_PROJ_DEV_ENV_ROOT
     }
 }

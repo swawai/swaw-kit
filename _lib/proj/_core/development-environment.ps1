@@ -3,7 +3,7 @@ Set-StrictMode -Version 2.0
 $script:ProjDevelopmentEnvironmentSchema =
     'swawkit.proj-dev.environment.v0'
 $script:ProjDevelopmentEnvironmentGenerationPlaceholder =
-    '__SWAWKIT_DEV_GENERATION_ID__'
+    '__SWAWKIT_PROJ_DEV_GENERATION_ID__'
 
 function Get-ProjDevelopmentEnvironmentGenerationPlaceholder {
     return $script:ProjDevelopmentEnvironmentGenerationPlaceholder
@@ -75,9 +75,9 @@ function Test-ProjDevelopmentEnvironmentActive {
     )
     foreach ($Name in [string[]]@($Environment.Keys)) {
         if ($Name.StartsWith(
-            'SWAWKIT_DEV_',
+            'SWAWKIT_PROJ_DEV_',
             [StringComparison]::OrdinalIgnoreCase
-        )) {
+        ) -and -not [string]::IsNullOrEmpty([string]$Environment[$Name])) {
             return $true
         }
     }
@@ -92,9 +92,9 @@ function Assert-ProjActiveDevelopmentEnvironmentOwner {
     }
 
     foreach ($Name in @(
-        'SWAWKIT_DEV_ENV_SCHEMA',
-        'SWAWKIT_DEV_PROJECT_ROOT',
-        'SWAWKIT_DEV_ENV_ROOT'
+        'SWAWKIT_PROJ_DEV_ENV_SCHEMA',
+        'SWAWKIT_PROJ_DEV_PROJECT_ROOT',
+        'SWAWKIT_PROJ_DEV_ENV_ROOT'
     )) {
         if ([string]::IsNullOrWhiteSpace(
             [Environment]::GetEnvironmentVariable($Name, 'Process')
@@ -105,7 +105,7 @@ function Assert-ProjActiveDevelopmentEnvironmentOwner {
             )
         }
     }
-    if ([string]$env:SWAWKIT_DEV_ENV_SCHEMA -cne
+    if ([string]$env:SWAWKIT_PROJ_DEV_ENV_SCHEMA -cne
         $script:ProjDevelopmentEnvironmentSchema) {
         throw (
             'An unsupported Swaw Kit development environment is already ' +
@@ -117,11 +117,11 @@ function Assert-ProjActiveDevelopmentEnvironmentOwner {
         -Value (Join-Path $ProjectContext.DataRoot 'dev_env') `
         -Name 'development environment root'
     $ActiveProjectRoot = Get-ProjDeclaredFullPath `
-        -Value ([string]$env:SWAWKIT_DEV_PROJECT_ROOT) `
-        -Name 'SWAWKIT_DEV_PROJECT_ROOT'
+        -Value ([string]$env:SWAWKIT_PROJ_DEV_PROJECT_ROOT) `
+        -Name 'SWAWKIT_PROJ_DEV_PROJECT_ROOT'
     $ActiveEnvironmentRoot = Get-ProjDeclaredFullPath `
-        -Value ([string]$env:SWAWKIT_DEV_ENV_ROOT) `
-        -Name 'SWAWKIT_DEV_ENV_ROOT'
+        -Value ([string]$env:SWAWKIT_PROJ_DEV_ENV_ROOT) `
+        -Name 'SWAWKIT_PROJ_DEV_ENV_ROOT'
     if (-not $ActiveProjectRoot.Equals(
             [string]$ProjectContext.ProjectRoot,
             [StringComparison]::OrdinalIgnoreCase
@@ -132,7 +132,7 @@ function Assert-ProjActiveDevelopmentEnvironmentOwner {
         )) {
         throw (
             "Another project's development environment is already active: " +
-            "$([string]$env:SWAWKIT_DEV_PROJECT_ROOT). Start a clean shell " +
+            "$([string]$env:SWAWKIT_PROJ_DEV_PROJECT_ROOT). Start a clean shell " +
             'before invoking this project.'
         )
     }
@@ -166,11 +166,11 @@ function Get-ProjPublishedDevelopmentEnvironmentGeneration {
     $Ps1Content = [IO.File]::ReadAllText($Ps1Path)
     $CmdMatches = [regex]::Matches(
         $CmdContent,
-        '(?im)^set "SWAWKIT_DEV_GENERATION_ID=([a-f0-9]{16})"\s*$'
+        '(?im)^set "SWAWKIT_PROJ_DEV_GENERATION_ID=([a-f0-9]{16})"\s*$'
     )
     $Ps1Matches = [regex]::Matches(
         $Ps1Content,
-        "(?im)^\`$env:SWAWKIT_DEV_GENERATION_ID = '([a-f0-9]{16})'\s*$"
+        "(?im)^\`$env:SWAWKIT_PROJ_DEV_GENERATION_ID = '([a-f0-9]{16})'\s*$"
     )
     if ($CmdMatches.Count -ne 1 -or $Ps1Matches.Count -ne 1) {
         throw (
@@ -257,7 +257,7 @@ function Assert-ProjDevelopmentEnvironmentIdentity {
         [Parameter(Mandatory = $true)][string]$GenerationId
     )
 
-    if ([string]$env:SWAWKIT_DEV_GENERATION_ID -cne $GenerationId) {
+    if ([string]$env:SWAWKIT_PROJ_DEV_GENERATION_ID -cne $GenerationId) {
         throw (
             'The active development environment generation no longer matches ' +
             'the published environment. Start a clean project shell before ' +

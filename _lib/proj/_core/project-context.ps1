@@ -1,7 +1,7 @@
 Set-StrictMode -Version 2.0
 
 $script:ProjRequiredProjectDeclarations = @(
-    'SWAWKIT_PROJ_DIR',
+    'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_ENTRY_FILE'
 )
@@ -62,8 +62,8 @@ function Get-ProjProjectContext {
     }
 
     $ProjectRoot = Get-ProjDeclaredFullPath `
-        -Value $Declarations['SWAWKIT_PROJ_DIR'] `
-        -Name 'SWAWKIT_PROJ_DIR'
+        -Value $Declarations['SWAWKIT_PROJ_TARGET_PROJECT_ROOT'] `
+        -Name 'SWAWKIT_PROJ_TARGET_PROJECT_ROOT'
     if (-not [IO.Directory]::Exists($ProjectRoot)) {
         throw "Declared project directory does not exist: $ProjectRoot"
     }
@@ -83,7 +83,7 @@ function Get-ProjProjectContext {
     }
     $CanonicalProjHome = Get-ProjDeclaredFullPath `
         -Value $ProjHome `
-        -Name 'SWAWKIT_PROJ_HOME'
+        -Name 'SWAWKIT_HOME'
     if (-not [IO.Directory]::Exists($CanonicalProjHome)) {
         throw "Declared Swaw Kit Proj home does not exist: $CanonicalProjHome"
     }

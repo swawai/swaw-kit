@@ -26,7 +26,7 @@ $AmbientBin = Join-Path $TemporaryRoot 'ambient-bin'
 $ManagedHome = Join-Path $TemporaryRoot 'managed-msvc'
 
 $OwnedVariables = @(
-    'SWAWKIT_PROJ_DIR',
+    'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND'
 )
 $SavedEnvironment = @{}
@@ -43,7 +43,7 @@ $ProcessEnvironment = [Environment]::GetEnvironmentVariables(
 )
 foreach ($Name in [string[]]@($ProcessEnvironment.Keys)) {
     if ($Name.StartsWith(
-        'SWAWKIT_DEV_',
+        'SWAWKIT_PROJ_DEV_',
         [StringComparison]::OrdinalIgnoreCase
     )) {
         $SavedDevelopmentEnvironment[$Name] = [string]$ProcessEnvironment[$Name]
@@ -63,7 +63,7 @@ try {
         )
     }
     $env:PATH = "$AmbientBin$([IO.Path]::PathSeparator)$SavedPath"
-    $env:SWAWKIT_PROJ_DIR = $RepoRoot
+    $env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $RepoRoot
     $env:SWAWKIT_PROJ_ENTRY_COMMAND = 'fixture'
 
     $AmbientCompiler = Get-Command cl.exe `
@@ -87,10 +87,10 @@ try {
         -Condition $RejectedAmbientFallback `
         -Message 'launcher silently accepted ambient cl.exe without managed MSVC'
 
-    $env:SWAWKIT_DEV_ENV_SCHEMA = 'swawkit.proj-dev.environment.v0'
-    $env:SWAWKIT_DEV_MSVC_MODE = 'managed'
-    $env:SWAWKIT_DEV_MSVC_HOME = $ManagedHome
-    $env:SWAWKIT_DEV_MSVC_SIGNATURE = 'fixture-signature'
+    $env:SWAWKIT_PROJ_DEV_ENV_SCHEMA = 'swawkit.proj-dev.environment.v0'
+    $env:SWAWKIT_PROJ_DEV_MSVC_MODE = 'managed'
+    $env:SWAWKIT_PROJ_DEV_MSVC_HOME = $ManagedHome
+    $env:SWAWKIT_PROJ_DEV_MSVC_SIGNATURE = 'fixture-signature'
     $RejectedOutsideTool = $false
     try {
         [void](Resolve-ManagedMsvcExecutable -Name 'cl.exe')
@@ -111,7 +111,7 @@ try {
     )
     foreach ($Name in [string[]]@($CurrentEnvironment.Keys)) {
         if ($Name.StartsWith(
-            'SWAWKIT_DEV_',
+            'SWAWKIT_PROJ_DEV_',
             [StringComparison]::OrdinalIgnoreCase
         )) {
             [Environment]::SetEnvironmentVariable($Name, $null, 'Process')

@@ -9,9 +9,9 @@ static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 struct Fixture {
     root: PathBuf,
-    proj_home: PathBuf,
+    swawkit_home: PathBuf,
     project_root: PathBuf,
-    action_root: PathBuf,
+    legacy_data_directory: PathBuf,
 }
 
 impl Fixture {
@@ -21,16 +21,16 @@ impl Fixture {
             "swawkit-data-resolve-{}-{sequence}",
             std::process::id()
         ));
-        let proj_home = root.join("home");
+        let swawkit_home = root.join("home");
         let project_root = root.join("project");
-        let action_root = project_root.join(".swaw");
-        fs::create_dir_all(&proj_home).expect("create Proj home");
+        let legacy_data_directory = project_root.join("data");
+        fs::create_dir_all(&swawkit_home).expect("create SWAWKIT_HOME");
         fs::create_dir_all(&project_root).expect("create project root");
         Self {
             root,
-            proj_home,
+            swawkit_home,
             project_root,
-            action_root,
+            legacy_data_directory,
         }
     }
 
@@ -45,16 +45,15 @@ impl Fixture {
     }
 
     fn data_root(&self, name: &str) -> PathBuf {
-        self.proj_home.join("data").join(format!("proj.{name}"))
+        self.swawkit_home.join("data").join(format!("proj.{name}"))
     }
 
     fn request<'a>(&'a self, entry_file: &'a Path) -> ResolveDataRootRequest<'a> {
         ResolveDataRootRequest {
-            proj_home: &self.proj_home,
-            project_root: &self.project_root,
-            action_root: &self.action_root,
+            swawkit_home: &self.swawkit_home,
             entry_file,
             inherited_data_root: None,
+            legacy_data_directory: Some(&self.legacy_data_directory),
         }
     }
 }
@@ -73,22 +72,21 @@ fn approve(_claim: &DataRootClaim) -> Result<bool, ClaimApprovalError> {
 fn creates_and_then_directly_reuses_a_bound_data_root() {
     let fixture = Fixture::new();
     let entry = fixture.write_entry("alpha", "first");
-    let mut unexpected_claim = |_claim: &DataRootClaim| {
-        Err(ClaimApprovalError::new("claim was not expected"))
-    };
+    let mut unexpected_claim =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
-    let first = resolve_data_root(fixture.request(&entry), &mut unexpected_claim)
-        .expect("create DataRoot");
+    let first =
+        resolve_data_root(fixture.request(&entry), &mut unexpected_claim).expect("create DataRoot");
     assert_eq!(first.path, fixture.data_root("alpha"));
     assert_eq!(
         first.development_environment_repair,
         DevelopmentEnvironmentRepair::NoPublication
     );
     assert!(first.path.join("_entry.json").is_file());
-    assert!(fixture.proj_home.join("data/_proj-entry.lock").is_file());
+    assert!(fixture.swawkit_home.join("data/_proj-entry.lock").is_file());
 
-    let second = resolve_data_root(fixture.request(&entry), &mut unexpected_claim)
-        .expect("direct DataRoot");
+    let second =
+        resolve_data_root(fixture.request(&entry), &mut unexpected_claim).expect("direct DataRoot");
     assert_eq!(second.path, first.path);
 }
 
@@ -107,15 +105,19 @@ fn claim_current_replaces_an_invalid_record_only_after_approval() {
         Ok(true)
     };
 
-    let resolved = resolve_data_root(fixture.request(&entry), &mut approver)
-        .expect("claim current DataRoot");
+    let resolved =
+        resolve_data_root(fixture.request(&entry), &mut approver).expect("claim current DataRoot");
     assert!(saw_claim);
     assert_eq!(resolved.path, data_root);
     assert!(read_entry_record(&data_root).valid_record().is_some());
     assert!(
         fs::read_dir(&data_root)
             .expect("read DataRoot")
-            .all(|entry| !entry.expect("entry").file_name().to_string_lossy().contains("._entry"))
+            .all(|entry| !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .contains("._entry"))
     );
 }
 
@@ -138,12 +140,12 @@ fn accepts_when_another_process_completes_the_same_claim_during_confirmation() {
     let entry = fixture.write_entry("completed", "entry");
     let data_root = fixture.data_root("completed");
     fs::create_dir_all(&data_root).expect("create unbound DataRoot");
-    let data_directory = fixture.proj_home.join("data");
+    let data_directory = fixture.swawkit_home.join("data");
     let mut approver = |claim: &DataRootClaim| {
         let lock = DataRootLock::acquire_for_test(&data_directory, 1, Duration::ZERO)
             .expect("simulate the completing process");
-        let identity = EntryIdentity::from_parts(&claim.volume_id, &claim.file_id)
-            .expect("claim identity");
+        let identity =
+            EntryIdentity::from_parts(&claim.volume_id, &claim.file_id).expect("claim identity");
         publish_entry_record(
             &claim.data_root,
             &claim.entry_name,
@@ -155,8 +157,8 @@ fn accepts_when_another_process_completes_the_same_claim_during_confirmation() {
         Ok(true)
     };
 
-    let resolved = resolve_data_root(fixture.request(&entry), &mut approver)
-        .expect("accept completed claim");
+    let resolved =
+        resolve_data_root(fixture.request(&entry), &mut approver).expect("accept completed claim");
     assert_eq!(resolved.path, data_root);
     assert!(read_entry_record(&data_root).valid_record().is_some());
 }
@@ -166,14 +168,14 @@ fn rename_follows_file_identity_and_invalidates_moved_dev_environment() {
     let fixture = Fixture::new();
     let old_entry = fixture.write_entry("old-name", "entry");
     let mut approver = approve;
-    let old = resolve_data_root(fixture.request(&old_entry), &mut approver)
-        .expect("create old binding");
+    let old =
+        resolve_data_root(fixture.request(&old_entry), &mut approver).expect("create old binding");
     let environment_root = old.path.join("dev_env");
     fs::create_dir(&environment_root).expect("create dev environment");
     fs::write(
         environment_root.join("env.cmd"),
         format!(
-            "rem Generated by Swaw Kit Proj.\r\nset \"SWAWKIT_DEV_ENV_ROOT={}\"\r\n",
+            "rem Generated by Swaw Kit Proj.\r\nset \"SWAWKIT_PROJ_DEV_ENV_ROOT={}\"\r\n",
             environment_root.display()
         ),
     )
@@ -208,11 +210,11 @@ fn confirmation_holds_no_lock_and_rejects_a_changed_entry_identity() {
     let fixture = Fixture::new();
     let entry = fixture.write_entry("epsilon", "original");
     let mut approver = approve;
-    let original = resolve_data_root(fixture.request(&entry), &mut approver)
-        .expect("create original binding");
+    let original =
+        resolve_data_root(fixture.request(&entry), &mut approver).expect("create original binding");
     replace_entry(&entry, "first replacement");
 
-    let data_directory = fixture.proj_home.join("data");
+    let data_directory = fixture.swawkit_home.join("data");
     let mut checking_approver = |_claim: &DataRootClaim| {
         let lock = DataRootLock::acquire_for_test(&data_directory, 1, Duration::ZERO)
             .expect("confirmation must not hold the DataRoot lock");
@@ -220,12 +222,14 @@ fn confirmation_holds_no_lock_and_rejects_a_changed_entry_identity() {
         replace_entry(&entry, "second replacement");
         Ok(true)
     };
-    let error = resolve_data_root(fixture.request(&entry), &mut checking_approver)
-        .unwrap_err();
+    let error = resolve_data_root(fixture.request(&entry), &mut checking_approver).unwrap_err();
     assert!(error.is_state_changed());
     let published = read_entry_record(&original.path);
     let record = published.valid_record().expect("original record remains");
-    assert_ne!(record.file_id, EntryIdentity::read(&entry).expect("new identity").file_id());
+    assert_ne!(
+        record.file_id,
+        EntryIdentity::read(&entry).expect("new identity").file_id()
+    );
 }
 
 #[test]
@@ -236,12 +240,10 @@ fn migrates_a_matching_legacy_root_without_claim_and_cleans_its_directory() {
     let legacy_directory = fixture.project_root.join("data");
     let legacy_root = legacy_directory.join("proj.legacy");
     fs::create_dir_all(&legacy_root).expect("create legacy root");
-    publish_entry_record(&legacy_root, "legacy", &entry, &identity)
-        .expect("publish legacy record");
+    publish_entry_record(&legacy_root, "legacy", &entry, &identity).expect("publish legacy record");
     fs::write(legacy_directory.join("_proj-entry.lock"), "").expect("write stale lock file");
-    let mut unexpected_claim = |_claim: &DataRootClaim| {
-        Err(ClaimApprovalError::new("legacy migration should not claim"))
-    };
+    let mut unexpected_claim =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("legacy migration should not claim"));
 
     let resolved = resolve_data_root(fixture.request(&entry), &mut unexpected_claim)
         .expect("migrate legacy root");

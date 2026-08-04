@@ -159,9 +159,9 @@ function Get-ProjGeneratedDevelopmentEnvironmentRoot {
         )
     }
     $Pattern = if ($Kind -ceq 'cmd') {
-        '(?im)^set "SWAWKIT_DEV_ENV_ROOT=(.*)"\s*$'
+        '(?im)^set "SWAWKIT_PROJ_DEV_ENV_ROOT=(.*)"\s*$'
     } else {
-        "(?im)^\`$env:SWAWKIT_DEV_ENV_ROOT = '(.*)'\s*$"
+        "(?im)^\`$env:SWAWKIT_PROJ_DEV_ENV_ROOT = '(.*)'\s*$"
     }
     $Matches = [regex]::Matches($Content, $Pattern)
     if ($Matches.Count -ne 1) {

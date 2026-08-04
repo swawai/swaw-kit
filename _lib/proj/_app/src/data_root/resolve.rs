@@ -7,23 +7,21 @@ use crate::entry::{EntryIdentity, EntryIdentityError};
 
 use super::claim::{ClaimApprovalError, DataRootClaim, DataRootClaimApprover};
 use super::development_environment::{
-    DevelopmentEnvironmentRepair, DevelopmentEnvironmentRepairError,
-    repair_development_environment,
+    DevelopmentEnvironmentRepair, DevelopmentEnvironmentRepairError, repair_development_environment,
 };
 use super::execute::{DataRootExecutionError, execute_plan};
 use super::inventory::{DataRootInventory, DataRootInventoryError};
 use super::lock::{DataRootLock, DataRootLockError};
 use super::plan::{
-    DataRootPlan, DataRootPlanError, DataRootPlanningRequest, ordinal_path_eq,
-    ordinal_text_eq, plan_data_root,
+    DataRootPlan, DataRootPlanError, DataRootPlanningRequest, ordinal_path_eq, ordinal_text_eq,
+    plan_data_root,
 };
 
 pub struct ResolveDataRootRequest<'a> {
-    pub proj_home: &'a Path,
-    pub project_root: &'a Path,
-    pub action_root: &'a Path,
+    pub swawkit_home: &'a Path,
     pub entry_file: &'a Path,
     pub inherited_data_root: Option<&'a Path>,
+    pub legacy_data_directory: Option<&'a Path>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,16 +36,11 @@ pub fn resolve_data_root(
     approver: &mut impl DataRootClaimApprover,
 ) -> Result<ResolvedDataRoot, ResolveDataRootError> {
     let request = OwnedRequest::from_request(request)?;
-    let data_directory = request.proj_home.join("data");
-    let legacy_data_directory = request.project_root.join("data");
+    let data_directory = request.swawkit_home.join("data");
 
     let lock = DataRootLock::acquire(&data_directory)?;
-    let initial_plan = build_plan(&request, &data_directory, &legacy_data_directory)?;
-    let claim = DataRootClaim::from_plan(
-        &initial_plan,
-        &request.project_root,
-        &request.action_root,
-    );
+    let initial_plan = build_plan(&request, &data_directory)?;
+    let claim = DataRootClaim::from_plan(&initial_plan);
     let Some(claim) = claim else {
         return complete_locked(initial_plan, None, lock);
     };
@@ -58,16 +51,14 @@ pub fn resolve_data_root(
     }
 
     let lock = DataRootLock::acquire(&data_directory)?;
-    let current_plan = build_plan(&request, &data_directory, &legacy_data_directory)?;
+    let current_plan = build_plan(&request, &data_directory)?;
     if !claim_state_stable(&initial_plan, &current_plan) {
         return Err(ResolveDataRootError::state_changed());
     }
     let completed_legacy_source = match &initial_plan {
         DataRootPlan::ClaimMigrateLegacy {
             source_data_root, ..
-        } if matches!(current_plan, DataRootPlan::Direct { .. }) => {
-            Some(source_data_root.clone())
-        }
+        } if matches!(current_plan, DataRootPlan::Direct { .. }) => Some(source_data_root.clone()),
         _ => None,
     };
     complete_locked(current_plan, completed_legacy_source, lock)
@@ -76,16 +67,19 @@ pub fn resolve_data_root(
 fn build_plan(
     request: &OwnedRequest,
     data_directory: &Path,
-    legacy_data_directory: &Path,
 ) -> Result<DataRootPlan, ResolveDataRootError> {
     let identity = EntryIdentity::read(&request.entry_file)?;
     let current = DataRootInventory::scan(data_directory)?;
-    let legacy = DataRootInventory::scan(legacy_data_directory)?;
+    let legacy = request
+        .legacy_data_directory
+        .as_deref()
+        .map(DataRootInventory::scan)
+        .transpose()?;
     plan_data_root(DataRootPlanningRequest {
         entry_file: &request.entry_file,
         identity: &identity,
         current: &current,
-        legacy: Some(&legacy),
+        legacy: legacy.as_ref(),
         inherited_data_root: request.inherited_data_root.as_deref(),
     })
     .map_err(Into::into)
@@ -138,10 +132,7 @@ fn claim_state_stable(initial: &DataRootPlan, current: &DataRootPlan) -> bool {
         return true;
     }
     match (initial, current) {
-        (
-            DataRootPlan::ClaimCurrent { .. },
-            DataRootPlan::ClaimCurrent { .. },
-        ) => true,
+        (DataRootPlan::ClaimCurrent { .. }, DataRootPlan::ClaimCurrent { .. }) => true,
         (
             DataRootPlan::ClaimRename {
                 source_data_root: initial_source,
@@ -176,7 +167,11 @@ fn remove_legacy_residue(legacy_data_root: &Path) -> Option<String> {
         if lock_path.is_file() && fs::metadata(&lock_path)?.len() == 0 {
             fs::remove_file(lock_path)?;
         }
-        if fs::read_dir(legacy_directory)?.next().transpose()?.is_none() {
+        if fs::read_dir(legacy_directory)?
+            .next()
+            .transpose()?
+            .is_none()
+        {
             fs::remove_dir(legacy_directory)?;
         }
         Ok(())
@@ -190,18 +185,15 @@ fn remove_legacy_residue(legacy_data_root: &Path) -> Option<String> {
 }
 
 struct OwnedRequest {
-    proj_home: PathBuf,
-    project_root: PathBuf,
-    action_root: PathBuf,
+    swawkit_home: PathBuf,
     entry_file: PathBuf,
     inherited_data_root: Option<PathBuf>,
+    legacy_data_directory: Option<PathBuf>,
 }
 
 impl OwnedRequest {
     fn from_request(request: ResolveDataRootRequest<'_>) -> Result<Self, ResolveDataRootError> {
-        let proj_home = required_directory(request.proj_home, "Swaw Kit Proj home")?;
-        let project_root = required_directory(request.project_root, "project root")?;
-        let action_root = absolute(request.action_root, "project Action root")?;
+        let swawkit_home = required_directory(request.swawkit_home, "SWAWKIT_HOME")?;
         let entry_file = absolute(request.entry_file, "project entry file")?;
         let inherited_data_root = match request.inherited_data_root {
             Some(path) if !path.is_absolute() => {
@@ -212,12 +204,15 @@ impl OwnedRequest {
             Some(path) => Some(absolute(path, "inherited DataRoot")?),
             None => None,
         };
+        let legacy_data_directory = request
+            .legacy_data_directory
+            .map(|path| absolute(path, "legacy project data directory"))
+            .transpose()?;
         Ok(Self {
-            proj_home,
-            project_root,
-            action_root,
+            swawkit_home,
             entry_file,
             inherited_data_root,
+            legacy_data_directory,
         })
     }
 }

@@ -121,8 +121,8 @@ fn read_declared_root(
 fn parse_declared_root(line: &str, kind: PublicationKind) -> Option<String> {
     let line = line.trim_end();
     let (prefix, suffix) = match kind {
-        PublicationKind::Cmd => (r#"set "SWAWKIT_DEV_ENV_ROOT="#, '"'),
-        PublicationKind::PowerShell => ("$env:SWAWKIT_DEV_ENV_ROOT = '", '\''),
+        PublicationKind::Cmd => (r#"set "SWAWKIT_PROJ_DEV_ENV_ROOT="#, '"'),
+        PublicationKind::PowerShell => ("$env:SWAWKIT_PROJ_DEV_ENV_ROOT = '", '\''),
     };
     let start = line.get(..prefix.len())?;
     if !start.eq_ignore_ascii_case(prefix) || !line.ends_with(suffix) {

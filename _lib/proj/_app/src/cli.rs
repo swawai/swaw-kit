@@ -8,12 +8,11 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use swawkit_proj::{
+    binding::{ProjectBindingState, ProjectBindingStore},
     catalog::{CatalogSnapshot, is_help_marker},
     command::{CommandExecutionContext, CommandExecutor},
     context::EntryContext,
-    data_root::{
-        DataRootClaimApprover, ResolveDataRootRequest, resolve_data_root,
-    },
+    data_root::{DataRootClaimApprover, ResolveDataRootRequest, resolve_data_root},
     help::{HelpRenderError, render_help},
 };
 
@@ -24,10 +23,15 @@ pub fn run(context: &EntryContext, argv: &[OsString]) -> Result<i32, CliError> {
     let inherited_data_root = env::var_os("SWAWKIT_PROJ_DATA_ROOT")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
+    let legacy_data_directory = env::var_os("SWAWKIT_PROJ_TARGET_PROJECT_ROOT")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .map(|path| path.join("data"));
     run_with_approver(
         context,
         argv,
         inherited_data_root.as_deref(),
+        legacy_data_directory.as_deref(),
         &mut approver,
     )
 }
@@ -36,25 +40,15 @@ fn run_with_approver(
     context: &EntryContext,
     argv: &[OsString],
     inherited_data_root: Option<&std::path::Path>,
+    legacy_data_directory: Option<&std::path::Path>,
     approver: &mut impl DataRootClaimApprover,
 ) -> Result<i32, CliError> {
-    let snapshot = CatalogSnapshot::discover(context)
-        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
-    if let Some(output) = protocol_help(&snapshot, argv)? {
-        write_output(&output)
-            .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
-        return Ok(0);
-    }
-    CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
-        .map_err(|error| CliError::new(error.to_string()))?;
-
     let resolved = resolve_data_root(
         ResolveDataRootRequest {
-            proj_home: &context.proj_home,
-            project_root: &context.project_root,
-            action_root: &context.action_root,
+            swawkit_home: &context.swawkit_home,
             entry_file: &context.entry_file,
             inherited_data_root,
+            legacy_data_directory,
         },
         approver,
     )
@@ -63,7 +57,33 @@ fn run_with_approver(
         eprintln!("[WARNING] {warning}");
     }
 
-    let execution_context = CommandExecutionContext::new(context, resolved.path);
+    let binding_state = ProjectBindingStore::new(&context.swawkit_home, &resolved.path).read();
+    let snapshot = CatalogSnapshot::discover(context, binding_state.ready())
+        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    if let Some(output) = protocol_help(&snapshot, argv)? {
+        write_output(&output)
+            .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
+        return Ok(0);
+    }
+    let binding = match binding_state {
+        ProjectBindingState::Ready(binding) => binding,
+        ProjectBindingState::Missing { path } => {
+            return Err(CliError::new(format!(
+                "this entry has no target project binding: {}. Open its Web console to bind one",
+                path.display()
+            )));
+        }
+        ProjectBindingState::Invalid { path, error, .. } => {
+            return Err(CliError::new(format!(
+                "invalid target project binding '{}': {error}",
+                path.display()
+            )));
+        }
+    };
+    CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
+        .map_err(|error| CliError::new(error.to_string()))?;
+
+    let execution_context = CommandExecutionContext::new(context, &binding, resolved.path);
     CommandExecutor::new(&execution_context, &snapshot)
         .execute(argv)
         .map_err(|error| CliError::new(error.to_string()))
@@ -87,9 +107,9 @@ fn help_target(argv: &[OsString]) -> Result<Option<String>, CliError> {
     match argv {
         [marker] if marker.to_str().is_some_and(is_help_marker) => Ok(Some(String::new())),
         [target, marker] if marker.to_str().is_some_and(is_help_marker) => {
-            let target = target.to_str().ok_or_else(|| {
-                CliError::new("help target address is not valid Unicode")
-            })?;
+            let target = target
+                .to_str()
+                .ok_or_else(|| CliError::new("help target address is not valid Unicode"))?;
             Ok(Some(target.to_owned()))
         }
         _ => Ok(None),

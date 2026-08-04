@@ -1,0 +1,64 @@
+.binding-state {
+  margin: 0 0 12px;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.binding-state[data-state="ready"] {
+  color: var(--ui-status-ok);
+}
+
+.binding-state[data-state="invalid"] {
+  color: var(--ui-status-error);
+}
+
+.binding-form {
+  display: grid;
+  gap: 8px;
+}
+
+.binding-form label {
+  color: var(--ui-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.binding-form input {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.binding-form > p {
+  margin: 0;
+  color: var(--ui-text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.binding-form .secondary-button {
+  justify-self: start;
+  margin-top: 3px;
+}
+
+.binding-form .binding-feedback {
+  min-height: 17px;
+  color: var(--ui-status-ok);
+}
+
+.binding-form .binding-feedback[data-state="error"] {
+  color: var(--ui-status-error);
+}
+
+.binding-properties {
+  margin-top: 12px;
+}

@@ -1,4 +1,4 @@
-use crate::context::EntryContext;
+use crate::{binding::ProjectBinding, context::EntryContext};
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::fs;
@@ -10,9 +10,9 @@ mod filesystem;
 
 use address::{child_address, parent_address};
 use filesystem::{
-    absolute_path, assert_command_root, child_directories, directory_files, FileCandidate,
+    FileCandidate, absolute_path, assert_command_root, child_directories, directory_files,
 };
-pub(crate) use filesystem::{named_directories, NamedDirectory};
+pub(crate) use filesystem::{NamedDirectory, named_directories};
 
 pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v1";
 
@@ -40,10 +40,11 @@ pub struct CatalogSnapshot {
 }
 
 impl CatalogSnapshot {
-    pub fn discover(context: &EntryContext) -> io::Result<Self> {
-        Self::discover_roots(
+    pub fn discover(context: &EntryContext, binding: Option<&ProjectBinding>) -> io::Result<Self> {
+        let action_root = binding.map(ProjectBinding::action_root);
+        Self::discover_optional_roots(
             &context.kernel_root(),
-            &context.action_root,
+            action_root.as_deref(),
             &context.entry_name,
         )
     }
@@ -51,6 +52,14 @@ impl CatalogSnapshot {
     pub fn discover_roots(
         kernel_root: &Path,
         action_root: &Path,
+        entry_name: &str,
+    ) -> io::Result<Self> {
+        Self::discover_optional_roots(kernel_root, Some(action_root), entry_name)
+    }
+
+    fn discover_optional_roots(
+        kernel_root: &Path,
+        action_root: Option<&Path>,
         entry_name: &str,
     ) -> io::Result<Self> {
         assert_command_root(kernel_root)?;
@@ -62,7 +71,7 @@ impl CatalogSnapshot {
             is_root: true,
         }]);
 
-        if action_root.is_dir() {
+        if let Some(action_root) = action_root.filter(|path| path.is_dir()) {
             assert_command_root(action_root)?;
             pending.push_back(PendingDirectory {
                 path: absolute_path(action_root)?,
@@ -154,11 +163,8 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
             None
         }
     };
-    let (help, help_diagnostic) = match read_local_help(
-        &pending.path,
-        entry_name,
-        &pending.address,
-    ) {
+    let (help, help_diagnostic) = match read_local_help(&pending.path, entry_name, &pending.address)
+    {
         Ok(help) => (help, None),
         Err(error) => {
             let diagnostic = error.to_string();

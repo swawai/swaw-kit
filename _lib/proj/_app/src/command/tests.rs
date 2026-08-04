@@ -7,9 +7,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::catalog::{CatalogSnapshot, CommandAdapter};
 
 use super::{
-    CommandExecutionContext, CommandExecutor, ExecutionPhase, GuardPlan, GuardScope,
-    Invocation, ProcessEnvironment, ResolvedCommand,
-    process::run_process,
+    CommandExecutionContext, CommandExecutor, ExecutionPhase, GuardPlan, GuardScope, Invocation,
+    ProcessEnvironment, ResolvedCommand, process::run_process,
 };
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -17,7 +16,7 @@ static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 struct Fixture {
     root: PathBuf,
     kernel_root: PathBuf,
-    project_root: PathBuf,
+    target_project_root: PathBuf,
     action_root: PathBuf,
     data_root: PathBuf,
 }
@@ -33,16 +32,16 @@ impl Fixture {
             .join("data/proj_cache/tests")
             .join(format!("swawkit-command-{}-{sequence}", std::process::id()));
         let kernel_root = root.join("_lib/proj");
-        let project_root = root.join("project");
-        let action_root = project_root.join(".swaw");
+        let target_project_root = root.join("project");
+        let action_root = target_project_root.join(".swaw");
         let data_root = root.join("data");
-        for directory in [&kernel_root, &project_root, &action_root, &data_root] {
+        for directory in [&kernel_root, &target_project_root, &action_root, &data_root] {
             fs::create_dir_all(directory).expect("create fixture directory");
         }
         Self {
             root,
             kernel_root,
-            project_root,
+            target_project_root,
             action_root,
             data_root,
         }
@@ -68,14 +67,14 @@ impl Fixture {
 
     fn context(&self) -> CommandExecutionContext {
         CommandExecutionContext {
-            proj_home: self.root.clone(),
+            swawkit_home: self.root.clone(),
             kernel_root: self.kernel_root.clone(),
-            project_root: self.project_root.clone(),
+            target_project_root: self.target_project_root.clone(),
             action_root: self.action_root.clone(),
             data_root: self.data_root.clone(),
             entry_name: "fixture".to_owned(),
             entry_file: self.root.join("fixture.exe"),
-            invocation_directory: self.project_root.clone(),
+            invocation_directory: self.target_project_root.clone(),
         }
     }
 }
@@ -117,7 +116,10 @@ fn guard_plan_is_global_then_command_and_rejects_unsafe_entries() {
 
     let plan = GuardPlan::discover(&fixture.kernel_root, &command).unwrap();
     assert_eq!(
-        plan.guards.iter().map(|guard| guard.scope).collect::<Vec<_>>(),
+        plan.guards
+            .iter()
+            .map(|guard| guard.scope)
+            .collect::<Vec<_>>(),
         vec![GuardScope::Global, GuardScope::Command]
     );
 
@@ -138,24 +140,38 @@ fn process_environment_is_declarative_and_phase_specific() {
     let command = ResolvedCommand::from_catalog(&fixture.catalog(), ".tool").unwrap();
     let context = fixture.context();
 
-    let run = ProcessEnvironment::for_command(
-        &context,
-        &command,
-        ExecutionPhase::Run,
-        None,
+    let run = ProcessEnvironment::for_command(&context, &command, ExecutionPhase::Run, None);
+    assert_eq!(
+        run.value("SWAWKIT_PROJ_COMMAND_PHASE"),
+        Some(Some(OsStr::new("run")))
     );
-    assert_eq!(run.value("SWAWKIT_COMMAND_PHASE"), Some(Some(OsStr::new("run"))));
-    assert_eq!(run.value("SWAWKIT_GUARD_SCOPE"), Some(None));
-    assert_eq!(run.value("SWAWKIT_COMMAND_ADDRESS"), Some(Some(OsStr::new(".tool"))));
-
+    assert_eq!(run.value("SWAWKIT_PROJ_GUARD_SCOPE"), Some(None));
+    assert_eq!(
+        run.value("SWAWKIT_PROJ_COMMAND_ADDRESS"),
+        Some(Some(OsStr::new(".tool")))
+    );
+    assert_eq!(
+        run.value("SWAWKIT_PROJ_TARGET_PROJECT_ROOT"),
+        Some(Some(fixture.target_project_root.as_os_str()))
+    );
+    assert_eq!(
+        run.value("SWAWKIT_HOME"),
+        Some(Some(fixture.root.as_os_str()))
+    );
     let guard = ProcessEnvironment::for_command(
         &context,
         &command,
         ExecutionPhase::Guard(GuardScope::Global),
         Some(".target"),
     );
-    assert_eq!(guard.value("SWAWKIT_GUARD_SCOPE"), Some(Some(OsStr::new("global"))));
-    assert_eq!(guard.value("SWAWKIT_HELP_TARGET_ADDRESS"), Some(Some(OsStr::new(".target"))));
+    assert_eq!(
+        guard.value("SWAWKIT_PROJ_GUARD_SCOPE"),
+        Some(Some(OsStr::new("global")))
+    );
+    assert_eq!(
+        guard.value("SWAWKIT_PROJ_HELP_TARGET_ADDRESS"),
+        Some(Some(OsStr::new(".target")))
+    );
 }
 
 #[test]
@@ -165,44 +181,47 @@ fn powershell_pipeline_preserves_arguments_environment_order_and_exit_code() {
 $encoded = @($args | ForEach-Object {
     [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$_))
 }) -join ','
-$line = '__LABEL__|' + $env:SWAWKIT_COMMAND_PHASE + '|' +
-    $env:SWAWKIT_GUARD_SCOPE + '|' + $env:SWAWKIT_COMMAND_ADDRESS + '|' + $encoded
+$line = '__LABEL__|' + $env:SWAWKIT_PROJ_COMMAND_PHASE + '|' +
+    $env:SWAWKIT_PROJ_GUARD_SCOPE + '|' + $env:SWAWKIT_PROJ_COMMAND_ADDRESS + '|' + $encoded
 $tracePath = Join-Path $env:SWAWKIT_PROJ_DATA_ROOT 'trace.txt'
 [IO.File]::AppendAllText($tracePath, $line + [Environment]::NewLine)
 __EXIT__
 "#;
     let command_directory = fixture.command(
         ".tool",
-        &trace.replace("__LABEL__", "target").replace("__EXIT__", "exit 23"),
+        &trace
+            .replace("__LABEL__", "target")
+            .replace("__EXIT__", "exit 23"),
     );
     fixture.guard(
         &fixture.kernel_root,
         "_global",
-        &trace.replace("__LABEL__", "global").replace("__EXIT__", "exit 0"),
+        &trace
+            .replace("__LABEL__", "global")
+            .replace("__EXIT__", "exit 0"),
     );
     fixture.guard(
         &command_directory,
         "_guard",
-        &trace.replace("__LABEL__", "command").replace("__EXIT__", "exit 0"),
+        &trace
+            .replace("__LABEL__", "command")
+            .replace("__EXIT__", "exit 0"),
     );
     let catalog = fixture.catalog();
     let context = fixture.context();
-    let before = env::var_os("SWAWKIT_COMMAND_PHASE");
+    let before = env::var_os("SWAWKIT_PROJ_COMMAND_PHASE");
 
     let exit_code = CommandExecutor::new(&context, &catalog)
         .execute(&argv(&[".tool", "", "a b", "quote\"x"]))
         .unwrap();
 
     assert_eq!(exit_code, 23);
-    assert_eq!(env::var_os("SWAWKIT_COMMAND_PHASE"), before);
+    assert_eq!(env::var_os("SWAWKIT_PROJ_COMMAND_PHASE"), before);
     let lines = fs::read_to_string(fixture.data_root.join("trace.txt")).unwrap();
     let lines: Vec<&str> = lines.lines().collect();
     assert_eq!(lines[0], "global|guard|global|.tool|");
     assert_eq!(lines[1], "command|guard|command|.tool|");
-    assert_eq!(
-        lines[2],
-        "target|run||.tool|,YSBi,cXVvdGUieA=="
-    );
+    assert_eq!(lines[2], "target|run||.tool|,YSBi,cXVvdGUieA==");
 }
 
 #[test]
@@ -232,7 +251,7 @@ fn cmd_adapter_allows_only_one_standalone_help_selector() {
         directory.join("run.cmd"),
         "@echo off\r\n\
          > \"%SWAWKIT_PROJ_DATA_ROOT%\\cmd.txt\" \
-         echo %~1^|%SWAWKIT_COMMAND_ADDRESS%\r\n\
+         echo %~1^|%SWAWKIT_PROJ_COMMAND_ADDRESS%\r\n\
          exit /b 31\r\n",
     )
     .unwrap();
@@ -277,7 +296,7 @@ fn exe_adapter_returns_the_exact_child_exit_code() {
         CommandAdapter::Exe,
         Path::new(&comspec),
         &arguments,
-        &fixture.project_root,
+        &fixture.target_project_root,
         &environment,
     )
     .unwrap();

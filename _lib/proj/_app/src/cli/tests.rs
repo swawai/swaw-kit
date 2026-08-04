@@ -3,9 +3,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use swawkit_proj::binding::ProjectBindingStore;
 use swawkit_proj::context::EntryContext;
 use swawkit_proj::data_root::{
-    ClaimApprovalError, DataRootClaim, read_entry_record,
+    ClaimApprovalError, DataRootClaim, ResolveDataRootRequest, read_entry_record, resolve_data_root,
 };
 
 use super::*;
@@ -15,6 +16,7 @@ static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 struct Fixture {
     root: PathBuf,
     context: EntryContext,
+    target_project_root: PathBuf,
 }
 
 impl Fixture {
@@ -41,18 +43,41 @@ impl Fixture {
         }
         fs::write(&entry_file, "fixture").expect("write entry file");
         let context = EntryContext {
-            proj_home: root.clone(),
-            project_root: project_root.clone(),
-            action_root,
+            swawkit_home: root.clone(),
             entry_file,
             entry_name: "fixture".to_owned(),
-            invocation_directory: project_root,
+            invocation_directory: project_root.clone(),
         };
-        Self { root, context }
+        Self {
+            root,
+            context,
+            target_project_root: project_root,
+        }
     }
 
     fn data_root(&self) -> PathBuf {
         self.root.join("data/proj.fixture")
+    }
+
+    fn bind(&self) {
+        let mut approve = |_claim: &DataRootClaim| Ok(true);
+        let resolved = resolve_data_root(
+            ResolveDataRootRequest {
+                swawkit_home: &self.context.swawkit_home,
+                entry_file: &self.context.entry_file,
+                inherited_data_root: None,
+                legacy_data_directory: None,
+            },
+            &mut approve,
+        )
+        .expect("resolve fixture DataRoot");
+        ProjectBindingStore::new(&self.context.swawkit_home, resolved.path)
+            .save(
+                self.target_project_root
+                    .to_str()
+                    .expect("Unicode fixture path"),
+            )
+            .expect("save fixture binding");
     }
 
     fn command(&self, address: &str, entry_name: &str, body: &str) -> PathBuf {
@@ -77,7 +102,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn protocol_help_is_read_only_and_does_not_resolve_data_root() {
+fn protocol_help_initializes_the_entry_without_requiring_a_project_binding() {
     let fixture = Fixture::new();
     fixture.command("", "run.ps1", "exit 0");
     fs::create_dir_all(fixture.context.kernel_root().join("_help")).unwrap();
@@ -86,20 +111,24 @@ fn protocol_help_is_read_only_and_does_not_resolve_data_root() {
         "Root help",
     )
     .unwrap();
-    let mut unexpected = |_claim: &DataRootClaim| {
-        Err(ClaimApprovalError::new("claim was not expected"))
-    };
+    let mut unexpected =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     let exit_code = run_with_approver(
         &fixture.context,
         &argv(&["--help"]),
+        None,
         None,
         &mut unexpected,
     )
     .unwrap();
 
     assert_eq!(exit_code, 0);
-    assert!(!fixture.root.join("data").exists());
+    assert!(
+        read_entry_record(&fixture.data_root())
+            .valid_record()
+            .is_some()
+    );
 }
 
 #[test]
@@ -113,41 +142,46 @@ fn local_help_is_read_only_but_command_owned_help_executes() {
         "run.cmd",
         "@echo off\r\nif \"%~1\"==\"--help\" exit /b 13\r\nexit /b 99\r\n",
     );
-    let mut unexpected = |_claim: &DataRootClaim| {
-        Err(ClaimApprovalError::new("claim was not expected"))
-    };
+    let mut unexpected =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     assert_eq!(
         run_with_approver(
             &fixture.context,
             &argv(&[".local", "--help"]),
             None,
+            None,
             &mut unexpected,
         )
         .unwrap(),
         0
     );
-    assert!(!fixture.root.join("data").exists());
+    fixture.bind();
     assert_eq!(
         run_with_approver(
             &fixture.context,
             &argv(&[".owned", "--help"]),
+            None,
             None,
             &mut unexpected,
         )
         .unwrap(),
         13
     );
-    assert!(read_entry_record(&fixture.data_root()).valid_record().is_some());
+    assert!(
+        read_entry_record(&fixture.data_root())
+            .valid_record()
+            .is_some()
+    );
 }
 
 #[test]
 fn command_execution_creates_and_reuses_the_entry_data_root() {
     let fixture = Fixture::new();
     fixture.command(".tool", "run.cmd", "@exit /b 29\r\n");
-    let mut unexpected = |_claim: &DataRootClaim| {
-        Err(ClaimApprovalError::new("claim was not expected"))
-    };
+    fixture.bind();
+    let mut unexpected =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     for _ in 0..2 {
         assert_eq!(
@@ -155,26 +189,32 @@ fn command_execution_creates_and_reuses_the_entry_data_root() {
                 &fixture.context,
                 &argv(&[".tool"]),
                 None,
+                None,
                 &mut unexpected,
             )
             .unwrap(),
             29
         );
     }
-    assert!(read_entry_record(&fixture.data_root()).valid_record().is_some());
+    assert!(
+        read_entry_record(&fixture.data_root())
+            .valid_record()
+            .is_some()
+    );
 }
 
 #[test]
-fn invalid_or_unsupported_commands_fail_before_data_root_resolution() {
+fn invalid_or_unsupported_commands_fail_before_process_execution() {
     let fixture = Fixture::new();
     fixture.command(".future", "run.ts", "");
-    let mut unexpected = |_claim: &DataRootClaim| {
-        Err(ClaimApprovalError::new("claim was not expected"))
-    };
+    fixture.bind();
+    let mut unexpected =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     let missing = run_with_approver(
         &fixture.context,
         &argv(&[".missing"]),
+        None,
         None,
         &mut unexpected,
     )
@@ -184,11 +224,16 @@ fn invalid_or_unsupported_commands_fail_before_data_root_resolution() {
         &fixture.context,
         &argv(&[".future"]),
         None,
+        None,
         &mut unexpected,
     )
     .unwrap_err();
     assert!(unsupported.to_string().contains("does not yet support"));
-    assert!(!fixture.root.join("data").exists());
+    assert!(
+        read_entry_record(&fixture.data_root())
+            .valid_record()
+            .is_some()
+    );
 }
 
 #[test]
@@ -198,23 +243,40 @@ fn an_unbound_candidate_requires_approval_before_execution() {
     fs::create_dir_all(fixture.data_root()).unwrap();
     let mut saw_claim = false;
     let mut approve = |claim: &DataRootClaim| {
-        saw_claim = claim.data_root == fixture.data_root()
-            && claim.entry_name == "fixture";
+        saw_claim = claim.data_root == fixture.data_root() && claim.entry_name == "fixture";
         Ok(true)
     };
 
+    let error = run_with_approver(
+        &fixture.context,
+        &argv(&[".tool"]),
+        None,
+        None,
+        &mut approve,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("no target project binding"));
+    assert!(saw_claim);
+    assert!(
+        read_entry_record(&fixture.data_root())
+            .valid_record()
+            .is_some()
+    );
+
+    fixture.bind();
+    let mut unexpected =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
     assert_eq!(
         run_with_approver(
             &fixture.context,
             &argv(&[".tool"]),
             None,
-            &mut approve,
+            None,
+            &mut unexpected,
         )
         .unwrap(),
         0
     );
-    assert!(saw_claim);
-    assert!(read_entry_record(&fixture.data_root()).valid_record().is_some());
 }
 
 #[test]

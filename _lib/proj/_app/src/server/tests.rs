@@ -11,14 +11,16 @@ use std::{
 };
 
 use axum::{
-    body::{to_bytes, Body},
-    http::{header::CONTENT_TYPE, Method, Request},
+    body::{Body, to_bytes},
+    http::{Method, Request, header::CONTENT_TYPE},
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use super::*;
-use crate::context::EntryContext;
+use crate::{binding::ProjectBindingStore, context::EntryContext};
+
+mod binding;
 
 const AUTHORITY: &str = "127.0.0.1:43127";
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -30,10 +32,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "swawkit-server-{}-{sequence}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("swawkit-server-{}-{sequence}", std::process::id()));
         fs::create_dir_all(&root).expect("create fixture root");
         Self { root }
     }
@@ -52,14 +52,25 @@ impl Fixture {
     }
 
     fn reader(&self) -> CatalogReader {
-        CatalogReader::new(EntryContext {
-            proj_home: self.root.join("home"),
-            project_root: self.root.join("project"),
-            action_root: self.root.join("project/.swaw"),
-            entry_file: self.root.join("swawkit.cmd"),
-            entry_name: "swawkit".to_owned(),
-            invocation_directory: self.root.clone(),
-        })
+        CatalogReader::new(
+            EntryContext {
+                swawkit_home: self.root.join("home"),
+                entry_file: self.root.join("swawkit.cmd"),
+                entry_name: "swawkit".to_owned(),
+                invocation_directory: self.root.clone(),
+            },
+            self.binding_store(),
+        )
+    }
+
+    fn binding_store(&self) -> ProjectBindingStore {
+        let data_root = self.root.join("home/data/proj.swawkit");
+        fs::create_dir_all(&data_root).expect("create fixture DataRoot");
+        ProjectBindingStore::new(self.root.join("home"), data_root)
+    }
+
+    fn app(&self) -> Router {
+        router(AUTHORITY.to_owned(), self.reader(), self.binding_store())
     }
 }
 
@@ -69,12 +80,7 @@ impl Drop for Fixture {
     }
 }
 
-async fn send(
-    app: Router,
-    method: Method,
-    path: &str,
-    authority: Option<&str>,
-) -> Response {
+async fn send(app: Router, method: Method, path: &str, authority: Option<&str>) -> Response {
     let mut builder = Request::builder().method(method).uri(path);
     if let Some(authority) = authority {
         builder = builder.header(HOST, authority);
@@ -95,10 +101,10 @@ async fn catalog_document(app: Router) -> Value {
 }
 
 #[tokio::test]
-async fn serves_only_the_initial_read_only_surface() {
+async fn serves_only_the_declared_local_surface() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
-    let app = router(AUTHORITY.to_owned(), fixture.reader());
+    let app = fixture.app();
 
     let index = send(app.clone(), Method::GET, "/", Some(AUTHORITY)).await;
     assert_eq!(index.status(), StatusCode::OK);
@@ -128,11 +134,9 @@ async fn serves_only_the_initial_read_only_surface() {
         ("/assets/styles/shell.css", "text/css; charset=utf-8"),
         ("/assets/styles/explorer.css", "text/css; charset=utf-8"),
         ("/assets/styles/detail.css", "text/css; charset=utf-8"),
+        ("/assets/styles/system.css", "text/css; charset=utf-8"),
         ("/assets/app.js", "text/javascript; charset=utf-8"),
-        (
-            "/assets/catalog-model.js",
-            "text/javascript; charset=utf-8",
-        ),
+        ("/assets/catalog-model.js", "text/javascript; charset=utf-8"),
         ("/assets/explorer.js", "text/javascript; charset=utf-8"),
         ("/assets/detail.js", "text/javascript; charset=utf-8"),
         ("/assets/system.js", "text/javascript; charset=utf-8"),
@@ -180,14 +184,9 @@ async fn serves_only_the_initial_read_only_surface() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        send(
-            app,
-            Method::GET,
-            "/_lib/proj/run.ps1",
-            Some(AUTHORITY)
-        )
-        .await
-        .status(),
+        send(app, Method::GET, "/_lib/proj/run.ps1", Some(AUTHORITY))
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
 }
@@ -196,7 +195,7 @@ async fn serves_only_the_initial_read_only_surface() {
 async fn rescans_the_catalog_on_each_request() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
-    let app = router(AUTHORITY.to_owned(), fixture.reader());
+    let app = fixture.app();
 
     let before = catalog_document(app.clone()).await;
     assert!(command(&before, ".dynamic").is_none());
@@ -213,7 +212,7 @@ async fn rescans_the_catalog_on_each_request() {
 async fn returns_a_safe_error_when_catalog_discovery_fails() {
     let fixture = Fixture::new();
     let response = send(
-        router(AUTHORITY.to_owned(), fixture.reader()),
+        fixture.app(),
         Method::GET,
         "/api/v1/catalog",
         Some(AUTHORITY),
@@ -241,7 +240,7 @@ async fn serializes_the_complete_catalog_node_contract() {
     fixture.file("home/_lib/proj/.broken/run.ps1", "");
     fixture.file("home/_lib/proj/.broken/run.cmd", "");
 
-    let document = catalog_document(router(AUTHORITY.to_owned(), fixture.reader())).await;
+    let document = catalog_document(fixture.app()).await;
     assert_eq!(
         command(&document, ".dev").expect("group node"),
         &json!({
@@ -277,21 +276,25 @@ async fn serializes_the_complete_catalog_node_contract() {
         command(&document, ".h").and_then(|node| node["aliasOf"].as_str()),
         Some(".help")
     );
-    assert!(command(&document, ".broken")
-        .and_then(|node| node["diagnostic"].as_str())
-        .is_some_and(|message| message.contains("multiple run entries")));
-    assert!(document["commands"]
-        .as_array()
-        .expect("commands array")
-        .iter()
-        .all(|node| node.get("directory").is_none()));
+    assert!(
+        command(&document, ".broken")
+            .and_then(|node| node["diagnostic"].as_str())
+            .is_some_and(|message| message.contains("multiple run entries"))
+    );
+    assert!(
+        document["commands"]
+            .as_array()
+            .expect("commands array")
+            .iter()
+            .all(|node| node.get("directory").is_none())
+    );
 }
 
 #[tokio::test]
 async fn rejects_missing_or_foreign_host_headers() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
-    let app = router(AUTHORITY.to_owned(), fixture.reader());
+    let app = fixture.app();
 
     assert_eq!(
         send(app.clone(), Method::GET, "/", None).await.status(),
@@ -327,6 +330,7 @@ fn shutdown_signal_stops_the_live_http_server() {
     let (shutdown, shutdown_receiver) = oneshot::channel();
     let server_thread = spawn(
         fixture.reader(),
+        fixture.binding_store(),
         move |event| events.send(event).map_err(|error| error.to_string()),
         shutdown_receiver,
     )
@@ -350,9 +354,7 @@ fn shutdown_signal_stops_the_live_http_server() {
     )
     .expect("HTTP request");
     let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .expect("HTTP response");
+    stream.read_to_string(&mut response).expect("HTTP response");
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
     assert!(response.ends_with("\r\nok\n"));
 

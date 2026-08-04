@@ -8,23 +8,23 @@ use crate::catalog::{CommandAdapter, is_help_marker};
 
 use super::{CommandError, CommandResult, ProcessEnvironment};
 
-const POWERSHELL_ARGUMENT_PREFIX: &str = "SWAWKIT_INTERNAL_PS_ARG_";
-const POWERSHELL_ENTRY_ENV: &str = "SWAWKIT_INTERNAL_PS_ENTRY_PATH";
-const POWERSHELL_COUNT_ENV: &str = "SWAWKIT_INTERNAL_PS_ARGC";
-const CMD_ENTRY_ENV: &str = "SWAWKIT_INTERNAL_CMD_ENTRY_PATH";
+const POWERSHELL_ARGUMENT_PREFIX: &str = "SWAWKIT_PROJ_INTERNAL_PS_ARG_";
+const POWERSHELL_ENTRY_ENV: &str = "SWAWKIT_PROJ_INTERNAL_PS_ENTRY_PATH";
+const POWERSHELL_COUNT_ENV: &str = "SWAWKIT_PROJ_INTERNAL_PS_ARGC";
+const CMD_ENTRY_ENV: &str = "SWAWKIT_PROJ_INTERNAL_CMD_ENTRY_PATH";
 
 const POWERSHELL_RUNNER: &str = r#"
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 try {
-    $entryPath = [Environment]::GetEnvironmentVariable('SWAWKIT_INTERNAL_PS_ENTRY_PATH', 'Process')
-    $countText = [Environment]::GetEnvironmentVariable('SWAWKIT_INTERNAL_PS_ARGC', 'Process')
+    $entryPath = [Environment]::GetEnvironmentVariable('SWAWKIT_PROJ_INTERNAL_PS_ENTRY_PATH', 'Process')
+    $countText = [Environment]::GetEnvironmentVariable('SWAWKIT_PROJ_INTERNAL_PS_ARGC', 'Process')
     $count = [int]::Parse($countText, [Globalization.CultureInfo]::InvariantCulture)
     [string[]]$entryArguments = @()
     for ($index = 0; $index -lt $count; $index++) {
         $entryArguments += [Environment]::GetEnvironmentVariable(
-            ('SWAWKIT_INTERNAL_PS_ARG_' + $index),
+            ('SWAWKIT_PROJ_INTERNAL_PS_ARG_' + $index),
             'Process'
         )
     }

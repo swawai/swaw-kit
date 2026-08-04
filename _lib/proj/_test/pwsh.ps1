@@ -254,7 +254,7 @@ try {
         -Plan $Plan
     Assert-ProjPwshTest `
         -Condition (
-            [string]$Plan.Variables['SWAWKIT_DEV_PWSH_VERSION'] -ceq
+            [string]$Plan.Variables['SWAWKIT_PROJ_DEV_PWSH_VERSION'] -ceq
                 '7.6.4' -and
             $Plan.PathPrefixes.Count -eq 1 -and
             [string]$Plan.PathPrefixes[0] -ceq

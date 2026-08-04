@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
-$ProjectRoot = [string]$env:SWAWKIT_PROJ_DIR
+$ProjectRoot = [string]$env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT
 $DataRoot = [string]$env:SWAWKIT_PROJ_DATA_ROOT
 if ([string]::IsNullOrWhiteSpace($ProjectRoot) -or
     [string]::IsNullOrWhiteSpace($DataRoot)) {

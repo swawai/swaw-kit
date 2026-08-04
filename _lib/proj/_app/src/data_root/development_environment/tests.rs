@@ -51,7 +51,7 @@ fn keeps_a_current_partial_publication_and_removes_state_only_residue() {
     fixture.write_publication(
         "env.cmd",
         &format!(
-            "rem {GENERATED_MARKER}\r\nset \"SWAWKIT_DEV_ENV_ROOT={}\"\r\n",
+            "rem {GENERATED_MARKER}\r\nset \"SWAWKIT_PROJ_DEV_ENV_ROOT={}\"\r\n",
             environment_root.display()
         ),
     );
@@ -77,14 +77,14 @@ fn removes_generated_publications_that_reference_the_old_data_root() {
     fixture.write_publication(
         "env.cmd",
         &format!(
-            "rem {GENERATED_MARKER}\r\nset \"SWAWKIT_DEV_ENV_ROOT={}\"\r\n",
+            "rem {GENERATED_MARKER}\r\nset \"SWAWKIT_PROJ_DEV_ENV_ROOT={}\"\r\n",
             fixture.root.join("old/dev_env").display()
         ),
     );
     fixture.write_publication(
         "env.ps1",
         &format!(
-            "# {GENERATED_MARKER}\r\n$env:SWAWKIT_DEV_ENV_ROOT = '{}'\r\n",
+            "# {GENERATED_MARKER}\r\n$env:SWAWKIT_PROJ_DEV_ENV_ROOT = '{}'\r\n",
             fixture.root.join("old/dev_env").display()
         ),
     );
@@ -104,7 +104,7 @@ fn refuses_to_delete_an_unrecognized_file() {
     let fixture = Fixture::new();
     fixture.write_publication(
         "env.cmd",
-        "set \"SWAWKIT_DEV_ENV_ROOT=D:\\somewhere\"\r\n",
+        "set \"SWAWKIT_PROJ_DEV_ENV_ROOT=D:\\somewhere\"\r\n",
     );
     let error = repair_development_environment(&fixture.data_root).unwrap_err();
     assert!(error.to_string().contains("not recognized as generated"));

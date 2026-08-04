@@ -88,14 +88,14 @@ pub fn plan_data_root(
         .join(format!("proj.{entry_name}"));
     let current_matches = identity_matches(request.current, request.identity);
     if current_matches.len() > 1 {
-        return Err(DataRootPlanError::MultipleCurrentBindings(
-            paths(&current_matches),
-        ));
+        return Err(DataRootPlanError::MultipleCurrentBindings(paths(
+            &current_matches,
+        )));
     }
 
-    let legacy_inventory = request.legacy.filter(|inventory| {
-        !ordinal_path_eq(inventory.directory(), request.current.directory())
-    });
+    let legacy_inventory = request
+        .legacy
+        .filter(|inventory| !ordinal_path_eq(inventory.directory(), request.current.directory()));
     let legacy_matches = legacy_inventory
         .map(|inventory| identity_matches(inventory, request.identity))
         .unwrap_or_default();
@@ -157,9 +157,7 @@ pub fn plan_data_root(
                 .invalid_reason()
                 .unwrap_or("candidate identity record is unavailable")
                 .to_owned(),
-            Some(_) if !name_matches => {
-                "entry name does not match the identity record".to_owned()
-            }
+            Some(_) if !name_matches => "entry name does not match the identity record".to_owned(),
             Some(_) => "File ID does not match the identity record".to_owned(),
         };
         return Ok(DataRootPlan::ClaimCurrent { target, reason });
@@ -187,7 +185,7 @@ pub fn plan_data_root(
             return Ok(DataRootPlan::MigrateLegacy {
                 target,
                 source_data_root: legacy.path.clone(),
-                reason: "legacy DataRoot is stored under SWAWKIT_PROJ_DIR".to_owned(),
+                reason: "DataRoot is stored in the legacy project-local data directory".to_owned(),
             });
         }
         return Ok(DataRootPlan::ClaimMigrateLegacy {

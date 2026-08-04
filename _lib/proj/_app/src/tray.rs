@@ -2,8 +2,8 @@ use std::error::Error;
 
 use tokio::sync::oneshot;
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem},
     Icon, TrayIcon, TrayIconBuilder,
+    menu::{Menu, MenuEvent, MenuItem},
 };
 use winit::{
     application::ApplicationHandler,
@@ -13,6 +13,7 @@ use winit::{
 };
 
 use swawkit_proj::{
+    binding::ProjectBindingStore,
     catalog_reader::CatalogReader,
     context::EntryContext,
     server::{self, ServerEvent},
@@ -83,10 +84,7 @@ impl App {
 
     fn status_text(&self) -> (String, String) {
         if self.shutting_down {
-            return (
-                "正在停止…".to_owned(),
-                "Swaw Kit — 正在停止".to_owned(),
-            );
+            return ("正在停止…".to_owned(), "Swaw Kit — 正在停止".to_owned());
         }
         if let Some(url) = &self.server_url {
             return (format!("在线 — {url}"), format!("Swaw Kit — {url}"));
@@ -97,10 +95,7 @@ impl App {
                 "Swaw Kit — 服务启动失败".to_owned(),
             );
         }
-        (
-            "正在启动…".to_owned(),
-            "Swaw Kit — 正在启动".to_owned(),
-        )
+        ("正在启动…".to_owned(), "Swaw Kit — 正在启动".to_owned())
     }
 
     fn update_tray_status(&self) {
@@ -201,8 +196,11 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
-pub fn run(context: EntryContext) -> Result<(), Box<dyn Error>> {
-    let catalog_reader = CatalogReader::new(context);
+pub fn run(
+    context: EntryContext,
+    binding_store: ProjectBindingStore,
+) -> Result<(), Box<dyn Error>> {
+    let catalog_reader = CatalogReader::new(context, binding_store.clone());
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
@@ -215,6 +213,7 @@ pub fn run(context: EntryContext) -> Result<(), Box<dyn Error>> {
     let server_proxy = event_loop.create_proxy();
     let server_thread = server::spawn(
         catalog_reader,
+        binding_store,
         move |event| {
             server_proxy
                 .send_event(AppEvent::Server(event))

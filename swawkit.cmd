@@ -1,8 +1,8 @@
 @echo off & chcp 65001 >nul & setlocal DisableDelayedExpansion & set "SWAWKIT_PROJ_PROTOCOL=1"
 
 :: Required project resource
-set "SWAWKIT_PROJ_DIR=%~dp0."
-set "SWAWKIT_PROJ_ACTION_ROOT=%SWAWKIT_PROJ_DIR%\.swaw"
+set "SWAWKIT_PROJ_TARGET_PROJECT_ROOT=%~dp0."
+set "SWAWKIT_PROJ_ACTION_ROOT=%SWAWKIT_PROJ_TARGET_PROJECT_ROOT%\.swaw"
 
 
 :: Optional project behavior
@@ -65,7 +65,7 @@ set "SWAWKIT_PROJ_REPO_REMOTE=https://github.com/swawai/swaw-kit.git"
 :: Do not edit below.
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 set "SWAWKIT_PROJ_RUNTIME=%~dp0_lib\proj\proj.ps1"
-set "SWAWKIT_SYSTEM_POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+set "SWAWKIT_PROJ_INTERNAL_SYSTEM_POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 
 if not exist "%SWAWKIT_PROJ_RUNTIME%" (
 call :WriteError "Proj runtime not found:"
@@ -75,9 +75,9 @@ call :WriteError "Missing _lib\proj\proj.ps1 next to this entry file."
 exit /b 1
 )
 
-if not exist "%SWAWKIT_SYSTEM_POWERSHELL%" (
+if not exist "%SWAWKIT_PROJ_INTERNAL_SYSTEM_POWERSHELL%" (
 call :WriteError "Windows PowerShell is required:"
-echo   "%SWAWKIT_SYSTEM_POWERSHELL%"
+echo   "%SWAWKIT_PROJ_INTERNAL_SYSTEM_POWERSHELL%"
 exit /b 1
 )
 
@@ -101,7 +101,10 @@ goto CaptureProjArgument
 
 :RunProj
 set "SWAWKIT_PROJ_ARG_VALUE="
-"%SWAWKIT_SYSTEM_POWERSHELL%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SWAWKIT_PROJ_RUNTIME%"
+:: PowerShell 7 exports a PSModulePath that hides Windows PowerShell modules.
+:: Remove it only inside this setlocal scope so Windows PowerShell rebuilds its defaults.
+set "PSModulePath="
+"%SWAWKIT_PROJ_INTERNAL_SYSTEM_POWERSHELL%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SWAWKIT_PROJ_RUNTIME%"
 exit /b %ERRORLEVEL%
 
 :WriteError

@@ -104,17 +104,17 @@ function New-ProjDevContextFromEnvironment {
     }
 
     $InvocationDirectory = [Environment]::GetEnvironmentVariable(
-        'SWAWKIT_INVOCATION_DIR',
+        'SWAWKIT_PROJ_INVOCATION_DIR',
         [EnvironmentVariableTarget]::Process
     )
     $ProjHome = Get-ProjDevFullPath -Path (
-        Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_HOME'
+        Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_HOME'
     )
     if (-not [IO.Directory]::Exists($ProjHome)) {
         throw "Declared Swaw Kit Proj home does not exist: $ProjHome"
     }
     return New-ProjDevContext `
-        -ProjectRoot (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_DIR') `
+        -ProjectRoot (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_TARGET_PROJECT_ROOT') `
         -DataRoot (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_DATA_ROOT') `
         -CacheDataRoot (Join-Path $ProjHome 'data\proj_cache') `
         -EntryCommand (Get-ProjDevRequiredEnvironmentValue -Name 'SWAWKIT_PROJ_ENTRY_COMMAND') `
@@ -125,11 +125,11 @@ function Assert-ProjDevActiveEnvironmentCompatible {
     param([Parameter(Mandatory = $true)][object]$Context)
 
     $ActiveProjectRoot = [Environment]::GetEnvironmentVariable(
-        'SWAWKIT_DEV_PROJECT_ROOT',
+        'SWAWKIT_PROJ_DEV_PROJECT_ROOT',
         [EnvironmentVariableTarget]::Process
     )
     $ActiveEnvironmentRoot = [Environment]::GetEnvironmentVariable(
-        'SWAWKIT_DEV_ENV_ROOT',
+        'SWAWKIT_PROJ_DEV_ENV_ROOT',
         [EnvironmentVariableTarget]::Process
     )
     if ([string]::IsNullOrWhiteSpace($ActiveProjectRoot) -and
@@ -139,7 +139,7 @@ function Assert-ProjDevActiveEnvironmentCompatible {
         )
         $HasOwnedState = @($ProcessEnvironment.Keys | Where-Object {
             ([string]$_).StartsWith(
-                'SWAWKIT_DEV_',
+                'SWAWKIT_PROJ_DEV_',
                 [StringComparison]::OrdinalIgnoreCase
             )
         }).Count -gt 0

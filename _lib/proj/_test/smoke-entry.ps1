@@ -100,7 +100,8 @@ foreach ($Expected in @(
     'command              .info',
     'entryName            swawkit',
     "entryFile            $EntryPath",
-    "projHome             $RepoRoot",
+    "swawkitHome          $RepoRoot",
+    "targetProjectRoot    $RepoRoot",
     "cacheRoot            $(Join-Path $RepoRoot 'data\proj_cache')",
     $RepoRoot,
     $ExpectedInvocationDirectory
@@ -351,7 +352,7 @@ Assert-ProjEntryTest `
 
 $RequiredProjectDeclarations = @(
     'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_DIR',
+    'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_ENTRY_FILE'
 )

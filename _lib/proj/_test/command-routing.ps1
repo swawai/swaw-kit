@@ -26,10 +26,10 @@ function Write-ProjCommandRoutingFixture {
 
     $Body = @'
 [IO.File]::AppendAllText(
-    $env:SWAWKIT_TEST_ROUTING_CAPTURE,
-    "__LABEL__|$($args.Count)|$env:SWAWKIT_COMMAND_PHASE|" +
-    "$env:SWAWKIT_GUARD_SCOPE|$env:SWAWKIT_COMMAND_ADDRESS|" +
-    "$env:SWAWKIT_COMMAND_DIR|$env:SWAWKIT_HELP_TARGET_ADDRESS|" +
+    $env:SWAWKIT_PROJ_TEST_ROUTING_CAPTURE,
+    "__LABEL__|$($args.Count)|$env:SWAWKIT_PROJ_COMMAND_PHASE|" +
+    "$env:SWAWKIT_PROJ_GUARD_SCOPE|$env:SWAWKIT_PROJ_COMMAND_ADDRESS|" +
+    "$env:SWAWKIT_PROJ_COMMAND_DIR|$env:SWAWKIT_PROJ_HELP_TARGET_ADDRESS|" +
     "$($args -join ',')`n"
 )
 exit __EXIT_CODE__
@@ -94,7 +94,7 @@ $TypeScriptRoot = Join-Path $ActionRoot 'typescript'
 $CapturePath = Join-Path $TemporaryRoot 'capture.txt'
 $EntryFile = Join-Path $TemporaryRoot 'routing-entry.cmd'
 $SavedCapture = [Environment]::GetEnvironmentVariable(
-    'SWAWKIT_TEST_ROUTING_CAPTURE',
+    'SWAWKIT_PROJ_TEST_ROUTING_CAPTURE',
     'Process'
 )
 
@@ -103,7 +103,7 @@ try {
         [void][IO.Directory]::CreateDirectory($Directory)
     }
     [IO.File]::WriteAllText($EntryFile, '@exit /b 0')
-    $env:SWAWKIT_TEST_ROUTING_CAPTURE = $CapturePath
+    $env:SWAWKIT_PROJ_TEST_ROUTING_CAPTURE = $CapturePath
     $ProjectContext = [pscustomobject][ordered]@{
         Protocol = '1'
         ProjHome = $TemporaryRoot
@@ -227,7 +227,7 @@ try {
         -Message 'run.ts bridge guard order or logical command context is incorrect'
 } finally {
     [Environment]::SetEnvironmentVariable(
-        'SWAWKIT_TEST_ROUTING_CAPTURE',
+        'SWAWKIT_PROJ_TEST_ROUTING_CAPTURE',
         $SavedCapture,
         'Process'
     )

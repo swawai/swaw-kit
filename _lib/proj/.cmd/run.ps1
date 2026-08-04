@@ -10,7 +10,7 @@ $KernelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $KernelRoot '_shell\session.ps1')
 
 $ProjectContext = Get-ProjProjectContext `
-    -ProjHome ([string]$env:SWAWKIT_PROJ_HOME)
+    -ProjHome ([string]$env:SWAWKIT_HOME)
 [void](Import-ProjDevelopmentEnvironment `
     -ProjectContext $ProjectContext)
 [void](Enter-ProjInteractiveShellEnvironment -KernelRoot $KernelRoot)

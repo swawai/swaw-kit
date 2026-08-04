@@ -9,7 +9,7 @@ $KernelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $KernelRoot '_core\engine.ps1')
 
 $ProjectContext = Get-ProjProjectContext `
-    -ProjHome ([string]$env:SWAWKIT_PROJ_HOME)
+    -ProjHome ([string]$env:SWAWKIT_HOME)
 # Global policy only protects process identity: a shell may not mix projects
 # or keep using an environment after another process publishes a new generation.
 # Declaration freshness remains command-owned, so .dev.setup can repair changes

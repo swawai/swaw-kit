@@ -6,19 +6,31 @@ use std::{
 };
 
 use axum::{
+    Json, Router,
     extract::{Request, State},
     http::{
-        header::{CACHE_CONTROL, HOST},
         HeaderName, HeaderValue, StatusCode,
+        header::{CACHE_CONTROL, HOST},
     },
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
-    Json, Router,
 };
+use serde::{Deserialize, Serialize};
 use tokio::{net::TcpListener, sync::oneshot};
 
-use crate::{catalog::CatalogSnapshot, catalog_reader::CatalogReader, web_assets};
+use crate::{
+    binding::{ProjectBindingState, ProjectBindingStore},
+    catalog::CatalogSnapshot,
+    catalog_reader::CatalogReader,
+    web_assets,
+};
+
+#[derive(Clone)]
+struct ServerState {
+    catalog_reader: CatalogReader,
+    binding_store: ProjectBindingStore,
+}
 
 #[derive(Debug)]
 pub enum ServerEvent {
@@ -28,6 +40,7 @@ pub enum ServerEvent {
 
 pub fn spawn<F>(
     catalog_reader: CatalogReader,
+    binding_store: ProjectBindingStore,
     notify: F,
     shutdown: oneshot::Receiver<()>,
 ) -> io::Result<thread::JoinHandle<()>>
@@ -43,6 +56,7 @@ where
             {
                 Ok(runtime) => runtime.block_on(run_server(
                     catalog_reader,
+                    binding_store,
                     |url| notify(ServerEvent::Ready(url)),
                     shutdown,
                 )),
@@ -55,6 +69,7 @@ where
 
 async fn run_server<F>(
     catalog_reader: CatalogReader,
+    binding_store: ProjectBindingStore,
     notify_ready: F,
     shutdown: oneshot::Receiver<()>,
 ) -> Result<(), String>
@@ -62,15 +77,13 @@ where
     F: FnOnce(String) -> Result<(), String>,
 {
     let listener = bind_loopback().await.map_err(|error| error.to_string())?;
-    let address = listener
-        .local_addr()
-        .map_err(|error| error.to_string())?;
+    let address = listener.local_addr().map_err(|error| error.to_string())?;
     let authority = address.to_string();
     let url = format!("http://{authority}/");
 
     notify_ready(url)?;
 
-    axum::serve(listener, router(authority, catalog_reader))
+    axum::serve(listener, router(authority, catalog_reader, binding_store))
         .with_graceful_shutdown(async move {
             let _ = shutdown.await;
         })
@@ -82,18 +95,26 @@ async fn bind_loopback() -> io::Result<TcpListener> {
     TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await
 }
 
-fn router(expected_authority: String, catalog_reader: CatalogReader) -> Router {
+fn router(
+    expected_authority: String,
+    catalog_reader: CatalogReader,
+    binding_store: ProjectBindingStore,
+) -> Router {
     Router::new()
         .route("/", get(web_assets::index))
         .route("/assets/{*path}", get(web_assets::asset))
         .route("/api/v1/catalog", get(get_catalog))
+        .route("/api/v1/binding", get(get_binding).put(put_binding))
         .route("/healthz", get(health))
         .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn_with_state(
             Arc::<str>::from(expected_authority),
             enforce_authority,
         ))
-        .with_state(catalog_reader)
+        .with_state(ServerState {
+            catalog_reader,
+            binding_store,
+        })
 }
 
 async fn enforce_authority(
@@ -108,11 +129,7 @@ async fn enforce_authority(
         .is_some_and(|value| value.eq_ignore_ascii_case(&expected_authority));
 
     if !matches {
-        return (
-            StatusCode::MISDIRECTED_REQUEST,
-            "misdirected request\n",
-        )
-            .into_response();
+        return (StatusCode::MISDIRECTED_REQUEST, "misdirected request\n").into_response();
     }
 
     next.run(request).await
@@ -138,13 +155,91 @@ async fn security_headers(request: Request, next: Next) -> Response {
 }
 
 async fn get_catalog(
-    State(catalog_reader): State<CatalogReader>,
+    State(state): State<ServerState>,
 ) -> Result<Json<CatalogSnapshot>, (StatusCode, &'static str)> {
-    catalog_reader
-        .read()
-        .await
-        .map(Json)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "catalog discovery failed\n"))
+    state.catalog_reader.read().await.map(Json).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "catalog discovery failed\n",
+        )
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BindingResponse {
+    status: &'static str,
+    target_project_root: Option<String>,
+    resolved_target_project_root: Option<String>,
+    error: Option<String>,
+}
+
+impl BindingResponse {
+    fn from_state(state: ProjectBindingState) -> Self {
+        match state {
+            ProjectBindingState::Missing { .. } => Self {
+                status: "unbound",
+                target_project_root: None,
+                resolved_target_project_root: None,
+                error: None,
+            },
+            ProjectBindingState::Invalid {
+                configured_target_project_root,
+                error,
+                ..
+            } => Self {
+                status: "invalid",
+                target_project_root: configured_target_project_root,
+                resolved_target_project_root: None,
+                error: Some(error),
+            },
+            ProjectBindingState::Ready(binding) => Self {
+                status: "ready",
+                target_project_root: Some(binding.configured_target_project_root().to_owned()),
+                resolved_target_project_root: Some(
+                    binding.target_project_root().display().to_string(),
+                ),
+                error: None,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct UpdateBindingRequest {
+    target_project_root: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiError {
+    error: String,
+}
+
+async fn get_binding(State(state): State<ServerState>) -> Json<BindingResponse> {
+    Json(BindingResponse::from_state(state.binding_store.read()))
+}
+
+async fn put_binding(
+    State(state): State<ServerState>,
+    Json(request): Json<UpdateBindingRequest>,
+) -> Result<Json<BindingResponse>, (StatusCode, Json<ApiError>)> {
+    state
+        .binding_store
+        .save(&request.target_project_root)
+        .map(|binding| {
+            Json(BindingResponse::from_state(ProjectBindingState::Ready(
+                binding,
+            )))
+        })
+        .map_err(|error| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(ApiError {
+                    error: error.to_string(),
+                }),
+            )
+        })
 }
 
 async fn health() -> &'static str {

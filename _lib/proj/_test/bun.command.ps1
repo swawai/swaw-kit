@@ -11,20 +11,20 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_HOME',
-    'SWAWKIT_PROJ_DIR',
+    'SWAWKIT_HOME',
+    'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_ENTRY_FILE',
-    'SWAWKIT_INVOCATION_DIR',
+    'SWAWKIT_PROJ_INVOCATION_DIR',
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256',
     'SWAWKIT_PROJ_PWSH_MODE',
     'SWAWKIT_PROJ_PWSH_VERSION',
     'SWAWKIT_PROJ_PWSH_SHA256',
-    'SWAWKIT_TEST_BUN_CAPTURE'
+    'SWAWKIT_PROJ_TEST_BUN_CAPTURE'
 )
 $EnvironmentSnapshot = Enter-ProjBunIsolatedEnvironment `
     -ProjectVariableNames $EnvironmentNames
@@ -75,7 +75,7 @@ try {
             -Context $ConsumerContext)) `
         -Message 'an inactive shell was reported as a development environment'
 
-    $env:SWAWKIT_DEV_GENERATION_ID = '0123456789abcdef'
+    $env:SWAWKIT_PROJ_DEV_GENERATION_ID = '0123456789abcdef'
     Assert-ProjBunThrows `
         -Action {
             Assert-ProjDevActiveEnvironmentCompatible `
@@ -83,19 +83,19 @@ try {
         } `
         -Pattern '*incomplete*'
     [Environment]::SetEnvironmentVariable(
-        'SWAWKIT_DEV_GENERATION_ID',
+        'SWAWKIT_PROJ_DEV_GENERATION_ID',
         $null,
         'Process'
     )
 
-    $env:SWAWKIT_DEV_PROJECT_ROOT = $ConsumerContext.ProjectRoot
-    $env:SWAWKIT_DEV_ENV_ROOT = $ConsumerContext.EnvironmentRoot
+    $env:SWAWKIT_PROJ_DEV_PROJECT_ROOT = $ConsumerContext.ProjectRoot
+    $env:SWAWKIT_PROJ_DEV_ENV_ROOT = $ConsumerContext.EnvironmentRoot
     Assert-ProjBunTest `
         -Condition (Assert-ProjDevActiveEnvironmentCompatible `
             -Context $ConsumerContext) `
         -Message 'the same project development environment was rejected'
     [Environment]::SetEnvironmentVariable(
-        'SWAWKIT_DEV_ENV_ROOT',
+        'SWAWKIT_PROJ_DEV_ENV_ROOT',
         $null,
         'Process'
     )
@@ -105,8 +105,8 @@ try {
                 -Context $ConsumerContext
         } `
         -Pattern '*incomplete*'
-    $env:SWAWKIT_DEV_PROJECT_ROOT = $ProjRoot
-    $env:SWAWKIT_DEV_ENV_ROOT = Join-Path $TemporaryRoot 'foreign env'
+    $env:SWAWKIT_PROJ_DEV_PROJECT_ROOT = $ProjRoot
+    $env:SWAWKIT_PROJ_DEV_ENV_ROOT = Join-Path $TemporaryRoot 'foreign env'
     Assert-ProjBunThrows `
         -Action {
             Assert-ProjDevActiveEnvironmentCompatible `
@@ -117,13 +117,13 @@ try {
     $ForeignDataRoot = Join-Path $TemporaryRoot 'foreign setup data'
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_HOME = $ControlHome
-        SWAWKIT_PROJ_DIR = $ProjectRoot
+        SWAWKIT_HOME = $ControlHome
+        SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $ForeignDataRoot
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_ENTRY_FILE = $EntryFile
-        SWAWKIT_INVOCATION_DIR = $InvocationRoot
+        SWAWKIT_PROJ_INVOCATION_DIR = $InvocationRoot
         SWAWKIT_PROJ_BUN_MODE = 'disabled'
         SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
     }
@@ -136,20 +136,20 @@ try {
             -not [IO.Directory]::Exists($ForeignDataRoot)) `
         -Message 'foreign active environment was accepted or wrote setup state'
     foreach ($Name in @(
-        'SWAWKIT_DEV_PROJECT_ROOT',
-        'SWAWKIT_DEV_ENV_ROOT'
+        'SWAWKIT_PROJ_DEV_PROJECT_ROOT',
+        'SWAWKIT_PROJ_DEV_ENV_ROOT'
     )) {
         [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
     }
 
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_DIR = $ConsumerContext.ProjectRoot
+        SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ConsumerContext.ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $ConsumerContext.DataRoot
         SWAWKIT_PROJ_ENTRY_COMMAND = $ConsumerContext.EntryCommand
         SWAWKIT_PROJ_ENTRY_FILE = $EntryFile
-        SWAWKIT_INVOCATION_DIR = $ConsumerContext.InvocationDirectory
+        SWAWKIT_PROJ_INVOCATION_DIR = $ConsumerContext.InvocationDirectory
         SWAWKIT_PROJ_BUN_MODE = 'managed'
         SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
     }
@@ -234,7 +234,7 @@ try {
         -Message 'an unrelated PowerShell declaration change blocked Bun'
 
     $CapturePath = Join-Path $TemporaryRoot 'bun-capture.txt'
-    $env:SWAWKIT_TEST_BUN_CAPTURE = $CapturePath
+    $env:SWAWKIT_PROJ_TEST_BUN_CAPTURE = $CapturePath
     Push-Location $InvocationRoot
     try {
         $BunHelpExitCode = Invoke-ProjMain `

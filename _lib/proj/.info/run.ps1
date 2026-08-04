@@ -3,16 +3,16 @@ if ($args.Count -ne 0) {
 }
 
 $Rows = [ordered]@{
-    command = $env:SWAWKIT_COMMAND_ADDRESS
-    commandDirectory = $env:SWAWKIT_COMMAND_DIR
+    command = $env:SWAWKIT_PROJ_COMMAND_ADDRESS
+    commandDirectory = $env:SWAWKIT_PROJ_COMMAND_DIR
     entryName = $env:SWAWKIT_PROJ_ENTRY_COMMAND
     entryFile = $env:SWAWKIT_PROJ_ENTRY_FILE
-    projHome = $env:SWAWKIT_PROJ_HOME
-    projectRoot = $env:SWAWKIT_PROJ_DIR
+    swawkitHome = $env:SWAWKIT_HOME
+    targetProjectRoot = $env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT
     actionRoot = $env:SWAWKIT_PROJ_ACTION_ROOT
     dataRoot = $env:SWAWKIT_PROJ_DATA_ROOT
-    cacheRoot = Join-Path $env:SWAWKIT_PROJ_HOME 'data\proj_cache'
-    invocationDirectory = $env:SWAWKIT_INVOCATION_DIR
+    cacheRoot = Join-Path $env:SWAWKIT_HOME 'data\proj_cache'
+    invocationDirectory = $env:SWAWKIT_PROJ_INVOCATION_DIR
 }
 
 foreach ($Name in $Rows.Keys) {

@@ -5,6 +5,12 @@ import { createSystemView } from "./system.js";
 
 const elements = {
   actionCount: document.querySelector("#action-count"),
+  bindingFeedback: document.querySelector("#binding-feedback"),
+  bindingForm: document.querySelector("#binding-form"),
+  bindingResolvedRoot: document.querySelector("#binding-resolved-root"),
+  bindingSaveButton: document.querySelector("#binding-save-button"),
+  bindingState: document.querySelector("#binding-state"),
+  bindingTargetProjectRoot: document.querySelector("#binding-target-project-root"),
   breadcrumb: document.querySelector("#breadcrumb"),
   catalogCount: document.querySelector("#catalog-count"),
   cliCommand: document.querySelector("#cli-command"),
@@ -42,7 +48,9 @@ const elements = {
 
 let catalog = null;
 const detail = createDetailView(elements);
-const system = createSystemView(elements);
+const system = createSystemView(elements, {
+  onBindingChanged: loadCatalog,
+});
 const explorer = createExplorerView({
   breadcrumb: elements.breadcrumb,
   columns: elements.finderColumns,
@@ -95,8 +103,13 @@ async function loadCatalog() {
 }
 
 elements.copyButton.addEventListener("click", detail.copyInvocation);
+elements.bindingForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  system.saveBinding();
+});
 elements.finderColumns.addEventListener("keydown", explorer.handleKeyboard);
 elements.refreshButton.addEventListener("click", loadCatalog);
 elements.retryButton.addEventListener("click", loadCatalog);
 
 loadCatalog();
+system.loadBinding();

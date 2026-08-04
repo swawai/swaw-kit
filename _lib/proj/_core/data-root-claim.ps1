@@ -106,8 +106,8 @@ function Confirm-ProjDataRootClaim {
 
     Write-Host '[CLAIM] Project DataRoot requires explicit ownership.' `
         -ForegroundColor Yellow
-    Write-Host "  SWAWKIT_PROJ_DIR:         $($Claim.ProjectRoot)"
-    Write-Host "  SWAWKIT_PROJ_ACTION_ROOT: $($Claim.ActionRoot)"
+    Write-Host "  SWAWKIT_PROJ_TARGET_PROJECT_ROOT: $($Claim.ProjectRoot)"
+    Write-Host "  SWAWKIT_PROJ_ACTION_ROOT:         $($Claim.ActionRoot)"
     Write-Host "  entry:                    $($Claim.EntryFile)"
     Write-Host "  volumeId:                 $($Claim.VolumeId)"
     Write-Host "  fileId:                   $($Claim.FileId)"

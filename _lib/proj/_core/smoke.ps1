@@ -249,7 +249,7 @@ try {
         $env:PROJ_SMOKE_CMD_PATH = $CmdProbeOutput
         $CmdProbeScript = @'
 @echo off
-> "%PROJ_SMOKE_CMD_PATH%" echo %SWAWKIT_COMMAND_ADDRESS%
+> "%PROJ_SMOKE_CMD_PATH%" echo %SWAWKIT_PROJ_COMMAND_ADDRESS%
 if not "%~1"=="" >> "%PROJ_SMOKE_CMD_PATH%" echo %~1
 exit /b 37
 '@

@@ -1,6 +1,6 @@
 use axum::{
     extract::Path,
-    http::{header::CONTENT_TYPE, StatusCode},
+    http::{StatusCode, header::CONTENT_TYPE},
     response::{Html, IntoResponse, Response},
 };
 
@@ -12,6 +12,7 @@ const BASE_CSS: &str = include_str!("../web/styles/base.css");
 const SHELL_CSS: &str = include_str!("../web/styles/shell.css");
 const EXPLORER_CSS: &str = include_str!("../web/styles/explorer.css");
 const DETAIL_CSS: &str = include_str!("../web/styles/detail.css");
+const SYSTEM_CSS: &str = include_str!("../web/styles/system.css");
 
 const APP_JS: &str = include_str!("../web/app.js");
 const CATALOG_MODEL_JS: &str = include_str!("../web/catalog-model.js");
@@ -31,11 +32,9 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "styles/shell.css" => Some(("text/css; charset=utf-8", SHELL_CSS)),
         "styles/explorer.css" => Some(("text/css; charset=utf-8", EXPLORER_CSS)),
         "styles/detail.css" => Some(("text/css; charset=utf-8", DETAIL_CSS)),
+        "styles/system.css" => Some(("text/css; charset=utf-8", SYSTEM_CSS)),
         "app.js" => Some(("text/javascript; charset=utf-8", APP_JS)),
-        "catalog-model.js" => Some((
-            "text/javascript; charset=utf-8",
-            CATALOG_MODEL_JS,
-        )),
+        "catalog-model.js" => Some(("text/javascript; charset=utf-8", CATALOG_MODEL_JS)),
         "explorer.js" => Some(("text/javascript; charset=utf-8", EXPLORER_JS)),
         "detail.js" => Some(("text/javascript; charset=utf-8", DETAIL_JS)),
         "system.js" => Some(("text/javascript; charset=utf-8", SYSTEM_JS)),

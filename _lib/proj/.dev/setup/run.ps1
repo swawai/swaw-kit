@@ -25,7 +25,7 @@ if ($null -ne $BunDefinition -or
     $null -ne $RustDefinition) {
     Assert-ProjDevWindowsX64 -ToolName 'Managed development tools'
 }
-$ActiveGenerationId = [string]$env:SWAWKIT_DEV_GENERATION_ID
+$ActiveGenerationId = [string]$env:SWAWKIT_PROJ_DEV_GENERATION_ID
 $ActiveEnvironment = Assert-ProjDevActiveEnvironmentCompatible `
     -Context $Context
 

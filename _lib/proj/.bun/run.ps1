@@ -39,11 +39,11 @@ $BunExecutable = Resolve-ProjDevChildPath `
 [string[]]$BunArguments = @($args)
 $BunWorkingDirectory = $Context.InvocationDirectory
 $RuntimeWorkingDirectory = [Environment]::GetEnvironmentVariable(
-    'SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR',
+    'SWAWKIT_PROJ_INTERNAL_RUNTIME_WORKING_DIR',
     [EnvironmentVariableTarget]::Process
 )
 [Environment]::SetEnvironmentVariable(
-    'SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR',
+    'SWAWKIT_PROJ_INTERNAL_RUNTIME_WORKING_DIR',
     $null,
     [EnvironmentVariableTarget]::Process
 )

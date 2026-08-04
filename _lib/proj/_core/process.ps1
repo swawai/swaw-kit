@@ -113,9 +113,9 @@ function Invoke-ProjCmdProcess {
     $StartInfo = [Diagnostics.ProcessStartInfo]::new()
     $StartInfo.FileName = $env:ComSpec
     $StartInfo.Arguments = if ([string]::IsNullOrEmpty($HelpMarker)) {
-        '/d /s /v:off /c ""%SWAWKIT_INTERNAL_CMD_ENTRY_PATH%""'
+        '/d /s /v:off /c ""%SWAWKIT_PROJ_INTERNAL_CMD_ENTRY_PATH%""'
     } else {
-        '/d /s /v:off /c ""%SWAWKIT_INTERNAL_CMD_ENTRY_PATH%" ' +
+        '/d /s /v:off /c ""%SWAWKIT_PROJ_INTERNAL_CMD_ENTRY_PATH%" ' +
             $HelpMarker +
             '"'
     }
@@ -123,7 +123,7 @@ function Invoke-ProjCmdProcess {
     $StartInfo.UseShellExecute = $false
     $StartInfo.CreateNoWindow = $false
 
-    $VariableName = 'SWAWKIT_INTERNAL_CMD_ENTRY_PATH'
+    $VariableName = 'SWAWKIT_PROJ_INTERNAL_CMD_ENTRY_PATH'
     $PreviousEntryPath = [Environment]::GetEnvironmentVariable(
         $VariableName,
         'Process'

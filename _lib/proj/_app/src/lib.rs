@@ -1,3 +1,5 @@
+mod atomic_file;
+pub mod binding;
 pub mod catalog;
 pub mod catalog_reader;
 pub mod command;

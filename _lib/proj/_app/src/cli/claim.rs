@@ -2,13 +2,11 @@ use std::io::{self, IsTerminal, Write};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use swawkit_proj::data_root::{
-    ClaimApprovalError, DataRootClaim, DataRootClaimApprover,
-};
+use swawkit_proj::data_root::{ClaimApprovalError, DataRootClaim, DataRootClaimApprover};
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::System::Console::{
-    GetNumberOfConsoleInputEvents, GetStdHandle, INPUT_RECORD, KEY_EVENT,
-    ReadConsoleInputW, STD_INPUT_HANDLE,
+    GetNumberOfConsoleInputEvents, GetStdHandle, INPUT_RECORD, KEY_EVENT, ReadConsoleInputW,
+    STD_INPUT_HANDLE,
 };
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -48,16 +46,9 @@ fn write_claim_to(
     claim: &DataRootClaim,
     timeout: Duration,
 ) -> io::Result<()> {
-    writeln!(output, "[CLAIM] Project DataRoot requires explicit ownership.")?;
     writeln!(
         output,
-        "  SWAWKIT_PROJ_DIR:         {}",
-        claim.project_root.display()
-    )?;
-    writeln!(
-        output,
-        "  SWAWKIT_PROJ_ACTION_ROOT: {}",
-        claim.action_root.display()
+        "[CLAIM] Project DataRoot requires explicit ownership."
     )?;
     writeln!(
         output,
@@ -188,9 +179,7 @@ fn verify_answer(
     answer: Option<String>,
 ) -> Result<bool, ClaimApprovalError> {
     let Some(answer) = answer else {
-        return Err(ClaimApprovalError::new(
-            "project DataRoot claim timed out",
-        ));
+        return Err(ClaimApprovalError::new("project DataRoot claim timed out"));
     };
     if answer != claim.entry_name {
         return Err(ClaimApprovalError::new(format!(
@@ -210,8 +199,6 @@ mod tests {
     fn claim() -> DataRootClaim {
         DataRootClaim {
             kind: ClaimKind::Current,
-            project_root: PathBuf::from(r"C:\project"),
-            action_root: PathBuf::from(r"C:\project\.swaw"),
             entry_name: "project-one".to_owned(),
             entry_file: PathBuf::from(r"C:\launchers\project-one.exe"),
             volume_id: "volume".to_owned(),

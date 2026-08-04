@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use super::plan::DataRootPlan;
 
@@ -14,8 +14,6 @@ pub enum ClaimKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataRootClaim {
     pub kind: ClaimKind,
-    pub project_root: PathBuf,
-    pub action_root: PathBuf,
     pub entry_name: String,
     pub entry_file: PathBuf,
     pub volume_id: String,
@@ -26,15 +24,9 @@ pub struct DataRootClaim {
 }
 
 impl DataRootClaim {
-    pub(crate) fn from_plan(
-        plan: &DataRootPlan,
-        project_root: &Path,
-        action_root: &Path,
-    ) -> Option<Self> {
+    pub(crate) fn from_plan(plan: &DataRootPlan) -> Option<Self> {
         let (kind, source_data_root, reason) = match plan {
-            DataRootPlan::ClaimCurrent { reason, .. } => {
-                (ClaimKind::Current, None, reason.clone())
-            }
+            DataRootPlan::ClaimCurrent { reason, .. } => (ClaimKind::Current, None, reason.clone()),
             DataRootPlan::ClaimRename {
                 source_data_root,
                 reason,
@@ -60,8 +52,6 @@ impl DataRootClaim {
         let target = plan.target();
         Some(Self {
             kind,
-            project_root: project_root.to_path_buf(),
-            action_root: action_root.to_path_buf(),
             entry_name: target.entry_name.clone(),
             entry_file: target.entry_file.clone(),
             volume_id: target.identity.volume_id().to_owned(),

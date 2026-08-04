@@ -3,21 +3,21 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::context::EntryContext;
+use crate::{binding::ProjectBinding, context::EntryContext};
 
 use super::{GuardScope, ResolvedCommand};
 
 const OPTIONAL_ENVIRONMENT: [&str; 3] = [
-    "SWAWKIT_GUARD_SCOPE",
-    "SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR",
-    "SWAWKIT_HELP_TARGET_ADDRESS",
+    "SWAWKIT_PROJ_GUARD_SCOPE",
+    "SWAWKIT_PROJ_INTERNAL_RUNTIME_WORKING_DIR",
+    "SWAWKIT_PROJ_HELP_TARGET_ADDRESS",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandExecutionContext {
-    pub proj_home: PathBuf,
+    pub swawkit_home: PathBuf,
     pub kernel_root: PathBuf,
-    pub project_root: PathBuf,
+    pub target_project_root: PathBuf,
     pub action_root: PathBuf,
     pub data_root: PathBuf,
     pub entry_name: String,
@@ -26,12 +26,16 @@ pub struct CommandExecutionContext {
 }
 
 impl CommandExecutionContext {
-    pub fn new(entry: &EntryContext, data_root: impl Into<PathBuf>) -> Self {
+    pub fn new(
+        entry: &EntryContext,
+        binding: &ProjectBinding,
+        data_root: impl Into<PathBuf>,
+    ) -> Self {
         Self {
-            proj_home: entry.proj_home.clone(),
+            swawkit_home: entry.swawkit_home.clone(),
             kernel_root: entry.kernel_root(),
-            project_root: entry.project_root.clone(),
-            action_root: entry.action_root.clone(),
+            target_project_root: binding.target_project_root().to_path_buf(),
+            action_root: binding.action_root(),
             data_root: data_root.into(),
             entry_name: entry.entry_name.clone(),
             entry_file: entry.entry_file.clone(),
@@ -62,26 +66,26 @@ impl ProcessEnvironment {
         for name in OPTIONAL_ENVIRONMENT {
             environment.remove(name);
         }
-        environment.set("SWAWKIT_COMMAND_PROTOCOL", "1");
+        environment.set("SWAWKIT_PROJ_COMMAND_PROTOCOL", "1");
         environment.set(
-            "SWAWKIT_COMMAND_PHASE",
+            "SWAWKIT_PROJ_COMMAND_PHASE",
             match phase {
                 ExecutionPhase::Run => "run",
                 ExecutionPhase::Guard(_) => "guard",
             },
         );
-        environment.set("SWAWKIT_COMMAND_ADDRESS", &protocol_command.address);
-        environment.set("SWAWKIT_COMMAND_DIR", &protocol_command.directory);
+        environment.set("SWAWKIT_PROJ_COMMAND_ADDRESS", &protocol_command.address);
+        environment.set("SWAWKIT_PROJ_COMMAND_DIR", &protocol_command.directory);
         if let ExecutionPhase::Guard(scope) = phase {
-            environment.set("SWAWKIT_GUARD_SCOPE", scope.as_str());
+            environment.set("SWAWKIT_PROJ_GUARD_SCOPE", scope.as_str());
         }
         if let Some(target) = help_target_address {
-            environment.set("SWAWKIT_HELP_TARGET_ADDRESS", target);
+            environment.set("SWAWKIT_PROJ_HELP_TARGET_ADDRESS", target);
         }
-        environment.set("SWAWKIT_INVOCATION_DIR", &context.invocation_directory);
+        environment.set("SWAWKIT_PROJ_INVOCATION_DIR", &context.invocation_directory);
         environment.set("SWAWKIT_PROJ_PROTOCOL", "1");
-        environment.set("SWAWKIT_PROJ_HOME", &context.proj_home);
-        environment.set("SWAWKIT_PROJ_DIR", &context.project_root);
+        environment.set("SWAWKIT_HOME", &context.swawkit_home);
+        environment.set("SWAWKIT_PROJ_TARGET_PROJECT_ROOT", &context.target_project_root);
         environment.set("SWAWKIT_PROJ_ACTION_ROOT", &context.action_root);
         environment.set("SWAWKIT_PROJ_DATA_ROOT", &context.data_root);
         environment.set("SWAWKIT_PROJ_ENTRY_COMMAND", &context.entry_name);

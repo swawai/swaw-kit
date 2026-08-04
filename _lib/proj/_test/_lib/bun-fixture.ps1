@@ -20,7 +20,7 @@ function Enter-ProjBunIsolatedEnvironment {
     )
     foreach ($Name in [string[]]@($ProcessEnvironment.Keys)) {
         if ($Name.StartsWith(
-            'SWAWKIT_DEV_',
+            'SWAWKIT_PROJ_DEV_',
             [StringComparison]::OrdinalIgnoreCase
         )) {
             $DevelopmentValues[$Name] = [string]$ProcessEnvironment[$Name]
@@ -41,7 +41,7 @@ function Exit-ProjBunIsolatedEnvironment {
     )
     foreach ($Name in [string[]]@($ProcessEnvironment.Keys)) {
         if ($Name.StartsWith(
-            'SWAWKIT_DEV_',
+            'SWAWKIT_PROJ_DEV_',
             [StringComparison]::OrdinalIgnoreCase
         )) {
             [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
@@ -112,14 +112,14 @@ public static class $ClassName
             return 0;
         }
 
-        string capture = Environment.GetEnvironmentVariable("SWAWKIT_TEST_BUN_CAPTURE");
+        string capture = Environment.GetEnvironmentVariable("SWAWKIT_PROJ_TEST_BUN_CAPTURE");
         if (!String.IsNullOrEmpty(capture))
         {
             string[] lines = new string[args.Length + 4];
             lines[0] = Environment.CurrentDirectory;
-            lines[1] = Environment.GetEnvironmentVariable("SWAWKIT_INVOCATION_DIR");
-            lines[2] = Environment.GetEnvironmentVariable("SWAWKIT_COMMAND_ADDRESS");
-            lines[3] = Environment.GetEnvironmentVariable("SWAWKIT_COMMAND_DIR");
+            lines[1] = Environment.GetEnvironmentVariable("SWAWKIT_PROJ_INVOCATION_DIR");
+            lines[2] = Environment.GetEnvironmentVariable("SWAWKIT_PROJ_COMMAND_ADDRESS");
+            lines[3] = Environment.GetEnvironmentVariable("SWAWKIT_PROJ_COMMAND_DIR");
             Array.Copy(args, 0, lines, 4, args.Length);
             File.WriteAllLines(capture, lines);
         }

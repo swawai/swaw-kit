@@ -45,7 +45,7 @@ impl<'a> CommandExecutor<'a> {
                 guard.adapter,
                 &guard.entry_path,
                 &[],
-                &self.context.project_root,
+                &self.context.target_project_root,
                 &environment,
             )?;
             if exit_code != 0 {
@@ -63,7 +63,7 @@ impl<'a> CommandExecutor<'a> {
             invocation.command.adapter,
             &invocation.command.entry_path,
             &invocation.arguments,
-            &self.context.project_root,
+            &self.context.target_project_root,
             &environment,
         )
     }

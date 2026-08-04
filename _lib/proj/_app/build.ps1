@@ -9,7 +9,7 @@ if ($args.Count -ne 0) {
 $AppRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $KernelRoot = [IO.Path]::GetFullPath((Join-Path $AppRoot '..'))
 $ProjHome = [IO.Path]::GetFullPath((Join-Path $KernelRoot '..\..'))
-$DeclaredProjHome = [string]$env:SWAWKIT_PROJ_HOME
+$DeclaredProjHome = [string]$env:SWAWKIT_HOME
 if ([string]::IsNullOrWhiteSpace($DeclaredProjHome)) {
     throw 'Run this build through a Swaw Kit Proj project environment.'
 }

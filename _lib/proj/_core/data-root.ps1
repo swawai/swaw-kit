@@ -254,7 +254,7 @@ function Get-ProjDataRootPlan {
             DataRoot = $Candidate
             SourceDataRoot = [string]$LegacyMatch.DataRoot
             Reason = if ($LegacyNameMatches) {
-                'legacy DataRoot is stored under SWAWKIT_PROJ_DIR'
+                'legacy DataRoot is stored under SWAWKIT_PROJ_TARGET_PROJECT_ROOT'
             } else {
                 'the entry File ID is stored under a renamed legacy DataRoot'
             }

@@ -42,17 +42,17 @@ function Invoke-ProjResolvedCommand {
     $ProjectRoot = [string]$ProjectContext.ProjectRoot
     $SavedEnvironment = @{}
     foreach ($Name in @(
-        'SWAWKIT_COMMAND_PROTOCOL',
-        'SWAWKIT_COMMAND_PHASE',
-        'SWAWKIT_COMMAND_ADDRESS',
-        'SWAWKIT_COMMAND_DIR',
-        'SWAWKIT_GUARD_SCOPE',
-        'SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR',
-        'SWAWKIT_INVOCATION_DIR',
-        'SWAWKIT_HELP_TARGET_ADDRESS',
+        'SWAWKIT_PROJ_COMMAND_PROTOCOL',
+        'SWAWKIT_PROJ_COMMAND_PHASE',
+        'SWAWKIT_PROJ_COMMAND_ADDRESS',
+        'SWAWKIT_PROJ_COMMAND_DIR',
+        'SWAWKIT_PROJ_GUARD_SCOPE',
+        'SWAWKIT_PROJ_INTERNAL_RUNTIME_WORKING_DIR',
+        'SWAWKIT_PROJ_INVOCATION_DIR',
+        'SWAWKIT_PROJ_HELP_TARGET_ADDRESS',
         'SWAWKIT_PROJ_PROTOCOL',
-        'SWAWKIT_PROJ_HOME',
-        'SWAWKIT_PROJ_DIR',
+        'SWAWKIT_HOME',
+        'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
         'SWAWKIT_PROJ_ACTION_ROOT',
         'SWAWKIT_PROJ_DATA_ROOT',
         'SWAWKIT_PROJ_ENTRY_COMMAND',
@@ -62,42 +62,42 @@ function Invoke-ProjResolvedCommand {
     }
 
     try {
-        $env:SWAWKIT_COMMAND_PROTOCOL = '1'
-        $env:SWAWKIT_COMMAND_PHASE = $ExecutionPhase
-        $env:SWAWKIT_COMMAND_ADDRESS = $ProtocolCommand.Address
-        $env:SWAWKIT_COMMAND_DIR = $ProtocolCommand.Directory
+        $env:SWAWKIT_PROJ_COMMAND_PROTOCOL = '1'
+        $env:SWAWKIT_PROJ_COMMAND_PHASE = $ExecutionPhase
+        $env:SWAWKIT_PROJ_COMMAND_ADDRESS = $ProtocolCommand.Address
+        $env:SWAWKIT_PROJ_COMMAND_DIR = $ProtocolCommand.Directory
         if ($ExecutionPhase -ceq 'guard') {
-            $env:SWAWKIT_GUARD_SCOPE = $GuardScope
+            $env:SWAWKIT_PROJ_GUARD_SCOPE = $GuardScope
         } else {
             [Environment]::SetEnvironmentVariable(
-                'SWAWKIT_GUARD_SCOPE',
+                'SWAWKIT_PROJ_GUARD_SCOPE',
                 $null,
                 'Process'
             )
         }
         if ([string]::IsNullOrWhiteSpace($RuntimeWorkingDirectory)) {
             [Environment]::SetEnvironmentVariable(
-                'SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR',
+                'SWAWKIT_PROJ_INTERNAL_RUNTIME_WORKING_DIR',
                 $null,
                 'Process'
             )
         } else {
-            $env:SWAWKIT_INTERNAL_RUNTIME_WORKING_DIR =
+            $env:SWAWKIT_PROJ_INTERNAL_RUNTIME_WORKING_DIR =
                 [IO.Path]::GetFullPath($RuntimeWorkingDirectory)
         }
-        $env:SWAWKIT_INVOCATION_DIR = $InvocationDirectory
+        $env:SWAWKIT_PROJ_INVOCATION_DIR = $InvocationDirectory
         if (-not $UseProjHelp) {
             [Environment]::SetEnvironmentVariable(
-                'SWAWKIT_HELP_TARGET_ADDRESS',
+                'SWAWKIT_PROJ_HELP_TARGET_ADDRESS',
                 $null,
                 'Process'
             )
         } else {
-            $env:SWAWKIT_HELP_TARGET_ADDRESS = $HelpTargetAddress
+            $env:SWAWKIT_PROJ_HELP_TARGET_ADDRESS = $HelpTargetAddress
         }
         $env:SWAWKIT_PROJ_PROTOCOL = $ProjectContext.Protocol
-        $env:SWAWKIT_PROJ_HOME = [string]$ProjectContext.ProjHome
-        $env:SWAWKIT_PROJ_DIR = $ProjectContext.ProjectRoot
+        $env:SWAWKIT_HOME = [string]$ProjectContext.ProjHome
+        $env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectContext.ProjectRoot
         $env:SWAWKIT_PROJ_ACTION_ROOT = $ProjectContext.ActionRoot
         $env:SWAWKIT_PROJ_DATA_ROOT = $ProjectContext.DataRoot
         $env:SWAWKIT_PROJ_ENTRY_COMMAND = $ProjectContext.EntryName

@@ -11,13 +11,13 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_HOME',
-    'SWAWKIT_PROJ_DIR',
+    'SWAWKIT_HOME',
+    'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
     'SWAWKIT_PROJ_ACTION_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_ENTRY_FILE',
-    'SWAWKIT_INVOCATION_DIR',
+    'SWAWKIT_PROJ_INVOCATION_DIR',
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256'
@@ -48,13 +48,13 @@ try {
     [IO.File]::WriteAllText($EntryFile, '@echo off')
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_PROTOCOL = '1'
-        SWAWKIT_PROJ_HOME = $ControlHome
-        SWAWKIT_PROJ_DIR = $ProjectRoot
+        SWAWKIT_HOME = $ControlHome
+        SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
         SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $null
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_ENTRY_FILE = $EntryFile
-        SWAWKIT_INVOCATION_DIR = $ProjectRoot
+        SWAWKIT_PROJ_INVOCATION_DIR = $ProjectRoot
         SWAWKIT_PROJ_BUN_MODE = 'managed'
         SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
         SWAWKIT_PROJ_BUN_SHA256 = ''

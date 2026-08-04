@@ -6,7 +6,7 @@ if ($args.Count -ne 0) {
 }
 
 $BuildPath = Join-Path (
-    [string]$env:SWAWKIT_PROJ_HOME
+    [string]$env:SWAWKIT_HOME
 ) '_lib\proj\_app\build.ps1'
 if (-not [IO.File]::Exists($BuildPath)) {
     throw "The Swaw Kit Proj application build script is missing: $BuildPath"

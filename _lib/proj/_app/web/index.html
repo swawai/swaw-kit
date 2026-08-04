@@ -89,6 +89,35 @@
                     </dl>
                   </section>
 
+                  <section class="detail-section" aria-labelledby="binding-title">
+                    <h3 id="binding-title">项目绑定</h3>
+                    <p class="binding-state" id="binding-state" data-state="loading">
+                      正在读取目标项目绑定…
+                    </p>
+                    <form class="binding-form" id="binding-form">
+                      <label for="binding-target-project-root">Target Project Root</label>
+                      <input
+                        id="binding-target-project-root"
+                        name="targetProjectRoot"
+                        type="text"
+                        value="${SWAWKIT_HOME}"
+                        autocomplete="off"
+                        spellcheck="false"
+                      >
+                      <p>使用 <code>${SWAWKIT_HOME}</code> 绑定控制面自身，或填写目标项目绝对路径。</p>
+                      <button class="secondary-button" id="binding-save-button" type="submit">
+                        保存绑定
+                      </button>
+                      <p class="binding-feedback" id="binding-feedback" aria-live="polite"></p>
+                    </form>
+                    <dl class="properties binding-properties">
+                      <div>
+                        <dt>Resolved</dt>
+                        <dd><code id="binding-resolved-root">—</code></dd>
+                      </div>
+                    </dl>
+                  </section>
+
                   <section class="detail-section" aria-labelledby="system-actions-title">
                     <h3 id="system-actions-title">操作</h3>
                     <button class="secondary-button" id="refresh-button" type="button">刷新命令目录</button>

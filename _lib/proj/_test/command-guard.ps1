@@ -46,34 +46,34 @@ $LocalGuardRoot = Join-Path $CommandRoot '_guard'
 $EntryFile = Join-Path $TemporaryRoot 'guard-entry.cmd'
 $CapturePath = Join-Path $TemporaryRoot 'capture.txt'
 $SavedCapture = [Environment]::GetEnvironmentVariable(
-    'SWAWKIT_TEST_GUARD_CAPTURE',
+    'SWAWKIT_PROJ_TEST_GUARD_CAPTURE',
     'Process'
 )
 
 $GlobalBody = @'
 [IO.File]::AppendAllText(
-    $env:SWAWKIT_TEST_GUARD_CAPTURE,
-    "global|$($args.Count)|$env:SWAWKIT_COMMAND_PHASE|" +
-    "$env:SWAWKIT_GUARD_SCOPE|$env:SWAWKIT_COMMAND_ADDRESS|" +
-    "$env:SWAWKIT_COMMAND_DIR`n"
+    $env:SWAWKIT_PROJ_TEST_GUARD_CAPTURE,
+    "global|$($args.Count)|$env:SWAWKIT_PROJ_COMMAND_PHASE|" +
+    "$env:SWAWKIT_PROJ_GUARD_SCOPE|$env:SWAWKIT_PROJ_COMMAND_ADDRESS|" +
+    "$env:SWAWKIT_PROJ_COMMAND_DIR`n"
 )
 exit 0
 '@
 $LocalBody = @'
 [IO.File]::AppendAllText(
-    $env:SWAWKIT_TEST_GUARD_CAPTURE,
-    "command|$($args.Count)|$env:SWAWKIT_COMMAND_PHASE|" +
-    "$env:SWAWKIT_GUARD_SCOPE|$env:SWAWKIT_COMMAND_ADDRESS|" +
-    "$env:SWAWKIT_COMMAND_DIR`n"
+    $env:SWAWKIT_PROJ_TEST_GUARD_CAPTURE,
+    "command|$($args.Count)|$env:SWAWKIT_PROJ_COMMAND_PHASE|" +
+    "$env:SWAWKIT_PROJ_GUARD_SCOPE|$env:SWAWKIT_PROJ_COMMAND_ADDRESS|" +
+    "$env:SWAWKIT_PROJ_COMMAND_DIR`n"
 )
 exit 0
 '@
 $TargetBody = @'
 [IO.File]::AppendAllText(
-    $env:SWAWKIT_TEST_GUARD_CAPTURE,
-    "target|$($args.Count)|$env:SWAWKIT_COMMAND_PHASE|" +
-    "$env:SWAWKIT_GUARD_SCOPE|$env:SWAWKIT_COMMAND_ADDRESS|" +
-    "$env:SWAWKIT_COMMAND_DIR|$($args -join ',')`n"
+    $env:SWAWKIT_PROJ_TEST_GUARD_CAPTURE,
+    "target|$($args.Count)|$env:SWAWKIT_PROJ_COMMAND_PHASE|" +
+    "$env:SWAWKIT_PROJ_GUARD_SCOPE|$env:SWAWKIT_PROJ_COMMAND_ADDRESS|" +
+    "$env:SWAWKIT_PROJ_COMMAND_DIR|$($args -join ',')`n"
 )
 exit 23
 '@
@@ -99,7 +99,7 @@ try {
     Write-ProjCommandGuardFixture `
         -Path (Join-Path $CommandRoot 'run.ps1') `
         -Body $TargetBody
-    $env:SWAWKIT_TEST_GUARD_CAPTURE = $CapturePath
+    $env:SWAWKIT_PROJ_TEST_GUARD_CAPTURE = $CapturePath
 
     $Command = Resolve-ProjCommand `
         -KernelRoot $KernelRoot `
@@ -199,7 +199,7 @@ try {
         -Message 'a hidden execution guard leaked into command discovery'
 } finally {
     [Environment]::SetEnvironmentVariable(
-        'SWAWKIT_TEST_GUARD_CAPTURE',
+        'SWAWKIT_PROJ_TEST_GUARD_CAPTURE',
         $SavedCapture,
         'Process'
     )

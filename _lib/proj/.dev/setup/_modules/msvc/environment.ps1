@@ -41,12 +41,12 @@ function Add-ProjDevMsvcEnvironment {
     $SdkBin = Join-Path $SdkRoot "bin\$SdkVersion\x64"
 
     $Variables = [ordered]@{
-        SWAWKIT_DEV_MSVC_MODE = [string]$Definition.Mode
-        SWAWKIT_DEV_MSVC_CHANNEL = [string]$Definition.Channel
-        SWAWKIT_DEV_MSVC_TOOL_VERSION = $ToolVersion
-        SWAWKIT_DEV_MSVC_SDK_VERSION = $SdkVersion
-        SWAWKIT_DEV_MSVC_HOME = $InstallRoot
-        SWAWKIT_DEV_MSVC_SIGNATURE = Get-ProjDevMsvcRuntimeSignature `
+        SWAWKIT_PROJ_DEV_MSVC_MODE = [string]$Definition.Mode
+        SWAWKIT_PROJ_DEV_MSVC_CHANNEL = [string]$Definition.Channel
+        SWAWKIT_PROJ_DEV_MSVC_TOOL_VERSION = $ToolVersion
+        SWAWKIT_PROJ_DEV_MSVC_SDK_VERSION = $SdkVersion
+        SWAWKIT_PROJ_DEV_MSVC_HOME = $InstallRoot
+        SWAWKIT_PROJ_DEV_MSVC_SIGNATURE = Get-ProjDevMsvcRuntimeSignature `
             -Definition $Definition `
             -Metadata $Metadata
         VSCMD_ARG_HOST_ARCH = 'x64'
@@ -125,20 +125,20 @@ function Assert-ProjDevMsvcEnvironmentCurrent {
     $ExpectedSignature = Get-ProjDevMsvcRuntimeSignature `
         -Definition $Definition `
         -Metadata $Metadata
-    if ([string]$env:SWAWKIT_DEV_MSVC_MODE -cne
+    if ([string]$env:SWAWKIT_PROJ_DEV_MSVC_MODE -cne
             [string]$Definition.Mode -or
-        [string]$env:SWAWKIT_DEV_MSVC_CHANNEL -cne
+        [string]$env:SWAWKIT_PROJ_DEV_MSVC_CHANNEL -cne
             [string]$Definition.Channel -or
-        [string]$env:SWAWKIT_DEV_MSVC_TOOL_VERSION -cne $ToolVersion -or
-        [string]$env:SWAWKIT_DEV_MSVC_SDK_VERSION -cne $SdkVersion -or
-        [string]$env:SWAWKIT_DEV_MSVC_SIGNATURE -cne $ExpectedSignature -or
+        [string]$env:SWAWKIT_PROJ_DEV_MSVC_TOOL_VERSION -cne $ToolVersion -or
+        [string]$env:SWAWKIT_PROJ_DEV_MSVC_SDK_VERSION -cne $SdkVersion -or
+        [string]$env:SWAWKIT_PROJ_DEV_MSVC_SIGNATURE -cne $ExpectedSignature -or
         [string]$env:VCToolsVersion -cne $ToolVersion -or
         [string]$env:WindowsSDKVersion -cne "$SdkVersion\" -or
         [string]::IsNullOrWhiteSpace([string]$env:INCLUDE) -or
         [string]::IsNullOrWhiteSpace([string]$env:LIB) -or
-        [string]::IsNullOrWhiteSpace([string]$env:SWAWKIT_DEV_MSVC_HOME) -or
+        [string]::IsNullOrWhiteSpace([string]$env:SWAWKIT_PROJ_DEV_MSVC_HOME) -or
         -not (Get-ProjDevCanonicalPath -Path (
-            [string]$env:SWAWKIT_DEV_MSVC_HOME
+            [string]$env:SWAWKIT_PROJ_DEV_MSVC_HOME
         )).Equals(
             (Get-ProjDevCanonicalPath -Path $InstallRoot),
             [StringComparison]::OrdinalIgnoreCase

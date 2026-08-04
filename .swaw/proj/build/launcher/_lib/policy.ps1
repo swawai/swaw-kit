@@ -3,14 +3,14 @@ Set-StrictMode -Version 2.0
 function Resolve-ManagedMsvcExecutable {
     param([Parameter(Mandatory = $true)][string]$Name)
 
-    if ([string]$env:SWAWKIT_DEV_ENV_SCHEMA -cne
+    if ([string]$env:SWAWKIT_PROJ_DEV_ENV_SCHEMA -cne
             'swawkit.proj-dev.environment.v0' -or
-        [string]$env:SWAWKIT_DEV_MSVC_MODE -cne 'managed' -or
+        [string]$env:SWAWKIT_PROJ_DEV_MSVC_MODE -cne 'managed' -or
         [string]::IsNullOrWhiteSpace(
-            [string]$env:SWAWKIT_DEV_MSVC_HOME
+            [string]$env:SWAWKIT_PROJ_DEV_MSVC_HOME
         ) -or
         [string]::IsNullOrWhiteSpace(
-            [string]$env:SWAWKIT_DEV_MSVC_SIGNATURE
+            [string]$env:SWAWKIT_PROJ_DEV_MSVC_SIGNATURE
         )) {
         throw (
             'proj.build.launcher requires the project-managed MSVC ' +
@@ -31,7 +31,7 @@ function Resolve-ManagedMsvcExecutable {
     }
 
     $ManagedRoot = [IO.Path]::GetFullPath(
-        [string]$env:SWAWKIT_DEV_MSVC_HOME
+        [string]$env:SWAWKIT_PROJ_DEV_MSVC_HOME
     ).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     $ExecutablePath = [IO.Path]::GetFullPath([string]$Command.Source)
     if (-not $ExecutablePath.StartsWith(

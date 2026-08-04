@@ -1,24 +1,17 @@
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::windows::ffi::OsStrExt;
+use std::fs;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_REPARSE_POINT, REPLACEFILE_IGNORE_MERGE_ERRORS,
-    REPLACEFILE_WRITE_THROUGH, ReplaceFileW,
-};
+use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
+use crate::atomic_file;
 use crate::entry::{EntryIdentity, is_valid_file_id, is_valid_volume_id};
 
 pub const ENTRY_RECORD_SCHEMA: &str = "swawkit.proj-entry.v0";
-static NEXT_PUBLICATION: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -149,100 +142,12 @@ pub(crate) fn publish_entry_record(
     content.push('\n');
 
     let record_path = data_root.join("_entry.json");
-    let temporary_path = unique_sibling(data_root, "._entry", "tmp");
-    let backup_path = unique_sibling(data_root, "._entry", "backup");
-    let result = publish_atomic(
-        &record_path,
-        &temporary_path,
-        &backup_path,
-        content.as_bytes(),
-    );
-    for path in [&temporary_path, &backup_path] {
-        if path.exists() {
-            fs::remove_file(path).map_err(|error| {
-                EntryRecordWriteError::new(format!(
-                    "cannot clean identity publication '{}': {error}",
-                    path.display()
-                ))
-            })?;
-        }
-    }
-    result
-}
-
-fn publish_atomic(
-    record_path: &Path,
-    temporary_path: &Path,
-    backup_path: &Path,
-    content: &[u8],
-) -> Result<(), EntryRecordWriteError> {
-    let mut temporary = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(temporary_path)
-        .map_err(|error| publication_error("create", temporary_path, error))?;
-    temporary
-        .write_all(content)
-        .and_then(|_| temporary.sync_all())
-        .map_err(|error| publication_error("write", temporary_path, error))?;
-    drop(temporary);
-
-    if !record_path.exists() {
-        return fs::rename(temporary_path, record_path)
-            .map_err(|error| publication_error("publish", record_path, error));
-    }
-    replace_file(record_path, temporary_path, backup_path)
-}
-
-fn replace_file(
-    record_path: &Path,
-    temporary_path: &Path,
-    backup_path: &Path,
-) -> Result<(), EntryRecordWriteError> {
-    let record = null_terminated(record_path.as_os_str());
-    let temporary = null_terminated(temporary_path.as_os_str());
-    let backup = null_terminated(backup_path.as_os_str());
-    let succeeded = unsafe {
-        ReplaceFileW(
-            record.as_ptr(),
-            temporary.as_ptr(),
-            backup.as_ptr(),
-            REPLACEFILE_IGNORE_MERGE_ERRORS | REPLACEFILE_WRITE_THROUGH,
-            std::ptr::null(),
-            std::ptr::null(),
-        )
-    };
-    if succeeded == 0 {
-        return Err(publication_error(
-            "replace",
-            record_path,
-            std::io::Error::last_os_error(),
-        ));
-    }
-    Ok(())
-}
-
-fn unique_sibling(directory: &Path, prefix: &str, suffix: &str) -> PathBuf {
-    let sequence = NEXT_PUBLICATION.fetch_add(1, Ordering::Relaxed);
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    directory.join(format!(
-        "{prefix}.{}.{timestamp}.{sequence}.{suffix}",
-        std::process::id()
-    ))
-}
-
-fn null_terminated(value: &OsStr) -> Vec<u16> {
-    value.encode_wide().chain(std::iter::once(0)).collect()
-}
-
-fn publication_error(action: &str, path: &Path, error: std::io::Error) -> EntryRecordWriteError {
-    EntryRecordWriteError::new(format!(
-        "cannot {action} project entry identity '{}': {error}",
-        path.display()
-    ))
+    atomic_file::publish(&record_path, content.as_bytes()).map_err(|error| {
+        EntryRecordWriteError::new(format!(
+            "cannot publish project entry identity '{}': {error}",
+            record_path.display()
+        ))
+    })
 }
 
 #[derive(Debug)]

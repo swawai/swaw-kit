@@ -20,7 +20,7 @@ channel、mode 或 hash 后，这些命令会要求重新 setup。与开发环�
 不被中心逻辑误伤。
 
 同一 Swaw Kit Home 下的入口共享经过校验的下载缓存:
-  SWAWKIT_PROJ_HOME/data/proj_cache/downloads
+  SWAWKIT_HOME/data/proj_cache/downloads
 
 该命令不接受动态参数，也不修改用户或系统 PATH。
 任何已启用但尚未实现的开发模块声明都会在下载前报错并终止。
