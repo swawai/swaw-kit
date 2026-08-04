@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 use super::*;
-use crate::context::AppContext;
+use crate::context::EntryContext;
 
 const AUTHORITY: &str = "127.0.0.1:43127";
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -52,11 +52,13 @@ impl Fixture {
     }
 
     fn reader(&self) -> CatalogReader {
-        CatalogReader::new(AppContext {
+        CatalogReader::new(EntryContext {
             proj_home: self.root.join("home"),
             project_root: self.root.join("project"),
             action_root: self.root.join("project/.swaw"),
+            entry_file: self.root.join("swawkit.cmd"),
             entry_name: "swawkit".to_owned(),
+            invocation_directory: self.root.clone(),
         })
     }
 }

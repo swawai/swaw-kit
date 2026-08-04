@@ -1,14 +1,14 @@
 use std::io;
 
-use crate::{catalog::CatalogSnapshot, context::AppContext};
+use crate::{catalog::CatalogSnapshot, context::EntryContext};
 
 #[derive(Debug, Clone)]
 pub struct CatalogReader {
-    context: AppContext,
+    context: EntryContext,
 }
 
 impl CatalogReader {
-    pub fn new(context: AppContext) -> Self {
+    pub fn new(context: EntryContext) -> Self {
         Self { context }
     }
 

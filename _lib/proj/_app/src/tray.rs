@@ -14,7 +14,7 @@ use winit::{
 
 use swawkit_proj::{
     catalog_reader::CatalogReader,
-    context::AppContext,
+    context::EntryContext,
     server::{self, ServerEvent},
 };
 
@@ -201,8 +201,7 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
-    let context = AppContext::from_env()?;
+pub fn run(context: EntryContext) -> Result<(), Box<dyn Error>> {
     let catalog_reader = CatalogReader::new(context);
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);

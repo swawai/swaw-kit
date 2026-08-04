@@ -15,3 +15,6 @@
 .xvenv/
 /_lib/project_kit
 /skills/
+
+/_lib/proj/_bin/*
+!/_lib/proj/_bin/.gitkeep

@@ -1,4 +1,4 @@
-use crate::context::AppContext;
+use crate::context::EntryContext;
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::fs;
@@ -24,11 +24,12 @@ const ENTRY_PROTOCOL: [(&str, &str); 5] = [
     ("run.cmd", "cmd"),
 ];
 
-const HELP_ALIASES: [(&str, &str); 3] = [
-    (".h", ".help"),
-    ("-h", ".help"),
-    ("--help", ".help"),
-];
+pub const HELP_ADDRESS: &str = ".help";
+pub const HELP_MARKERS: [&str; 4] = [HELP_ADDRESS, ".h", "-h", "--help"];
+
+pub fn is_help_marker(value: &str) -> bool {
+    HELP_MARKERS.contains(&value)
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,7 +40,7 @@ pub struct CatalogSnapshot {
 }
 
 impl CatalogSnapshot {
-    pub fn discover(context: &AppContext) -> io::Result<Self> {
+    pub fn discover(context: &EntryContext) -> io::Result<Self> {
         Self::discover_roots(
             &context.kernel_root(),
             &context.action_root,
@@ -116,6 +117,9 @@ pub struct CommandNode {
     pub adapter: Option<String>,
     pub help: Option<HelpDocument>,
     pub diagnostic: Option<String>,
+    /// Retains the Help protocol state without expanding the public Web API.
+    #[serde(skip)]
+    pub help_diagnostic: Option<String>,
     #[serde(skip)]
     pub directory: PathBuf,
 }
@@ -150,11 +154,16 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
             None
         }
     };
-    let help = match read_local_help(&pending.path, entry_name, &pending.address) {
-        Ok(help) => help,
+    let (help, help_diagnostic) = match read_local_help(
+        &pending.path,
+        entry_name,
+        &pending.address,
+    ) {
+        Ok(help) => (help, None),
         Err(error) => {
-            diagnostics.push(error.to_string());
-            None
+            let diagnostic = error.to_string();
+            diagnostics.push(diagnostic.clone());
+            (None, Some(diagnostic))
         }
     };
 
@@ -168,6 +177,7 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
         adapter: entry.map(|entry| entry.adapter.to_owned()),
         help,
         diagnostic: (!diagnostics.is_empty()).then(|| diagnostics.join("; ")),
+        help_diagnostic,
         directory: pending.path.clone(),
     }
 }
@@ -176,9 +186,10 @@ fn command_alias(source: CommandSource, address: &str) -> Option<&'static str> {
     if source != CommandSource::Kernel {
         return None;
     }
-    HELP_ALIASES
+    HELP_MARKERS
         .iter()
-        .find_map(|(alias, target)| (*alias == address).then_some(*target))
+        .skip(1)
+        .find_map(|alias| (*alias == address).then_some(HELP_ADDRESS))
 }
 
 #[derive(Debug)]

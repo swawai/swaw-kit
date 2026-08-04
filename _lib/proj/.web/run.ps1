@@ -5,18 +5,16 @@ if ($args.Count -ne 0) {
     throw '.web does not accept dynamic arguments.'
 }
 
-$DataRoot = [string]$env:SWAWKIT_PROJ_DATA_ROOT
+$ProjHome = [string]$env:SWAWKIT_PROJ_HOME
 $ProjectRoot = [string]$env:SWAWKIT_PROJ_DIR
 $CommandName = [string]$env:SWAWKIT_PROJ_ENTRY_COMMAND
-if ([string]::IsNullOrWhiteSpace($DataRoot) -or
+if ([string]::IsNullOrWhiteSpace($ProjHome) -or
     [string]::IsNullOrWhiteSpace($ProjectRoot) -or
     [string]::IsNullOrWhiteSpace($CommandName)) {
     throw 'The project runtime context is incomplete.'
 }
 
-$AppPath = Join-Path $DataRoot (
-    '_build\app\release\swawkit-proj.exe'
-)
+$AppPath = Join-Path $ProjHome '_lib\proj\_bin\swawkit-proj.exe'
 if (-not [IO.File]::Exists($AppPath)) {
     throw (
         "Swaw Kit Proj is not built. Run '$CommandName " +
@@ -29,6 +27,7 @@ $StartInfo.FileName = $AppPath
 $StartInfo.WorkingDirectory = $ProjectRoot
 $StartInfo.UseShellExecute = $false
 $StartInfo.CreateNoWindow = $true
+$StartInfo.EnvironmentVariables['SWAWKIT_PROJ_LAUNCH_MODE'] = 'internal-host'
 $Process = [Diagnostics.Process]::Start($StartInfo)
 if ($null -eq $Process) {
     throw "Failed to start Swaw Kit Proj: $AppPath"

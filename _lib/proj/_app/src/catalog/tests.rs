@@ -149,6 +149,36 @@ fn reports_multiple_and_non_canonical_run_entries_without_stopping_discovery() {
     assert!(node(&snapshot, CommandSource::Kernel, ".ok").runnable);
 }
 
+#[test]
+fn keeps_invalid_help_distinct_from_absent_help() {
+    let fixture = Fixture::new();
+    let kernel = fixture.directory("home/_lib/proj");
+    let actions = fixture.directory("project/.swaw");
+    fixture.file("home/_lib/proj/.invalid/_help/zh-CN.txt", "\n  \n");
+    fixture.directory("home/_lib/proj/.absent");
+
+    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture")
+        .expect("catalog");
+    let invalid = node(&snapshot, CommandSource::Kernel, ".invalid");
+    assert!(invalid.help.is_none());
+    assert!(
+        invalid
+            .help_diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("help file is empty"))
+    );
+    assert!(
+        invalid
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("help file is empty"))
+    );
+
+    let absent = node(&snapshot, CommandSource::Kernel, ".absent");
+    assert!(absent.help.is_none());
+    assert!(absent.help_diagnostic.is_none());
+}
+
 fn node<'a>(
     snapshot: &'a CatalogSnapshot,
     source: CommandSource,
