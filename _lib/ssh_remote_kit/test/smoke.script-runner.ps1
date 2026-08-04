@@ -124,10 +124,8 @@ function Test-GenericStdinRunnerContract {
         'kit.cmd must keep chcp from consuming redirected standard input.'
     Assert-Contains $kit 'REMOTE_KIT_STDIN_ARG_COUNT' `
         'kit.cmd should forward stdin remote arguments explicitly.'
-    Assert-Contains $runner 'Invoke-RemoteKitOpenSshStdinStream' `
-        'stdin runner should use the raw OpenSSH stdin stream boundary.'
-    Assert-Contains $runner '[Console]::OpenStandardInput()' `
-        'stdin runner should inherit standard input instead of reading a file.'
+    Assert-Contains $runner 'RedirectStandardInput = $false' `
+        'stdin runner should let OpenSSH inherit the raw standard-input handle.'
     Assert-Contains $runner "`$_ -ne '-n'" `
         'stdin runner must remove the SSH option that closes stdin.'
     Assert-Contains $runner '$RemoteArguments -join '' ''' `
@@ -136,6 +134,8 @@ function Test-GenericStdinRunnerContract {
         'SSH help should advertise the generic stdin command.'
     Assert-True (-not $runner.Contains('PayloadPath')) `
         'stdin runner should not expose a payload-file transport.'
+    Assert-True (-not $runner.Contains('StandardInput.BaseStream')) `
+        'stdin runner must not insert a BOM-producing .NET input pump.'
 }
 
 function Test-GenericStdinKitDispatch {

@@ -49,8 +49,12 @@ function Invoke-RdpClientPeerSshPowerShell {
     $SourceBase64 = [Convert]::ToBase64String(
         [Text.Encoding]::UTF8.GetBytes($RemoteSource)
     )
-    $InputPayload = 'RDP_CLIENT_PAYLOAD_V1:' + $SourceBase64
+    # Windows PowerShell 5's redirected StandardInput may prepend a UTF-8 BOM.
+    # Keep disposable ASCII framing before the marker so remote legacy code
+    # pages cannot consume any marker byte while decoding that preamble.
+    $InputPayload = '___RDP_CLIENT_PAYLOAD_V1:' + $SourceBase64
     $Bootstrap = (
+        '$ProgressPreference=''SilentlyContinue'';' +
         '$u=New-Object Text.UTF8Encoding($false);' +
         '[Console]::OutputEncoding=$u;$OutputEncoding=$u;' +
         '$i=[Console]::In.ReadToEnd();' +
