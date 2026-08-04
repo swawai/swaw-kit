@@ -13,6 +13,8 @@ $EntryName = '.rdp-connect-test-' + [Guid]::NewGuid().ToString('N')
 $Entry = Join-Path $RepoRoot ($EntryName + '.cmd')
 $OutputPath = Join-Path $DataDirectory ($EntryName + '.rdp')
 $CustomOutputPath = Join-Path $DataDirectory ($EntryName + '.custom.rdp')
+$CacheDirectory = Join-Path $DataDirectory $EntryName
+$ManifestPath = Join-Path $CacheDirectory 'manifest.json'
 
 function Invoke-RdpEntry {
     param(
@@ -70,6 +72,22 @@ try {
     }
     if (-not [IO.File]::Exists($OutputPath)) {
         throw "Generated RDP file not found: $OutputPath"
+    }
+    if (-not [IO.File]::Exists($ManifestPath)) {
+        throw "RDP artifact manifest not found: $ManifestPath"
+    }
+
+    $Manifest = [IO.File]::ReadAllText(
+        $ManifestPath,
+        [Text.Encoding]::UTF8
+    ) | ConvertFrom-Json
+    if ($Manifest.version -ne 1 -or
+        $Manifest.entryPath -ne $Entry -or
+        $Manifest.outputPath -ne $OutputPath -or
+        $Manifest.sourceHash -notmatch '^[0-9A-F]{64}$' -or
+        $Manifest.outputHash -notmatch '^[0-9A-F]{64}$' -or
+        [string]::IsNullOrWhiteSpace($Manifest.signingIdentity)) {
+        throw "The RDP artifact manifest is incomplete.`n$($Manifest | ConvertTo-Json)"
     }
 
     $Bytes = [IO.File]::ReadAllBytes($OutputPath)
@@ -137,9 +155,44 @@ try {
     $UnresolvedOutput = Invoke-RdpEntry -Arguments @() -ExpectedExitCode 1
     if (
         -not $UnresolvedOutput.Contains('RDP_HOST_ALIAS does not resolve:') -or
-        -not $UnresolvedOutput.Contains('full address:s:rdp-client-test.invalid:3389')
+        -not $UnresolvedOutput.Contains('full address:s:rdp-client-test.invalid:3389') -or
+        -not $UnresolvedOutput.Contains("[RDP] Generated: $OutputPath")
     ) {
         throw "An unresolved alias should stop before mstsc starts.`n$UnresolvedOutput"
+    }
+
+    $ReusedOutput = Invoke-RdpEntry -Arguments @() -ExpectedExitCode 1
+    if (-not $ReusedOutput.Contains("[RDP] Reused:    $OutputPath") -or
+        $ReusedOutput.Contains("[RDP] Generated: $OutputPath")) {
+        throw "An unchanged RDP artifact should be reused.`n$ReusedOutput"
+    }
+
+    $CommentOnlyText = $UnresolvedText + "`r`n:: cache-neutral edit`r`n"
+    [IO.File]::WriteAllText(
+        $Entry,
+        $CommentOnlyText,
+        (New-Object Text.UTF8Encoding($false))
+    )
+    $CommentOnlyOutput = Invoke-RdpEntry -Arguments @() -ExpectedExitCode 1
+    if (-not $CommentOnlyOutput.Contains("[RDP] Reused:    $OutputPath")) {
+        throw "A source-only comment should not rebuild the RDP artifact.`n$CommentOnlyOutput"
+    }
+
+    [IO.File]::WriteAllText(
+        $ManifestPath,
+        '{not-json',
+        (New-Object Text.UTF8Encoding($false))
+    )
+    $CorruptManifestOutput = Invoke-RdpEntry -Arguments @() -ExpectedExitCode 1
+    if (-not $CorruptManifestOutput.Contains("[RDP] Generated: $OutputPath")) {
+        throw "A corrupt manifest should cause a safe rebuild.`n$CorruptManifestOutput"
+    }
+
+    [IO.File]::WriteAllText($OutputPath, 'tampered', [Text.Encoding]::Unicode)
+    $TamperedOutput = Invoke-RdpEntry -Arguments @() -ExpectedExitCode 1
+    if (-not $TamperedOutput.Contains("[RDP] Generated: $OutputPath") -or
+        $TamperedOutput.Contains("[RDP] Reused:    $OutputPath")) {
+        throw "A modified RDP artifact should be rebuilt.`n$TamperedOutput"
     }
     [IO.File]::WriteAllText($Entry, $EntryText, (New-Object Text.UTF8Encoding($false)))
 
@@ -222,5 +275,8 @@ try {
     }
     if ([IO.File]::Exists($CustomOutputPath)) {
         [IO.File]::Delete($CustomOutputPath)
+    }
+    if ([IO.Directory]::Exists($CacheDirectory)) {
+        [IO.Directory]::Delete($CacheDirectory, $true)
     }
 }

@@ -82,6 +82,13 @@ try {
             "$EntryCommand .h",
             "$EntryCommand .rdp create",
             "$EntryCommand .rdp create --force",
+            "$EntryCommand .shadow doctor",
+            "$EntryCommand .shadow list",
+            "$EntryCommand .shadow",
+            "$EntryCommand .peer shadow enable",
+            "$EntryCommand .peer shadow status",
+            "$EntryCommand .peer shadow mode",
+            "$EntryCommand .peer shadow restore",
             "$EntryCommand .hosts status",
             "$EntryCommand .hosts install",
             "$EntryCommand .hosts install --uac",
@@ -129,6 +136,7 @@ try {
         -ExpectedExitCode 0
     if (-not $English.Contains($EnglishHelpHeading) -or
         $English.Contains($HelpHeading) -or
+        -not $English.Contains('Generate or reuse the RDP file') -or
         -not $English.Contains('Non-interactive install or repair')) {
         throw "An explicit English language should override the entry default.`n$English"
     }
@@ -152,6 +160,7 @@ try {
     )
     foreach ($RequiredProperty in @(
         'set "RDP_OUTPUT_PATH="',
+        'set "RDP_SHADOW_SSH_ENTRY="',
         ':: set "RDP_HELP_LANG=zh-CN"',
         'full address:s:',
         'username:s:',
@@ -187,6 +196,9 @@ try {
             throw "RDP template still contains '$RemovedVariable'."
         }
     }
+    if ($TemplateText.Contains('D:\2026.7\__use\')) {
+        throw 'RDP template contains a developer-local path.'
+    }
 
     $Unknown = Invoke-HelpTestCommand `
         -Arguments @('.unknown') `
@@ -221,6 +233,47 @@ try {
         -ExpectedExitCode 1
     if (-not $RejectedSignUac.Contains('Sign usage:')) {
         throw "Signing commands should reject --uac.`n$RejectedSignUac"
+    }
+
+    foreach ($InvalidShadowArguments in @(
+        [string[]]@('.shadow'),
+        [string[]]@('.shadow', 'abc'),
+        [string[]]@('.shadow', 'start', '2'),
+        [string[]]@('.shadow', '2', '--unexpected'),
+        [string[]]@('.shadow', '2', '--control', '--control'),
+        [string[]]@('.shadow', 'doctor', 'unexpected'),
+        [string[]]@('.shadow', 'enable', '--unexpected'),
+        [string[]]@('.shadow', 'enable', '--dry-run', 'unexpected'),
+        [string[]]@('.shadow', 'restore', '--unexpected'),
+        [string[]]@('.shadow', 'list', 'unexpected')
+    )) {
+        $InvalidShadow = Invoke-HelpTestCommand `
+            -Arguments $InvalidShadowArguments `
+            -ExpectedExitCode 1
+        if (-not $InvalidShadow.Contains(
+            "$EntryCommand .shadow <session-id>"
+        )) {
+            throw "Invalid Shadow arguments should show Shadow usage.`n$InvalidShadow"
+        }
+    }
+
+    foreach ($InvalidPeerArguments in @(
+        [string[]]@('.peer'),
+        [string[]]@('.peer', 'shadow'),
+        [string[]]@('.peer', 'shadow', 'status', 'unexpected'),
+        [string[]]@('.peer', 'shadow', 'mode'),
+        [string[]]@('.peer', 'shadow', 'mode', '5'),
+        [string[]]@('.peer', 'shadow', 'enable', '--unexpected'),
+        [string[]]@('.peer', 'shadow', 'restore', '--unexpected')
+    )) {
+        $InvalidPeer = Invoke-HelpTestCommand `
+            -Arguments $InvalidPeerArguments `
+            -ExpectedExitCode 1
+        if (-not $InvalidPeer.Contains(
+            "$EntryCommand .peer shadow mode <0-4>"
+        )) {
+            throw "Invalid Peer arguments should show Peer usage.`n$InvalidPeer"
+        }
     }
 
     $RemovedSigningCommand = Invoke-HelpTestCommand `

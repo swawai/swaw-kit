@@ -3,31 +3,45 @@
 One entry command represents one remote account and one generated .rdp file. Start by copying and editing Favorites\template.rdp1.cmd.
 
 # Commands:
-  {{COMMAND}} .help en                    Show English help
-  {{COMMAND}} .help zh                    Show Chinese help
-  {{COMMAND}}                             Rebuild the RDP file and start Remote Desktop
-  {{COMMAND}} .rdp create                 Generate only; refuse to overwrite an existing target
-  {{COMMAND}} .rdp create --force         Generate and overwrite an existing target
+  {{COMMAND}} .help en                 Show English help
+  {{COMMAND}} .help zh                 Show Chinese help
+  {{COMMAND}}                          Generate or reuse the RDP file and start Remote Desktop
+  {{COMMAND}} .rdp create              Generate only; refuse to overwrite an existing target
+  {{COMMAND}} .rdp create --force      Generate and overwrite an existing target
 
+# Shadow:
+  {{COMMAND}} .shadow doctor                    Check Shadow prerequisites from this client to the peer
+  {{COMMAND}} .shadow list                      List peer RDP sessions through SSH
+  {{COMMAND}} .shadow <session-id>              View a session; request target-user consent by default
+  {{COMMAND}} .shadow <session-id> --control    View and control the target keyboard and mouse
+  {{COMMAND}} .shadow <session-id> --no-consent Request no-consent viewing; can be combined with --control
 
-  {{COMMAND}} .hosts status               Show the hosts mapping state for this entry
-  {{COMMAND}} .hosts install              Non-interactive install or repair; fail if elevation is required
-  {{COMMAND}} .hosts install --uac        Install or repair; prompt for UAC only when elevation is required
-  {{COMMAND}} .hosts remove               Non-interactive removal for this entry; fail if elevation is required
-  {{COMMAND}} .hosts remove --uac         Remove this entry's mapping; prompt for UAC only when required
-  {{COMMAND}} .hosts cleanup --dry-run    Show removable managed mappings without changing hosts
-  {{COMMAND}} .hosts cleanup              Non-interactive orphan cleanup; fail if elevation is required
-  {{COMMAND}} .hosts cleanup --uac        Clean orphaned mappings; prompt for UAC only when required
+# Manage peer Shadow through SSH:
+  {{COMMAND}} .peer shadow status               Show peer Shadow state and restorable tool changes
+  {{COMMAND}} .peer shadow enable               Enable peer network prerequisites for cross-host Shadow
+  {{COMMAND}} .peer shadow enable --dry-run     Show the enable change plan
+  {{COMMAND}} .peer shadow mode <0-4>           Set the peer's machine-wide Shadow mode
+  {{COMMAND}} .peer shadow mode <0-4> --dry-run Show the mode change plan
+  {{COMMAND}} .peer shadow restore              Restore peer Shadow settings changed by this tool
+  {{COMMAND}} .peer shadow restore --dry-run    Show the restore change plan
+  Modes: 0=disabled; 1=control with consent; 2=control without consent; 3=view with consent; 4=view without consent
 
-  {{COMMAND}} .sign status                Show My, Root, and mstsc trust-policy state
-  {{COMMAND}} .sign install               Create the My private-key certificate, Root trust copy, and mstsc trust entry
-  {{COMMAND}} .sign install --dry-run     List those ADD operations without changing stores or the registry
-  {{COMMAND}} .sign remove                Remove the dedicated certificates and their mstsc trust entry
-  {{COMMAND}} .sign open                  Open Certificates - Current User
+# Manage aliases through the system hosts file:
+  {{COMMAND}} .hosts status            Show this entry's managed hosts alias
+  {{COMMAND}} .hosts install           Non-interactive install or repair; fail if elevation is required
+  {{COMMAND}} .hosts install --uac     Install or repair; prompt for UAC only when required
+  {{COMMAND}} .hosts remove            Non-interactive removal; fail if elevation is required
+  {{COMMAND}} .hosts remove --uac      Remove this entry's mapping; prompt for UAC only when required
+  {{COMMAND}} .hosts cleanup --dry-run Show removable orphan mappings without changing hosts
+  {{COMMAND}} .hosts cleanup           Non-interactive orphan cleanup; fail if elevation is required
+  {{COMMAND}} .hosts cleanup --uac     Clean orphan mappings; prompt for UAC only when required
 
-  .sign changes only CurrentUser certificate stores and HKCU. It neither needs nor supports --uac; Windows may still show a certificate trust confirmation.
-
-
+# Manage .rdp file self-signing:
+  {{COMMAND}} .sign status             Show My, Root, and mstsc trust-policy state
+  {{COMMAND}} .sign install            Create the My private-key certificate, Root trust copy, and mstsc trust entry
+  {{COMMAND}} .sign install --dry-run  List those ADD operations without changing stores or the registry
+  {{COMMAND}} .sign remove             Remove the dedicated certificates and their mstsc trust entry
+  {{COMMAND}} .sign open               Open Certificates - Current User
 
 # RDP property references:
   Microsoft Learn: https://learn.microsoft.com/en-us/azure/virtual-desktop/rdp-properties

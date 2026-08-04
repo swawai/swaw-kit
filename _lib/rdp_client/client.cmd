@@ -11,6 +11,8 @@ if /i "%~1"==".h" goto :ShowHelp
 if "%~1"=="-h" goto :ShowHelp
 if /i "%~1"=="--help" goto :ShowHelp
 if /i "%~1"==".rdp" goto :GenerateRdp
+if /i "%~1"==".shadow" goto :Shadow
+if /i "%~1"==".peer" goto :Peer
 if /i "%~1"==".hosts" goto :Hosts
 if /i "%~1"==".sign" goto :Signing
 goto :UnknownCommand
@@ -29,6 +31,111 @@ if /i not "%~3"=="--force" goto :InvalidRdpCommand
 if not "%~4"=="" goto :InvalidRdpCommand
 set "RDP_CLIENT_FORCE=-Force"
 goto :RunRdp
+
+:Shadow
+if /i "%~2"=="doctor" goto :ShadowDoctor
+if /i "%~2"=="list" goto :ShadowList
+if "%~2"=="" goto :InvalidShadowCommand
+set "RDP_SHADOW_SESSION_ID=%~2"
+for /f "delims=0123456789" %%I in ("%RDP_SHADOW_SESSION_ID%") do goto :InvalidShadowCommand
+set "RDP_SHADOW_CONTROL="
+set "RDP_SHADOW_NO_CONSENT="
+if not "%~5"=="" goto :InvalidShadowCommand
+if "%~3"=="" goto :RunShadowStart
+if /i "%~3"=="--control" set "RDP_SHADOW_CONTROL=-Control"
+if /i "%~3"=="--no-consent" set "RDP_SHADOW_NO_CONSENT=-NoConsentPrompt"
+if not defined RDP_SHADOW_CONTROL if not defined RDP_SHADOW_NO_CONSENT goto :InvalidShadowCommand
+if "%~4"=="" goto :RunShadowStart
+if /i "%~4"=="--control" if not defined RDP_SHADOW_CONTROL set "RDP_SHADOW_CONTROL=-Control"
+if /i "%~4"=="--no-consent" if not defined RDP_SHADOW_NO_CONSENT set "RDP_SHADOW_NO_CONSENT=-NoConsentPrompt"
+if /i "%~3"=="%~4" goto :InvalidShadowCommand
+if not defined RDP_SHADOW_CONTROL goto :InvalidShadowCommand
+if not defined RDP_SHADOW_NO_CONSENT goto :InvalidShadowCommand
+
+:RunShadowStart
+if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
+set "RDP_SHADOW_START_SCRIPT=%~dp0shadow-start.ps1"
+if not exist "%RDP_SHADOW_START_SCRIPT%" (
+    echo [ERROR] RDP Shadow start script not found:
+    echo   "%RDP_SHADOW_START_SCRIPT%"
+    exit /b 1
+)
+
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_START_SCRIPT%" -EntryFile "%RDP_ENTRY_FILE%" -SessionId "%RDP_SHADOW_SESSION_ID%" %RDP_SHADOW_CONTROL% %RDP_SHADOW_NO_CONSENT%
+exit /b %ERRORLEVEL%
+
+:ShadowList
+if not "%~3"=="" goto :InvalidShadowCommand
+if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
+set "RDP_SHADOW_LIST_SCRIPT=%~dp0shadow-list.ps1"
+if not exist "%RDP_SHADOW_LIST_SCRIPT%" (
+    echo [ERROR] RDP Shadow list script not found:
+    echo   "%RDP_SHADOW_LIST_SCRIPT%"
+    exit /b 1
+)
+
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_LIST_SCRIPT%" -SshEntryFile "%RDP_SHADOW_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -CommandName "%RDP_ENTRY_COMMAND%"
+exit /b %ERRORLEVEL%
+
+:ShadowDoctor
+if not "%~3"=="" goto :InvalidShadowCommand
+if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
+set "RDP_SHADOW_DOCTOR_SCRIPT=%~dp0shadow-doctor.ps1"
+if not exist "%RDP_SHADOW_DOCTOR_SCRIPT%" (
+    echo [ERROR] RDP Shadow doctor script not found:
+    echo   "%RDP_SHADOW_DOCTOR_SCRIPT%"
+    exit /b 1
+)
+
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_DOCTOR_SCRIPT%" -EntryFile "%RDP_ENTRY_FILE%" -SshEntryFile "%RDP_SHADOW_SSH_ENTRY%" -CommandName "%RDP_ENTRY_COMMAND%"
+exit /b %ERRORLEVEL%
+
+:Peer
+if /i not "%~2"=="shadow" goto :InvalidPeerCommand
+set "RDP_SHADOW_MANAGE_DRY_RUN="
+set "RDP_SHADOW_MANAGE_MODE="
+if /i "%~3"=="status" goto :PeerShadowStatus
+if /i "%~3"=="enable" goto :PeerShadowSimple
+if /i "%~3"=="restore" goto :PeerShadowSimple
+if /i "%~3"=="mode" goto :PeerShadowMode
+goto :InvalidPeerCommand
+
+:PeerShadowStatus
+set "RDP_SHADOW_MANAGE_ACTION=status"
+if not "%~4"=="" goto :InvalidPeerCommand
+goto :RunPeerShadowManage
+
+:PeerShadowSimple
+set "RDP_SHADOW_MANAGE_ACTION=%~3"
+if not "%~5"=="" goto :InvalidPeerCommand
+if "%~4"=="" goto :RunPeerShadowManage
+if /i not "%~4"=="--dry-run" goto :InvalidPeerCommand
+set "RDP_SHADOW_MANAGE_DRY_RUN=-DryRun"
+goto :RunPeerShadowManage
+
+:PeerShadowMode
+set "RDP_SHADOW_MANAGE_ACTION=mode"
+set "RDP_PEER_SHADOW_MODE=%~4"
+if "%RDP_PEER_SHADOW_MODE%"=="" goto :InvalidPeerCommand
+for /f "delims=01234" %%I in ("%RDP_PEER_SHADOW_MODE%") do goto :InvalidPeerCommand
+if not "%RDP_PEER_SHADOW_MODE:~1%"=="" goto :InvalidPeerCommand
+set "RDP_SHADOW_MANAGE_MODE=-Mode %RDP_PEER_SHADOW_MODE%"
+if not "%~6"=="" goto :InvalidPeerCommand
+if "%~5"=="" goto :RunPeerShadowManage
+if /i not "%~5"=="--dry-run" goto :InvalidPeerCommand
+set "RDP_SHADOW_MANAGE_DRY_RUN=-DryRun"
+
+:RunPeerShadowManage
+if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
+set "RDP_SHADOW_MANAGE_SCRIPT=%~dp0shadow-manage.ps1"
+if not exist "%RDP_SHADOW_MANAGE_SCRIPT%" (
+    echo [ERROR] RDP Shadow management script not found:
+    echo   "%RDP_SHADOW_MANAGE_SCRIPT%"
+    exit /b 1
+)
+
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_MANAGE_SCRIPT%" -Action "%RDP_SHADOW_MANAGE_ACTION%" %RDP_SHADOW_MANAGE_MODE% -SshEntryFile "%RDP_SHADOW_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -CommandName "%RDP_ENTRY_COMMAND%" %RDP_SHADOW_MANAGE_DRY_RUN%
+exit /b %ERRORLEVEL%
 
 :RunRdp
 if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
@@ -153,6 +260,21 @@ exit /b 1
 :InvalidRdpCommand
 echo [ERROR] RDP file usage:
 echo   "%RDP_ENTRY_COMMAND% .rdp create [--force]"
+exit /b 1
+
+:InvalidShadowCommand
+echo [ERROR] Shadow usage:
+echo   "%RDP_ENTRY_COMMAND% .shadow doctor"
+echo   "%RDP_ENTRY_COMMAND% .shadow list"
+echo   "%RDP_ENTRY_COMMAND% .shadow <session-id> [--control] [--no-consent]"
+exit /b 1
+
+:InvalidPeerCommand
+echo [ERROR] Peer usage:
+echo   "%RDP_ENTRY_COMMAND% .peer shadow status"
+echo   "%RDP_ENTRY_COMMAND% .peer shadow enable [--dry-run]"
+echo   "%RDP_ENTRY_COMMAND% .peer shadow mode <0-4> [--dry-run]"
+echo   "%RDP_ENTRY_COMMAND% .peer shadow restore [--dry-run]"
 exit /b 1
 
 :InvalidHostsCommand

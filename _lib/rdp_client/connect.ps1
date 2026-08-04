@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'entry.ps1')
 . (Join-Path $PSScriptRoot 'signing-core.ps1')
+. (Join-Path $PSScriptRoot 'connect-cache.ps1')
 
 function Resolve-RdpClientOutputPath {
     param(
@@ -55,14 +56,6 @@ try {
     $ResolvedEntry = [IO.Path]::GetFullPath($EntryFile)
     $HostAlias = Resolve-RdpClientHostAlias -Value $env:RDP_HOST_ALIAS
     $Document = Read-RdpClientEntryDocument -Path $ResolvedEntry
-    $RealHostAddress = $null
-    if ($HostAlias.Length -gt 0 -and
-        -not [Net.IPAddress]::TryParse(
-            $Document.FullAddress.Host,
-            [ref]$RealHostAddress
-        )) {
-        throw 'RDP_HOST_ALIAS requires full address to use an IPv4 or IPv6 address; a DNS source name cannot be mapped through the hosts file.'
-    }
     $RdpLines = ConvertTo-RdpClientOutputLines `
         -Document $Document `
         -HostAlias $HostAlias
@@ -84,26 +77,50 @@ try {
         throw "RDP file already exists: $OutputPath Run `"$CommandName .rdp create --force`" to overwrite it."
     }
 
-    # mstsc and rdpsign use the native Windows RDP text representation.
-    # A connection rebuilds its derived file. Explicit export requires --force to overwrite.
-    [IO.File]::WriteAllLines($OutputPath, $RdpLines, [Text.Encoding]::Unicode)
-    Write-Host "[RDP] Generated: $OutputPath"
-    Write-Host "[RDP] Target:    $($RdpLines | Where-Object { $_ -like 'full address:*' } | Select-Object -First 1)"
-    $null = Invoke-RdpClientFileSigning `
-        -Path $OutputPath `
+    $SigningConfiguration = Get-RdpClientSigningConfiguration
+    $SigningState = Get-RdpClientSigningState `
+        -Configuration $SigningConfiguration
+    $SigningIdentity = Get-RdpClientSigningIdentity `
+        -State $SigningState `
         -CommandName $CommandName
+    $SourceHash = Get-RdpClientSourceHash -Lines $RdpLines
+    $ManifestPath = Get-RdpClientManifestPath `
+        -RuntimeDirectory $PSScriptRoot `
+        -EntryName $EntryName
+    $ReuseArtifact = $Launch -and (Test-RdpClientArtifactIsCurrent `
+        -ManifestPath $ManifestPath `
+        -EntryPath $ResolvedEntry `
+        -OutputPath $OutputPath `
+        -SourceHash $SourceHash `
+        -SigningIdentity $SigningIdentity)
+
+    if ($ReuseArtifact) {
+        Write-Host "[RDP] Reused:    $OutputPath"
+        if ($SigningState.Name -eq 'Ready') {
+            Write-Host "[RDP] Signed:     $($SigningConfiguration.FriendlyName) (unchanged)"
+        } else {
+            Write-Host '[RDP] Signing:   not installed; cached file remains unsigned.'
+        }
+    } else {
+        # mstsc and rdpsign use the native Windows RDP text representation.
+        [IO.File]::WriteAllLines($OutputPath, $RdpLines, [Text.Encoding]::Unicode)
+        Write-Host "[RDP] Generated: $OutputPath"
+        $null = Invoke-RdpClientFileSigning `
+            -Path $OutputPath `
+            -CommandName $CommandName `
+            -Configuration $SigningConfiguration
+        Write-RdpClientArtifactManifest `
+            -ManifestPath $ManifestPath `
+            -EntryPath $ResolvedEntry `
+            -OutputPath $OutputPath `
+            -SourceHash $SourceHash `
+            -SigningIdentity $SigningIdentity
+    }
+
+    Write-Host "[RDP] Target:    $($RdpLines | Where-Object { $_ -like 'full address:*' } | Select-Object -First 1)"
 
     if ($Launch) {
-        if ($HostAlias.Length -gt 0) {
-            try {
-                $ResolvedAliasAddresses = @([Net.Dns]::GetHostAddresses($HostAlias))
-            } catch {
-                throw "RDP_HOST_ALIAS does not resolve: $HostAlias. Configure DNS or hosts before connecting."
-            }
-            if ($ResolvedAliasAddresses.Count -eq 0) {
-                throw "RDP_HOST_ALIAS does not resolve: $HostAlias. Configure DNS or hosts before connecting."
-            }
-        }
+        Assert-RdpClientHostAliasResolves -HostAlias $HostAlias
 
         $Mstsc = Get-Command 'mstsc.exe' -ErrorAction Stop
         Start-Process -FilePath $Mstsc.Source -ArgumentList ('"{0}"' -f $OutputPath) | Out-Null

@@ -12,6 +12,13 @@ set "RDP_HOST_ALIAS="
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 set "RDP_OUTPUT_PATH="
 
+rem :::::::::::::::::::::::::::::::::::::::::::::::::::
+rem Optional SSH peer entry used by Shadow doctor/list and .peer shadow management:
+rem 可选：供 Shadow 诊断、启用、恢复和会话查询使用的 SSH 远程入口:
+rem Example / 示例: set "RDP_SHADOW_SSH_ENTRY=D:\swaw-kit\Favorites\server-admin.ssh.cmd"
+rem :::::::::::::::::::::::::::::::::::::::::::::::::::
+set "RDP_SHADOW_SSH_ENTRY="
+
 :: Optional: force help language zh-CN / en; leave unset to auto-detect:
 :: 可选：指定 help 语言 zh-CN / en；不设置时根据系统语言自动选择:
 :: set "RDP_HELP_LANG=zh-CN"

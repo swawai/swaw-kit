@@ -14,6 +14,60 @@ function Resolve-RdpClientHostAlias {
     return $Alias
 }
 
+function Resolve-RdpClientShadowSessionId {
+    param([AllowNull()][AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+    if ($Value -notmatch '^[0-9]+$') {
+        throw 'Shadow session ID must contain decimal digits only.'
+    }
+
+    $SessionId = [uint32]0
+    if (-not [uint32]::TryParse($Value, [ref]$SessionId)) {
+        throw "Shadow session ID is outside the supported range: $Value"
+    }
+    return $SessionId
+}
+
+function New-RdpClientShadowMstscArgumentList {
+    param(
+        [Parameter(Mandatory = $true)][string]$Target,
+        [Parameter(Mandatory = $true)][uint32]$ShadowSessionId,
+        [switch]$Control,
+        [switch]$NoConsentPrompt
+    )
+
+    $ShadowTarget = Resolve-RdpClientShadowConnectionTarget -Target $Target
+    $Arguments = New-Object 'Collections.Generic.List[string]'
+    $Arguments.Add(('/v:{0}' -f $ShadowTarget))
+    $Arguments.Add(('/shadow:{0}' -f $ShadowSessionId))
+    if ($Control) {
+        $Arguments.Add('/control')
+    }
+    if ($NoConsentPrompt) {
+        $Arguments.Add('/noConsentPrompt')
+    }
+    return $Arguments.ToArray()
+}
+
+function Resolve-RdpClientShadowConnectionTarget {
+    param([Parameter(Mandatory = $true)][string]$Target)
+
+    $Address = Split-RdpClientFullAddress -Address $Target
+    if ($null -ne $Address.Port -and [int]$Address.Port -ne 3389) {
+        return $Address.Value
+    }
+
+    $ParsedIp = $null
+    if ([Net.IPAddress]::TryParse($Address.Host, [ref]$ParsedIp) -and
+        $ParsedIp.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetworkV6) {
+        return "[$($Address.Host)]"
+    }
+    return $Address.Host
+}
+
 function Split-RdpClientFullAddress {
     param([Parameter(Mandatory = $true)][string]$Address)
 
@@ -165,15 +219,53 @@ function ConvertTo-RdpClientOutputLines {
 
         $Value = $Property.Value
         if ($Property.Key -eq 'full address') {
-            $Value = $Document.FullAddress.Value
-            if ($HostAlias.Length -gt 0) {
-                $Value = $HostAlias
-                if ($null -ne $Document.FullAddress.Port) {
-                    $Value += ':' + $Document.FullAddress.Port
-                }
-            }
+            $Value = Resolve-RdpClientConnectionTarget `
+                -Document $Document `
+                -HostAlias $HostAlias
         }
         $Lines.Add(('{0}:{1}:{2}' -f $Property.Name, $Property.Type, $Value))
     }
     return $Lines.ToArray()
+}
+
+function Resolve-RdpClientConnectionTarget {
+    param(
+        [Parameter(Mandatory = $true)][pscustomobject]$Document,
+        [AllowEmptyString()][string]$HostAlias
+    )
+
+    if ($HostAlias.Length -eq 0) {
+        return $Document.FullAddress.Value
+    }
+
+    $RealHostAddress = $null
+    if (-not [Net.IPAddress]::TryParse(
+        $Document.FullAddress.Host,
+        [ref]$RealHostAddress
+    )) {
+        throw 'RDP_HOST_ALIAS requires full address to use an IPv4 or IPv6 address; a DNS source name cannot be mapped through the hosts file.'
+    }
+
+    $Target = $HostAlias
+    if ($null -ne $Document.FullAddress.Port) {
+        $Target += ':' + $Document.FullAddress.Port
+    }
+    return $Target
+}
+
+function Assert-RdpClientHostAliasResolves {
+    param([AllowEmptyString()][string]$HostAlias)
+
+    if ($HostAlias.Length -eq 0) {
+        return
+    }
+
+    try {
+        $ResolvedAddresses = @([Net.Dns]::GetHostAddresses($HostAlias))
+    } catch {
+        throw "RDP_HOST_ALIAS does not resolve: $HostAlias. Configure DNS or hosts before connecting."
+    }
+    if ($ResolvedAddresses.Count -eq 0) {
+        throw "RDP_HOST_ALIAS does not resolve: $HostAlias. Configure DNS or hosts before connecting."
+    }
 }
