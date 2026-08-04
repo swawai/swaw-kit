@@ -13,9 +13,8 @@ const ARGV_ITEM_PREFIX: &str = "SWAWKIT_PROJ_ARGV_";
 
 /// Selects the composition root without consuming a user argument.
 ///
-/// A native launcher can pass user arguments directly and leave the mode
-/// unset. The Core sets [`LAUNCH_MODE_ENV`] only when it starts its internal
-/// long-lived Host process.
+/// A native launcher passes user arguments directly and selects `cli` or
+/// `internal-host` without consuming a user argument.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum LaunchMode {
     #[default]

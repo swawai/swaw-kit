@@ -8,5 +8,5 @@ Core 固定按 _global → 命令 _guard → 命令 run.* 执行；Guard 不接�
 只负责放行或拒绝，不能替后续进程注入环境。需要受管工具的 run.* 必须自行
 加载并复核环境；不依赖开发环境的命令无需承担这套策略。
 
-V0 仅提供 swawkit.cmd，动态尾参数遵循 CMD 引号和转义规则。
-后续由极薄 EXE 入口统一原生 argv 边界。
+极薄 EXE Launcher 负责入口身份、Host/CLI 分流和原生 argv 边界；
+swawkit.cmd 在过渡期继续承担开发环境声明与 PowerShell 构建入口。

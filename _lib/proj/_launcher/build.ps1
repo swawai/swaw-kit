@@ -55,6 +55,8 @@ $StagedPath = Join-Path $BuildRoot 'template.proj1.exe'
 [string[]]$CompileArguments = @(
     '/nologo'
     '/Brepro'
+    '/W4'
+    '/WX'
     '/TC'
     '/c'
     '/O1'
@@ -76,7 +78,7 @@ if ($LASTEXITCODE -ne 0) {
     '/Brepro'
     "/OUT:$StagedPath"
     '/ENTRY:launcher_entry'
-    '/SUBSYSTEM:WINDOWS'
+    '/SUBSYSTEM:CONSOLE'
     '/MACHINE:X64'
     '/NODEFAULTLIB'
     '/INCREMENTAL:NO'
@@ -103,6 +105,12 @@ if ($StagedItem.Length -le 0 -or $StagedItem.Length -gt 64KB) {
         'non-empty thin executable no larger than 64 KiB.'
     )
 }
+
+$RuntimeTest = Join-Path $PSScriptRoot '..\_test\launcher-runtime.ps1'
+if (-not [IO.File]::Exists($RuntimeTest)) {
+    throw "Launcher runtime test not found: $RuntimeTest"
+}
+& $RuntimeTest -LauncherPath $StagedPath
 
 $OutputParent = Split-Path -Path $OutputPath -Parent
 $PublishPath = Join-Path $OutputParent (

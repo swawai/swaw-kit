@@ -6,6 +6,10 @@
 输出:
   Favorites/template.proj1.exe
 
+模板可在 SWAWKIT_HOME 根目录或其一级目录（如 Favorites）内复制并改名。
+无参数启动 Host、托盘和本地 Web 控制台；带参数时同步执行 Rust CLI，
+保留原生参数边界并返回真实退出码。移出上述范围后会拒绝启动，避免记录绝对路径。
+
 该 Action 不接受动态参数，也不硬编码 DataRoot 或编译器路径。
 它的 _guard 先校验受管 MSVC 声明和环境状态，run.ps1 再通过框架
 共享函数显式加载当前项目环境。系统 PATH 中碰巧存在的 cl.exe
