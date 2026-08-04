@@ -108,11 +108,131 @@ function Test-PuttyFallbackCodeIsRemoved {
     }
 }
 
+function Test-GenericStdinRunnerContract {
+    $kit = [IO.File]::ReadAllText((Join-Path $script:KitRoot 'kit.cmd'))
+    $runner = [IO.File]::ReadAllText(
+        (Join-Path $script:KitRoot 'stdin_runner.ps1')
+    )
+    $help = [IO.File]::ReadAllText(
+        (Join-Path $script:KitRoot 'help\en.txt'),
+        [Text.Encoding]::UTF8
+    )
+
+    Assert-Contains $kit 'if /i "%verb%"=="stdin" goto :StdinCommand' `
+        'kit.cmd should dispatch the stdin verb.'
+    Assert-Contains $kit 'chcp 65001 >nul <nul' `
+        'kit.cmd must keep chcp from consuming redirected standard input.'
+    Assert-Contains $kit 'REMOTE_KIT_STDIN_ARG_COUNT' `
+        'kit.cmd should forward stdin remote arguments explicitly.'
+    Assert-Contains $runner 'Invoke-RemoteKitOpenSshStdinStream' `
+        'stdin runner should use the raw OpenSSH stdin stream boundary.'
+    Assert-Contains $runner '[Console]::OpenStandardInput()' `
+        'stdin runner should inherit standard input instead of reading a file.'
+    Assert-Contains $runner "`$_ -ne '-n'" `
+        'stdin runner must remove the SSH option that closes stdin.'
+    Assert-Contains $runner '$RemoteArguments -join '' ''' `
+        'stdin runner should build one explicit remote command.'
+    Assert-Contains $help 'stdin -- command < file' `
+        'SSH help should advertise the generic stdin command.'
+    Assert-True (-not $runner.Contains('PayloadPath')) `
+        'stdin runner should not expose a payload-file transport.'
+}
+
+function Test-GenericStdinKitDispatch {
+    $scratch = Join-Path ([IO.Path]::GetTempPath()) (
+        'swaw-kit-stdin-dispatch-' + [Guid]::NewGuid().ToString('N')
+    )
+    $capture = Join-Path $scratch 'capture.txt'
+    $payload = Join-Path $scratch 'payload.txt'
+    $previousCapture = $env:REMOTE_KIT_STDIN_TEST_CAPTURE
+    $previousEntry = $env:REMOTE_KIT_ENTRY_FILE
+    try {
+        [IO.Directory]::CreateDirectory($scratch) | Out-Null
+        [IO.File]::Copy(
+            (Join-Path $script:KitRoot 'kit.cmd'),
+            (Join-Path $scratch 'kit.cmd')
+        )
+        $payloadBytes = [byte[]]@(0, 1, 2, 10, 13, 26, 128, 255)
+        [IO.File]::WriteAllBytes($payload, $payloadBytes)
+        $fakeRunner = @'
+param(
+    [int]$Port,
+    [string]$RemoteHost,
+    [string]$RemoteUser,
+    [string]$SshKeyPath,
+    [int]$RemoteArgumentCount
+)
+$inputStream = [Console]::OpenStandardInput()
+$memory = New-Object IO.MemoryStream
+$inputStream.CopyTo($memory)
+$lines = @(
+    "Port=$Port",
+    "RemoteHost=$RemoteHost",
+    "RemoteUser=$RemoteUser",
+    "PayloadBase64=$([Convert]::ToBase64String($memory.ToArray()))",
+    "Count=$RemoteArgumentCount"
+)
+for ($i = 1; $i -le $RemoteArgumentCount; $i++) {
+    $name = 'REMOTE_KIT_STDIN_ARG_' + $i
+    $lines += "Arg${i}=$([Environment]::GetEnvironmentVariable($name))"
+}
+[IO.File]::WriteAllLines($env:REMOTE_KIT_STDIN_TEST_CAPTURE, $lines)
+exit 0
+'@
+        [IO.File]::WriteAllText(
+            (Join-Path $scratch 'stdin_runner.ps1'),
+            $fakeRunner,
+            (New-Object Text.UTF8Encoding($false))
+        )
+        $env:REMOTE_KIT_STDIN_TEST_CAPTURE = $capture
+        Remove-Item Env:REMOTE_KIT_ENTRY_FILE -ErrorAction SilentlyContinue
+        $kitPath = Join-Path $scratch 'kit.cmd'
+        $dispatch = (
+            'call "' + $kitPath + '" 22 example.invalid root ' +
+            'C:\keys\id_test stdin -- powershell.exe -NoLogo ' +
+            '-EncodedCommand abc < "' + $payload + '"'
+        )
+        & $env:ComSpec /d /c $dispatch
+        Assert-True ($LASTEXITCODE -eq 0) 'kit.cmd stdin dispatch should succeed.'
+        $state = @([IO.File]::ReadAllLines($capture))
+        foreach ($expected in @(
+            'Port=22',
+            'RemoteHost=example.invalid',
+            'RemoteUser=root',
+            "PayloadBase64=$([Convert]::ToBase64String($payloadBytes))",
+            'Count=4',
+            'Arg1=powershell.exe',
+            'Arg2=-NoLogo',
+            'Arg3=-EncodedCommand',
+            'Arg4=abc'
+        )) {
+            Assert-True ($state -contains $expected) `
+                "stdin dispatch is missing '$expected'."
+        }
+    } finally {
+        [Environment]::SetEnvironmentVariable(
+            'REMOTE_KIT_STDIN_TEST_CAPTURE',
+            $previousCapture,
+            'Process'
+        )
+        [Environment]::SetEnvironmentVariable(
+            'REMOTE_KIT_ENTRY_FILE',
+            $previousEntry,
+            'Process'
+        )
+        if ([IO.Directory]::Exists($scratch)) {
+            [IO.Directory]::Delete($scratch, $true)
+        }
+    }
+}
+
 try {
     Test-PayloadEmbedsScriptAndArgsForSingleSshConnection
     Test-ScriptRunnerArgsAllowOneConnectionPasswordFallback
     Test-ConfigHostArgsUseConfigAliasWithoutDirectOverrides
     Test-PuttyFallbackCodeIsRemoved
+    Test-GenericStdinRunnerContract
+    Test-GenericStdinKitDispatch
     Write-Host "ssh remote kit script-runner smoke ok" -ForegroundColor Green
 } finally {
     $ctx = $null

@@ -13,14 +13,16 @@ $ScratchRoot = Join-Path (Join-Path $RepoRoot 'data\rdp-client') (
 )
 $Entry = Join-Path $ScratchRoot 'account.rdp.cmd'
 $FakeSshEntry = Join-Path $ScratchRoot 'windows-admin.ssh.cmd'
+$FakeSshScript = Join-Path $ScratchRoot 'capture-shadow-stdin.ps1'
 $CapturePath = Join-Path $ScratchRoot 'ssh-arguments.txt'
+$SourceCapturePath = Join-Path $ScratchRoot 'ssh-source.ps1'
 $StartCapturePath = Join-Path $ScratchRoot 'shadow-start.txt'
 $DoctorCapturePath = Join-Path $ScratchRoot 'shadow-doctor.txt'
 $ManageCapturePath = Join-Path $ScratchRoot 'shadow-manage.txt'
 $Runtime = Join-Path $ScratchRoot '_lib\rdp_client'
 
 . (Join-Path $PSScriptRoot '..\entry.ps1')
-. (Join-Path $PSScriptRoot '..\shadow-ssh.ps1')
+. (Join-Path $PSScriptRoot '..\peer-ssh.ps1')
 
 function Invoke-ShadowTestEntry {
     param(
@@ -43,36 +45,11 @@ function Invoke-ShadowTestEntry {
 }
 
 try {
-    $PaddingSensitiveSource = "Write-Output 'ok';#" + ('x' * 500)
-    $SafeEncodedCommand = ConvertTo-RdpClientShadowEncodedCommand `
-        -RemoteSource $PaddingSensitiveSource
-    if ($SafeEncodedCommand.EndsWith('=')) {
-        throw 'SSH encoded commands must avoid trailing Base64 padding in the .cmd chain.'
-    }
-    $DecodedSafeSource = [Text.Encoding]::Unicode.GetString(
-        [Convert]::FromBase64String($SafeEncodedCommand)
-    )
-    if (-not $DecodedSafeSource.StartsWith($PaddingSensitiveSource)) {
-        throw 'Base64 padding avoidance changed the remote PowerShell source.'
-    }
-
     $RemoteDoctorPath = Join-Path $PSScriptRoot '..\shadow-doctor.remote.ps1'
     $RemoteDoctorSource = [IO.File]::ReadAllText(
         $RemoteDoctorPath,
         [Text.Encoding]::UTF8
     )
-    $DoctorEncodedCommand = ConvertTo-RdpClientShadowEncodedCommand `
-        -RemoteSource $RemoteDoctorSource
-    if ($DoctorEncodedCommand.Length -gt 7000 -or
-        $DoctorEncodedCommand.EndsWith('=')) {
-        throw 'The compressed remote doctor payload is unsafe for the SSH .cmd chain.'
-    }
-    $DoctorBootstrap = [Text.Encoding]::Unicode.GetString(
-        [Convert]::FromBase64String($DoctorEncodedCommand)
-    )
-    if (-not $DoctorBootstrap.Contains('GZipStream')) {
-        throw 'The remote doctor payload should use the compressed transport path.'
-    }
     foreach ($ExpectedDoctorCheck in @(
         'AllowRemoteRPC',
         'RemoteDesktop-Shadow-In-TCP',
@@ -160,7 +137,7 @@ try {
 
     [IO.Directory]::CreateDirectory($Runtime) | Out-Null
     [IO.File]::Copy($TemplateEntry, $Entry)
-    foreach ($RuntimeFile in @('client.cmd', 'shadow-list.ps1', 'shadow-ssh.ps1')) {
+    foreach ($RuntimeFile in @('client.cmd', 'shadow-list.ps1', 'peer-ssh.ps1')) {
         [IO.File]::Copy(
             (Join-Path (Join-Path $PSScriptRoot '..') $RuntimeFile),
             (Join-Path $Runtime $RuntimeFile)
@@ -169,8 +146,8 @@ try {
     $EntryText = [IO.File]::ReadAllText($Entry, [Text.Encoding]::UTF8)
     $EntryText = [regex]::Replace(
         $EntryText,
-        '(?m)^set "RDP_SHADOW_SSH_ENTRY=.*"\r?$',
-        "set `"RDP_SHADOW_SSH_ENTRY=$FakeSshEntry`""
+        '(?m)^set "RDP_PEER_SSH_ENTRY=.*"\r?$',
+        "set `"RDP_PEER_SSH_ENTRY=$FakeSshEntry`""
     )
     [IO.File]::WriteAllText(
         $Entry,
@@ -325,20 +302,52 @@ exit 0
 
     $FakeSshSource = @'
 @echo off
-setlocal
->> "%RDP_SHADOW_TEST_CAPTURE%" echo %*
-if defined RDP_SHADOW_FAKE_MANAGE_STATE echo %RDP_SHADOW_FAKE_MANAGE_STATE%
-echo  SESSIONNAME               USERNAME                 ID  STATE
-echo  console                   Administrator             2  Active
-exit /b 0
+PowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0capture-shadow-stdin.ps1" %*
+exit /b %ERRORLEVEL%
 '@
+    $FakeSshSource = [regex]::Replace($FakeSshSource, "`r?`n", "`r`n")
     [IO.File]::WriteAllText(
         $FakeSshEntry,
         $FakeSshSource,
         (New-Object Text.UTF8Encoding($false))
     )
+    $FakeSshScriptSource = @'
+$ascii = [Text.Encoding]::ASCII
+[IO.File]::AppendAllText(
+    $env:RDP_SHADOW_TEST_CAPTURE,
+    ($args -join ' ') + [Environment]::NewLine,
+    $ascii
+)
+$outputStream = [IO.File]::Open(
+    $env:RDP_SHADOW_TEST_SOURCE,
+    [IO.FileMode]::Append,
+    [IO.FileAccess]::Write,
+    [IO.FileShare]::Read
+)
+try {
+    $marker = $ascii.GetBytes("__RDP_CLIENT_SOURCE__`r`n")
+    $outputStream.Write($marker, 0, $marker.Length)
+    [Console]::OpenStandardInput().CopyTo($outputStream)
+    $newline = $ascii.GetBytes("`r`n")
+    $outputStream.Write($newline, 0, $newline.Length)
+} finally {
+    $outputStream.Dispose()
+}
+if (-not [string]::IsNullOrWhiteSpace($env:RDP_SHADOW_FAKE_MANAGE_STATE)) {
+    Write-Output $env:RDP_SHADOW_FAKE_MANAGE_STATE
+}
+Write-Output ' SESSIONNAME               USERNAME                 ID  STATE'
+Write-Output ' console                   Administrator             2  Active'
+exit 0
+'@
+    [IO.File]::WriteAllText(
+        $FakeSshScript,
+        $FakeSshScriptSource,
+        (New-Object Text.UTF8Encoding($false))
+    )
 
     $env:RDP_SHADOW_TEST_CAPTURE = $CapturePath
+    $env:RDP_SHADOW_TEST_SOURCE = $SourceCapturePath
     $FakeManageState = [ordered]@{
         ComputerName    = 'TEST-SERVER'
         IsAdministrator = $true
@@ -424,6 +433,9 @@ exit /b 0
         if ([IO.File]::Exists($CapturePath)) {
             [IO.File]::Delete($CapturePath)
         }
+        if ([IO.File]::Exists($SourceCapturePath)) {
+            [IO.File]::Delete($SourceCapturePath)
+        }
         $PreviousPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = 'Continue'
@@ -439,34 +451,22 @@ exit /b 0
         if ($ManageExitCode -ne 0) {
             throw "The local Shadow management transport failed: $ManageExitCode"
         }
-        $TransportedManageSources = @()
-        foreach ($ManageArguments in @([IO.File]::ReadAllLines($CapturePath))) {
-            $ManageEncoded = ($ManageArguments.Trim() -split ' ')[-1]
-            if ($ManageEncoded.Length -gt 7000 -or $ManageEncoded.EndsWith('=')) {
-                throw 'A Shadow management command is unsafe for the SSH .cmd chain.'
-            }
-            $ManageBootstrap = [Text.Encoding]::Unicode.GetString(
-                [Convert]::FromBase64String($ManageEncoded)
-            )
-            if ($ManageBootstrap -match '\$p=''(?<Payload>[^'']+)''') {
-                $Compressed = [Convert]::FromBase64String($Matches.Payload)
-                $Memory = New-Object IO.MemoryStream(, $Compressed)
-                $Gzip = New-Object IO.Compression.GZipStream(
-                    $Memory,
-                    [IO.Compression.CompressionMode]::Decompress
-                )
-                $Reader = New-Object IO.StreamReader($Gzip, [Text.Encoding]::UTF8)
-                try {
-                    $TransportedManageSources += $Reader.ReadToEnd()
-                } finally {
-                    $Reader.Dispose()
-                    $Gzip.Dispose()
-                    $Memory.Dispose()
+        $TransportedManageSources = @(
+            [IO.File]::ReadAllText(
+                $SourceCapturePath,
+                [Text.Encoding]::ASCII
+            ) -split '(?m)^__RDP_CLIENT_SOURCE__\r?\n' |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                ForEach-Object {
+                    if ($_ -notmatch
+                        'RDP_CLIENT_PAYLOAD_V1:(?<Payload>[A-Za-z0-9+/=]+)') {
+                        throw 'A Shadow stdin payload marker was not captured.'
+                    }
+                    [Text.Encoding]::UTF8.GetString(
+                        [Convert]::FromBase64String($Matches.Payload)
+                    )
                 }
-            } else {
-                $TransportedManageSources += $ManageBootstrap
-            }
-        }
+        )
         foreach ($TransportedSource in $TransportedManageSources) {
             $Tokens = $null
             $ParseErrors = $null
@@ -494,19 +494,25 @@ exit /b 0
         }
     } finally {
         Remove-Item Env:RDP_SHADOW_TEST_CAPTURE -ErrorAction SilentlyContinue
+        Remove-Item Env:RDP_SHADOW_TEST_SOURCE -ErrorAction SilentlyContinue
         Remove-Item Env:RDP_SHADOW_FAKE_MANAGE_STATE -ErrorAction SilentlyContinue
     }
 
     if ([IO.File]::Exists($CapturePath)) {
         [IO.File]::Delete($CapturePath)
     }
+    if ([IO.File]::Exists($SourceCapturePath)) {
+        [IO.File]::Delete($SourceCapturePath)
+    }
     $env:RDP_SHADOW_TEST_CAPTURE = $CapturePath
+    $env:RDP_SHADOW_TEST_SOURCE = $SourceCapturePath
     try {
         $Output = Invoke-ShadowTestEntry `
             -Arguments @('.shadow', 'list') `
             -ExpectedExitCode 0
     } finally {
         Remove-Item Env:RDP_SHADOW_TEST_CAPTURE -ErrorAction SilentlyContinue
+        Remove-Item Env:RDP_SHADOW_TEST_SOURCE -ErrorAction SilentlyContinue
     }
     if (-not $Output.Contains('Administrator') -or
         -not $Output.Contains('Active')) {
@@ -514,19 +520,45 @@ exit /b 0
     }
 
     $CapturedArguments = [IO.File]::ReadAllText($CapturePath).Trim()
-    if (-not $CapturedArguments.StartsWith(
-        '-- powershell.exe -NoLogo -NoProfile -NonInteractive -OutputFormat Text -EncodedCommand '
-    )) {
+    $RemotePrefix = (
+        ' -- powershell.exe -NoLogo -NoProfile -NonInteractive ' +
+        '-OutputFormat Text -EncodedCommand '
+    )
+    if (-not $CapturedArguments.StartsWith('stdin -- ') -or
+        -not $CapturedArguments.Contains($RemotePrefix)) {
         throw "Unexpected SSH entry arguments: $CapturedArguments"
     }
-    $EncodedCommand = ($CapturedArguments -split ' ')[-1]
-    $RemoteSource = [Text.Encoding]::Unicode.GetString(
-        [Convert]::FromBase64String($EncodedCommand)
+    $BootstrapBase64 = ($CapturedArguments -split ' ')[-1]
+    if ($BootstrapBase64.EndsWith('=') -or $BootstrapBase64.Length -gt 1500) {
+        throw 'The fixed Shadow stdin bootstrap is unsafe for the SSH .cmd chain.'
+    }
+    $Bootstrap = [Text.Encoding]::Unicode.GetString(
+        [Convert]::FromBase64String($BootstrapBase64)
+    )
+    if (-not $Bootstrap.Contains('RDP_CLIENT_PAYLOAD_V1:')) {
+        throw 'The Shadow stdin bootstrap does not validate its payload marker.'
+    }
+    $CapturedSource = [IO.File]::ReadAllText(
+        $SourceCapturePath,
+        [Text.Encoding]::ASCII
+    )
+    $SourceBase64 = @(
+        $CapturedSource -split '(?m)^__RDP_CLIENT_SOURCE__\r?\n' |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )[0].Trim()
+    if ($SourceBase64 -notmatch
+        'RDP_CLIENT_PAYLOAD_V1:(?<Payload>[A-Za-z0-9+/=]+)') {
+        throw 'The Shadow stdin payload marker was not captured.'
+    }
+    $RemoteSource = [Text.Encoding]::UTF8.GetString(
+        [Convert]::FromBase64String($Matches.Payload)
     )
     foreach ($ExpectedRemoteSource in @(
         'SilentlyContinue',
         'UTF8Encoding',
-        'System32\quser.exe'
+        'Is64BitOperatingSystem',
+        'Sysnative',
+        "Join-Path `$NativeSystemDirectory 'quser.exe'"
     )) {
         if (-not $RemoteSource.Contains($ExpectedRemoteSource)) {
             throw "Remote query is missing '$ExpectedRemoteSource'."
@@ -535,6 +567,7 @@ exit /b 0
 
     Write-Host 'rdp client Shadow tests: PASS' -ForegroundColor Green
 } finally {
+    Remove-Item Env:RDP_SHADOW_TEST_SOURCE -ErrorAction SilentlyContinue
     if ([IO.Directory]::Exists($ScratchRoot)) {
         [IO.Directory]::Delete($ScratchRoot, $true)
     }

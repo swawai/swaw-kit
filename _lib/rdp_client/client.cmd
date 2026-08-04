@@ -74,7 +74,7 @@ if not exist "%RDP_SHADOW_LIST_SCRIPT%" (
     exit /b 1
 )
 
-PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_LIST_SCRIPT%" -SshEntryFile "%RDP_SHADOW_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -CommandName "%RDP_ENTRY_COMMAND%"
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_LIST_SCRIPT%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -CommandName "%RDP_ENTRY_COMMAND%"
 exit /b %ERRORLEVEL%
 
 :ShadowDoctor
@@ -87,11 +87,15 @@ if not exist "%RDP_SHADOW_DOCTOR_SCRIPT%" (
     exit /b 1
 )
 
-PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_DOCTOR_SCRIPT%" -EntryFile "%RDP_ENTRY_FILE%" -SshEntryFile "%RDP_SHADOW_SSH_ENTRY%" -CommandName "%RDP_ENTRY_COMMAND%"
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_DOCTOR_SCRIPT%" -EntryFile "%RDP_ENTRY_FILE%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -CommandName "%RDP_ENTRY_COMMAND%"
 exit /b %ERRORLEVEL%
 
 :Peer
-if /i not "%~2"=="shadow" goto :InvalidPeerCommand
+if /i "%~2"=="shadow" goto :PeerShadow
+if /i "%~2"=="psexec" goto :PeerPsExec
+goto :InvalidPeerCommand
+
+:PeerShadow
 set "RDP_SHADOW_MANAGE_DRY_RUN="
 set "RDP_SHADOW_MANAGE_MODE="
 if /i "%~3"=="status" goto :PeerShadowStatus
@@ -134,7 +138,53 @@ if not exist "%RDP_SHADOW_MANAGE_SCRIPT%" (
     exit /b 1
 )
 
-PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_MANAGE_SCRIPT%" -Action "%RDP_SHADOW_MANAGE_ACTION%" %RDP_SHADOW_MANAGE_MODE% -SshEntryFile "%RDP_SHADOW_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -CommandName "%RDP_ENTRY_COMMAND%" %RDP_SHADOW_MANAGE_DRY_RUN%
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SHADOW_MANAGE_SCRIPT%" -Action "%RDP_SHADOW_MANAGE_ACTION%" %RDP_SHADOW_MANAGE_MODE% -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -CommandName "%RDP_ENTRY_COMMAND%" %RDP_SHADOW_MANAGE_DRY_RUN%
+exit /b %ERRORLEVEL%
+
+:PeerPsExec
+set "RDP_PSEXEC_ACTION="
+set "RDP_PSEXEC_DRY_RUN="
+set "RDP_PSEXEC_ARG_COUNT=0"
+if /i "%~3"=="status" goto :PeerPsExecStatus
+if /i "%~3"=="add" goto :PeerPsExecMutation
+if /i "%~3"=="remove" goto :PeerPsExecMutation
+if "%~3"=="--" goto :CollectPeerPsExecArguments
+goto :InvalidPeerCommand
+
+:PeerPsExecStatus
+if not "%~4"=="" goto :InvalidPeerCommand
+set "RDP_PSEXEC_ACTION=status"
+goto :RunPeerPsExec
+
+:PeerPsExecMutation
+set "RDP_PSEXEC_ACTION=%~3"
+if "%~4"=="" goto :RunPeerPsExec
+if /i not "%~4"=="--dry-run" goto :InvalidPeerCommand
+if not "%~5"=="" goto :InvalidPeerCommand
+set "RDP_PSEXEC_DRY_RUN=-DryRun"
+goto :RunPeerPsExec
+
+:CollectPeerPsExecArguments
+if "%~4"=="" goto :RunPeerPsExecCommand
+set /a RDP_PSEXEC_ARG_COUNT+=1 >nul
+set "RDP_PSEXEC_ARG_%RDP_PSEXEC_ARG_COUNT%=%~4"
+shift /4
+goto :CollectPeerPsExecArguments
+
+:RunPeerPsExecCommand
+if "%RDP_PSEXEC_ARG_COUNT%"=="0" goto :InvalidPeerCommand
+set "RDP_PSEXEC_ACTION=run"
+
+:RunPeerPsExec
+if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
+set "RDP_PSEXEC_SCRIPT=%~dp0psexec.ps1"
+if not exist "%RDP_PSEXEC_SCRIPT%" (
+    echo [ERROR] RDP peer PsExec script not found:
+    echo   "%RDP_PSEXEC_SCRIPT%"
+    exit /b 1
+)
+
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_PSEXEC_SCRIPT%" -Action "%RDP_PSEXEC_ACTION%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -ArgumentCount %RDP_PSEXEC_ARG_COUNT% -CommandName "%RDP_ENTRY_COMMAND%" %RDP_PSEXEC_DRY_RUN%
 exit /b %ERRORLEVEL%
 
 :RunRdp
@@ -275,6 +325,10 @@ echo   "%RDP_ENTRY_COMMAND% .peer shadow status"
 echo   "%RDP_ENTRY_COMMAND% .peer shadow enable [--dry-run]"
 echo   "%RDP_ENTRY_COMMAND% .peer shadow mode <0-4> [--dry-run]"
 echo   "%RDP_ENTRY_COMMAND% .peer shadow restore [--dry-run]"
+echo   "%RDP_ENTRY_COMMAND% .peer psexec status"
+echo   "%RDP_ENTRY_COMMAND% .peer psexec add [--dry-run]"
+echo   "%RDP_ENTRY_COMMAND% .peer psexec remove [--dry-run]"
+echo   "%RDP_ENTRY_COMMAND% .peer psexec -- <native-arguments>"
 exit /b 1
 
 :InvalidHostsCommand

@@ -309,9 +309,9 @@ try {
     if ($Action -eq 'mode' -and $Mode -lt 0) {
         throw 'Peer Shadow mode must be between 0 and 4.'
     }
-    $ResolvedSshEntry = Resolve-RdpClientShadowSshEntryPath -Value $SshEntryFile
+    $ResolvedSshEntry = Resolve-RdpClientPeerSshEntryPath -Value $SshEntryFile
     $ResolvedRdpEntry = [IO.Path]::GetFullPath($RdpEntryFile)
-    Assert-RdpClientShadowSshEntryIsSeparate `
+    Assert-RdpClientPeerSshEntryIsSeparate `
         -SshEntryPath $ResolvedSshEntry `
         -RdpEntryPath $ResolvedRdpEntry
     $State = Get-RdpClientShadowManageState -SshEntryPath $ResolvedSshEntry

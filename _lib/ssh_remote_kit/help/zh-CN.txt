@@ -7,6 +7,7 @@
   {{COMMAND}}  -- ls -la /tmp             # 执行ls，普通非交互式命令
   {{COMMAND}}  tty -- top                 # 执行top，交互式命令(分配TTY)
   {{COMMAND}}  script local.sh arg1 arg2  # 上传本机的local.sh脚本到远端机临时目录, 执行，然后清理
+  {{COMMAND}}  stdin -- command < file    # 将原始标准输入流传给远端命令
 
 
 # SCP 传输, 冒号开头表示远程路径:

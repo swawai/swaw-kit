@@ -114,7 +114,15 @@ try {
     $RollbackError = $_.Exception.Message
 }
 
-$Quser = Join-Path $env:SystemRoot 'System32\quser.exe'
+$NativeSystemDirectory = if (
+    [Environment]::Is64BitOperatingSystem -and
+    -not [Environment]::Is64BitProcess
+) {
+    Join-Path $env:SystemRoot 'Sysnative'
+} else {
+    Join-Path $env:SystemRoot 'System32'
+}
+$Quser = Join-Path $NativeSystemDirectory 'quser.exe'
 $QuserExitCode = -1
 if ([IO.File]::Exists($Quser)) {
     $null = & $Quser 2>&1

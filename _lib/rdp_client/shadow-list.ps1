@@ -12,7 +12,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
-. (Join-Path $PSScriptRoot 'shadow-ssh.ps1')
+. (Join-Path $PSScriptRoot 'peer-ssh.ps1')
 
 try {
     $Utf8NoBom = New-Object Text.UTF8Encoding($false)
@@ -20,9 +20,9 @@ try {
     [Console]::OutputEncoding = $Utf8NoBom
     $OutputEncoding = $Utf8NoBom
 
-    $ResolvedSshEntry = Resolve-RdpClientShadowSshEntryPath -Value $SshEntryFile
+    $ResolvedSshEntry = Resolve-RdpClientPeerSshEntryPath -Value $SshEntryFile
     $ResolvedRdpEntry = [IO.Path]::GetFullPath($RdpEntryFile)
-    Assert-RdpClientShadowSshEntryIsSeparate `
+    Assert-RdpClientPeerSshEntryIsSeparate `
         -SshEntryPath $ResolvedSshEntry `
         -RdpEntryPath $ResolvedRdpEntry
 
@@ -32,14 +32,22 @@ $Utf8 = New-Object System.Text.UTF8Encoding($false)
 [Console]::InputEncoding = $Utf8
 [Console]::OutputEncoding = $Utf8
 $OutputEncoding = $Utf8
-$Quser = Join-Path $env:SystemRoot 'System32\quser.exe'
+$NativeSystemDirectory = if (
+    [Environment]::Is64BitOperatingSystem -and
+    -not [Environment]::Is64BitProcess
+) {
+    Join-Path $env:SystemRoot 'Sysnative'
+} else {
+    Join-Path $env:SystemRoot 'System32'
+}
+$Quser = Join-Path $NativeSystemDirectory 'quser.exe'
 if (-not [IO.File]::Exists($Quser)) {
     throw "quser.exe was not found: $Quser"
 }
 & $Quser
 exit $LASTEXITCODE
 '@
-    $Invocation = Invoke-RdpClientShadowSshPowerShell `
+    $Invocation = Invoke-RdpClientPeerSshPowerShell `
         -SshEntryPath $ResolvedSshEntry `
         -RemoteSource $RemoteSource
     $Invocation.Output | Write-Output

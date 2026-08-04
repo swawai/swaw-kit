@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'entry.ps1')
-. (Join-Path $PSScriptRoot 'shadow-ssh.ps1')
+. (Join-Path $PSScriptRoot 'peer-ssh.ps1')
 
 function Invoke-RdpClientShadowRemoteSource {
     param(
@@ -9,7 +9,7 @@ function Invoke-RdpClientShadowRemoteSource {
         [Parameter(Mandatory = $true)][string]$Operation
     )
 
-    $Invocation = Invoke-RdpClientShadowSshPowerShell `
+    $Invocation = Invoke-RdpClientPeerSshPowerShell `
         -SshEntryPath $SshEntryPath `
         -RemoteSource $RemoteSource
     if ($Invocation.ExitCode -ne 0) {

@@ -13,7 +13,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'entry.ps1')
-. (Join-Path $PSScriptRoot 'shadow-ssh.ps1')
+. (Join-Path $PSScriptRoot 'peer-ssh.ps1')
 
 $script:DoctorFailures = 0
 $script:DoctorWarnings = 0
@@ -164,8 +164,8 @@ try {
     Write-RdpClientPortCheck -Probe $SmbProbe -Name 'SMB / File and Printer Sharing' -Port 445
 
     try {
-        $ResolvedSshEntry = Resolve-RdpClientShadowSshEntryPath -Value $SshEntryFile
-        Assert-RdpClientShadowSshEntryIsSeparate `
+        $ResolvedSshEntry = Resolve-RdpClientPeerSshEntryPath -Value $SshEntryFile
+        Assert-RdpClientPeerSshEntryIsSeparate `
             -SshEntryPath $ResolvedSshEntry `
             -RdpEntryPath $ResolvedEntry
         $RemoteScriptPath = Join-Path $PSScriptRoot 'shadow-doctor.remote.ps1'
@@ -173,7 +173,7 @@ try {
             throw "RDP Shadow remote doctor script not found: $RemoteScriptPath"
         }
         $RemoteSource = [IO.File]::ReadAllText($RemoteScriptPath, [Text.Encoding]::UTF8)
-        $Invocation = Invoke-RdpClientShadowSshPowerShell `
+        $Invocation = Invoke-RdpClientPeerSshPowerShell `
             -SshEntryPath $ResolvedSshEntry `
             -RemoteSource $RemoteSource
         if ($Invocation.ExitCode -ne 0) {

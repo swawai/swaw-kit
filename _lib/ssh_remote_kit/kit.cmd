@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
+chcp 65001 >nul <nul
 setlocal DisableDelayedExpansion
 if "%~1"=="-h" goto :ShowHelp
 if "%~1"=="--help" goto :ShowHelp
@@ -101,6 +101,7 @@ set "remoteHome="
 if "%verb%"=="--" goto :RemoteCommand
 if /i "%verb%"=="tty" goto :TtyRemoteCommand
 if /i "%verb%"=="script" goto :ScriptCommand
+if /i "%verb%"=="stdin" goto :StdinCommand
 if defined arg3 goto :InvalidArgs
 if not defined verb if not defined arg1 if not defined arg2 goto :OpenSsh
 if /i "%verb%"=="code" goto :CodeCommand
@@ -223,6 +224,20 @@ shift /6
 goto :ScriptCommandArgLoop
 :RunScriptCommand
 PowerShell -NoProfile -ExecutionPolicy Bypass -File "%~dp0script_runner.ps1" -Port "%port%" -RemoteHost "%host%" -RemoteUser "%remoteUser%" -SshKeyPath "%sshKeyPath%" -ScriptPath "%arg1%"
+exit /b %ERRORLEVEL%
+:StdinCommand
+if not "%arg1%"=="--" goto :InvalidArgs
+set "REMOTE_KIT_STDIN_ARG_COUNT=0"
+shift /6
+:StdinCommandArgLoop
+if "%~6"=="" goto :RunStdinCommand
+set /a REMOTE_KIT_STDIN_ARG_COUNT+=1
+set "REMOTE_KIT_STDIN_ARG_%REMOTE_KIT_STDIN_ARG_COUNT%=%~6"
+shift /6
+goto :StdinCommandArgLoop
+:RunStdinCommand
+if "%REMOTE_KIT_STDIN_ARG_COUNT%"=="0" goto :InvalidArgs
+PowerShell -NoLogo -NoProfile -NonInteractive -OutputFormat Text -ExecutionPolicy Bypass -File "%~dp0stdin_runner.ps1" -Port "%port%" -RemoteHost "%host%" -RemoteUser "%remoteUser%" -SshKeyPath "%sshKeyPath%" -RemoteArgumentCount %REMOTE_KIT_STDIN_ARG_COUNT%
 exit /b %ERRORLEVEL%
 :OpenRemotePath
 set "editorExe=%~1"

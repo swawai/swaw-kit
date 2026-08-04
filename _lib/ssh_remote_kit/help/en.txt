@@ -7,6 +7,7 @@
   {{COMMAND}}  -- ls -la /tmp             # Run a normal non-interactive command.
   {{COMMAND}}  tty -- top                 # Run an interactive command with TTY.
   {{COMMAND}}  script local.sh arg1 arg2  # Upload local.sh to a remote temp dir, run it, then clean up.
+  {{COMMAND}}  stdin -- command < file    # Stream raw standard input to the remote command.
 
 
 # SCP transfer, a leading colon means a remote path:

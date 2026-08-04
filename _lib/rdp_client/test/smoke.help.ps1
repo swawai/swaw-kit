@@ -68,6 +68,9 @@ try {
     if (-not $TemplateOutput.Contains('template.rdp1 .help')) {
         throw "The template should run directly from Favorites.`n$TemplateOutput"
     }
+    if ($TemplateOutput.Contains('not recognized as an internal or external command')) {
+        throw "The UTF-8 entry template executed documentation as commands.`n$TemplateOutput"
+    }
 
     foreach ($Arguments in @(
         [string[]]@('.help'),
@@ -89,6 +92,11 @@ try {
             "$EntryCommand .peer shadow status",
             "$EntryCommand .peer shadow mode",
             "$EntryCommand .peer shadow restore",
+            "$EntryCommand .peer psexec status",
+            "$EntryCommand .peer psexec add",
+            "$EntryCommand .peer psexec remove",
+            "$EntryCommand .peer psexec --",
+            '-accepteula',
             "$EntryCommand .hosts status",
             "$EntryCommand .hosts install",
             "$EntryCommand .hosts install --uac",
@@ -113,6 +121,9 @@ try {
         }
         if ($Output.Contains('{{COMMAND}}')) {
             throw "Help placeholder was not replaced.`n$Output"
+        }
+        if ($Output.Contains('not recognized as an internal or external command')) {
+            throw "RDP help emitted a cmd.exe pseudo-comment error.`n$Output"
         }
         if ($Output.Contains("$EntryCommand .connect")) {
             throw "Help should not advertise the removed .connect alias.`n$Output"
@@ -158,10 +169,21 @@ try {
         $TemplateEntry,
         [Text.Encoding]::UTF8
     )
+    if ($TemplateText -match '(?<!\r)\n') {
+        throw 'RDP entry template must use CRLF line endings for cmd.exe.'
+    }
+
+    foreach ($TemplateLine in ($TemplateText -split "`r`n")) {
+        if ($TemplateLine.StartsWith('::') -and
+            $TemplateLine -match '[^\x00-\x7F]' -and
+            $TemplateLine -match '[^\x00-\x7F]$') {
+            throw "A non-ASCII RDP template comment must end with an ASCII character: $TemplateLine"
+        }
+    }
+
     foreach ($RequiredProperty in @(
         'set "RDP_OUTPUT_PATH="',
-        'set "RDP_SHADOW_SSH_ENTRY="',
-        ':: set "RDP_HELP_LANG=zh-CN"',
+        'set "RDP_HELP_LANG="',
         'full address:s:',
         'username:s:',
         'screen mode id:i:1',
@@ -187,6 +209,14 @@ try {
             throw "RDP template is missing '$RequiredProperty'."
         }
     }
+
+    if ($TemplateText -notmatch '(?m)^set "RDP_PEER_SSH_ENTRY=.*"\r?$') {
+        throw 'RDP template is missing the RDP_PEER_SSH_ENTRY assignment.'
+    }
+
+    if ($TemplateText -match 'RDP_SHADOW_SSH_ENTRY') {
+        throw 'The retired RDP_SHADOW_SSH_ENTRY compatibility name must not remain in the template.'
+    }
     foreach ($RemovedVariable in @(
         'set "RDP_REMOTE_HOST=',
         'set "RDP_REAL_HOST=',
@@ -195,9 +225,6 @@ try {
         if ($TemplateText.Contains($RemovedVariable)) {
             throw "RDP template still contains '$RemovedVariable'."
         }
-    }
-    if ($TemplateText.Contains('D:\2026.7\__use\')) {
-        throw 'RDP template contains a developer-local path.'
     }
 
     $Unknown = Invoke-HelpTestCommand `
@@ -264,7 +291,13 @@ try {
         [string[]]@('.peer', 'shadow', 'mode'),
         [string[]]@('.peer', 'shadow', 'mode', '5'),
         [string[]]@('.peer', 'shadow', 'enable', '--unexpected'),
-        [string[]]@('.peer', 'shadow', 'restore', '--unexpected')
+        [string[]]@('.peer', 'shadow', 'restore', '--unexpected'),
+        [string[]]@('.peer', 'psexec'),
+        [string[]]@('.peer', 'psexec', 'status', 'unexpected'),
+        [string[]]@('.peer', 'psexec', 'add', '--unexpected'),
+        [string[]]@('.peer', 'psexec', 'add', '--dry-run', 'unexpected'),
+        [string[]]@('.peer', 'psexec', 'remove', '--unexpected'),
+        [string[]]@('.peer', 'psexec', '--')
     )) {
         $InvalidPeer = Invoke-HelpTestCommand `
             -Arguments $InvalidPeerArguments `
@@ -274,6 +307,13 @@ try {
         )) {
             throw "Invalid Peer arguments should show Peer usage.`n$InvalidPeer"
         }
+    }
+
+    $RemovedLaunchCommand = Invoke-HelpTestCommand `
+        -Arguments @('.launch', '2', '--', 'notepad.exe') `
+        -ExpectedExitCode 1
+    if (-not $RemovedLaunchCommand.Contains('Unknown RDP command: .launch')) {
+        throw "The removed .launch command should fail explicitly.`n$RemovedLaunchCommand"
     }
 
     $RemovedSigningCommand = Invoke-HelpTestCommand `

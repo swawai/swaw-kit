@@ -1,5 +1,13 @@
 $ErrorActionPreference = 'Stop'
 $Utf8 = New-Object Text.UTF8Encoding($false)
+$NativeSystemDirectory = if (
+    [Environment]::Is64BitOperatingSystem -and
+    -not [Environment]::Is64BitProcess
+) {
+    Join-Path $env:SystemRoot 'Sysnative'
+} else {
+    Join-Path $env:SystemRoot 'System32'
+}
 
 function Get-RegistryValueState($Path, $Name) {
     $Item = Get-ItemProperty -LiteralPath $Path -ErrorAction SilentlyContinue
@@ -140,7 +148,9 @@ $Payload = [ordered]@{
     PeerAddress     = $PeerAddress
     ConnectionError = $ConnectionError
     Services        = $Services
-    RdpSaPresent    = [IO.File]::Exists("$env:SystemRoot\System32\RdpSa.exe")
+    RdpSaPresent    = [IO.File]::Exists(
+        (Join-Path $NativeSystemDirectory 'RdpSa.exe')
+    )
     AllowRemoteRPC  = Get-RegistryValueState `
         -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server' `
         -Name 'AllowRemoteRPC'

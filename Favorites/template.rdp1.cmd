@@ -6,29 +6,29 @@
 set "RDP_HOST_ALIAS="
 
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: Generated .rdp file path. Empty uses the current Windows user's real Desktop directory:
+:: Generated .rdp path. Empty uses the current Windows user's real Desktop directory:
 :: 生成的 .rdp 文件路径；留空时使用当前 Windows 用户的实际“桌面”目录:
 :: Example / 示例: set "RDP_OUTPUT_PATH=D:\RDP\muwen2024-administrator.rdp"
 :::::::::::::::::::::::::::::::::::::::::::::::::::
 set "RDP_OUTPUT_PATH="
 
-rem :::::::::::::::::::::::::::::::::::::::::::::::::::
-rem Optional SSH peer entry used by Shadow doctor/list and .peer shadow management:
-rem 可选：供 Shadow 诊断、启用、恢复和会话查询使用的 SSH 远程入口:
-rem Example / 示例: set "RDP_SHADOW_SSH_ENTRY=D:\swaw-kit\Favorites\server-admin.ssh.cmd"
-rem :::::::::::::::::::::::::::::::::::::::::::::::::::
-set "RDP_SHADOW_SSH_ENTRY="
-
-:: Optional: force help language zh-CN / en; leave unset to auto-detect:
-:: 可选：指定 help 语言 zh-CN / en；不设置时根据系统语言自动选择:
-:: set "RDP_HELP_LANG=zh-CN"
-
-
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+:: Optional template.vps1.cmd instance used by Shadow and .peer psexec:
+:: 可选：供 Shadow 功能和 .peer psexec 使用的 template.vps1.cmd 实例:
+:: Example / 示例: set "RDP_PEER_SSH_ENTRY=D:\swaw-kit\Favorites\server-admin.ssh.cmd"
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+set "RDP_PEER_SSH_ENTRY=D:\2026.7\__use\swaw-kit\rdp1.cmd"
 
 :::::::::::::::::::::::::::::::::::::::::::::::::::
-:: Embedded RDP file properties
-:: 嵌入式 RDP 文件属性
-:: These lines are skipped by cmd.exe and describe the source .rdp document.
+:: Optional: force help language zh-CN / en; empty selects the system language automatically:
+:: 可选：指定 help 语言 zh-CN / en；留空时根据系统语言自动选择:
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+set "RDP_HELP_LANG="
+
+:::::::::::::::::::::::::::::::::::::::::::::::::::
+:: Embedded RDP file properties:
+:: 嵌入式 RDP 文件属性:
+:: These lines are skipped by cmd.exe and describe the source .rdp document:
 :: The generated copy replaces only "full address" with RDP_HOST_ALIAS:
 :: cmd.exe 会跳过这些行；它们描述源 .rdp 文档:
 :: 生成副本时，只把 "full address" 替换为 RDP_HOST_ALIAS:

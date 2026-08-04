@@ -26,6 +26,15 @@ One entry command represents one remote account and one generated .rdp file. Sta
   {{COMMAND}} .peer shadow restore --dry-run    Show the restore change plan
   Modes: 0=disabled; 1=control with consent; 2=control without consent; 3=view with consent; 4=view without consent
 
+# Manage and invoke peer PsExec through SSH:
+  {{COMMAND}} .peer psexec status               Show managed PsExec for the peer SSH account
+  {{COMMAND}} .peer psexec add                  Download, verify, and add the native PsExec binary
+  {{COMMAND}} .peer psexec add --dry-run        Show the add change plan
+  {{COMMAND}} .peer psexec remove               Remove the PsExec binary added by this tool
+  {{COMMAND}} .peer psexec remove --dry-run     Show the remove change plan
+  {{COMMAND}} .peer psexec -- <native-args...>  Pass arguments unchanged to peer PsExec
+  add does not run PsExec or accept its EULA; pass -accepteula explicitly on first use if needed
+
 # Manage aliases through the system hosts file:
   {{COMMAND}} .hosts status            Show this entry's managed hosts alias
   {{COMMAND}} .hosts install           Non-interactive install or repair; fail if elevation is required

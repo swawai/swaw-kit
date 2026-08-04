@@ -26,6 +26,15 @@
   {{COMMAND}} .peer shadow restore --dry-run    查看 restore 将进行的修改
   模式：0=禁止；1=经同意控制；2=免同意控制；3=经同意查看；4=免同意查看
 
+# 通过 SSH 管理和调用对端 PsExec：
+  {{COMMAND}} .peer psexec status               查看对端 SSH 账号的托管 PsExec
+  {{COMMAND}} .peer psexec add                  按原生架构下载、验签并添加 PsExec
+  {{COMMAND}} .peer psexec add --dry-run        查看 add 将进行的修改
+  {{COMMAND}} .peer psexec remove               删除本工具添加的 PsExec
+  {{COMMAND}} .peer psexec remove --dry-run     查看 remove 将进行的修改
+  {{COMMAND}} .peer psexec -- <原生参数...>      将参数原样传给对端 PsExec
+  add 不运行 PsExec 或接受 EULA；首次使用时可在原生参数中明确传入 -accepteula
+
 # 通过系统 hosts 管理别名（可按账号区分凭据）：
   {{COMMAND}} .hosts status            查看本入口别名的 hosts 托管状态
   {{COMMAND}} .hosts install           非交互安装或修复；权限不足时直接报错
