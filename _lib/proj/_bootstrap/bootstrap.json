@@ -1,0 +1,5 @@
+{
+  "schema": "swawkit.proj-bootstrap/v1",
+  "rustToolchain": "1.97.1",
+  "msvcChannel": "17"
+}

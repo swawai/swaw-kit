@@ -78,6 +78,15 @@ $InvocationRoot = Join-Path $TemporaryRoot 'invocation'
 $CapturePath = Join-Path $TemporaryRoot 'capture.json'
 $NestedRoot = Join-Path $TemporaryRoot 'nested\level'
 $NestedEntry = Join-Path $NestedRoot 'outside-supported-layout.exe'
+$BootstrapHome = Join-Path $TemporaryRoot 'bootstrap-home'
+$BootstrapEntry = Join-Path $BootstrapHome 'bootstrap-entry.exe'
+$BootstrapScript = Join-Path $BootstrapHome (
+    '_lib\proj\_bootstrap\run.ps1'
+)
+$BootstrapCore = Join-Path $BootstrapHome (
+    '_lib\proj\_bin\swawkit-proj.exe'
+)
+$BootstrapMarker = Join-Path $BootstrapHome 'bootstrap-ran.txt'
 
 $PoisonedVariables = @(
     'SWAWKIT_HOME',
@@ -116,13 +125,48 @@ try {
     foreach ($Directory in @(
         $ProbeRoot,
         $InvocationRoot,
-        $NestedRoot
+        $NestedRoot,
+        (Split-Path -Path $BootstrapScript -Parent)
     )) {
         [void][IO.Directory]::CreateDirectory($Directory)
     }
     [IO.File]::Copy($LauncherPath, $EntryPath, $false)
     [IO.File]::Copy($LauncherPath, $RootEntryPath, $false)
     [IO.File]::Copy($LauncherPath, $NestedEntry, $false)
+    [IO.File]::Copy($LauncherPath, $BootstrapEntry, $false)
+
+    $BootstrapFixture = @'
+$ErrorActionPreference = 'Stop'
+$HomeRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+$RuntimePath = Join-Path $HomeRoot '_lib\proj\_bin\swawkit-proj.exe'
+[void][IO.Directory]::CreateDirectory((Split-Path -Path $RuntimePath -Parent))
+[IO.File]::Copy($env:ComSpec, $RuntimePath, $false)
+[IO.File]::WriteAllText(
+    (Join-Path $HomeRoot 'bootstrap-ran.txt'),
+    'ok',
+    [Text.UTF8Encoding]::new($false)
+)
+'@
+    [IO.File]::WriteAllText(
+        $BootstrapScript,
+        $BootstrapFixture,
+        [Text.UTF8Encoding]::new($false)
+    )
+
+    $Bootstrapped = Invoke-ProjLauncherRuntimeProcess `
+        -Executable $BootstrapEntry `
+        -Arguments '/d /c exit 0' `
+        -WorkingDirectory $InvocationRoot
+    Assert-ProjLauncherRuntimeTest `
+        -Condition (
+            $Bootstrapped.ExitCode -eq 0 -and
+            [IO.File]::Exists($BootstrapCore) -and
+            [IO.File]::Exists($BootstrapMarker)
+        ) `
+        -Message (
+            'Launcher did not Bootstrap a missing shared Core: ' +
+            $Bootstrapped.StandardError
+        )
 
     $Help = Invoke-ProjLauncherRuntimeProcess `
         -Executable $EntryPath `

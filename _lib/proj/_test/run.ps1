@@ -13,6 +13,8 @@ $ErrorActionPreference = 'Stop'
 & (Join-Path $PSScriptRoot 'core-environment.ps1')
 & (Join-Path $PSScriptRoot 'command-guard.ps1')
 & (Join-Path $PSScriptRoot 'command-routing.ps1')
+& (Join-Path $PSScriptRoot 'app-build.ps1')
+& (Join-Path $PSScriptRoot 'bootstrap-contract.ps1')
 & (Join-Path $PSScriptRoot 'launcher-policy.ps1')
 & (Join-Path $PSScriptRoot 'shell.ps1')
 & (Join-Path $PSScriptRoot 'install-recovery.ps1')

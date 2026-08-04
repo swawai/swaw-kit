@@ -1,13 +1,13 @@
-使用当前项目受管的 Rust 与 MSVC 工具链构建 Swaw Kit Proj 主程序。
+使用当前入口 Profile 管理的 Rust 与 MSVC 工具链构建 Swaw Kit Proj 主程序候选文件。
 
-用法:
+用法：
   {{INVOCATION}}
 
-Cargo 构建缓存位于项目本地共享缓存：
-  data/proj_cache/cargo/swawkit-proj
+构建结果保存在当前 Entry DataRoot：
+  _build/app/release/swawkit-proj.exe
 
-正式程序原子发布到：
+该命令只构建候选文件，不会替换正在运行的：
   _lib/proj/_bin/swawkit-proj.exe
 
-当前纵向切片是单一 Windows EXE：主线程运行系统托盘，后台线程运行仅监听
-127.0.0.1 随机端口的 Axum Web Adapter。该 Action 不接受动态参数。
+如需验证固定版本的首次 Bootstrap 构建，请使用：
+  {{INVOCATION}}.bootstrap

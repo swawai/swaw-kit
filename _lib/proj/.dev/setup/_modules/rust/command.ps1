@@ -1,23 +1,11 @@
 Set-StrictMode -Version 2.0
 
-function Invoke-ProjDevRustCommand {
+function Resolve-ProjDevRustCommand {
     param(
         [Parameter(Mandatory = $true)][ValidateSet('cargo.exe', 'rustc.exe')]
-        [string]$ExecutableName,
-        [Parameter(Mandatory = $true)]
-        [AllowEmptyCollection()]
-        [AllowEmptyString()]
-        [string[]]$Arguments
+        [string]$ExecutableName
     )
 
-    if ($Arguments.Count -gt 0 -and
-        [string]$Arguments[0] -cmatch '^\+') {
-        throw (
-            'Swaw Kit owns the Rust toolchain selection; +toolchain ' +
-            'overrides are not allowed. Change SWAWKIT_PROJ_RUST_TOOLCHAIN ' +
-            "and run 'swawkit .dev.setup'."
-        )
-    }
     $Context = New-ProjDevContextFromEnvironment
     $Definition = Get-ProjDevRustDefinition
     if ($null -eq $Definition) {
@@ -63,8 +51,35 @@ function Invoke-ProjDevRustCommand {
             "bin\$ExecutableName"
         ) `
         -Description 'Rust command executable'
+    return [pscustomobject][ordered]@{
+        Context = $Context
+        Definition = $Definition
+        Executable = $Executable
+    }
+}
+
+function Invoke-ProjDevRustCommand {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('cargo.exe', 'rustc.exe')]
+        [string]$ExecutableName,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [AllowEmptyString()]
+        [string[]]$Arguments
+    )
+
+    if ($Arguments.Count -gt 0 -and
+        [string]$Arguments[0] -cmatch '^\+') {
+        throw (
+            'Swaw Kit owns the Rust toolchain selection; +toolchain ' +
+            'overrides are not allowed. Change SWAWKIT_PROJ_RUST_TOOLCHAIN ' +
+            "and run 'swawkit .dev.setup'."
+        )
+    }
+    $Command = Resolve-ProjDevRustCommand `
+        -ExecutableName $ExecutableName
     return Invoke-ProjConsoleProcess `
-        -Executable $Executable `
+        -Executable ([string]$Command.Executable) `
         -Arguments $Arguments `
-        -WorkingDirectory $Context.InvocationDirectory
+        -WorkingDirectory ([string]$Command.Context.InvocationDirectory)
 }

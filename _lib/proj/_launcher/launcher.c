@@ -8,6 +8,8 @@
 
 static WCHAR entry_path[TEXT_CAPACITY];
 static WCHAR core_path[TEXT_CAPACITY];
+static WCHAR bootstrap_path[TEXT_CAPACITY];
+static WCHAR powershell_path[TEXT_CAPACITY];
 static WCHAR child_command_line[TEXT_CAPACITY];
 static STARTUPINFOW startup_info;
 static PROCESS_INFORMATION process_info;
@@ -101,9 +103,29 @@ static BOOL is_file(const WCHAR *path)
         && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0u;
 }
 
-static BOOL locate_core(void)
+static BOOL try_layout(DWORD home_length)
 {
-    static const WCHAR suffix[] = L"\\_lib\\proj\\_bin\\swawkit-proj.exe";
+    static const WCHAR core_suffix[] = L"\\_lib\\proj\\_bin\\swawkit-proj.exe";
+    static const WCHAR bootstrap_suffix[] =
+        L"\\_lib\\proj\\_bootstrap\\run.ps1";
+
+    return copy_path_with_suffix(
+            entry_path,
+            home_length,
+            core_suffix,
+            core_path
+        )
+        && copy_path_with_suffix(
+            entry_path,
+            home_length,
+            bootstrap_suffix,
+            bootstrap_path
+        )
+        && (is_file(core_path) || is_file(bootstrap_path));
+}
+
+static BOOL locate_layout(void)
+{
     DWORD entry_length = wide_length(entry_path);
     DWORD launcher_directory = last_separator_before(entry_path, entry_length);
     DWORD home_directory;
@@ -111,24 +133,97 @@ static BOOL locate_core(void)
     if (launcher_directory == INVALID_INDEX) {
         return FALSE;
     }
-    if (copy_path_with_suffix(
-            entry_path,
-            launcher_directory,
-            suffix,
-            core_path
-        ) && is_file(core_path)) {
+    if (try_layout(launcher_directory)) {
         return TRUE;
     }
 
     home_directory = last_separator_before(entry_path, launcher_directory);
-    return home_directory != INVALID_INDEX
+    return home_directory != INVALID_INDEX && try_layout(home_directory);
+}
+
+static BOOL locate_windows_powershell(void)
+{
+    static const WCHAR suffix[] =
+        L"\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+    DWORD length = GetWindowsDirectoryW(powershell_path, TEXT_CAPACITY);
+
+    return length > 0u
+        && length < TEXT_CAPACITY
         && copy_path_with_suffix(
-            entry_path,
-            home_directory,
+            powershell_path,
+            length,
             suffix,
-            core_path
+            powershell_path
         )
-        && is_file(core_path);
+        && is_file(powershell_path);
+}
+
+static BOOL build_bootstrap_command_line(void)
+{
+    static const WCHAR options[] =
+        L"\" -NoLogo -NoProfile -NonInteractive "
+        L"-ExecutionPolicy Bypass -File \"";
+    DWORD powershell_length = wide_length(powershell_path);
+    DWORD options_length = wide_length(options);
+    DWORD bootstrap_length = wide_length(bootstrap_path);
+    DWORD index = 0u;
+    DWORD source;
+
+    if (powershell_length + options_length + bootstrap_length + 3u
+        > TEXT_CAPACITY) {
+        return FALSE;
+    }
+    child_command_line[index++] = L'\"';
+    for (source = 0u; source < powershell_length; ++source) {
+        child_command_line[index++] = powershell_path[source];
+    }
+    for (source = 0u; source < options_length; ++source) {
+        child_command_line[index++] = options[source];
+    }
+    for (source = 0u; source < bootstrap_length; ++source) {
+        child_command_line[index++] = bootstrap_path[source];
+    }
+    child_command_line[index++] = L'\"';
+    child_command_line[index] = L'\0';
+    return TRUE;
+}
+
+static BOOL run_bootstrap(BOOL host_mode)
+{
+    DWORD creation_flags = host_mode ? CREATE_NO_WINDOW : 0u;
+    BOOL inherit_handles = host_mode ? FALSE : TRUE;
+    DWORD wait_result;
+    DWORD exit_code;
+
+    if (!is_file(bootstrap_path)
+        || !locate_windows_powershell()
+        || !build_bootstrap_command_line()) {
+        return FALSE;
+    }
+    startup_info.cb = sizeof(startup_info);
+    if (!CreateProcessW(
+            powershell_path,
+            child_command_line,
+            NULL,
+            NULL,
+            inherit_handles,
+            creation_flags,
+            NULL,
+            NULL,
+            &startup_info,
+            &process_info
+        )) {
+        return FALSE;
+    }
+    CloseHandle(process_info.hThread);
+    wait_result = WaitForSingleObject(process_info.hProcess, INFINITE);
+    if (wait_result != WAIT_OBJECT_0
+        || !GetExitCodeProcess(process_info.hProcess, &exit_code)) {
+        CloseHandle(process_info.hProcess);
+        return FALSE;
+    }
+    CloseHandle(process_info.hProcess);
+    return exit_code == 0u && is_file(core_path);
 }
 
 static const WCHAR *raw_argument_tail(void)
@@ -229,13 +324,20 @@ void WINAPI launcher_entry(void)
             "[ERROR] Cannot read the Launcher executable path.\r\n"
         );
     }
-    if (!locate_core()) {
+    if (!locate_layout()) {
         fail(
             host_mode,
-            L"Cannot locate _lib\\proj\\_bin\\swawkit-proj.exe. "
+            L"Cannot locate the shared Core or Bootstrap entry. "
             L"Keep the Launcher in SWAWKIT_HOME or one of its direct child directories.",
-            "[ERROR] Cannot locate _lib\\proj\\_bin\\swawkit-proj.exe. "
+            "[ERROR] Cannot locate the shared Core or Bootstrap entry. "
             "Keep the Launcher in SWAWKIT_HOME or one of its direct child directories.\r\n"
+        );
+    }
+    if (!is_file(core_path) && !run_bootstrap(host_mode)) {
+        fail(
+            host_mode,
+            L"Bootstrap could not build the shared Swaw Kit Proj executable.",
+            "[ERROR] Bootstrap could not build the shared Swaw Kit Proj executable.\r\n"
         );
     }
     if (!build_child_command_line(argument_tail)) {
