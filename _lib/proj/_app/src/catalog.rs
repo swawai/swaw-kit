@@ -10,18 +10,18 @@ mod filesystem;
 
 use address::{child_address, parent_address};
 use filesystem::{
-    absolute_path, assert_command_root, child_directories, directory_files,
-    named_directories, FileCandidate,
+    absolute_path, assert_command_root, child_directories, directory_files, FileCandidate,
 };
+pub(crate) use filesystem::{named_directories, NamedDirectory};
 
 pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v1";
 
-const ENTRY_PROTOCOL: [(&str, &str); 5] = [
-    ("run.exe", "exe"),
-    ("run.ts", "bun"),
-    ("run.py", "python"),
-    ("run.ps1", "powershell"),
-    ("run.cmd", "cmd"),
+const ENTRY_PROTOCOL: [(&str, CommandAdapter); 5] = [
+    ("run.exe", CommandAdapter::Exe),
+    ("run.ts", CommandAdapter::Bun),
+    ("run.py", CommandAdapter::Python),
+    ("run.ps1", CommandAdapter::PowerShell),
+    ("run.cmd", CommandAdapter::Cmd),
 ];
 
 pub const HELP_ADDRESS: &str = ".help";
@@ -174,7 +174,7 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
         alias_of: command_alias(pending.source, &pending.address).map(str::to_owned),
         runnable: entry.is_some(),
         entry: entry.as_ref().map(|entry| entry.name.to_owned()),
-        adapter: entry.map(|entry| entry.adapter.to_owned()),
+        adapter: entry.map(|entry| entry.adapter.as_str().to_owned()),
         help,
         diagnostic: (!diagnostics.is_empty()).then(|| diagnostics.join("; ")),
         help_diagnostic,
@@ -193,12 +193,13 @@ fn command_alias(source: CommandSource, address: &str) -> Option<&'static str> {
 }
 
 #[derive(Debug)]
-struct ResolvedEntry {
-    name: &'static str,
-    adapter: &'static str,
+pub(crate) struct ResolvedEntry {
+    pub(crate) name: &'static str,
+    pub(crate) adapter: CommandAdapter,
+    pub(crate) path: PathBuf,
 }
 
-fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry>> {
+pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry>> {
     let files = directory_files(directory)?;
     let mut existing = Vec::new();
 
@@ -237,6 +238,7 @@ fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry>> {
         existing.push(ResolvedEntry {
             name: canonical_name,
             adapter,
+            path: file.path.clone(),
         });
     }
 
@@ -253,6 +255,42 @@ fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry>> {
         ));
     }
     Ok(existing.pop())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandAdapter {
+    Exe,
+    Bun,
+    Python,
+    PowerShell,
+    Cmd,
+}
+
+impl CommandAdapter {
+    pub(crate) fn from_name(value: &str) -> Option<Self> {
+        match value {
+            "exe" => Some(Self::Exe),
+            "bun" => Some(Self::Bun),
+            "python" => Some(Self::Python),
+            "powershell" => Some(Self::PowerShell),
+            "cmd" => Some(Self::Cmd),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Exe => "exe",
+            Self::Bun => "bun",
+            Self::Python => "python",
+            Self::PowerShell => "powershell",
+            Self::Cmd => "cmd",
+        }
+    }
+
+    pub(crate) fn is_bootstrap_safe(self) -> bool {
+        matches!(self, Self::Exe | Self::PowerShell | Self::Cmd)
+    }
 }
 
 fn read_local_help(

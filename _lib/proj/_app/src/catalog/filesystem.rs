@@ -60,13 +60,13 @@ pub(super) fn directory_files(directory: &Path) -> io::Result<Vec<FileCandidate>
 }
 
 #[derive(Debug)]
-pub(super) struct NamedDirectory {
-    pub(super) name: String,
-    pub(super) path: PathBuf,
-    pub(super) reparse_point: bool,
+pub(crate) struct NamedDirectory {
+    pub(crate) name: String,
+    pub(crate) path: PathBuf,
+    pub(crate) reparse_point: bool,
 }
 
-pub(super) fn named_directories(
+pub(crate) fn named_directories(
     directory: &Path,
     expected_name: &str,
 ) -> io::Result<Vec<NamedDirectory>> {

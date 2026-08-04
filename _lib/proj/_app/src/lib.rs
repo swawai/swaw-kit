@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod catalog_reader;
+pub mod command;
 pub mod context;
 pub mod data_root;
 pub mod entry;
