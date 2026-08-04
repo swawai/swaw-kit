@@ -1,10 +1,12 @@
 use std::ffi::OsString;
+use std::path::Path;
 
 use crate::catalog::CatalogSnapshot;
 
 use super::{
     CommandExecutionContext, CommandResult, ExecutionPhase, GuardPlan, Invocation,
-    ProcessEnvironment, process::run_process,
+    ProcessEnvironment,
+    process::{run_process, validate_adapter},
 };
 
 pub struct CommandExecutor<'a> {
@@ -15,6 +17,17 @@ pub struct CommandExecutor<'a> {
 impl<'a> CommandExecutor<'a> {
     pub fn new(context: &'a CommandExecutionContext, catalog: &'a CatalogSnapshot) -> Self {
         Self { context, catalog }
+    }
+
+    pub fn preflight(
+        kernel_root: &Path,
+        catalog: &CatalogSnapshot,
+        argv: &[OsString],
+    ) -> CommandResult<()> {
+        let invocation = Invocation::resolve(catalog, argv)?;
+        validate_adapter(invocation.command.adapter)?;
+        GuardPlan::discover(kernel_root, &invocation.command)?;
+        Ok(())
     }
 
     pub fn execute(&self, argv: &[OsString]) -> CommandResult<i32> {

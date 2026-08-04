@@ -55,16 +55,12 @@ pub(crate) fn run_process(
     working_directory: &Path,
     environment: &ProcessEnvironment,
 ) -> CommandResult<i32> {
+    validate_adapter(adapter)?;
     let mut command = match adapter {
         CommandAdapter::Exe => executable_command(entry_path, arguments),
         CommandAdapter::PowerShell => powershell_command(entry_path, arguments)?,
         CommandAdapter::Cmd => cmd_command(entry_path, arguments)?,
-        CommandAdapter::Bun | CommandAdapter::Python => {
-            return Err(CommandError::new(format!(
-                "the Rust V0 executor does not yet support the '{}' adapter",
-                adapter.as_str()
-            )));
-        }
+        CommandAdapter::Bun | CommandAdapter::Python => unreachable!(),
     };
     command.current_dir(working_directory);
     environment.apply(&mut command);
@@ -75,6 +71,19 @@ pub(crate) fn run_process(
         ))
     })?;
     Ok(status.code().unwrap_or(1))
+}
+
+pub(crate) fn validate_adapter(adapter: CommandAdapter) -> CommandResult<()> {
+    if matches!(
+        adapter,
+        CommandAdapter::Exe | CommandAdapter::PowerShell | CommandAdapter::Cmd
+    ) {
+        return Ok(());
+    }
+    Err(CommandError::new(format!(
+        "the Rust V0 executor does not yet support the '{}' adapter",
+        adapter.as_str()
+    )))
 }
 
 fn executable_command(entry_path: &Path, arguments: &[OsString]) -> Command {

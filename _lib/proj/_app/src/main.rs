@@ -12,19 +12,25 @@ use swawkit_proj::{
 };
 
 fn main() {
-    if let Err(error) = run() {
-        eprintln!("[ERROR] {error}");
-        std::process::exit(1);
+    match run() {
+        Ok(0) => {}
+        Ok(exit_code) => std::process::exit(exit_code),
+        Err(error) => {
+            eprintln!("[ERROR] {error}");
+            std::process::exit(1);
+        }
     }
 }
 
-fn run() -> Result<(), Box<dyn Error>> {
+fn run() -> Result<i32, Box<dyn Error>> {
     let request = LaunchRequest::from_process()?;
     let context = EntryContext::from_launch(&request)?;
 
     match request.mode {
-        LaunchMode::Cli => cli::run(&context, &request.argv)?,
-        LaunchMode::InternalHost => tray::run(context)?,
+        LaunchMode::Cli => cli::run(&context, &request.argv).map_err(Into::into),
+        LaunchMode::InternalHost => {
+            tray::run(context)?;
+            Ok(0)
+        }
     }
-    Ok(())
 }

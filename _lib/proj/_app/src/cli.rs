@@ -1,34 +1,86 @@
+mod claim;
+
+use std::env;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 use swawkit_proj::{
     catalog::{CatalogSnapshot, is_help_marker},
+    command::{CommandExecutionContext, CommandExecutor},
     context::EntryContext,
+    data_root::{
+        DataRootClaimApprover, ResolveDataRootRequest, resolve_data_root,
+    },
     help::{HelpRenderError, render_help},
 };
 
-pub fn run(context: &EntryContext, argv: &[OsString]) -> Result<(), CliError> {
-    let target = help_target(argv)?.ok_or_else(|| {
-        CliError::new(
-            "this Rust CLI slice currently supports only '.help' and '<address> .help'; command execution still uses the PowerShell entry"
-                .to_owned(),
-        )
-    })?;
+use claim::ConsoleClaimApprover;
+
+pub fn run(context: &EntryContext, argv: &[OsString]) -> Result<i32, CliError> {
+    let mut approver = ConsoleClaimApprover::default();
+    let inherited_data_root = env::var_os("SWAWKIT_PROJ_DATA_ROOT")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    run_with_approver(
+        context,
+        argv,
+        inherited_data_root.as_deref(),
+        &mut approver,
+    )
+}
+
+fn run_with_approver(
+    context: &EntryContext,
+    argv: &[OsString],
+    inherited_data_root: Option<&std::path::Path>,
+    approver: &mut impl DataRootClaimApprover,
+) -> Result<i32, CliError> {
     let snapshot = CatalogSnapshot::discover(context)
         .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
-    let output = match render_help(&snapshot, &target) {
-        Ok(output) => output,
-        Err(HelpRenderError::Unavailable(address)) if !address.is_empty() => {
-            return Err(CliError::new(format!(
-                "Proj help is not enabled for '{address}'; command-owned help execution has not migrated, so the command was not run"
-            )));
-        }
-        Err(error) => return Err(CliError::new(error.to_string())),
+    if let Some(output) = protocol_help(&snapshot, argv)? {
+        write_output(&output)
+            .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
+        return Ok(0);
+    }
+    CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
+        .map_err(|error| CliError::new(error.to_string()))?;
+
+    let resolved = resolve_data_root(
+        ResolveDataRootRequest {
+            proj_home: &context.proj_home,
+            project_root: &context.project_root,
+            action_root: &context.action_root,
+            entry_file: &context.entry_file,
+            inherited_data_root,
+        },
+        approver,
+    )
+    .map_err(|error| CliError::new(format!("DataRoot resolution failed: {error}")))?;
+    for warning in resolved.warnings {
+        eprintln!("[WARNING] {warning}");
+    }
+
+    let execution_context = CommandExecutionContext::new(context, resolved.path);
+    CommandExecutor::new(&execution_context, &snapshot)
+        .execute(argv)
+        .map_err(|error| CliError::new(error.to_string()))
+}
+
+fn protocol_help(
+    snapshot: &CatalogSnapshot,
+    argv: &[OsString],
+) -> Result<Option<String>, CliError> {
+    let Some(target) = help_target(argv)? else {
+        return Ok(None);
     };
-    write_output(&output)
-        .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))
+    match render_help(snapshot, &target) {
+        Ok(output) => Ok(Some(output)),
+        Err(HelpRenderError::Unavailable(address)) if !address.is_empty() => Ok(None),
+        Err(error) => Err(CliError::new(error.to_string())),
+    }
 }
 
 fn help_target(argv: &[OsString]) -> Result<Option<String>, CliError> {
@@ -36,7 +88,7 @@ fn help_target(argv: &[OsString]) -> Result<Option<String>, CliError> {
         [marker] if marker.to_str().is_some_and(is_help_marker) => Ok(Some(String::new())),
         [target, marker] if marker.to_str().is_some_and(is_help_marker) => {
             let target = target.to_str().ok_or_else(|| {
-                CliError::new("help target address is not valid Unicode".to_owned())
+                CliError::new("help target address is not valid Unicode")
             })?;
             Ok(Some(target.to_owned()))
         }
@@ -58,8 +110,10 @@ pub struct CliError {
 }
 
 impl CliError {
-    fn new(message: String) -> Self {
-        Self { message }
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
     }
 }
 
@@ -72,42 +126,4 @@ impl fmt::Display for CliError {
 impl Error for CliError {}
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn argv(values: &[&str]) -> Vec<OsString> {
-        values.iter().map(OsString::from).collect()
-    }
-
-    #[test]
-    fn recognizes_every_root_help_marker_exactly() {
-        for marker in [".help", ".h", "-h", "--help"] {
-            assert_eq!(help_target(&argv(&[marker])).unwrap(), Some(String::new()));
-        }
-        assert_eq!(help_target(&argv(&["--HELP"])).unwrap(), None);
-    }
-
-    #[test]
-    fn recognizes_only_an_exact_target_help_shape() {
-        assert_eq!(
-            help_target(&argv(&[".dev", "--help"])).unwrap(),
-            Some(".dev".to_owned())
-        );
-        assert_eq!(
-            help_target(&argv(&[".dev", "--help", "extra"])).unwrap(),
-            None
-        );
-        assert_eq!(help_target(&argv(&[".dev", "--", "--help"])).unwrap(), None);
-        assert_eq!(
-            help_target(&argv(&["", ".help"])).unwrap(),
-            Some(String::new())
-        );
-    }
-
-    #[test]
-    fn non_help_invocations_are_left_for_later_command_execution() {
-        assert_eq!(help_target(&[]).unwrap(), None);
-        assert_eq!(help_target(&argv(&[".dev"])).unwrap(), None);
-        assert_eq!(help_target(&argv(&[".dev", "value"])).unwrap(), None);
-    }
-}
+mod tests;
