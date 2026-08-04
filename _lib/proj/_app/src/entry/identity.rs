@@ -1,0 +1,284 @@
+use std::error::Error;
+use std::ffi::OsStr;
+use std::fmt;
+use std::fs::File;
+use std::mem::size_of;
+use std::os::windows::ffi::OsStrExt;
+use std::os::windows::io::{FromRawHandle, RawHandle};
+use std::path::Path;
+
+use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, FileAttributeTagInfo, FileIdInfo,
+    GetFileInformationByHandleEx, GetVolumeNameForVolumeMountPointW, OPEN_EXISTING,
+};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryIdentity {
+    volume_id: String,
+    file_id: String,
+}
+
+impl EntryIdentity {
+    pub fn read(entry_file: &Path) -> Result<Self, EntryIdentityError> {
+        let entry_file = std::path::absolute(entry_file).map_err(|error| {
+            EntryIdentityError::new(format!(
+                "invalid project entry path '{}': {error}",
+                entry_file.display()
+            ))
+        })?;
+        if !entry_file.is_file() {
+            return Err(EntryIdentityError::new(format!(
+                "project entry file does not exist: {}",
+                entry_file.display()
+            )));
+        }
+
+        let file = open_identity_handle(&entry_file)?;
+        reject_reparse_point(&file, &entry_file)?;
+        let file_id = read_file_id(&file, &entry_file)?;
+        let volume_id = read_volume_id(&entry_file)?;
+        Ok(Self { volume_id, file_id })
+    }
+
+    pub fn from_parts(
+        volume_id: impl Into<String>,
+        file_id: impl Into<String>,
+    ) -> Result<Self, EntryIdentityError> {
+        let identity = Self {
+            volume_id: volume_id.into(),
+            file_id: file_id.into(),
+        };
+        if !is_valid_volume_id(&identity.volume_id) {
+            return Err(EntryIdentityError::new("volumeId is invalid".to_owned()));
+        }
+        if !is_valid_file_id(&identity.file_id) {
+            return Err(EntryIdentityError::new("fileId is invalid".to_owned()));
+        }
+        Ok(identity)
+    }
+
+    pub fn volume_id(&self) -> &str {
+        &self.volume_id
+    }
+
+    pub fn file_id(&self) -> &str {
+        &self.file_id
+    }
+
+    pub fn key(&self) -> String {
+        format!("{}|{}", self.volume_id, self.file_id)
+    }
+}
+
+pub(crate) fn is_valid_volume_id(value: &str) -> bool {
+    let lowercase = value.to_ascii_lowercase();
+    let Some(body) = lowercase
+        .strip_prefix(r"\\?\volume{")
+        .and_then(|value| value.strip_suffix('}'))
+    else {
+        return false;
+    };
+    !body.is_empty() && body.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
+}
+
+pub(crate) fn is_valid_file_id(value: &str) -> bool {
+    (16..=32).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn open_identity_handle(path: &Path) -> Result<File, EntryIdentityError> {
+    let path_wide = null_terminated(path.as_os_str())?;
+    let handle = unsafe {
+        CreateFileW(
+            path_wide.as_ptr(),
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            std::ptr::null(),
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT,
+            std::ptr::null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(last_os_error("cannot open project entry for identity", path));
+    }
+    Ok(unsafe { File::from_raw_handle(handle as RawHandle) })
+}
+
+fn reject_reparse_point(file: &File, path: &Path) -> Result<(), EntryIdentityError> {
+    let mut attributes = FILE_ATTRIBUTE_TAG_INFO::default();
+    query_file_information(file, FileAttributeTagInfo, &mut attributes, path)?;
+    if attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(EntryIdentityError::new(format!(
+            "project entry file cannot be a reparse point: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn read_file_id(file: &File, path: &Path) -> Result<String, EntryIdentityError> {
+    let mut information = FILE_ID_INFO::default();
+    query_file_information(file, FileIdInfo, &mut information, path)?;
+    // The v0 record follows fsutil's numeric rendering, which reverses the
+    // little-endian FILE_ID_128 byte buffer returned by Windows.
+    Ok(information
+        .FileId
+        .Identifier
+        .iter()
+        .rev()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn query_file_information<T>(
+    file: &File,
+    class: i32,
+    output: &mut T,
+    path: &Path,
+) -> Result<(), EntryIdentityError> {
+    use std::os::windows::io::AsRawHandle;
+
+    let succeeded = unsafe {
+        GetFileInformationByHandleEx(
+            file.as_raw_handle() as _,
+            class,
+            (output as *mut T).cast(),
+            size_of::<T>() as u32,
+        )
+    };
+    if succeeded == 0 {
+        return Err(last_os_error("cannot query project entry identity", path));
+    }
+    Ok(())
+}
+
+fn read_volume_id(path: &Path) -> Result<String, EntryIdentityError> {
+    let volume_root = path.ancestors().last().ok_or_else(|| {
+        EntryIdentityError::new(format!("project entry has no volume root: {}", path.display()))
+    })?;
+    let root_wide = null_terminated(volume_root.as_os_str())?;
+    let mut volume_name = [0_u16; 64];
+    let succeeded = unsafe {
+        GetVolumeNameForVolumeMountPointW(
+            root_wide.as_ptr(),
+            volume_name.as_mut_ptr(),
+            volume_name.len() as u32,
+        )
+    };
+    if succeeded == 0 {
+        return Err(last_os_error("cannot query project entry volume identity", path));
+    }
+    let length = volume_name
+        .iter()
+        .position(|value| *value == 0)
+        .unwrap_or(volume_name.len());
+    let value = String::from_utf16(&volume_name[..length])
+        .map_err(|_| {
+            EntryIdentityError::new("Windows returned a non-Unicode volume identity".to_owned())
+        })?
+        .trim_end_matches('\\')
+        .to_ascii_lowercase();
+    if !is_valid_volume_id(&value) {
+        return Err(EntryIdentityError::new(format!(
+            "Windows returned an invalid volume identity: {value}"
+        )));
+    }
+    Ok(value)
+}
+
+fn null_terminated(value: &OsStr) -> Result<Vec<u16>, EntryIdentityError> {
+    let mut encoded: Vec<u16> = value.encode_wide().collect();
+    if encoded.contains(&0) {
+        return Err(EntryIdentityError::new(
+            "project entry path contains a null character".to_owned(),
+        ));
+    }
+    encoded.push(0);
+    Ok(encoded)
+}
+
+fn last_os_error(action: &str, path: &Path) -> EntryIdentityError {
+    EntryIdentityError::new(format!(
+        "{action} '{}': {}",
+        path.display(),
+        std::io::Error::last_os_error()
+    ))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntryIdentityError {
+    message: String,
+}
+
+impl EntryIdentityError {
+    fn new(message: String) -> Self {
+        Self { message }
+    }
+}
+
+impl fmt::Display for EntryIdentityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl Error for EntryIdentityError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+    fn fixture_path(name: &str) -> PathBuf {
+        let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "swawkit-entry-identity-{}-{sequence}-{name}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn reads_stable_identity_and_distinguishes_a_copy() {
+        let original = fixture_path("original.exe");
+        let copy = fixture_path("copy.exe");
+        fs::write(&original, "original").expect("write original");
+        fs::copy(&original, &copy).expect("copy entry");
+
+        let first = EntryIdentity::read(&original).expect("first identity");
+        let second = EntryIdentity::read(&original).expect("second identity");
+        let copied = EntryIdentity::read(&copy).expect("copied identity");
+
+        assert_eq!(first, second);
+        assert_eq!(first.volume_id(), copied.volume_id());
+        assert_ne!(first.file_id(), copied.file_id());
+        assert_eq!(first.file_id().len(), 32);
+
+        fs::remove_file(original).expect("remove original");
+        fs::remove_file(copy).expect("remove copy");
+    }
+
+    #[test]
+    fn validates_the_persisted_v0_identity_shape() {
+        assert!(EntryIdentity::from_parts(
+            r"\\?\volume{91cf565a-694f-4232-be2d-368578d28629}",
+            "0000000000000000001400000000685d"
+        )
+        .is_ok());
+        assert!(EntryIdentity::from_parts("D:", "ABCDEF0123456789").is_err());
+        assert!(EntryIdentity::from_parts(
+            r"\\?\volume{91cf565a-694f-4232-be2d-368578d28629}",
+            "ABCDEF0123456789"
+        )
+        .is_err());
+    }
+}
