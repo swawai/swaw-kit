@@ -54,7 +54,7 @@ const system = createSystemView(elements, {
   async onProfileChanged(document, page) {
     explorer.setSetupRequired(!document.requiredComplete);
     await loadCatalog();
-    explorer.selectSystemPage(page === "setup" ? "project" : page);
+    explorer.selectSystemPage(page);
   },
 });
 const explorer = createExplorerView({

@@ -7,6 +7,7 @@ import {
 } from "./catalog-model.js";
 import {
   createSystemNavigationColumn,
+  defaultSystemPage,
   isSystemPage,
   systemPageLabel,
 } from "./system-navigation.js";
@@ -129,7 +130,7 @@ export function createExplorerView({
     copy.append(name, summary);
 
     chevron.className = "row-chevron";
-    chevron.textContent = setupRequired ? "" : "›";
+    chevron.textContent = "›";
     chevron.setAttribute("aria-hidden", "true");
 
     button.append(icon, copy, chevron);
@@ -219,7 +220,7 @@ export function createExplorerView({
     scrollTarget = null,
   } = {}) {
     columns.replaceChildren(createRootColumn());
-    if (systemSelected && !setupRequired) {
+    if (systemSelected) {
       columns.append(createSystemNavigationColumn({
         selectedPage: selectedSystemPage,
         onSelect: selectSystemPage,
@@ -263,9 +264,7 @@ export function createExplorerView({
     fragment.append(home);
 
     const items = systemSelected
-      ? setupRequired
-        ? ["首次设置"]
-        : ["系统", systemPageLabel(selectedSystemPage)]
+      ? ["系统", systemPageLabel(selectedSystemPage)]
       : selectedPath.map((address, depth) => (
         depth === 0 ? address : leafName(address)
       ));
@@ -309,18 +308,18 @@ export function createExplorerView({
   function selectSystem(options = {}) {
     systemSelected = true;
     selectedPath = [];
-    selectedSystemPage = setupRequired ? "setup" : "overview";
+    selectedSystemPage = defaultSystemPage(setupRequired);
     onSelectSystem(selectedSystemPage);
     renderBreadcrumb();
     renderColumns({
       focusKey: SYSTEM_KEY,
       focusDetail: options.focusDetail === true,
-      scrollTarget: setupRequired ? "detail" : "navigation",
+      scrollTarget: "navigation",
     });
   }
 
   function selectSystemPage(page, options = {}) {
-    if (setupRequired || !isSystemPage(page)) {
+    if (!isSystemPage(page)) {
       return;
     }
     systemSelected = true;
@@ -396,7 +395,7 @@ export function createExplorerView({
     catalog = nextCatalog;
     selectedPath = [];
     systemSelected = true;
-    selectedSystemPage = setupRequired ? "setup" : "overview";
+    selectedSystemPage = defaultSystemPage(setupRequired);
     onSelectSystem(selectedSystemPage);
     renderBreadcrumb();
     renderColumns();
@@ -406,7 +405,7 @@ export function createExplorerView({
     setupRequired = required;
     systemSelected = true;
     selectedPath = [];
-    selectedSystemPage = required ? "setup" : "overview";
+    selectedSystemPage = defaultSystemPage(required);
     if (catalog) {
       onSelectSystem(selectedSystemPage);
       renderBreadcrumb();

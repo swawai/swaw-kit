@@ -4,12 +4,11 @@ const pageCopy = {
   preferences: ["交互偏好", "命令模块可共享的 Shell、IDE 与帮助语言声明。"],
   development: ["开发环境", "由项目管理或复用的开发工具声明。"],
   git: ["Git 与仓库", "按 Entry 隔离的可选身份、访问方式与远端信息。"],
-  setup: ["首次设置", "完成必填信息后，命令目录才会解锁。"],
 };
 
 export function createSystemView(elements, { onProfileChanged }) {
   let currentProfile = null;
-  let currentPage = "setup";
+  let currentPage = "project";
   let requiredComplete = false;
 
   function field(name) {
@@ -48,18 +47,16 @@ export function createSystemView(elements, { onProfileChanged }) {
         : "Host 已连接";
   }
 
-  function render(page = requiredComplete ? "overview" : "setup") {
-    const selectedPage = requiredComplete ? page : "setup";
+  function render(page = requiredComplete ? "overview" : "project") {
+    const selectedPage = pageCopy[page] ? page : "overview";
     currentPage = selectedPage;
     const [title, summary] = pageCopy[selectedPage] ?? pageCopy.overview;
     elements.systemTitle.textContent = title;
     elements.systemSummary.textContent = summary;
     elements.systemOverview.hidden = selectedPage !== "overview";
     elements.profileForm.hidden = selectedPage === "overview";
-    elements.profileForm.dataset.page = selectedPage;
     for (const section of elements.profileForm.querySelectorAll("[data-profile-section]")) {
-      section.hidden = selectedPage !== "setup"
-        && section.dataset.profileSection !== selectedPage;
+      section.hidden = section.dataset.profileSection !== selectedPage;
     }
     elements.systemDetail.hidden = false;
     elements.commandDetail.hidden = true;

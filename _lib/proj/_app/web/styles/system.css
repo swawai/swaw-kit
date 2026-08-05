@@ -18,10 +18,6 @@
 }
 
 .profile-section > h3 {
-  margin-bottom: 13px;
-}
-
-.profile-form:not([data-page="setup"]) .profile-section > h3 {
   display: none;
 }
 

@@ -10,6 +10,10 @@ export function isSystemPage(page) {
   return systemPages.some(([candidate]) => candidate === page);
 }
 
+export function defaultSystemPage(setupRequired) {
+  return setupRequired ? "project" : "overview";
+}
+
 export function systemPageLabel(page) {
   return systemPages.find(([candidate]) => candidate === page)?.[1] ?? "概览";
 }
