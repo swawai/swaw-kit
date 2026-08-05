@@ -134,6 +134,33 @@ fn protocol_help_initializes_the_entry_without_requiring_an_entry_profile() {
 }
 
 #[test]
+fn native_web_alias_launches_the_entry_before_profile_gating() {
+    let fixture = Fixture::new();
+    fixture.command(".web", "run.ps1", "exit 99");
+    let mut unexpected_claim =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
+    let mut launched = false;
+    let mut launch_host = |context: &EntryContext| {
+        launched = context.entry_file == fixture.context.entry_file;
+        Ok(0)
+    };
+
+    let exit_code = run_with_host_launcher(
+        &fixture.context,
+        &argv(&[".web"]),
+        None,
+        None,
+        &mut unexpected_claim,
+        &mut launch_host,
+    )
+    .unwrap();
+
+    assert_eq!(exit_code, 0);
+    assert!(launched);
+    assert!(!fixture.data_root().join("_profile.json").exists());
+}
+
+#[test]
 fn local_help_is_read_only_but_command_owned_help_executes() {
     let fixture = Fixture::new();
     let local = fixture.command(".local", "run.ps1", "exit 99");

@@ -6,6 +6,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 use swawkit_proj::{
     catalog::{CatalogSnapshot, is_help_marker},
@@ -43,6 +44,25 @@ fn run_with_approver(
     legacy_data_directory: Option<&std::path::Path>,
     approver: &mut impl DataRootClaimApprover,
 ) -> Result<i32, CliError> {
+    let mut host_launcher = launch_entry_host;
+    run_with_host_launcher(
+        context,
+        argv,
+        inherited_data_root,
+        legacy_data_directory,
+        approver,
+        &mut host_launcher,
+    )
+}
+
+fn run_with_host_launcher(
+    context: &EntryContext,
+    argv: &[OsString],
+    inherited_data_root: Option<&std::path::Path>,
+    legacy_data_directory: Option<&std::path::Path>,
+    approver: &mut impl DataRootClaimApprover,
+    host_launcher: &mut impl FnMut(&EntryContext) -> Result<i32, CliError>,
+) -> Result<i32, CliError> {
     let resolved = resolve_data_root(
         ResolveDataRootRequest {
             swawkit_home: &context.swawkit_home,
@@ -68,12 +88,19 @@ fn run_with_approver(
             .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
         return Ok(0);
     }
+    if is_native_web_alias(context, argv) {
+        CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
+            .map_err(|error| CliError::new(error.to_string()))?;
+        return host_launcher(context);
+    }
     let profile = match profile_state {
         EntryProfileState::Ready(profile) => profile,
         EntryProfileState::Missing { path } => {
             return Err(CliError::new(format!(
-                "this entry has no profile: {}. Open its Web console to complete initial setup",
-                path.display()
+                "this entry has no profile: {}. Run '{}' or '{} .web' to complete initial setup",
+                path.display(),
+                context.entry_name,
+                context.entry_name,
             )));
         }
         EntryProfileState::Invalid { path, error, .. } => {
@@ -90,6 +117,31 @@ fn run_with_approver(
     CommandExecutor::new(&execution_context, &snapshot)
         .execute(argv)
         .map_err(|error| CliError::new(error.to_string()))
+}
+
+fn is_native_web_alias(context: &EntryContext, argv: &[OsString]) -> bool {
+    matches!(argv, [address] if address == ".web")
+        && context
+            .entry_file
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+}
+
+fn launch_entry_host(context: &EntryContext) -> Result<i32, CliError> {
+    let status = Command::new(&context.entry_file)
+        .current_dir(&context.invocation_directory)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| {
+            CliError::new(format!(
+                "cannot start the Entry Host through '{}': {error}",
+                context.entry_file.display()
+            ))
+        })?;
+    Ok(status.code().unwrap_or(1))
 }
 
 fn protocol_help(
