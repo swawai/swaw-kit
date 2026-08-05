@@ -11,6 +11,8 @@ use swawkit_proj::profile::{EntryProfileRecord, EntryProfileStore};
 
 use super::*;
 
+mod control;
+
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 struct Fixture {
@@ -95,6 +97,27 @@ impl Fixture {
         fs::write(directory.join(entry_name), body).expect("write command entry");
         directory
     }
+
+    fn core_command(&self, address: &str, handler: &str) -> PathBuf {
+        let suffix = address
+            .strip_prefix("..")
+            .expect("Control address must begin with '..'");
+        let mut segments = suffix.split('.');
+        let mut directory = self
+            .context
+            .kernel_root()
+            .join(format!("..{}", segments.next().unwrap()));
+        for segment in segments {
+            directory.push(segment);
+        }
+        fs::create_dir_all(&directory).expect("create Core command directory");
+        fs::write(
+            directory.join("run.core.json"),
+            format!("{{\"schema\":\"swawkit.core-command/v1\",\"handler\":\"{handler}\"}}"),
+        )
+        .expect("write Core command manifest");
+        directory
+    }
 }
 
 impl Drop for Fixture {
@@ -131,33 +154,6 @@ fn protocol_help_initializes_the_entry_without_requiring_an_entry_profile() {
             .valid_record()
             .is_some()
     );
-}
-
-#[test]
-fn native_web_alias_launches_the_entry_before_profile_gating() {
-    let fixture = Fixture::new();
-    fixture.command(".web", "run.ps1", "exit 99");
-    let mut unexpected_claim =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
-    let mut launched = false;
-    let mut launch_host = |context: &EntryContext| {
-        launched = context.entry_file == fixture.context.entry_file;
-        Ok(0)
-    };
-
-    let exit_code = run_with_host_launcher(
-        &fixture.context,
-        &argv(&[".web"]),
-        None,
-        None,
-        &mut unexpected_claim,
-        &mut launch_host,
-    )
-    .unwrap();
-
-    assert_eq!(exit_code, 0);
-    assert!(launched);
-    assert!(!fixture.data_root().join("_profile.json").exists());
 }
 
 #[test]

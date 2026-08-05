@@ -12,14 +12,14 @@ const BASE_CSS: &str = include_str!("../web/styles/base.css");
 const SHELL_CSS: &str = include_str!("../web/styles/shell.css");
 const EXPLORER_CSS: &str = include_str!("../web/styles/explorer.css");
 const DETAIL_CSS: &str = include_str!("../web/styles/detail.css");
-const SYSTEM_CSS: &str = include_str!("../web/styles/system.css");
+const ENTRY_PROFILE_CSS: &str = include_str!("../web/styles/entry-profile.css");
 
 const APP_JS: &str = include_str!("../web/app.js");
 const CATALOG_MODEL_JS: &str = include_str!("../web/catalog-model.js");
 const EXPLORER_JS: &str = include_str!("../web/explorer.js");
 const DETAIL_JS: &str = include_str!("../web/detail.js");
-const SYSTEM_JS: &str = include_str!("../web/system.js");
-const SYSTEM_NAVIGATION_JS: &str = include_str!("../web/system-navigation.js");
+const ENTRY_PROFILE_JS: &str = include_str!("../web/entry-profile.js");
+const ENTRY_NAVIGATION_JS: &str = include_str!("../web/entry-navigation.js");
 
 pub(crate) async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
@@ -33,13 +33,13 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "styles/shell.css" => Some(("text/css; charset=utf-8", SHELL_CSS)),
         "styles/explorer.css" => Some(("text/css; charset=utf-8", EXPLORER_CSS)),
         "styles/detail.css" => Some(("text/css; charset=utf-8", DETAIL_CSS)),
-        "styles/system.css" => Some(("text/css; charset=utf-8", SYSTEM_CSS)),
+        "styles/entry-profile.css" => Some(("text/css; charset=utf-8", ENTRY_PROFILE_CSS)),
         "app.js" => Some(("text/javascript; charset=utf-8", APP_JS)),
         "catalog-model.js" => Some(("text/javascript; charset=utf-8", CATALOG_MODEL_JS)),
         "explorer.js" => Some(("text/javascript; charset=utf-8", EXPLORER_JS)),
         "detail.js" => Some(("text/javascript; charset=utf-8", DETAIL_JS)),
-        "system.js" => Some(("text/javascript; charset=utf-8", SYSTEM_JS)),
-        "system-navigation.js" => Some(("text/javascript; charset=utf-8", SYSTEM_NAVIGATION_JS)),
+        "entry-profile.js" => Some(("text/javascript; charset=utf-8", ENTRY_PROFILE_JS)),
+        "entry-navigation.js" => Some(("text/javascript; charset=utf-8", ENTRY_NAVIGATION_JS)),
         _ => None,
     };
 

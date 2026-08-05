@@ -9,4 +9,9 @@ Core 固定按 _global → 命令 _guard → 命令 run.* 执行；Guard 不接�
 加载并复核环境；不依赖开发环境的命令无需承担这套策略。
 
 极薄 EXE Launcher 负责入口身份、Host/CLI 分流和原生 argv 边界；
-swawkit.cmd 在过渡期继续承担开发环境声明与 PowerShell 构建入口。
+swawkit.cmd 在源码仓库中仅保留为兼容入口：共享 Core 缺失时调用 Bootstrap，
+随后把参数原样交给 Rust；它不再声明项目配置，也不再承担公开命令路由。
+
+以两个点开头的地址属于 Rust Control Plane，例如 {{COMMAND}} ..entry 与
+{{COMMAND}} ..web；它们管理 Entry 自身生命周期，不属于 Kernel 命令，也不执行
+项目 Guard。

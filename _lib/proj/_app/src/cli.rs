@@ -1,10 +1,12 @@
 mod claim;
+mod control;
 
 use std::env;
 use std::error::Error;
 use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Write};
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -14,8 +16,10 @@ use swawkit_proj::{
     context::EntryContext,
     data_root::{DataRootClaimApprover, ResolveDataRootRequest, resolve_data_root},
     help::{HelpRenderError, render_help},
+    launch::{ENTRY_FILE_ENV, LAUNCH_MODE_ENV, LaunchMode},
     profile::{EntryProfileState, EntryProfileStore},
 };
+use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use claim::ConsoleClaimApprover;
 
@@ -77,7 +81,8 @@ fn run_with_host_launcher(
         eprintln!("[WARNING] {warning}");
     }
 
-    let profile_state = EntryProfileStore::new(&context.swawkit_home, &resolved.path).read();
+    let profile_store = EntryProfileStore::new(&context.swawkit_home, &resolved.path);
+    let profile_state = profile_store.read();
     let snapshot = CatalogSnapshot::discover(
         context,
         profile_state.ready().map(|profile| profile.binding()),
@@ -88,16 +93,18 @@ fn run_with_host_launcher(
             .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
         return Ok(0);
     }
-    if is_native_web_alias(context, argv) {
-        CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
-            .map_err(|error| CliError::new(error.to_string()))?;
-        return host_launcher(context);
+    if let Some(exit_code) =
+        control::dispatch(&snapshot, argv, context, &profile_store, host_launcher)?
+    {
+        return Ok(exit_code);
     }
+    CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
+        .map_err(|error| CliError::new(error.to_string()))?;
     let profile = match profile_state {
         EntryProfileState::Ready(profile) => profile,
         EntryProfileState::Missing { path } => {
             return Err(CliError::new(format!(
-                "this entry has no profile: {}. Run '{}' or '{} .web' to complete initial setup",
+                "this entry has no profile: {}. Run '{} ..entry' or '{} ..web' to complete initial setup",
                 path.display(),
                 context.entry_name,
                 context.entry_name,
@@ -110,38 +117,85 @@ fn run_with_host_launcher(
             )));
         }
     };
-    CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
-        .map_err(|error| CliError::new(error.to_string()))?;
-
     let execution_context = CommandExecutionContext::new(context, &profile, resolved.path);
     CommandExecutor::new(&execution_context, &snapshot)
         .execute(argv)
         .map_err(|error| CliError::new(error.to_string()))
 }
 
-fn is_native_web_alias(context: &EntryContext, argv: &[OsString]) -> bool {
-    matches!(argv, [address] if address == ".web")
-        && context
-            .entry_file
-            .extension()
-            .and_then(std::ffi::OsStr::to_str)
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+fn launch_entry_host(context: &EntryContext) -> Result<i32, CliError> {
+    let executable = env::current_exe().map_err(|error| {
+        CliError::new(format!(
+            "cannot locate the shared Proj executable for the Entry Host: {error}"
+        ))
+    })?;
+    let inherited_names = env::vars_os().map(|(name, _value)| name);
+    let mut command = host_process_command(context, &executable, inherited_names);
+    command.spawn().map_err(|error| {
+        CliError::new(format!(
+            "cannot start the Entry Host for '{}': {error}",
+            context.entry_file.display()
+        ))
+    })?;
+    Ok(0)
 }
 
-fn launch_entry_host(context: &EntryContext) -> Result<i32, CliError> {
-    let status = Command::new(&context.entry_file)
+fn host_process_command(
+    context: &EntryContext,
+    executable: &std::path::Path,
+    inherited_names: impl IntoIterator<Item = OsString>,
+) -> Command {
+    const CONTEXT_ENVIRONMENT: [&str; 14] = [
+        "SWAWKIT_HOME",
+        "SWAWKIT_PROJ_PROTOCOL",
+        "SWAWKIT_PROJ_TARGET_PROJECT_ROOT",
+        "SWAWKIT_PROJ_ACTION_ROOT",
+        "SWAWKIT_PROJ_DATA_ROOT",
+        "SWAWKIT_PROJ_ENTRY_COMMAND",
+        "SWAWKIT_PROJ_COMMAND_PROTOCOL",
+        "SWAWKIT_PROJ_COMMAND_PHASE",
+        "SWAWKIT_PROJ_COMMAND_ADDRESS",
+        "SWAWKIT_PROJ_COMMAND_DIR",
+        "SWAWKIT_PROJ_GUARD_SCOPE",
+        "SWAWKIT_PROJ_HELP_TARGET_ADDRESS",
+        "SWAWKIT_PROJ_INVOCATION_DIR",
+        "SWAWKIT_PROJ_INTERNAL_RUNTIME_WORKING_DIR",
+    ];
+    const INTERNAL_PREFIXES: [&str; 3] = [
+        "SWAWKIT_PROJ_ARGV_",
+        "SWAWKIT_PROJ_INTERNAL_PS_",
+        "SWAWKIT_PROJ_INTERNAL_CMD_",
+    ];
+
+    let mut command = Command::new(executable);
+    command
         .current_dir(&context.invocation_directory)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
-        .map_err(|error| {
-            CliError::new(format!(
-                "cannot start the Entry Host through '{}': {error}",
-                context.entry_file.display()
-            ))
-        })?;
-    Ok(status.code().unwrap_or(1))
+        .creation_flags(CREATE_NO_WINDOW);
+    for name in CONTEXT_ENVIRONMENT {
+        command.env_remove(name);
+    }
+    for name in inherited_names {
+        if name.to_str().is_some_and(|name| {
+            INTERNAL_PREFIXES
+                .iter()
+                .any(|prefix| has_ascii_prefix(name, prefix))
+        }) {
+            command.env_remove(name);
+        }
+    }
+    command
+        .env(ENTRY_FILE_ENV, &context.entry_file)
+        .env(LAUNCH_MODE_ENV, LaunchMode::InternalHost.as_env_value());
+    command
+}
+
+fn has_ascii_prefix(value: &str, prefix: &str) -> bool {
+    value
+        .get(..prefix.len())
+        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(prefix))
 }
 
 fn protocol_help(

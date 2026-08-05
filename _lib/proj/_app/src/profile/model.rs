@@ -5,7 +5,6 @@ use super::{PROFILE_SCHEMA, ProfileError};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EntryProfileRecord {
-    #[serde(default = "default_schema")]
     pub schema: String,
     pub target_project_root: String,
     pub preferences: Preferences,
@@ -44,6 +43,44 @@ impl EntryProfileRecord {
         optional_trimmed("repository.remote", &self.repository.remote)?;
         Ok(())
     }
+
+    pub(crate) fn set_value(&mut self, field: &str, value: String) -> Result<(), ProfileError> {
+        if field == "schema" || field.is_empty() {
+            return Err(ProfileError::new(format!(
+                "entry profile field cannot be changed: {field}"
+            )));
+        }
+        let mut document = serde_json::to_value(&*self)
+            .map_err(|error| ProfileError::new(format!("cannot inspect entry profile: {error}")))?;
+        let mut segments = field.split('.').peekable();
+        let mut current = &mut document;
+        while let Some(segment) = segments.next() {
+            let Some(object) = current.as_object_mut() else {
+                return Err(ProfileError::new(format!(
+                    "entry profile field is not a string leaf: {field}"
+                )));
+            };
+            let Some(next) = object.get_mut(segment) else {
+                return Err(ProfileError::new(format!(
+                    "unknown entry profile field: {field}"
+                )));
+            };
+            if segments.peek().is_none() {
+                if !next.is_string() {
+                    return Err(ProfileError::new(format!(
+                        "entry profile field is not a string leaf: {field}"
+                    )));
+                }
+                *next = serde_json::Value::String(value);
+                break;
+            }
+            current = next;
+        }
+        *self = serde_json::from_value(document).map_err(|error| {
+            ProfileError::new(format!("cannot update entry profile field: {error}"))
+        })?;
+        Ok(())
+    }
 }
 
 impl Default for EntryProfileRecord {
@@ -57,10 +94,6 @@ impl Default for EntryProfileRecord {
             repository: RepositoryProfile::default(),
         }
     }
-}
-
-fn default_schema() -> String {
-    PROFILE_SCHEMA.to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,7 +5,7 @@ import {
   isGroup,
 } from "./catalog-model.js";
 
-const protocol = "swawkit.command-catalog/v1";
+const protocol = "swawkit.command-catalog/v2";
 
 function node(address, overrides = {}) {
   return {
@@ -16,6 +16,7 @@ function node(address, overrides = {}) {
     runnable: false,
     entry: null,
     adapter: null,
+    handler: null,
     help: null,
     diagnostic: null,
     ...overrides,
@@ -31,7 +32,7 @@ function payload(commands, overrides = {}) {
   };
 }
 
-describe("Catalog v1 model", () => {
+describe("Catalog v2 model", () => {
   test("derives a non-runnable group only from its children", () => {
     const catalog = createCatalog(payload([
       node(".dev"),
@@ -98,7 +99,7 @@ describe("Catalog v1 model", () => {
 
   test("rejects an unknown protocol version", () => {
     expect(() => createCatalog(payload([], { protocol: "catalog/v2" })))
-      .toThrow("protocol 必须是 swawkit.command-catalog/v1");
+      .toThrow("protocol 必须是 swawkit.command-catalog/v2");
   });
 
   test("rejects a missing entry name", () => {
@@ -118,9 +119,21 @@ describe("Catalog v1 model", () => {
     ]))).toThrow("adapter 必须与 entry 同时存在或同时为空");
   });
 
-  test("rejects sources outside the v1 kernel/action vocabulary", () => {
+  test("accepts Control Plane commands and rejects unknown sources", () => {
+    const catalog = createCatalog(payload([
+      node("..entry", {
+        source: "control",
+        runnable: true,
+        entry: "run.core.json",
+        adapter: "core",
+        handler: "entry.profile",
+      }),
+    ]));
+    expect(catalog.commandByAddress.get("..entry").handler)
+      .toBe("entry.profile");
+
     expect(() => createCatalog(payload([
       node(".legacy", { source: "project" }),
-    ]))).toThrow("source 只能是 kernel 或 action");
+    ]))).toThrow("source 只能是 control、kernel 或 action");
   });
 });

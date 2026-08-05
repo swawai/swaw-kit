@@ -38,63 +38,11 @@
               <aside class="detail-panel" id="detail-panel" tabindex="-1" aria-label="详情">
                 <p class="sr-only" id="selection-status" aria-live="polite"></p>
 
-                <article class="system-detail" id="system-detail" hidden>
+                <article class="entry-profile-detail" id="entry-profile-detail" hidden>
                   <header class="detail-heading">
-                    <h2 id="system-title">Swaw Kit</h2>
-                    <p id="system-summary">Project Console</p>
+                    <h2 id="entry-profile-title">项目绑定</h2>
+                    <p id="entry-profile-summary">当前入口所控制的目标项目。</p>
                   </header>
-
-                  <div id="system-overview">
-                  <section class="detail-section" aria-labelledby="host-title">
-                    <h3 id="host-title">Host</h3>
-                    <dl class="properties">
-                      <div>
-                        <dt>Status</dt>
-                        <dd>
-                          <p class="connection" id="connection-status" data-state="loading" role="status">
-                            <span class="status-dot" aria-hidden="true"></span>
-                            <span id="connection-label">正在读取命令目录…</span>
-                          </p>
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Address</dt>
-                        <dd><code id="host-address"></code></dd>
-                      </div>
-                    </dl>
-                  </section>
-
-                  <section class="detail-section" aria-labelledby="catalog-title">
-                    <h3 id="catalog-title">Catalog</h3>
-                    <dl class="properties">
-                      <div>
-                        <dt>Entry</dt>
-                        <dd><code id="entry-name">swawkit</code></dd>
-                      </div>
-                      <div>
-                        <dt>Protocol</dt>
-                        <dd><code id="protocol-name">Catalog</code></dd>
-                      </div>
-                      <div>
-                        <dt>Nodes</dt>
-                        <dd id="catalog-count">—</dd>
-                      </div>
-                      <div>
-                        <dt>Kernel</dt>
-                        <dd id="kernel-count">—</dd>
-                      </div>
-                      <div>
-                        <dt>Actions</dt>
-                        <dd id="action-count">—</dd>
-                      </div>
-                    </dl>
-                  </section>
-
-                  <section class="detail-section" aria-labelledby="system-actions-title">
-                    <h3 id="system-actions-title">操作</h3>
-                    <button class="secondary-button" id="refresh-button" type="button">刷新命令目录</button>
-                  </section>
-                  </div>
 
                   <form class="profile-form" id="profile-form" hidden>
                     <p class="profile-state" id="profile-state" data-state="loading">

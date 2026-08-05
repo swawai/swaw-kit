@@ -6,8 +6,7 @@ use crate::catalog::{CatalogSnapshot, CommandNode, CommandSource};
 /// Renders the catalog-backed help shown by the CLI.
 ///
 /// An empty `target_address` selects the kernel root. Non-root addresses must
-/// identify exactly one catalog node; a kernel command and project Action with
-/// the same address are deliberately treated as ambiguous.
+/// identify exactly one catalog node.
 pub fn render_help(
     snapshot: &CatalogSnapshot,
     target_address: &str,
@@ -35,7 +34,16 @@ pub fn render_help(
     if target_address.is_empty() {
         append_section(
             &mut sections,
-            "Commands:",
+            "Control Plane:",
+            children
+                .iter()
+                .copied()
+                .filter(|node| node.source == CommandSource::Control),
+            snapshot,
+        );
+        append_section(
+            &mut sections,
+            "Kernel Commands:",
             children
                 .iter()
                 .copied()
@@ -196,6 +204,12 @@ mod tests {
     fn renders_root_document_and_catalog_groups_without_alias_rows() {
         let snapshot = snapshot(vec![
             node("", CommandSource::Kernel, None, help("Root help")),
+            node(
+                "..entry",
+                CommandSource::Control,
+                Some(""),
+                help("Entry profile"),
+            ),
             node(".dev", CommandSource::Kernel, Some(""), help("Develop")),
             node(".dev.setup", CommandSource::Kernel, Some(".dev"), None),
             node(".help", CommandSource::Kernel, Some(""), help("Show help")),
@@ -207,8 +221,9 @@ mod tests {
 
         let output = render_help(&snapshot, "").expect("root help");
 
-        assert!(output.starts_with("Root help\n\nCommands:"));
-        assert!(output.contains("swawkit .dev"));
+        assert!(output.starts_with("Root help\n\nControl Plane:"));
+        assert!(output.contains("swawkit ..entry"));
+        assert!(output.contains("Kernel Commands:\n  swawkit .dev"));
         assert!(output.contains("swawkit .help (.h, -h, --help)"));
         assert!(!output.contains("swawkit .dev.setup"));
         assert!(
@@ -323,6 +338,7 @@ mod tests {
             runnable: false,
             entry: None,
             adapter: None,
+            handler: None,
             help,
             diagnostic: None,
             help_diagnostic: None,

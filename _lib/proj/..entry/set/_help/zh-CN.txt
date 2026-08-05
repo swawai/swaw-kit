@@ -1,0 +1,10 @@
+原子修改当前 Entry Profile 的一个已知字段。
+
+用法:
+  {{INVOCATION}} <field> <value>
+
+示例:
+  {{INVOCATION}} targetProjectRoot "${SWAWKIT_HOME}"
+  {{INVOCATION}} git.email "dev@example.com"
+
+保存前会验证完整 Profile；字段名未知或值导致 Profile 无效时不会写入文件。

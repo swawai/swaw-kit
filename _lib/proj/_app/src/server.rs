@@ -9,8 +9,8 @@ use axum::{
     Json, Router,
     extract::{Request, State},
     http::{
-        HeaderName, HeaderValue, StatusCode,
-        header::{CACHE_CONTROL, HOST},
+        HeaderMap, HeaderName, HeaderValue, StatusCode,
+        header::{CACHE_CONTROL, ETAG, HOST, IF_MATCH},
     },
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -22,7 +22,7 @@ use tokio::{net::TcpListener, sync::oneshot};
 use crate::{
     catalog::CatalogSnapshot,
     catalog_reader::CatalogReader,
-    profile::{EntryProfileRecord, EntryProfileState, EntryProfileStore},
+    profile::{EntryProfileDocument, EntryProfileRecord, EntryProfileStore, ProfileUpdateError},
     web_assets,
 };
 
@@ -103,8 +103,8 @@ fn router(
     Router::new()
         .route("/", get(web_assets::index))
         .route("/assets/{*path}", get(web_assets::asset))
-        .route("/api/v1/catalog", get(get_catalog))
-        .route("/api/v1/profile", get(get_profile).put(put_profile))
+        .route("/api/v2/catalog", get(get_catalog))
+        .route("/api/v2/profile", get(get_profile).put(put_profile))
         .route("/healthz", get(health))
         .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn_with_state(
@@ -166,78 +166,74 @@ async fn get_catalog(
 }
 
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProfileResponse {
-    status: &'static str,
-    required_complete: bool,
-    profile: EntryProfileRecord,
-    resolved_target_project_root: Option<String>,
-    error: Option<String>,
-}
-
-impl ProfileResponse {
-    fn from_state(state: EntryProfileState) -> Self {
-        match state {
-            EntryProfileState::Missing { .. } => Self {
-                status: "setupRequired",
-                required_complete: false,
-                profile: EntryProfileRecord::default(),
-                resolved_target_project_root: None,
-                error: None,
-            },
-            EntryProfileState::Invalid { record, error, .. } => Self {
-                status: "invalid",
-                required_complete: false,
-                profile: record.unwrap_or_default(),
-                resolved_target_project_root: None,
-                error: Some(error),
-            },
-            EntryProfileState::Ready(profile) => Self {
-                status: "ready",
-                required_complete: true,
-                resolved_target_project_root: Some(
-                    profile
-                        .binding()
-                        .target_project_root()
-                        .display()
-                        .to_string(),
-                ),
-                profile: profile.record().clone(),
-                error: None,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Serialize)]
 struct ApiError {
     error: String,
 }
 
-async fn get_profile(State(state): State<ServerState>) -> Json<ProfileResponse> {
-    Json(ProfileResponse::from_state(state.profile_store.read()))
+async fn get_profile(State(state): State<ServerState>) -> Response {
+    profile_response(state.profile_store.document())
 }
 
 async fn put_profile(
     State(state): State<ServerState>,
+    headers: HeaderMap,
     Json(profile): Json<EntryProfileRecord>,
-) -> Result<Json<ProfileResponse>, (StatusCode, Json<ApiError>)> {
-    state
+) -> Result<Response, (StatusCode, Json<ApiError>)> {
+    let expected_revision = expected_revision(&headers)?;
+    match state
         .profile_store
-        .save(profile)
-        .map(|profile| {
-            Json(ProfileResponse::from_state(EntryProfileState::Ready(
-                profile,
-            )))
-        })
-        .map_err(|error| {
-            (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                Json(ApiError {
-                    error: error.to_string(),
-                }),
+        .replace_if_revision(expected_revision, profile)
+    {
+        Ok(document) => Ok(profile_response(document)),
+        Err(ProfileUpdateError::Conflict { .. }) => Err(api_error(
+            StatusCode::CONFLICT,
+            "entry profile changed since it was loaded; reload before saving again",
+        )),
+        Err(ProfileUpdateError::Profile(error)) => Err(api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            error.to_string(),
+        )),
+    }
+}
+
+fn expected_revision(headers: &HeaderMap) -> Result<&str, (StatusCode, Json<ApiError>)> {
+    let value = headers.get(IF_MATCH).ok_or_else(|| {
+        api_error(
+            StatusCode::PRECONDITION_REQUIRED,
+            "If-Match with the loaded entry profile revision is required",
+        )
+    })?;
+    let value = value.to_str().map_err(|_| {
+        api_error(
+            StatusCode::BAD_REQUEST,
+            "If-Match must contain one strong entry profile revision",
+        )
+    })?;
+    value
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .filter(|value| !value.is_empty() && !value.contains('"') && !value.contains(','))
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::BAD_REQUEST,
+                "If-Match must contain one quoted strong entry profile revision",
             )
         })
+}
+
+fn profile_response(document: EntryProfileDocument) -> Response {
+    let etag = HeaderValue::from_str(&format!("\"{}\"", document.revision))
+        .expect("profile revisions are valid entity tags");
+    ([(ETAG, etag)], Json(document)).into_response()
+}
+
+fn api_error(status: StatusCode, error: impl Into<String>) -> (StatusCode, Json<ApiError>) {
+    (
+        status,
+        Json(ApiError {
+            error: error.into(),
+        }),
+    )
 }
 
 async fn health() -> &'static str {

@@ -10,10 +10,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "swawkit-catalog-{}-{sequence}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("swawkit-catalog-{}-{sequence}", std::process::id()));
         fs::create_dir_all(&root).expect("create fixture root");
         Self { root }
     }
@@ -39,12 +37,20 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn discovers_kernel_actions_hierarchy_help_and_hides_private_directories() {
+fn discovers_control_kernel_and_action_hierarchies() {
     let fixture = Fixture::new();
     let kernel = fixture.directory("home/_lib/proj");
     let actions = fixture.directory("project/.swaw");
 
     fixture.file("home/_lib/proj/run.ps1", "");
+    fixture.file(
+        "home/_lib/proj/..entry/run.core.json",
+        r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile"}"#,
+    );
+    fixture.file(
+        "home/_lib/proj/..entry/set/run.core.json",
+        r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile.set"}"#,
+    );
     fixture.file("home/_lib/proj/.dev/run.ps1", "");
     fixture.file("home/_lib/proj/.dev/setup/run.cmd", "");
     fixture.file("home/_lib/proj/.help/run.ps1", "");
@@ -58,6 +64,7 @@ fn discovers_kernel_actions_hierarchy_help_and_hides_private_directories() {
     fixture.file("home/_lib/proj/_private/run.ps1", "");
     fixture.file("home/_lib/proj/ordinary/run.ps1", "");
     fixture.file("home/_lib/proj/.Bad/run.ps1", "");
+    fixture.file("home/_lib/proj/...invalid/run.core.json", "{}");
 
     fixture.file("project/.swaw/build/host/run.exe", "");
     fixture.file(
@@ -67,8 +74,7 @@ fn discovers_kernel_actions_hierarchy_help_and_hides_private_directories() {
     fixture.file("project/.swaw/_private/run.ps1", "");
     fixture.file("project/.swaw/Bad/run.ps1", "");
 
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture")
-        .expect("catalog");
+    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
     let addresses: Vec<(CommandSource, &str)> = snapshot
         .commands
         .iter()
@@ -78,6 +84,8 @@ fn discovers_kernel_actions_hierarchy_help_and_hides_private_directories() {
     assert_eq!(
         addresses,
         [
+            (CommandSource::Control, "..entry"),
+            (CommandSource::Control, "..entry.set"),
             (CommandSource::Kernel, ""),
             (CommandSource::Kernel, "--nul"),
             (CommandSource::Kernel, "-con"),
@@ -90,6 +98,13 @@ fn discovers_kernel_actions_hierarchy_help_and_hides_private_directories() {
             (CommandSource::Action, "build.host"),
         ]
     );
+
+    let entry = node(&snapshot, CommandSource::Control, "..entry");
+    assert_eq!(entry.parent.as_deref(), Some(""));
+    assert_eq!(entry.adapter.as_deref(), Some("core"));
+    assert_eq!(entry.handler.as_deref(), Some("entry.profile"));
+    let set = node(&snapshot, CommandSource::Control, "..entry.set");
+    assert_eq!(set.parent.as_deref(), Some("..entry"));
 
     let setup = node(&snapshot, CommandSource::Kernel, ".dev.setup");
     assert_eq!(setup.parent.as_deref(), Some(".dev"));
@@ -117,6 +132,52 @@ fn discovers_kernel_actions_hierarchy_help_and_hides_private_directories() {
 }
 
 #[test]
+fn restricts_core_entries_to_control_and_control_entries_to_core() {
+    let fixture = Fixture::new();
+    let kernel = fixture.directory("home/_lib/proj");
+    let actions = fixture.directory("project/.swaw");
+    fixture.file(
+        "home/_lib/proj/.wrong/run.core.json",
+        r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile"}"#,
+    );
+    fixture.file("home/_lib/proj/..external/run.ps1", "");
+    fixture.file(
+        "home/_lib/proj/..unknown/run.core.json",
+        r#"{"schema":"swawkit.core-command/v1","handler":"dynamic.invoke"}"#,
+    );
+
+    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
+    for (source, address, expected) in [
+        (
+            CommandSource::Kernel,
+            ".wrong",
+            "restricted to Control Plane",
+        ),
+        (
+            CommandSource::Control,
+            "..external",
+            "must use a run.core.json",
+        ),
+        (
+            CommandSource::Control,
+            "..unknown",
+            "unsupported Core command handler",
+        ),
+    ] {
+        let command = node(&snapshot, source, address);
+        assert!(!command.runnable);
+        assert!(
+            command
+                .diagnostic
+                .as_deref()
+                .is_some_and(|diagnostic| diagnostic.contains(expected)),
+            "unexpected diagnostic for {address}: {:?}",
+            command.diagnostic
+        );
+    }
+}
+
+#[test]
 fn reports_multiple_and_non_canonical_run_entries_without_stopping_discovery() {
     let fixture = Fixture::new();
     let kernel = fixture.directory("home/_lib/proj");
@@ -126,8 +187,7 @@ fn reports_multiple_and_non_canonical_run_entries_without_stopping_discovery() {
     fixture.file("home/_lib/proj/.case/RUN.PS1", "");
     fixture.file("home/_lib/proj/.ok/run.exe", "");
 
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture")
-        .expect("catalog");
+    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
     let multiple = node(&snapshot, CommandSource::Kernel, ".multi");
     assert!(!multiple.runnable);
     assert!(
@@ -157,8 +217,7 @@ fn keeps_invalid_help_distinct_from_absent_help() {
     fixture.file("home/_lib/proj/.invalid/_help/zh-CN.txt", "\n  \n");
     fixture.directory("home/_lib/proj/.absent");
 
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture")
-        .expect("catalog");
+    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
     let invalid = node(&snapshot, CommandSource::Kernel, ".invalid");
     assert!(invalid.help.is_none());
     assert!(

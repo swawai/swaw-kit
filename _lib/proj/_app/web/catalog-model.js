@@ -1,4 +1,4 @@
-const CATALOG_PROTOCOL = "swawkit.command-catalog/v1";
+const CATALOG_PROTOCOL = "swawkit.command-catalog/v2";
 
 const collator = new Intl.Collator("zh-CN", {
   numeric: true,
@@ -52,8 +52,8 @@ function normalizeCommand(value, index) {
   const source = requireString(command.source, field("source"), {
     allowEmpty: false,
   });
-  if (source !== "kernel" && source !== "action") {
-    throw contractError(`${field("source")} 只能是 kernel 或 action。`);
+  if (!new Set(["control", "kernel", "action"]).has(source)) {
+    throw contractError(`${field("source")} 只能是 control、kernel 或 action。`);
   }
   if (typeof command.runnable !== "boolean") {
     throw contractError(`${field("runnable")} 必须是布尔值。`);
@@ -61,11 +61,15 @@ function normalizeCommand(value, index) {
 
   const entry = nullableString(command.entry, field("entry"));
   const adapter = nullableString(command.adapter, field("adapter"));
+  const handler = nullableString(command.handler, field("handler"));
   if (command.runnable !== (entry !== null)) {
     throw contractError(`${field("runnable")} 必须与 entry 是否存在一致。`);
   }
   if ((entry === null) !== (adapter === null)) {
     throw contractError(`${field("adapter")} 必须与 entry 同时存在或同时为空。`);
+  }
+  if ((adapter === "core") !== (handler !== null)) {
+    throw contractError(`${field("handler")} 必须且只能由 core adapter 声明。`);
   }
 
   const help = normalizeHelp(command.help, index);
@@ -75,6 +79,7 @@ function normalizeCommand(value, index) {
     aliasOf: nullableString(command.aliasOf, field("aliasOf")),
     entry: entry ?? "",
     help: help?.text ?? "",
+    handler: handler ?? "",
     issue: nullableString(command.diagnostic, field("diagnostic")) ?? "",
     parent: nullableString(command.parent, field("parent"), {
       allowEmpty: true,

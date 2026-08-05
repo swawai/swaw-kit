@@ -6,23 +6,17 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 mod address;
+mod entry;
 mod filesystem;
 
 use address::{child_address, parent_address};
+pub(crate) use entry::{CommandAdapter, resolve_entry};
 use filesystem::{
     FileCandidate, absolute_path, assert_command_root, child_directories, directory_files,
 };
 pub(crate) use filesystem::{NamedDirectory, named_directories};
 
-pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v1";
-
-const ENTRY_PROTOCOL: [(&str, CommandAdapter); 5] = [
-    ("run.exe", CommandAdapter::Exe),
-    ("run.ts", CommandAdapter::Bun),
-    ("run.py", CommandAdapter::Python),
-    ("run.ps1", CommandAdapter::PowerShell),
-    ("run.cmd", CommandAdapter::Cmd),
-];
+pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v2";
 
 pub const HELP_ADDRESS: &str = ".help";
 pub const HELP_MARKERS: [&str; 4] = [HELP_ADDRESS, ".h", "-h", "--help"];
@@ -88,13 +82,13 @@ impl CatalogSnapshot {
             }
 
             for child in child_directories(&current.path)? {
-                let Some(address) = child_address(&current, &child.name) else {
+                let Some(child_command) = child_address(&current, &child.name) else {
                     continue;
                 };
                 pending.push_back(PendingDirectory {
                     path: child.path,
-                    address,
-                    source: current.source,
+                    address: child_command.address,
+                    source: child_command.source,
                     is_root: false,
                 });
             }
@@ -124,6 +118,7 @@ pub struct CommandNode {
     pub runnable: bool,
     pub entry: Option<String>,
     pub adapter: Option<String>,
+    pub handler: Option<String>,
     pub help: Option<HelpDocument>,
     pub diagnostic: Option<String>,
     /// Retains the Help protocol state without expanding the public Web API.
@@ -136,6 +131,7 @@ pub struct CommandNode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CommandSource {
+    Control,
     Kernel,
     Action,
 }
@@ -154,6 +150,12 @@ struct PendingDirectory {
     is_root: bool,
 }
 
+#[derive(Debug)]
+struct ChildCommand {
+    address: String,
+    source: CommandSource,
+}
+
 fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
     let mut diagnostics = Vec::new();
     let entry = match resolve_entry(&pending.path) {
@@ -162,6 +164,26 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
             diagnostics.push(error.to_string());
             None
         }
+    };
+    let entry = match entry {
+        Some(entry)
+            if entry.adapter == CommandAdapter::Core
+                && pending.source != CommandSource::Control =>
+        {
+            diagnostics.push(
+                "run.core.json is restricted to Control Plane commands (addresses beginning with '..')"
+                    .to_owned(),
+            );
+            None
+        }
+        Some(entry)
+            if entry.adapter != CommandAdapter::Core
+                && pending.source == CommandSource::Control =>
+        {
+            diagnostics.push("Control Plane commands must use a run.core.json entry".to_owned());
+            None
+        }
+        entry => entry,
     };
     let (help, help_diagnostic) = match read_local_help(&pending.path, entry_name, &pending.address)
     {
@@ -180,7 +202,10 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
         alias_of: command_alias(pending.source, &pending.address).map(str::to_owned),
         runnable: entry.is_some(),
         entry: entry.as_ref().map(|entry| entry.name.to_owned()),
-        adapter: entry.map(|entry| entry.adapter.as_str().to_owned()),
+        adapter: entry
+            .as_ref()
+            .map(|entry| entry.adapter.as_str().to_owned()),
+        handler: entry.and_then(|entry| entry.handler),
         help,
         diagnostic: (!diagnostics.is_empty()).then(|| diagnostics.join("; ")),
         help_diagnostic,
@@ -196,107 +221,6 @@ fn command_alias(source: CommandSource, address: &str) -> Option<&'static str> {
         .iter()
         .skip(1)
         .find_map(|alias| (*alias == address).then_some(HELP_ADDRESS))
-}
-
-#[derive(Debug)]
-pub(crate) struct ResolvedEntry {
-    pub(crate) name: &'static str,
-    pub(crate) adapter: CommandAdapter,
-    pub(crate) path: PathBuf,
-}
-
-pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry>> {
-    let files = directory_files(directory)?;
-    let mut existing = Vec::new();
-
-    for (canonical_name, adapter) in ENTRY_PROTOCOL {
-        let matches: Vec<&FileCandidate> = files
-            .iter()
-            .filter(|file| file.name.eq_ignore_ascii_case(canonical_name))
-            .collect();
-        if matches.len() > 1 {
-            return invalid_data(format!(
-                "entry name collision in '{}': {}",
-                directory.display(),
-                matches
-                    .iter()
-                    .map(|file| file.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-        let Some(file) = matches.first() else {
-            continue;
-        };
-        if file.name != canonical_name {
-            return invalid_data(format!(
-                "non-canonical entry name '{}' in '{}'; expected '{canonical_name}'",
-                file.name,
-                directory.display()
-            ));
-        }
-        if file.reparse_point {
-            return invalid_data(format!(
-                "command entry cannot be a reparse point: {}",
-                file.path.display()
-            ));
-        }
-        existing.push(ResolvedEntry {
-            name: canonical_name,
-            adapter,
-            path: file.path.clone(),
-        });
-    }
-
-    if existing.len() > 1 {
-        return invalid_data(format!(
-            "command directory '{}' contains multiple run entries: {}. \
-             Exactly one run.* is allowed",
-            directory.display(),
-            existing
-                .iter()
-                .map(|entry| entry.name)
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    }
-    Ok(existing.pop())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CommandAdapter {
-    Exe,
-    Bun,
-    Python,
-    PowerShell,
-    Cmd,
-}
-
-impl CommandAdapter {
-    pub(crate) fn from_name(value: &str) -> Option<Self> {
-        match value {
-            "exe" => Some(Self::Exe),
-            "bun" => Some(Self::Bun),
-            "python" => Some(Self::Python),
-            "powershell" => Some(Self::PowerShell),
-            "cmd" => Some(Self::Cmd),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Exe => "exe",
-            Self::Bun => "bun",
-            Self::Python => "python",
-            Self::PowerShell => "powershell",
-            Self::Cmd => "cmd",
-        }
-    }
-
-    pub(crate) fn is_bootstrap_safe(self) -> bool {
-        matches!(self, Self::Exe | Self::PowerShell | Self::Cmd)
-    }
 }
 
 fn read_local_help(

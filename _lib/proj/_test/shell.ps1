@@ -47,11 +47,7 @@ $RuntimeBin = Join-Path $RepoRoot '_lib\proj\_bin'
 $DataRoot = Join-Path $RepoRoot "data\proj.$EntryName"
 $UserPathBefore = [Environment]::GetEnvironmentVariable('PATH', 'User')
 $MachinePathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
-$EntryContent = [regex]::Replace(
-    [IO.File]::ReadAllText($SourceEntry),
-    '(?im)^set "(SWAWKIT_PROJ_[A-Z0-9_]+_MODE)=[^"]*"\s*$',
-    'set "$1=disabled"'
-)
+$EntryContent = [IO.File]::ReadAllText($SourceEntry)
 [IO.File]::WriteAllText(
     $script:ProjShellEntry,
     $EntryContent,
@@ -59,6 +55,34 @@ $EntryContent = [regex]::Replace(
 )
 
 try {
+$SetupOutput = @(
+    & $script:ProjShellEntry `
+        '..entry.set' `
+        'targetProjectRoot' `
+        '${SWAWKIT_HOME}' `
+        2>&1
+)
+Assert-ProjShellTest `
+    -Condition ($LASTEXITCODE -eq 0) `
+    -Message "Entry Profile setup failed: $SetupOutput"
+foreach ($ModeField in @(
+    'development.bun.mode',
+    'development.pwsh.mode',
+    'development.msvc.mode',
+    'development.rust.mode'
+)) {
+    $ModeOutput = @(
+        & $script:ProjShellEntry `
+            '..entry.set' `
+            $ModeField `
+            'disabled' `
+            2>&1
+    )
+    Assert-ProjShellTest `
+        -Condition ($LASTEXITCODE -eq 0) `
+        -Message "Entry Profile mode setup failed for $ModeField`: $ModeOutput"
+}
+
 $Cmd = Invoke-ProjShellTest `
     -Address '.cmd' `
     -InputLines @(

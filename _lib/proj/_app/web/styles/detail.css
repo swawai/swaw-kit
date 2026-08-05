@@ -16,7 +16,7 @@
   outline-offset: -3px;
 }
 
-.system-detail,
+.entry-profile-detail,
 .command-detail {
   flex: 1;
   padding: 27px 26px;
@@ -35,7 +35,7 @@
   letter-spacing: -0.02em;
 }
 
-.system-detail .detail-heading h2 {
+.entry-profile-detail .detail-heading h2 {
   font-family: var(--font-ui);
 }
 
@@ -226,7 +226,7 @@
     flex-basis: min(92vw, 420px);
   }
 
-  .system-detail,
+  .entry-profile-detail,
   .command-detail {
     padding: 23px 18px;
   }

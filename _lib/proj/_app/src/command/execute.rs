@@ -32,6 +32,7 @@ impl<'a> CommandExecutor<'a> {
 
     pub fn execute(&self, argv: &[OsString]) -> CommandResult<i32> {
         let invocation = Invocation::resolve(self.catalog, argv)?;
+        validate_adapter(invocation.command.adapter)?;
         let guard_plan = GuardPlan::discover(&self.context.kernel_root, &invocation.command)?;
 
         for guard in guard_plan.guards {

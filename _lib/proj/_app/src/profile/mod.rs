@@ -1,19 +1,24 @@
+mod document;
+mod error;
 mod model;
 
-use std::error::Error;
-use std::fmt;
 use std::fs;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
+pub use document::EntryProfileDocument;
+use error::ProfileReadError;
+pub use error::{ProfileError, ProfileUpdateError};
 pub use model::{
     ChannelTool, DevelopmentProfile, EntryProfileRecord, GitProfile, ModeTool, Preferences,
     RepositoryProfile, RustTool, VersionedTool,
 };
+use sha2::{Digest, Sha256};
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 use crate::atomic_file;
 use crate::binding::ProjectBinding;
+use crate::data_root::DataRootLock;
 
 pub const PROFILE_SCHEMA: &str = "swawkit.entry-profile/v1";
 
@@ -61,6 +66,11 @@ pub struct EntryProfileStore {
     data_root: PathBuf,
 }
 
+struct ProfileSnapshot {
+    state: EntryProfileState,
+    revision: String,
+}
+
 impl EntryProfileStore {
     pub fn new(swawkit_home: impl Into<PathBuf>, data_root: impl Into<PathBuf>) -> Self {
         Self {
@@ -70,42 +80,64 @@ impl EntryProfileStore {
     }
 
     pub fn read(&self) -> EntryProfileState {
+        self.snapshot().state
+    }
+
+    fn snapshot(&self) -> ProfileSnapshot {
         let path = self.path();
         match fs::symlink_metadata(&path) {
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return EntryProfileState::Missing { path };
+                return ProfileSnapshot {
+                    state: EntryProfileState::Missing { path },
+                    revision: "missing".to_owned(),
+                };
             }
             Err(error) => {
-                return EntryProfileState::Invalid {
-                    path,
-                    record: None,
-                    error: format!("cannot inspect entry profile: {error}"),
+                return ProfileSnapshot {
+                    state: EntryProfileState::Invalid {
+                        path,
+                        record: None,
+                        error: format!("cannot inspect entry profile: {error}"),
+                    },
+                    revision: "unavailable".to_owned(),
                 };
             }
         }
 
-        let record = match read_record(&path) {
-            Ok(record) => record,
+        let (record, revision) = match read_record(&path) {
+            Ok(result) => result,
             Err(error) => {
-                return EntryProfileState::Invalid {
-                    path,
-                    record: None,
-                    error: error.to_string(),
+                return ProfileSnapshot {
+                    state: EntryProfileState::Invalid {
+                        path,
+                        record: None,
+                        error: error.to_string(),
+                    },
+                    revision: error.revision.unwrap_or_else(|| "unavailable".to_owned()),
                 };
             }
         };
-        match self.resolve(record.clone()) {
+        let state = match self.resolve(record.clone()) {
             Ok(profile) => EntryProfileState::Ready(profile),
             Err(error) => EntryProfileState::Invalid {
                 path,
                 record: Some(record),
                 error: error.to_string(),
             },
-        }
+        };
+        ProfileSnapshot { state, revision }
     }
 
     pub fn save(&self, record: EntryProfileRecord) -> Result<EntryProfile, ProfileError> {
+        let _lock = self.acquire_lock()?;
+        self.save_locked(record).map(|(profile, _)| profile)
+    }
+
+    fn save_locked(
+        &self,
+        record: EntryProfileRecord,
+    ) -> Result<(EntryProfile, String), ProfileError> {
         validate_data_root(&self.data_root)?;
         let profile = self.resolve(record)?;
         let mut content = serde_json::to_string_pretty(profile.record()).map_err(|error| {
@@ -120,7 +152,84 @@ impl EntryProfileStore {
                 path.display()
             ))
         })?;
-        Ok(profile)
+        let revision = revision(content.as_bytes());
+        Ok((profile, revision))
+    }
+
+    pub fn document(&self) -> EntryProfileDocument {
+        let snapshot = self.snapshot();
+        EntryProfileDocument::from_state(
+            snapshot.state,
+            self.path().display().to_string(),
+            snapshot.revision,
+        )
+    }
+
+    pub fn update_field(
+        &self,
+        field: &str,
+        value: String,
+    ) -> Result<EntryProfileDocument, ProfileError> {
+        let _lock = self.acquire_lock()?;
+        let mut record = match self.snapshot().state {
+            EntryProfileState::Missing { .. } => EntryProfileRecord::default(),
+            EntryProfileState::Invalid {
+                record: Some(record),
+                ..
+            } => record,
+            EntryProfileState::Invalid {
+                record: None,
+                error,
+                ..
+            } => {
+                return Err(ProfileError::new(format!(
+                    "cannot update one field because the current profile is unreadable: {error}. Replace it with '..entry.apply --file <path>'"
+                )));
+            }
+            EntryProfileState::Ready(profile) => profile.record().clone(),
+        };
+        record.set_value(field, value)?;
+        let (profile, revision) = self.save_locked(record)?;
+        Ok(EntryProfileDocument::from_state(
+            EntryProfileState::Ready(profile),
+            self.path().display().to_string(),
+            revision,
+        ))
+    }
+
+    pub fn replace(
+        &self,
+        record: EntryProfileRecord,
+    ) -> Result<EntryProfileDocument, ProfileError> {
+        let _lock = self.acquire_lock()?;
+        let (profile, revision) = self.save_locked(record)?;
+        Ok(EntryProfileDocument::from_state(
+            EntryProfileState::Ready(profile),
+            self.path().display().to_string(),
+            revision,
+        ))
+    }
+
+    pub fn replace_if_revision(
+        &self,
+        expected_revision: &str,
+        record: EntryProfileRecord,
+    ) -> Result<EntryProfileDocument, ProfileUpdateError> {
+        let _lock = self.acquire_lock().map_err(ProfileUpdateError::Profile)?;
+        let current = self.snapshot();
+        if current.revision != expected_revision {
+            return Err(ProfileUpdateError::Conflict {
+                current_revision: current.revision,
+            });
+        }
+        let (profile, revision) = self
+            .save_locked(record)
+            .map_err(ProfileUpdateError::Profile)?;
+        Ok(EntryProfileDocument::from_state(
+            EntryProfileState::Ready(profile),
+            self.path().display().to_string(),
+            revision,
+        ))
     }
 
     pub fn path(&self) -> PathBuf {
@@ -133,18 +242,39 @@ impl EntryProfileStore {
             .map_err(|error| ProfileError::new(error.to_string()))?;
         Ok(EntryProfile { record, binding })
     }
+
+    fn acquire_lock(&self) -> Result<DataRootLock, ProfileError> {
+        let data_directory = self.data_root.parent().ok_or_else(|| {
+            ProfileError::new(format!(
+                "entry profile DataRoot has no data directory: {}",
+                self.data_root.display()
+            ))
+        })?;
+        DataRootLock::acquire(data_directory).map_err(|error| ProfileError::new(error.to_string()))
+    }
 }
 
-fn read_record(path: &Path) -> Result<EntryProfileRecord, ProfileError> {
+fn read_record(path: &Path) -> Result<(EntryProfileRecord, String), ProfileReadError> {
     validate_publication_target(path)?;
-    let content = fs::read_to_string(path).map_err(|error| {
-        ProfileError::new(format!(
+    let content = fs::read(path).map_err(|error| {
+        ProfileReadError::new(format!(
             "cannot read entry profile '{}': {error}",
             path.display()
         ))
     })?;
-    serde_json::from_str(&content)
-        .map_err(|error| ProfileError::new(format!("invalid entry profile JSON: {error}")))
+    let revision = revision(&content);
+    serde_json::from_slice(&content)
+        .map(|record| (record, revision.clone()))
+        .map_err(|error| {
+            ProfileReadError::with_revision(
+                format!("invalid entry profile JSON: {error}"),
+                revision,
+            )
+        })
+}
+
+fn revision(content: &[u8]) -> String {
+    format!("sha256-{:x}", Sha256::digest(content))
 }
 
 fn validate_data_root(data_root: &Path) -> Result<(), ProfileError> {
@@ -182,27 +312,6 @@ fn validate_publication_target(path: &Path) -> Result<(), ProfileError> {
     }
     Ok(())
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProfileError {
-    message: String,
-}
-
-impl ProfileError {
-    pub(crate) fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-}
-
-impl fmt::Display for ProfileError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl Error for ProfileError {}
 
 #[cfg(test)]
 mod tests;

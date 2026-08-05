@@ -60,7 +60,7 @@ pub(crate) fn run_process(
         CommandAdapter::Exe => executable_command(entry_path, arguments),
         CommandAdapter::PowerShell => powershell_command(entry_path, arguments)?,
         CommandAdapter::Cmd => cmd_command(entry_path, arguments)?,
-        CommandAdapter::Bun | CommandAdapter::Python => unreachable!(),
+        CommandAdapter::Core | CommandAdapter::Bun | CommandAdapter::Python => unreachable!(),
     };
     command.current_dir(working_directory);
     environment.apply(&mut command);

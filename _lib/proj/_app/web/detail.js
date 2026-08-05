@@ -20,7 +20,7 @@ export function createDetailView(elements) {
   function render(catalog, command) {
     copyVersion += 1;
     resetCopyFeedback();
-    elements.systemDetail.hidden = true;
+    elements.entryProfileDetail.hidden = true;
     elements.commandDetail.hidden = false;
 
     const group = isGroup(catalog, command);

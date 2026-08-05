@@ -92,7 +92,7 @@ async fn send(app: Router, method: Method, path: &str, authority: Option<&str>) 
 }
 
 async fn catalog_document(app: Router) -> Value {
-    let response = send(app, Method::GET, "/api/v1/catalog", Some(AUTHORITY)).await;
+    let response = send(app, Method::GET, "/api/v2/catalog", Some(AUTHORITY)).await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
@@ -134,14 +134,17 @@ async fn serves_only_the_declared_local_surface() {
         ("/assets/styles/shell.css", "text/css; charset=utf-8"),
         ("/assets/styles/explorer.css", "text/css; charset=utf-8"),
         ("/assets/styles/detail.css", "text/css; charset=utf-8"),
-        ("/assets/styles/system.css", "text/css; charset=utf-8"),
+        (
+            "/assets/styles/entry-profile.css",
+            "text/css; charset=utf-8",
+        ),
         ("/assets/app.js", "text/javascript; charset=utf-8"),
         ("/assets/catalog-model.js", "text/javascript; charset=utf-8"),
         ("/assets/explorer.js", "text/javascript; charset=utf-8"),
         ("/assets/detail.js", "text/javascript; charset=utf-8"),
-        ("/assets/system.js", "text/javascript; charset=utf-8"),
+        ("/assets/entry-profile.js", "text/javascript; charset=utf-8"),
         (
-            "/assets/system-navigation.js",
+            "/assets/entry-navigation.js",
             "text/javascript; charset=utf-8",
         ),
     ] {
@@ -188,6 +191,12 @@ async fn serves_only_the_declared_local_surface() {
         StatusCode::NOT_FOUND
     );
     assert_eq!(
+        send(app.clone(), Method::GET, "/api/v1/profile", Some(AUTHORITY))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
         send(app, Method::GET, "/_lib/proj/run.ps1", Some(AUTHORITY))
             .await
             .status(),
@@ -218,7 +227,7 @@ async fn returns_a_safe_error_when_catalog_discovery_fails() {
     let response = send(
         fixture.app(),
         Method::GET,
-        "/api/v1/catalog",
+        "/api/v2/catalog",
         Some(AUTHORITY),
     )
     .await;
@@ -255,6 +264,7 @@ async fn serializes_the_complete_catalog_node_contract() {
             "runnable": false,
             "entry": null,
             "adapter": null,
+            "handler": null,
             "help": null,
             "diagnostic": null
         })
@@ -269,6 +279,7 @@ async fn serializes_the_complete_catalog_node_contract() {
             "runnable": true,
             "entry": "run.cmd",
             "adapter": "cmd",
+            "handler": null,
             "help": {
                 "summary": "Show .dev.status",
                 "text": "Show .dev.status\nUse swawkit .dev.status"

@@ -1,15 +1,36 @@
 const pageCopy = {
-  overview: ["Swaw Kit", "Project Console"],
   project: ["项目绑定", "当前入口所控制的目标项目。"],
   preferences: ["交互偏好", "命令模块可共享的 Shell、IDE 与帮助语言声明。"],
   development: ["开发环境", "由项目管理或复用的开发工具声明。"],
   git: ["Git 与仓库", "按 Entry 隔离的可选身份、访问方式与远端信息。"],
 };
 
-export function createSystemView(elements, { onProfileChanged }) {
+export class EntryProfileConflictError extends Error {}
+
+export async function putEntryProfile(profile, revision, fetchProfile = fetch) {
+  const response = await fetchProfile("/api/v2/profile", {
+    method: "PUT",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "If-Match": `"${revision}"`,
+    },
+    body: JSON.stringify(profile),
+  });
+  const document = await response.json();
+  if (response.status === 409) {
+    throw new EntryProfileConflictError(document.error);
+  }
+  if (!response.ok) {
+    throw new Error(document.error || `Host 返回 HTTP ${response.status}`);
+  }
+  return document;
+}
+
+export function createEntryProfileView(elements, { onProfileChanged }) {
   let currentProfile = null;
+  let currentRevision = "missing";
   let currentPage = "project";
-  let requiredComplete = false;
 
   function field(name) {
     return elements.profileForm.elements.namedItem(name);
@@ -22,43 +43,17 @@ export function createSystemView(elements, { onProfileChanged }) {
     }
   }
 
-  function setCatalog(catalog) {
-    const kernelCount = catalog.commands
-      .filter((command) => command.source === "kernel")
-      .length;
-    const actionCount = catalog.commands
-      .filter((command) => command.source === "action")
-      .length;
-
-    elements.entryName.textContent = catalog.entryName;
-    elements.protocolName.textContent = catalog.protocol;
-    elements.catalogCount.textContent = String(catalog.commands.length);
-    elements.kernelCount.textContent = String(kernelCount);
-    elements.actionCount.textContent = String(actionCount);
-    elements.hostAddress.textContent = window.location.origin;
-  }
-
-  function setStatus(status) {
-    elements.connectionStatus.dataset.state = status;
-    elements.connectionLabel.textContent = status === "loading"
-      ? "正在读取命令目录…"
-      : status === "error"
-        ? "Host 不可用"
-        : "Host 已连接";
-  }
-
-  function render(page = requiredComplete ? "overview" : "project") {
-    const selectedPage = pageCopy[page] ? page : "overview";
+  function render(page = "project") {
+    const selectedPage = pageCopy[page] ? page : "project";
     currentPage = selectedPage;
-    const [title, summary] = pageCopy[selectedPage] ?? pageCopy.overview;
-    elements.systemTitle.textContent = title;
-    elements.systemSummary.textContent = summary;
-    elements.systemOverview.hidden = selectedPage !== "overview";
-    elements.profileForm.hidden = selectedPage === "overview";
+    const [title, summary] = pageCopy[selectedPage] ?? pageCopy.project;
+    elements.entryProfileTitle.textContent = title;
+    elements.entryProfileSummary.textContent = summary;
+    elements.profileForm.hidden = false;
     for (const section of elements.profileForm.querySelectorAll("[data-profile-section]")) {
       section.hidden = section.dataset.profileSection !== selectedPage;
     }
-    elements.systemDetail.hidden = false;
+    elements.entryProfileDetail.hidden = false;
     elements.commandDetail.hidden = true;
     elements.selectionStatus.textContent = `已选择${title}`;
   }
@@ -149,7 +144,7 @@ export function createSystemView(elements, { onProfileChanged }) {
   }
 
   function renderProfile(document) {
-    requiredComplete = document.requiredComplete === true;
+    currentRevision = document.revision;
     populate(document.profile);
     elements.profileResolvedRoot.textContent = document.resolvedTargetProjectRoot || "—";
     elements.profileState.dataset.state = document.status;
@@ -166,7 +161,7 @@ export function createSystemView(elements, { onProfileChanged }) {
   async function loadProfile() {
     elements.profileState.dataset.state = "loading";
     elements.profileState.textContent = "正在读取 Entry 配置…";
-    const response = await fetch("/api/v1/profile", {
+    const response = await fetch("/api/v2/profile", {
       cache: "no-store",
       headers: { Accept: "application/json" },
     });
@@ -185,26 +180,25 @@ export function createSystemView(elements, { onProfileChanged }) {
     elements.profileFeedback.dataset.state = "";
     elements.profileFeedback.textContent = "正在保存…";
     try {
-      const response = await fetch("/api/v1/profile", {
-        method: "PUT",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(readProfile()),
-      });
-      const document = await response.json();
-      if (!response.ok) {
-        throw new Error(document.error || `Host 返回 HTTP ${response.status}`);
-      }
+      const document = await putEntryProfile(readProfile(), currentRevision);
       renderProfile(document);
       elements.profileFeedback.textContent = "配置已保存";
       await onProfileChanged(document, currentPage);
     } catch (error) {
       elements.profileFeedback.dataset.state = "error";
-      elements.profileFeedback.textContent = error instanceof Error
-        ? error.message
-        : "保存配置时发生未知错误";
+      if (error instanceof EntryProfileConflictError) {
+        try {
+          const latest = await loadProfile();
+          await onProfileChanged(latest, currentPage);
+          elements.profileFeedback.textContent = "配置已被其他进程修改，已重新载入最新版本；请确认后再次保存。";
+        } catch {
+          elements.profileFeedback.textContent = "配置已被其他进程修改，请重新加载页面后再保存。";
+        }
+      } else {
+        elements.profileFeedback.textContent = error instanceof Error
+          ? error.message
+          : "保存配置时发生未知错误";
+      }
     } finally {
       elements.profileSaveButton.disabled = false;
     }
@@ -218,7 +212,5 @@ export function createSystemView(elements, { onProfileChanged }) {
     loadProfile,
     render,
     saveProfile,
-    setCatalog,
-    setStatus,
   };
 }

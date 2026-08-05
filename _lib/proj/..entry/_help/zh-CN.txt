@@ -1,0 +1,11 @@
+查看并维护当前 Entry 的项目绑定与开发环境 Profile。
+
+用法:
+  {{INVOCATION}}
+  {{INVOCATION}} --json
+
+不带参数时输出精简状态；--json 输出供 Agent 使用的完整结构化文档。
+字段级修改使用 {{ADDRESS}}.set，完整替换使用 {{ADDRESS}}.apply。
+
+该命令属于 Rust Control Plane，在 Profile 缺失或损坏时仍然可用，也不会执行
+项目命令的 _global 或 _guard。

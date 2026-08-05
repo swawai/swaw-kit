@@ -7,11 +7,10 @@ mod plan;
 mod record;
 mod resolve;
 
-pub use claim::{
-    ClaimApprovalError, ClaimKind, DataRootClaim, DataRootClaimApprover,
-};
+pub use claim::{ClaimApprovalError, ClaimKind, DataRootClaim, DataRootClaimApprover};
 pub use development_environment::DevelopmentEnvironmentRepair;
 pub use inventory::{DataRootInventory, DataRootInventoryError};
+pub(crate) use lock::DataRootLock;
 pub use plan::{
     DataRootPlan, DataRootPlanError, DataRootPlanningRequest, PlanTarget, plan_data_root,
 };

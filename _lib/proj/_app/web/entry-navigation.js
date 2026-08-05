@@ -1,39 +1,43 @@
-export const systemPages = [
-  ["overview", "概览", "Host 与 Catalog 状态"],
+// Trusted UI sections owned by the built-in Entry Profile renderer.
+export const entryPages = [
   ["project", "项目绑定", "目标项目与解析结果"],
   ["preferences", "交互偏好", "Shell、IDE 与帮助语言"],
   ["development", "开发环境", "工具模式与版本声明"],
   ["git", "Git 与仓库", "身份、访问方式与远端"],
 ];
 
-export function isSystemPage(page) {
-  return systemPages.some(([candidate]) => candidate === page);
+export function isEntryPage(page) {
+  return entryPages.some(([candidate]) => candidate === page);
 }
 
-export function defaultSystemPage(setupRequired) {
-  return setupRequired ? "project" : "overview";
+export function defaultEntryPage() {
+  return "project";
 }
 
-export function systemPageLabel(page) {
-  return systemPages.find(([candidate]) => candidate === page)?.[1] ?? "概览";
+export function entryPageLabel(page) {
+  return entryPages.find(([candidate]) => candidate === page)?.[1] ?? "项目绑定";
 }
 
-export function createSystemNavigationColumn({ selectedPage, onSelect }) {
+export function createEntryNavigationColumn({
+  selectedPage,
+  onSelect,
+  commandRows = [],
+}) {
   const column = document.createElement("div");
   const section = document.createElement("section");
   const heading = document.createElement("h2");
   const list = document.createElement("ul");
   column.className = "finder-column";
-  column.id = "finder-column-system";
+  column.id = "finder-column-entry";
   column.dataset.depth = "1";
   column.setAttribute("role", "group");
-  column.setAttribute("aria-label", "系统设置");
+  column.setAttribute("aria-label", "Entry Profile");
   section.className = "column-section";
   heading.className = "column-label";
-  heading.textContent = "System";
+  heading.textContent = "Entry Profile";
   list.className = "column-list";
 
-  for (const [page, label, summaryText] of systemPages) {
+  for (const [page, label, summaryText] of entryPages) {
     const item = document.createElement("li");
     const button = document.createElement("button");
     const icon = document.createElement("span");
@@ -44,14 +48,14 @@ export function createSystemNavigationColumn({ selectedPage, onSelect }) {
     button.type = "button";
     button.className = "command-row";
     button.dataset.depth = "1";
-    button.dataset.kind = "system-page";
+    button.dataset.kind = "entry-page";
     button.dataset.page = page;
-    button.dataset.navigationKey = `__system__.${page}`;
+    button.dataset.navigationKey = `__entry__.${page}`;
     if (selectedPage === page) {
       button.setAttribute("aria-current", "page");
     }
     icon.className = "row-icon";
-    icon.textContent = page === "overview" ? "i" : "·";
+    icon.textContent = "·";
     icon.setAttribute("aria-hidden", "true");
     copy.className = "row-copy";
     name.className = "row-name";
@@ -70,5 +74,18 @@ export function createSystemNavigationColumn({ selectedPage, onSelect }) {
   }
   section.append(heading, list);
   column.append(section);
+
+  if (commandRows.length > 0) {
+    const commandSection = document.createElement("section");
+    const commandHeading = document.createElement("h2");
+    const commandList = document.createElement("ul");
+    commandSection.className = "column-section";
+    commandHeading.className = "column-label";
+    commandHeading.textContent = "CLI";
+    commandList.className = "column-list";
+    commandList.append(...commandRows);
+    commandSection.append(commandHeading, commandList);
+    column.append(commandSection);
+  }
   return column;
 }

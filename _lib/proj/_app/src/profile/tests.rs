@@ -1,7 +1,13 @@
 use super::*;
 use crate::binding::SWAWKIT_HOME_PLACEHOLDER;
+use crate::data_root::DataRootLock;
 use serde_json::Value;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    mpsc,
+};
+use std::thread;
+use std::time::Duration;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
@@ -59,6 +65,108 @@ fn distinguishes_missing_invalid_and_ready_profiles() {
     };
     assert_eq!(profile.binding().target_project_root(), fixture.home);
     assert_eq!(profile.binding().action_root(), fixture.home.join(".swaw"));
+}
+
+#[test]
+fn rejects_a_profile_document_without_an_explicit_schema() {
+    let mut document = serde_json::to_value(EntryProfileRecord::default()).unwrap();
+    document.as_object_mut().unwrap().remove("schema");
+
+    let error = serde_json::from_value::<EntryProfileRecord>(document).unwrap_err();
+
+    assert!(error.to_string().contains("missing field `schema`"));
+}
+
+#[test]
+fn profile_document_and_field_updates_share_the_atomic_store() {
+    let fixture = Fixture::new();
+    let missing = fixture.store.document();
+    assert_eq!(missing.protocol, "swawkit.entry-profile-state/v2");
+    assert_eq!(missing.revision, "missing");
+    assert_eq!(missing.status, "setupRequired");
+    assert!(!missing.required_complete);
+
+    let ready = fixture
+        .store
+        .update_field("git.email", "dev@example.com".to_owned())
+        .expect("update known string field");
+    assert_eq!(ready.status, "ready");
+    assert!(ready.revision.starts_with("sha256-"));
+    assert_eq!(ready.profile.git.email, "dev@example.com");
+
+    let before = fs::read(fixture.store.path()).unwrap();
+    assert!(
+        fixture
+            .store
+            .update_field("development.unknown", "value".to_owned())
+            .unwrap_err()
+            .to_string()
+            .contains("unknown entry profile field")
+    );
+    assert_eq!(fs::read(fixture.store.path()).unwrap(), before);
+
+    fs::write(fixture.store.path(), "not-json").unwrap();
+    let invalid_before = fs::read(fixture.store.path()).unwrap();
+    assert!(
+        fixture
+            .store
+            .update_field("git.name", "User".to_owned())
+            .unwrap_err()
+            .to_string()
+            .contains("current profile is unreadable")
+    );
+    assert_eq!(fs::read(fixture.store.path()).unwrap(), invalid_before);
+}
+
+#[test]
+fn revision_is_stable_for_the_same_file_and_detects_stale_replacements() {
+    let fixture = Fixture::new();
+    let first = fixture
+        .store
+        .replace(EntryProfileRecord::default())
+        .expect("create profile");
+    assert_eq!(fixture.store.document().revision, first.revision);
+
+    let second = fixture
+        .store
+        .update_field("git.name", "CLI Writer".to_owned())
+        .expect("update profile");
+    assert_ne!(second.revision, first.revision);
+
+    let mut stale = first.profile;
+    stale.git.email = "stale@example.com".to_owned();
+    assert!(matches!(
+        fixture.store.replace_if_revision(&first.revision, stale),
+        Err(ProfileUpdateError::Conflict { current_revision })
+            if current_revision == second.revision
+    ));
+    assert_eq!(fixture.store.document().profile.git.name, "CLI Writer");
+}
+
+#[test]
+fn field_updates_wait_for_the_cross_process_data_lock() {
+    let fixture = Fixture::new();
+    let data_directory = fixture.data_root.parent().unwrap();
+    let lock = DataRootLock::acquire_for_test(data_directory, 1, Duration::ZERO)
+        .expect("hold DataRoot lock");
+    let store = fixture.store.clone();
+    let (finished, result) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        let update = store.update_field("git.name", "Serialized Writer".to_owned());
+        finished.send(update).unwrap();
+    });
+
+    assert!(result.recv_timeout(Duration::from_millis(30)).is_err());
+    drop(lock);
+    result
+        .recv_timeout(Duration::from_secs(1))
+        .expect("update completes after lock release")
+        .expect("update succeeds");
+    worker.join().unwrap();
+    assert_eq!(
+        fixture.store.document().profile.git.name,
+        "Serialized Writer"
+    );
 }
 
 #[test]

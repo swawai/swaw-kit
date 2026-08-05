@@ -1,0 +1,194 @@
+use std::ffi::OsString;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use swawkit_proj::{
+    catalog::{CatalogSnapshot, CommandNode, CommandSource},
+    context::EntryContext,
+    profile::{EntryProfileDocument, EntryProfileRecord, EntryProfileStore},
+};
+
+use super::{CliError, write_output};
+
+pub(super) fn dispatch(
+    snapshot: &CatalogSnapshot,
+    argv: &[OsString],
+    context: &EntryContext,
+    profile_store: &EntryProfileStore,
+    host_launcher: &mut impl FnMut(&EntryContext) -> Result<i32, CliError>,
+) -> Result<Option<i32>, CliError> {
+    let Some(address) = argv.first() else {
+        return Ok(None);
+    };
+    let address = address
+        .to_str()
+        .ok_or_else(|| CliError::new("command address is not valid Unicode"))?;
+    if !address.starts_with("..") {
+        return Ok(None);
+    }
+
+    let command = resolve_control(snapshot, address)?;
+    let arguments = argv.get(1..).unwrap_or_default();
+    let exit_code = match command.handler.as_deref() {
+        Some("host.start") => start_host(arguments, context, host_launcher)?,
+        Some("entry.profile") => show_profile(arguments, profile_store)?,
+        Some("entry.profile.set") => set_profile(arguments, profile_store)?,
+        Some("entry.profile.apply") => apply_profile(arguments, context, profile_store)?,
+        Some(handler) => {
+            return Err(CliError::new(format!(
+                "unsupported Core command handler: {handler}"
+            )));
+        }
+        None => {
+            return Err(CliError::new(format!(
+                "Catalog invariant failed for '{address}': Core command has no handler"
+            )));
+        }
+    };
+    Ok(Some(exit_code))
+}
+
+fn resolve_control<'a>(
+    snapshot: &'a CatalogSnapshot,
+    address: &str,
+) -> Result<&'a CommandNode, CliError> {
+    let Some(command) = snapshot
+        .commands
+        .iter()
+        .find(|node| node.source == CommandSource::Control && node.address == address)
+    else {
+        return Err(CliError::new(format!("command not found: {address}")));
+    };
+    if !command.runnable {
+        let reason = command
+            .diagnostic
+            .as_deref()
+            .unwrap_or("the command has no recognized Core entry");
+        return Err(CliError::new(format!(
+            "command '{address}' is not runnable: {reason}"
+        )));
+    }
+    if command.adapter.as_deref() != Some("core") {
+        return Err(CliError::new(format!(
+            "Catalog invariant failed for '{address}': Control command is not a Core command"
+        )));
+    }
+    Ok(command)
+}
+
+fn start_host(
+    arguments: &[OsString],
+    context: &EntryContext,
+    host_launcher: &mut impl FnMut(&EntryContext) -> Result<i32, CliError>,
+) -> Result<i32, CliError> {
+    require_no_arguments("..web", arguments)?;
+    host_launcher(context)
+}
+
+fn show_profile(
+    arguments: &[OsString],
+    profile_store: &EntryProfileStore,
+) -> Result<i32, CliError> {
+    let document = profile_store.document();
+    match arguments {
+        [] => write_profile_summary(&document)?,
+        [format] if format == "--json" => write_json(&document)?,
+        _ => {
+            return Err(CliError::new("usage: ..entry [--json]"));
+        }
+    }
+    Ok(0)
+}
+
+fn set_profile(arguments: &[OsString], profile_store: &EntryProfileStore) -> Result<i32, CliError> {
+    let [field, value] = arguments else {
+        return Err(CliError::new("usage: ..entry.set <field> <value>"));
+    };
+    let field = unicode_argument(field, "profile field")?;
+    let value = unicode_argument(value, "profile value")?.to_owned();
+    let document = profile_store
+        .update_field(field, value)
+        .map_err(|error| CliError::new(error.to_string()))?;
+    write_json(&document)?;
+    Ok(0)
+}
+
+fn apply_profile(
+    arguments: &[OsString],
+    context: &EntryContext,
+    profile_store: &EntryProfileStore,
+) -> Result<i32, CliError> {
+    let [option, path] = arguments else {
+        return Err(CliError::new("usage: ..entry.apply --file <profile.json>"));
+    };
+    if option != "--file" {
+        return Err(CliError::new("usage: ..entry.apply --file <profile.json>"));
+    }
+    let path = resolve_input_path(path, &context.invocation_directory);
+    let content = fs::read_to_string(&path).map_err(|error| {
+        CliError::new(format!(
+            "cannot read entry profile input '{}': {error}",
+            path.display()
+        ))
+    })?;
+    let record: EntryProfileRecord = serde_json::from_str(&content).map_err(|error| {
+        CliError::new(format!(
+            "invalid entry profile JSON '{}': {error}",
+            path.display()
+        ))
+    })?;
+    let document = profile_store
+        .replace(record)
+        .map_err(|error| CliError::new(error.to_string()))?;
+    write_json(&document)?;
+    Ok(0)
+}
+
+fn resolve_input_path(value: &OsString, invocation_directory: &Path) -> PathBuf {
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        path
+    } else {
+        invocation_directory.join(path)
+    }
+}
+
+fn unicode_argument<'a>(value: &'a OsString, label: &str) -> Result<&'a str, CliError> {
+    value
+        .to_str()
+        .ok_or_else(|| CliError::new(format!("{label} is not valid Unicode")))
+}
+
+fn require_no_arguments(address: &str, arguments: &[OsString]) -> Result<(), CliError> {
+    if arguments.is_empty() {
+        Ok(())
+    } else {
+        Err(CliError::new(format!(
+            "{address} does not accept arguments"
+        )))
+    }
+}
+
+fn write_profile_summary(document: &EntryProfileDocument) -> Result<(), CliError> {
+    let resolved = document
+        .resolved_target_project_root
+        .as_deref()
+        .unwrap_or("not resolved");
+    let mut output = format!(
+        "Entry Profile\nStatus: {}\nFile: {}\nTarget: {}\nResolved: {}",
+        document.status, document.path, document.profile.target_project_root, resolved
+    );
+    if let Some(error) = &document.error {
+        output.push_str("\nError: ");
+        output.push_str(error);
+    }
+    write_output(&output)
+        .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))
+}
+
+fn write_json(document: &EntryProfileDocument) -> Result<(), CliError> {
+    let output = serde_json::to_string_pretty(document)
+        .map_err(|error| CliError::new(format!("cannot serialize entry profile: {error}")))?;
+    write_output(&output)
+        .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))
+}

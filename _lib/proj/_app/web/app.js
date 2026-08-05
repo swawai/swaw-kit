@@ -1,16 +1,12 @@
 import { createCatalog } from "./catalog-model.js";
 import { createDetailView } from "./detail.js";
 import { createExplorerView } from "./explorer.js";
-import { createSystemView } from "./system.js";
+import { createEntryProfileView } from "./entry-profile.js";
 
 const elements = {
-  actionCount: document.querySelector("#action-count"),
   breadcrumb: document.querySelector("#breadcrumb"),
-  catalogCount: document.querySelector("#catalog-count"),
   cliCommand: document.querySelector("#cli-command"),
   commandDetail: document.querySelector("#command-detail"),
-  connectionLabel: document.querySelector("#connection-label"),
-  connectionStatus: document.querySelector("#connection-status"),
   copyButton: document.querySelector("#copy-button"),
   copyFeedback: document.querySelector("#copy-feedback"),
   copyLabel: document.querySelector("#copy-label"),
@@ -19,42 +15,36 @@ const elements = {
   detailIssue: document.querySelector("#detail-issue"),
   detailPanel: document.querySelector("#detail-panel"),
   detailSummary: document.querySelector("#detail-summary"),
-  entryName: document.querySelector("#entry-name"),
   errorMessage: document.querySelector("#error-message"),
   errorState: document.querySelector("#error-state"),
   explorerFrame: document.querySelector("#explorer-frame"),
   explorerFlow: document.querySelector("#explorer-flow"),
   finderColumns: document.querySelector("#finder-columns"),
-  hostAddress: document.querySelector("#host-address"),
   invocationSection: document.querySelector("#invocation-section"),
   issueCard: document.querySelector("#issue-card"),
-  kernelCount: document.querySelector("#kernel-count"),
   loadingState: document.querySelector("#loading-state"),
   propertyAddress: document.querySelector("#property-address"),
   propertyEntry: document.querySelector("#property-entry"),
   propertyEntryRow: document.querySelector("#property-entry-row"),
-  protocolName: document.querySelector("#protocol-name"),
   profileFeedback: document.querySelector("#profile-feedback"),
   profileForm: document.querySelector("#profile-form"),
   profileResolvedRoot: document.querySelector("#profile-resolved-root"),
   profileSaveButton: document.querySelector("#profile-save-button"),
   profileState: document.querySelector("#profile-state"),
-  refreshButton: document.querySelector("#refresh-button"),
   retryButton: document.querySelector("#retry-button"),
   selectionStatus: document.querySelector("#selection-status"),
-  systemDetail: document.querySelector("#system-detail"),
-  systemOverview: document.querySelector("#system-overview"),
-  systemSummary: document.querySelector("#system-summary"),
-  systemTitle: document.querySelector("#system-title"),
+  entryProfileDetail: document.querySelector("#entry-profile-detail"),
+  entryProfileSummary: document.querySelector("#entry-profile-summary"),
+  entryProfileTitle: document.querySelector("#entry-profile-title"),
 };
 
 let catalog = null;
 const detail = createDetailView(elements);
-const system = createSystemView(elements, {
+const entryProfile = createEntryProfileView(elements, {
   async onProfileChanged(document, page) {
     explorer.setSetupRequired(!document.requiredComplete);
     await loadCatalog();
-    explorer.selectSystemPage(page);
+    explorer.selectEntryPage(page);
   },
 });
 const explorer = createExplorerView({
@@ -64,8 +54,8 @@ const explorer = createExplorerView({
   onSelectCommand(command) {
     detail.render(catalog, command);
   },
-  onSelectSystem(page) {
-    system.render(page);
+  onSelectEntryPage(page) {
+    entryProfile.render(page);
   },
 });
 
@@ -77,8 +67,6 @@ function setLoadState(status, message = "") {
   elements.errorState.hidden = !failed;
   elements.explorerFlow.hidden = status !== "ready";
   elements.explorerFrame.setAttribute("aria-busy", String(loading));
-  elements.refreshButton.disabled = loading;
-  system.setStatus(status);
 
   if (failed) {
     elements.errorMessage.textContent = message || "无法连接 Host。";
@@ -88,7 +76,7 @@ function setLoadState(status, message = "") {
 async function loadCatalog() {
   setLoadState("loading");
   try {
-    const response = await fetch("/api/v1/catalog", {
+    const response = await fetch("/api/v2/catalog", {
       cache: "no-store",
       headers: { Accept: "application/json" },
     });
@@ -97,7 +85,6 @@ async function loadCatalog() {
     }
 
     catalog = createCatalog(await response.json());
-    system.setCatalog(catalog);
     explorer.setCatalog(catalog);
     setLoadState("ready");
   } catch (error) {
@@ -111,9 +98,9 @@ async function loadCatalog() {
 async function loadApplication() {
   setLoadState("loading");
   try {
-    const document = await system.loadProfile();
+    const document = await entryProfile.loadProfile();
     explorer.setSetupRequired(!document.requiredComplete);
-    const response = await fetch("/api/v1/catalog", {
+    const response = await fetch("/api/v2/catalog", {
       cache: "no-store",
       headers: { Accept: "application/json" },
     });
@@ -121,7 +108,6 @@ async function loadApplication() {
       throw new Error(`Host 返回 HTTP ${response.status}`);
     }
     catalog = createCatalog(await response.json());
-    system.setCatalog(catalog);
     explorer.setCatalog(catalog);
     setLoadState("ready");
   } catch (error) {
@@ -135,10 +121,9 @@ async function loadApplication() {
 elements.copyButton.addEventListener("click", detail.copyInvocation);
 elements.profileForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  system.saveProfile();
+  entryProfile.saveProfile();
 });
 elements.finderColumns.addEventListener("keydown", explorer.handleKeyboard);
-elements.refreshButton.addEventListener("click", loadCatalog);
-elements.retryButton.addEventListener("click", loadCatalog);
+elements.retryButton.addEventListener("click", loadApplication);
 
 loadApplication();
