@@ -100,7 +100,8 @@ function Assert-Request {
     param(
         [Parameter(Mandatory = $true)][object]$Request,
         [Parameter(Mandatory = $true)][string]$Action,
-        [Parameter(Mandatory = $true)][bool]$DryRun
+        [Parameter(Mandatory = $true)][bool]$DryRun,
+        [int]$SessionId = 0
     )
 
     if ($Request.Action -ne $Action -or [bool]$Request.DryRun -ne $DryRun) {
@@ -108,6 +109,17 @@ function Assert-Request {
     }
     if (@($Request.ExpectedAddresses) -notcontains '192.168.1.115') {
         throw 'The PsExec request did not bind SSH to the RDP peer address.'
+    }
+    if ([int]$Request.SessionId -ne $SessionId) {
+        throw "Unexpected PsExec session ID: $($Request.SessionId)"
+    }
+    if ([string]$Request.HelperSha256 -notmatch '^[A-F0-9]{64}$') {
+        throw 'The PsExec request has no valid session-helper hash.'
+    }
+    if ($Action -eq 'add' -and -not $DryRun -and
+        [string]$Request.HelperUploadName -notmatch
+        '^\.swaw-kit-psexec-session-[A-Fa-f0-9]{32}\.ps1$') {
+        throw 'PsExec add did not reference the uploaded session helper.'
     }
 }
 
@@ -119,7 +131,8 @@ try {
         'entry.ps1',
         'peer-ssh.ps1',
         'psexec.ps1',
-        'psexec.remote.ps1'
+        'psexec.remote.ps1',
+        'psexec-session-launch.ps1'
     )) {
         [IO.File]::Copy(
             (Join-Path (Join-Path $PSScriptRoot '..') $RuntimeFile),
@@ -139,8 +152,9 @@ try {
         (New-Object Text.UTF8Encoding($false))
     )
 
-    $FakeSshSource = @'
+$FakeSshSource = @'
 @echo off
+if /i "%~1"=="copy" exit /b 0
 PowerShell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "%~dp0capture-stdin.ps1" %*
 exit /b %ERRORLEVEL%
 '@
@@ -206,6 +220,32 @@ exit [int]$env:RDP_PSEXEC_FAKE_EXIT
         Out-Null
     Assert-Request -Request (Get-CapturedRequest) -Action remove -DryRun $false
 
+    $SessionArguments = @(
+        'C:\Program Files\Test App\app.exe',
+        '--flag',
+        'hello world',
+        'bang!'
+    )
+    $env:RDP_PSEXEC_FAKE_EXIT = '19'
+    Invoke-PsExecTestEntry `
+        -Arguments (@('.peer', 'psexec', '2') + $SessionArguments) `
+        -ExpectedExitCode 19 |
+        Out-Null
+    $LaunchRequest = Get-CapturedRequest
+    Assert-Request `
+        -Request $LaunchRequest `
+        -Action launch `
+        -DryRun $false `
+        -SessionId 2
+    if ((@($LaunchRequest.Arguments) -join "`n") -ne
+        ($SessionArguments -join "`n")) {
+        throw (
+            'PsExec session arguments changed in transit: ' +
+            (@($LaunchRequest.Arguments) -join ' | ')
+        )
+    }
+    Remove-Item Env:RDP_PSEXEC_FAKE_EXIT
+
     $NativeArguments = @(
         '-nobanner',
         '-i',
@@ -249,7 +289,12 @@ exit [int]$env:RDP_PSEXEC_FAKE_EXIT
         'Move-Item',
         'Invoke-RdpClientCapturedProcess',
         'RedirectStandardError = $true',
-        'started on .+ with process ID'
+        'started on .+ with process ID',
+        "Join-Path `$ManagedDirectory 'psexec-session-launch.ps1'",
+        'HelperUploadName',
+        'HelperSha256',
+        "`$Request.Action -eq 'launch'",
+        "'-s'"
     )) {
         if (-not $RemoteTemplate.Contains($ExpectedSource)) {
             throw "The remote PsExec implementation is missing '$ExpectedSource'."
@@ -264,13 +309,38 @@ exit [int]$env:RDP_PSEXEC_FAKE_EXIT
         throw 'PsExec stderr must remain a raw native stream.'
     }
 
+    $HelperTemplate = [IO.File]::ReadAllText(
+        (Join-Path $PSScriptRoot '..\psexec-session-launch.ps1'),
+        [Text.Encoding]::UTF8
+    )
+    foreach ($ExpectedHelperSource in @(
+        'WTSQueryUserToken',
+        'CreateEnvironmentBlock',
+        'CreateProcessAsUserW',
+        'AdjustTokenPrivileges',
+        'SeTcbPrivilege',
+        'winsta0\default',
+        'RdpSessionLaunchResult'
+    )) {
+        if (-not $HelperTemplate.Contains($ExpectedHelperSource)) {
+            throw "The session helper is missing '$ExpectedHelperSource'."
+        }
+    }
+    if ($HelperTemplate -notmatch
+        "(?s)\`$NativeSource = @'\r?\n(?<CSharp>.+?)\r?\n'@") {
+        throw 'The PsExec session helper C# source was not found.'
+    }
+    Add-Type -TypeDefinition $Matches.CSharp -Language CSharp
+
     foreach ($InvalidArguments in @(
         [string[]]@('.peer', 'psexec'),
         [string[]]@('.peer', 'psexec', 'status', 'extra'),
         [string[]]@('.peer', 'psexec', 'add', '--unexpected'),
         [string[]]@('.peer', 'psexec', 'add', '--dry-run', 'extra'),
         [string[]]@('.peer', 'psexec', 'remove', '--unexpected'),
-        [string[]]@('.peer', 'psexec', '--')
+        [string[]]@('.peer', 'psexec', '--'),
+        [string[]]@('.peer', 'psexec', '2'),
+        [string[]]@('.peer', 'psexec', '2x', 'notepad.exe')
     )) {
         $InvalidOutput = Invoke-PsExecTestEntry `
             -Arguments $InvalidArguments `

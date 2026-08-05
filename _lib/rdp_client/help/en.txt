@@ -30,10 +30,11 @@ One entry command represents one remote account and one generated .rdp file. Sta
   {{COMMAND}} .peer psexec status               Show managed PsExec for the peer SSH account
   {{COMMAND}} .peer psexec add                  Download, verify, and add the native PsExec binary
   {{COMMAND}} .peer psexec add --dry-run        Show the add change plan
-  {{COMMAND}} .peer psexec remove               Remove the PsExec binary added by this tool
+  {{COMMAND}} .peer psexec remove               Remove the PsExec files managed by this tool
   {{COMMAND}} .peer psexec remove --dry-run     Show the remove change plan
+  {{COMMAND}} .peer psexec <session-id> <program-and-args...>  Start as that session's logged-on user
   {{COMMAND}} .peer psexec -- <native-args...>  Invoke peer PsExec; adds -accepteula automatically
-  PsExec keeps the SSH account's EULA record; remove only deletes the managed program file
+  PsExec keeps the SSH account's EULA record; remove only deletes the managed files
 
 # Manage aliases through the system hosts file:
   {{COMMAND}} .hosts status            Show this entry's managed hosts alias

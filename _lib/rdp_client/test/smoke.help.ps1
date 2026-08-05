@@ -95,6 +95,7 @@ try {
             "$EntryCommand .peer psexec status",
             "$EntryCommand .peer psexec add",
             "$EntryCommand .peer psexec remove",
+            "$EntryCommand .peer psexec <",
             "$EntryCommand .peer psexec --",
             '-accepteula',
             "$EntryCommand .hosts status",
@@ -297,7 +298,8 @@ try {
         [string[]]@('.peer', 'psexec', 'add', '--unexpected'),
         [string[]]@('.peer', 'psexec', 'add', '--dry-run', 'unexpected'),
         [string[]]@('.peer', 'psexec', 'remove', '--unexpected'),
-        [string[]]@('.peer', 'psexec', '--')
+        [string[]]@('.peer', 'psexec', '--'),
+        [string[]]@('.peer', 'psexec', '2')
     )) {
         $InvalidPeer = Invoke-HelpTestCommand `
             -Arguments $InvalidPeerArguments `

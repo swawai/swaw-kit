@@ -145,3 +145,70 @@ function Invoke-RdpClientPeerSshPowerShell {
         Output   = $Output
     }
 }
+
+function Invoke-RdpClientPeerSshCopy {
+    param(
+        [Parameter(Mandatory = $true)][string]$SshEntryPath,
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$RemoteName
+    )
+
+    if (-not [IO.File]::Exists($SourcePath)) {
+        throw "SSH copy source was not found: $SourcePath"
+    }
+    if ($RemoteName -notmatch '^[A-Za-z0-9._-]+$') {
+        throw 'SSH copy remote name contains unsupported characters.'
+    }
+
+    $Utf8 = New-Object Text.UTF8Encoding($false)
+    $Process = New-Object Diagnostics.Process
+    $StartInfo = New-Object Diagnostics.ProcessStartInfo
+    $Started = $false
+    try {
+        $StartInfo.FileName = $env:ComSpec
+        $StartInfo.Arguments = (
+            '/d /s /c ""%RDP_CLIENT_PEER_SSH_ENTRY%" copy ' +
+            '"%RDP_CLIENT_PEER_COPY_SOURCE%" ' +
+            '":%RDP_CLIENT_PEER_COPY_NAME%""'
+        )
+        $StartInfo.UseShellExecute = $false
+        $StartInfo.CreateNoWindow = $true
+        $StartInfo.RedirectStandardInput = $false
+        $StartInfo.RedirectStandardOutput = $true
+        $StartInfo.RedirectStandardError = $true
+        $StartInfo.StandardOutputEncoding = $Utf8
+        $StartInfo.StandardErrorEncoding = $Utf8
+        [void]$StartInfo.EnvironmentVariables
+        $ChildEnvironment = $StartInfo.EnvironmentVariables
+        foreach ($Item in [Environment]::GetEnvironmentVariables().GetEnumerator()) {
+            $ChildEnvironment[[string]$Item.Key] = [string]$Item.Value
+        }
+        $ChildEnvironment['RDP_CLIENT_PEER_SSH_ENTRY'] = $SshEntryPath
+        $ChildEnvironment['RDP_CLIENT_PEER_COPY_SOURCE'] = $SourcePath
+        $ChildEnvironment['RDP_CLIENT_PEER_COPY_NAME'] = $RemoteName
+        $Process.StartInfo = $StartInfo
+
+        $Process.Start() | Out-Null
+        $Started = $true
+        $StdOutTask = $Process.StandardOutput.ReadToEndAsync()
+        $StdErrTask = $Process.StandardError.ReadToEndAsync()
+        $Process.WaitForExit()
+        $StdOut = $StdOutTask.Result
+        $StdErr = $StdErrTask.Result
+        $ExitCode = $Process.ExitCode
+    } finally {
+        if ($Started -and -not $Process.HasExited) {
+            try { $Process.Kill() } catch { }
+        }
+        $Process.Dispose()
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $ExitCode
+        Output   = @(
+            foreach ($Text in @($StdOut, $StdErr)) {
+                @($Text -split '\r?\n' | Where-Object { $_.Length -gt 0 })
+            }
+        )
+    }
+}

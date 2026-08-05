@@ -144,12 +144,17 @@ exit /b %ERRORLEVEL%
 :PeerPsExec
 set "RDP_PSEXEC_ACTION="
 set "RDP_PSEXEC_DRY_RUN="
+set "RDP_PSEXEC_SESSION_PARAMETER="
 set "RDP_PSEXEC_ARG_COUNT=0"
 if /i "%~3"=="status" goto :PeerPsExecStatus
 if /i "%~3"=="add" goto :PeerPsExecMutation
 if /i "%~3"=="remove" goto :PeerPsExecMutation
-if "%~3"=="--" goto :CollectPeerPsExecArguments
-goto :InvalidPeerCommand
+if "%~3"=="--" goto :PeerPsExecNative
+if "%~3"=="" goto :InvalidPeerCommand
+for /f "delims=0123456789" %%I in ("%~3") do goto :InvalidPeerCommand
+set "RDP_PSEXEC_ACTION=launch"
+set "RDP_PSEXEC_SESSION_PARAMETER=-SessionId %~3"
+goto :CollectPeerPsExecArguments
 
 :PeerPsExecStatus
 if not "%~4"=="" goto :InvalidPeerCommand
@@ -164,6 +169,9 @@ if not "%~5"=="" goto :InvalidPeerCommand
 set "RDP_PSEXEC_DRY_RUN=-DryRun"
 goto :RunPeerPsExec
 
+:PeerPsExecNative
+set "RDP_PSEXEC_ACTION=run"
+
 :CollectPeerPsExecArguments
 if "%~4"=="" goto :RunPeerPsExecCommand
 set /a RDP_PSEXEC_ARG_COUNT+=1 >nul
@@ -173,7 +181,6 @@ goto :CollectPeerPsExecArguments
 
 :RunPeerPsExecCommand
 if "%RDP_PSEXEC_ARG_COUNT%"=="0" goto :InvalidPeerCommand
-set "RDP_PSEXEC_ACTION=run"
 
 :RunPeerPsExec
 if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
@@ -184,7 +191,7 @@ if not exist "%RDP_PSEXEC_SCRIPT%" (
     exit /b 1
 )
 
-PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_PSEXEC_SCRIPT%" -Action "%RDP_PSEXEC_ACTION%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -ArgumentCount %RDP_PSEXEC_ARG_COUNT% -CommandName "%RDP_ENTRY_COMMAND%" %RDP_PSEXEC_DRY_RUN%
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_PSEXEC_SCRIPT%" -Action "%RDP_PSEXEC_ACTION%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -ArgumentCount %RDP_PSEXEC_ARG_COUNT% %RDP_PSEXEC_SESSION_PARAMETER% -CommandName "%RDP_ENTRY_COMMAND%" %RDP_PSEXEC_DRY_RUN%
 exit /b %ERRORLEVEL%
 
 :RunRdp
@@ -328,6 +335,7 @@ echo   "%RDP_ENTRY_COMMAND% .peer shadow restore [--dry-run]"
 echo   "%RDP_ENTRY_COMMAND% .peer psexec status"
 echo   "%RDP_ENTRY_COMMAND% .peer psexec add [--dry-run]"
 echo   "%RDP_ENTRY_COMMAND% .peer psexec remove [--dry-run]"
+echo   "%RDP_ENTRY_COMMAND% .peer psexec ^<session-id^> ^<program-and-arguments^>"
 echo   "%RDP_ENTRY_COMMAND% .peer psexec -- <native-arguments>"
 exit /b 1
 

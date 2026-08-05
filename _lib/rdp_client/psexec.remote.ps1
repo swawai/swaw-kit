@@ -6,6 +6,7 @@ $Utf8 = New-Object Text.UTF8Encoding($false)
 [Console]::InputEncoding = $Utf8
 [Console]::OutputEncoding = $Utf8
 $OutputEncoding = $Utf8
+$HelperUploadPath = ''
 
 function Get-RdpClientNativeArchitecture {
     $Architecture = $env:PROCESSOR_ARCHITEW6432
@@ -192,11 +193,33 @@ try {
     }
     $ManagedDirectory = Join-Path $LocalAppData 'swaw-kit\rdp-client'
     $ManagedPath = Join-Path $ManagedDirectory 'psexec.exe'
+    $HelperPath = Join-Path $ManagedDirectory 'psexec-session-launch.ps1'
+    $ExpectedHelperHash = [string]$Request.HelperSha256
+    if ($ExpectedHelperHash -notmatch '^[A-Fa-f0-9]{64}$') {
+        throw 'The expected PsExec session helper hash is invalid.'
+    }
+    $ExpectedHelperHash = $ExpectedHelperHash.ToUpperInvariant()
+    if ($Request.Action -eq 'add' -and -not [bool]$Request.DryRun) {
+        $HelperUploadName = [string]$Request.HelperUploadName
+        if ($HelperUploadName -notmatch
+            '^\.swaw-kit-psexec-session-[A-Fa-f0-9]{32}\.ps1$') {
+            throw 'The PsExec session helper upload name is invalid.'
+        }
+        $HelperUploadPath = Join-Path $HOME $HelperUploadName
+    }
     $Present = [IO.File]::Exists($ManagedPath)
     $Signature = $null
     if ($Present) {
         $Signature = Get-RdpClientPsExecSignature -Path $ManagedPath
     }
+    $HelperPresent = [IO.File]::Exists($HelperPath)
+    $HelperHash = ''
+    if ($HelperPresent) {
+        $HelperHash = (
+            Get-FileHash -LiteralPath $HelperPath -Algorithm SHA256
+        ).Hash.ToUpperInvariant()
+    }
+    $HelperReady = $HelperPresent -and $HelperHash -eq $ExpectedHelperHash
 
     if ($Request.Action -eq 'status') {
         Write-RdpClientPsExecHeader `
@@ -204,17 +227,30 @@ try {
             -PeerAddress $PeerAddress `
             -Architecture $Architecture `
             -Path $ManagedPath
-        if (-not $Present) {
-            Write-Output '  State:        ABSENT'
-            exit 0
+        $Ready = $Present -and $Signature.IsTrusted -and $HelperReady
+        if ($Ready) {
+            Write-Output '  State:        READY'
+        } else {
+            Write-Output '  State:        INCOMPLETE'
         }
-        $Version = [Diagnostics.FileVersionInfo]::GetVersionInfo($ManagedPath).FileVersion
-        $Hash = (Get-FileHash -LiteralPath $ManagedPath -Algorithm SHA256).Hash
-        Write-Output '  State:        PRESENT'
-        Write-Output "  Version:      $Version"
-        Write-Output "  Signature:    $($Signature.Status)"
-        Write-Output "  Signer:       $($Signature.Subject)"
-        Write-Output "  SHA-256:      $Hash"
+        if ($Present) {
+            $Version = [Diagnostics.FileVersionInfo]::GetVersionInfo(
+                $ManagedPath
+            ).FileVersion
+            Write-Output (
+                "  PsExec:       PRESENT version=$Version " +
+                "signature=$($Signature.Status)"
+            )
+        } else {
+            Write-Output '  PsExec:       ABSENT'
+        }
+        if ($HelperReady) {
+            Write-Output "  Helper:       READY sha256=$HelperHash"
+        } elseif ($HelperPresent) {
+            Write-Output "  Helper:       OUTDATED sha256=$HelperHash"
+        } else {
+            Write-Output '  Helper:       ABSENT'
+        }
         exit 0
     }
 
@@ -232,52 +268,117 @@ try {
             } else {
                 Write-Output "  ADD     $ManagedPath"
             }
+            if ($HelperReady) {
+                Write-Output "  PRESENT $HelperPath"
+            } elseif ($HelperPresent) {
+                Write-Output "  REPLACE $HelperPath"
+            } else {
+                Write-Output "  ADD     $HelperPath"
+            }
             Write-Output "  SOURCE  $($Download.Uri)"
             Write-Output '  VERIFY  Authenticode signer=Microsoft Corporation'
+            Write-Output "  VERIFY  helper sha256=$ExpectedHelperHash"
             Write-Output '[RDP] Dry run: no peer changes were made.'
-            exit 0
-        }
-        if ($Present -and $Signature.IsTrusted) {
-            Write-RdpClientPsExecHeader `
-                -Title 'add' `
-                -PeerAddress $PeerAddress `
-                -Architecture $Architecture `
-                -Path $ManagedPath
-            Write-Output '[RDP] Microsoft-signed PsExec is already present.'
             exit 0
         }
 
         [IO.Directory]::CreateDirectory($ManagedDirectory) | Out-Null
-        $TemporaryPath = Join-Path $ManagedDirectory (
-            '.psexec-' + [Guid]::NewGuid().ToString('N') + '.exe'
-        )
-        try {
-            [Net.ServicePointManager]::SecurityProtocol =
-                [Net.ServicePointManager]::SecurityProtocol -bor
-                [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest `
-                -UseBasicParsing `
-                -Uri $Download.Uri `
-                -OutFile $TemporaryPath
-            $DownloadedSignature = Get-RdpClientPsExecSignature -Path $TemporaryPath
-            if (-not $DownloadedSignature.IsTrusted) {
-                throw (
-                    'Downloaded PsExec failed Microsoft Authenticode verification: ' +
-                    "$($DownloadedSignature.Status), $($DownloadedSignature.Subject)"
-                )
-            }
-            Move-Item -LiteralPath $TemporaryPath -Destination $ManagedPath -Force
-        } finally {
-            if ([IO.File]::Exists($TemporaryPath)) {
-                Remove-Item -LiteralPath $TemporaryPath -Force
+        $PsExecChanged = $false
+        $PsExecChangeAction = ''
+        if (-not ($Present -and $Signature.IsTrusted)) {
+            $PsExecChangeAction = if ($Present) { 'REPLACED' } else { 'ADDED' }
+            $TemporaryPath = Join-Path $ManagedDirectory (
+                '.psexec-' + [Guid]::NewGuid().ToString('N') + '.exe'
+            )
+            try {
+                [Net.ServicePointManager]::SecurityProtocol =
+                    [Net.ServicePointManager]::SecurityProtocol -bor
+                    [Net.SecurityProtocolType]::Tls12
+                Invoke-WebRequest `
+                    -UseBasicParsing `
+                    -Uri $Download.Uri `
+                    -OutFile $TemporaryPath
+                $DownloadedSignature = Get-RdpClientPsExecSignature `
+                    -Path $TemporaryPath
+                if (-not $DownloadedSignature.IsTrusted) {
+                    throw (
+                        'Downloaded PsExec failed Microsoft Authenticode ' +
+                        "verification: $($DownloadedSignature.Status), " +
+                        $DownloadedSignature.Subject
+                    )
+                }
+                Move-Item `
+                    -LiteralPath $TemporaryPath `
+                    -Destination $ManagedPath `
+                    -Force
+                $PsExecChanged = $true
+            } finally {
+                if ([IO.File]::Exists($TemporaryPath)) {
+                    Remove-Item -LiteralPath $TemporaryPath -Force
+                }
             }
         }
+
+        $HelperChanged = $false
+        $HelperChangeAction = ''
+        if (-not $HelperReady) {
+            $HelperChangeAction = if ($HelperPresent) { 'REPLACED' } else { 'ADDED' }
+            if (-not [IO.File]::Exists($HelperUploadPath)) {
+                throw 'The uploaded PsExec session helper was not found.'
+            }
+            $HelperBytes = [IO.File]::ReadAllBytes($HelperUploadPath)
+            $Hasher = [Security.Cryptography.SHA256]::Create()
+            try {
+                $SourceHash = [BitConverter]::ToString(
+                    $Hasher.ComputeHash($HelperBytes)
+                ).Replace('-', '')
+            } finally {
+                $Hasher.Dispose()
+            }
+            if ($SourceHash -ne $ExpectedHelperHash) {
+                throw 'The PsExec session helper source failed SHA-256 verification.'
+            }
+            $TemporaryHelperPath = Join-Path $ManagedDirectory (
+                '.psexec-session-' + [Guid]::NewGuid().ToString('N') + '.ps1'
+            )
+            try {
+                [IO.File]::WriteAllBytes($TemporaryHelperPath, $HelperBytes)
+                Move-Item `
+                    -LiteralPath $TemporaryHelperPath `
+                    -Destination $HelperPath `
+                    -Force
+                $HelperChanged = $true
+            } finally {
+                if ([IO.File]::Exists($TemporaryHelperPath)) {
+                    Remove-Item -LiteralPath $TemporaryHelperPath -Force
+                }
+            }
+        }
+        if ([IO.File]::Exists($HelperUploadPath)) {
+            Remove-Item -LiteralPath $HelperUploadPath -Force
+        }
+        $HelperUploadPath = ''
         Write-RdpClientPsExecHeader `
             -Title 'add' `
             -PeerAddress $PeerAddress `
             -Architecture $Architecture `
             -Path $ManagedPath
-        Write-Output "[RDP] Added $($Download.FileName) from Microsoft Sysinternals Live."
+        if ($PsExecChanged) {
+            Write-Output (
+                '  {0,-9}{1} ({2} from Microsoft Sysinternals Live)' -f
+                $PsExecChangeAction,
+                $ManagedPath,
+                $Download.FileName
+            )
+        } else {
+            Write-Output '  PRESENT valid Microsoft-signed PsExec'
+        }
+        if ($HelperChanged) {
+            Write-Output ('  {0,-9}{1}' -f $HelperChangeAction, $HelperPath)
+        } else {
+            Write-Output "  PRESENT $HelperPath"
+        }
+        Write-Output '[RDP] Peer PsExec is ready.'
         exit 0
     }
 
@@ -293,11 +394,19 @@ try {
             } else {
                 Write-Output '  ABSENT  no managed PsExec file'
             }
+            if ($HelperPresent) {
+                Write-Output "  REMOVE  $HelperPath"
+            } else {
+                Write-Output '  ABSENT  no managed session helper'
+            }
             Write-Output '[RDP] Dry run: no peer changes were made.'
             exit 0
         }
         if ($Present) {
             Remove-Item -LiteralPath $ManagedPath -Force
+        }
+        if ($HelperPresent) {
+            Remove-Item -LiteralPath $HelperPath -Force
         }
         if ([IO.Directory]::Exists($ManagedDirectory) -and
             @(Get-ChildItem -LiteralPath $ManagedDirectory -Force).Count -eq 0) {
@@ -308,10 +417,10 @@ try {
             -PeerAddress $PeerAddress `
             -Architecture $Architecture `
             -Path $ManagedPath
-        if ($Present) {
-            Write-Output '[RDP] Removed the managed PsExec file.'
+        if ($Present -or $HelperPresent) {
+            Write-Output '[RDP] Removed the managed PsExec files.'
         } else {
-            Write-Output '[RDP] Managed PsExec was already absent.'
+            Write-Output '[RDP] Managed PsExec files were already absent.'
         }
         exit 0
     }
@@ -325,6 +434,55 @@ try {
             'Run .peer psexec add to replace it.'
         )
     }
+    if ($Request.Action -eq 'launch') {
+        if (-not $HelperReady) {
+            throw (
+                'Managed PsExec session helper is absent or outdated. ' +
+                'Run .peer psexec add first.'
+            )
+        }
+        $LaunchSessionId = [int]$Request.SessionId
+        if ($LaunchSessionId -le 0) {
+            throw 'PsExec session ID must be a positive integer.'
+        }
+        $LaunchPayloadJson = [ordered]@{
+            Arguments = @($Request.Arguments)
+        } | ConvertTo-Json -Compress -Depth 3
+        $LaunchPayloadBase64 = [Convert]::ToBase64String(
+            $Utf8.GetBytes($LaunchPayloadJson)
+        )
+        Write-RdpClientPsExecHeader `
+            -Title 'session launch' `
+            -PeerAddress $PeerAddress `
+            -Architecture $Architecture `
+            -Path $ManagedPath
+        $Invocation = Invoke-RdpClientCapturedProcess `
+            -FilePath $ManagedPath `
+            -Arguments @(
+                '-accepteula',
+                '-nobanner',
+                '-s',
+                'powershell.exe',
+                '-NoLogo',
+                '-NoProfile',
+                '-NonInteractive',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-File',
+                $HelperPath,
+                '-SessionId',
+                [string]$LaunchSessionId,
+                '-PayloadBase64',
+                $LaunchPayloadBase64
+            )
+        foreach ($Text in @($Invocation.StdOut, $Invocation.StdErr)) {
+            $Text -split '[\r\n]+' | Where-Object {
+                $_.Length -gt 0
+            } | ForEach-Object { Write-Output $_ }
+        }
+        exit $Invocation.ExitCode
+    }
+
     Write-RdpClientPsExecHeader `
         -Title 'run' `
         -PeerAddress $PeerAddress `
@@ -365,6 +523,10 @@ try {
     }
     exit $ExitCode
 } catch {
+    if (-not [string]::IsNullOrWhiteSpace($HelperUploadPath) -and
+        [IO.File]::Exists($HelperUploadPath)) {
+        try { Remove-Item -LiteralPath $HelperUploadPath -Force } catch { }
+    }
     Write-Output "[ERROR] $($_.Exception.Message)"
     exit 1
 }

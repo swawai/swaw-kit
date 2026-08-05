@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('status', 'add', 'remove', 'run')]
+    [ValidateSet('status', 'add', 'remove', 'run', 'launch')]
     [string]$Action,
 
     [Parameter(Mandatory = $true)]
@@ -14,6 +14,8 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateRange(0, 32767)]
     [int]$ArgumentCount,
+
+    [int]$SessionId = 0,
 
     [string]$CommandName = 'rdp',
 
@@ -69,14 +71,23 @@ function Get-RdpClientExpectedPeerAddresses {
 }
 
 try {
-    if ($Action -ne 'run' -and $ArgumentCount -ne 0) {
+    if (@('run', 'launch') -notcontains $Action -and $ArgumentCount -ne 0) {
         throw 'PsExec management commands do not accept native arguments.'
     }
-    if ($Action -eq 'run' -and $ArgumentCount -eq 0) {
-        throw "PsExec usage: $CommandName .peer psexec -- <native-arguments>"
+    if (@('run', 'launch') -contains $Action -and $ArgumentCount -eq 0) {
+        throw (
+            "PsExec usage: $CommandName .peer psexec <session-id> " +
+            '<program-and-arguments>'
+        )
     }
-    if ($Action -eq 'run' -and $DryRun) {
-        throw 'PsExec native invocation does not support --dry-run.'
+    if ($Action -eq 'launch' -and $SessionId -le 0) {
+        throw 'PsExec session ID must be a positive integer.'
+    }
+    if ($Action -ne 'launch' -and $SessionId -ne 0) {
+        throw 'PsExec session ID is only valid for session launch.'
+    }
+    if (@('run', 'launch') -contains $Action -and $DryRun) {
+        throw 'PsExec process invocation does not support --dry-run.'
     }
 
     $Utf8 = New-Object Text.UTF8Encoding($false)
@@ -91,13 +102,48 @@ try {
         -RdpEntryPath $ResolvedRdpEntry
 
     $Arguments = @()
-    if ($Action -eq 'run') {
+    if (@('run', 'launch') -contains $Action) {
         $Arguments = @(Get-RdpClientPsExecArguments -Count $ArgumentCount)
     }
+
+    $HelperPath = Join-Path $PSScriptRoot 'psexec-session-launch.ps1'
+    if (-not [IO.File]::Exists($HelperPath)) {
+        throw "RDP peer PsExec session helper was not found: $HelperPath"
+    }
+    $HelperBytes = [IO.File]::ReadAllBytes($HelperPath)
+    $Hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $HelperSha256 = [BitConverter]::ToString(
+            $Hasher.ComputeHash($HelperBytes)
+        ).Replace('-', '')
+    } finally {
+        $Hasher.Dispose()
+    }
+    $HelperUploadName = ''
+    if ($Action -eq 'add' -and -not $DryRun.IsPresent) {
+        $HelperUploadName = (
+            '.swaw-kit-psexec-session-' +
+            [Guid]::NewGuid().ToString('N') +
+            '.ps1'
+        )
+        $Copy = Invoke-RdpClientPeerSshCopy `
+            -SshEntryPath $ResolvedSshEntry `
+            -SourcePath $HelperPath `
+            -RemoteName $HelperUploadName
+        if ($Copy.ExitCode -ne 0) {
+            throw (
+                'Failed to upload the PsExec session helper. ' +
+                ($Copy.Output -join ' ')
+            )
+        }
+    }
     $PayloadJson = [ordered]@{
-        Action            = $Action
-        DryRun            = $DryRun.IsPresent
-        Arguments         = $Arguments
+        Action             = $Action
+        DryRun             = $DryRun.IsPresent
+        Arguments          = $Arguments
+        SessionId          = $SessionId
+        HelperSha256       = $HelperSha256
+        HelperUploadName   = $HelperUploadName
         ExpectedAddresses = @(Get-RdpClientExpectedPeerAddresses `
             -EntryPath $ResolvedRdpEntry)
     } | ConvertTo-Json -Compress -Depth 4
