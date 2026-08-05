@@ -119,6 +119,60 @@ function Write-RdpClientPsExecHeader {
     Write-Output "  Path:         $Path"
 }
 
+function Join-RdpClientProcessArguments {
+    param([AllowNull()][object[]]$Arguments = @())
+
+    $Quoted = foreach ($Argument in @($Arguments)) {
+        $Value = [string]$Argument
+        if ($Value.Length -eq 0) {
+            '""'
+        } elseif ($Value -notmatch '[\s"]') {
+            $Value
+        } else {
+            '"' +
+                ($Value -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') +
+                '"'
+        }
+    }
+    return $Quoted -join ' '
+}
+
+function Invoke-RdpClientCapturedProcess {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [AllowNull()][object[]]$Arguments = @()
+    )
+
+    $Process = New-Object Diagnostics.Process
+    $Started = $false
+    try {
+        $Process.StartInfo.FileName = $FilePath
+        $Process.StartInfo.Arguments = Join-RdpClientProcessArguments $Arguments
+        $Process.StartInfo.UseShellExecute = $false
+        $Process.StartInfo.CreateNoWindow = $true
+        $Process.StartInfo.RedirectStandardInput = $false
+        $Process.StartInfo.RedirectStandardOutput = $true
+        $Process.StartInfo.RedirectStandardError = $true
+        $Process.StartInfo.StandardOutputEncoding = $Utf8
+        $Process.StartInfo.StandardErrorEncoding = $Utf8
+        $Process.Start() | Out-Null
+        $Started = $true
+        $StdOutTask = $Process.StandardOutput.ReadToEndAsync()
+        $StdErrTask = $Process.StandardError.ReadToEndAsync()
+        $Process.WaitForExit()
+        return [pscustomobject]@{
+            ExitCode = $Process.ExitCode
+            StdOut   = $StdOutTask.Result
+            StdErr   = $StdErrTask.Result
+        }
+    } finally {
+        if ($Started -and -not $Process.HasExited) {
+            try { $Process.Kill() } catch { }
+        }
+        $Process.Dispose()
+    }
+}
+
 try {
     $PayloadBase64 = '__RDP_CLIENT_PSEXEC_PAYLOAD__'
     $PayloadJson = $Utf8.GetString([Convert]::FromBase64String($PayloadBase64))
@@ -276,15 +330,39 @@ try {
         -PeerAddress $PeerAddress `
         -Architecture $Architecture `
         -Path $ManagedPath
-    $PreviousPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = 'Continue'
-        $PsExecOutput = @(& $ManagedPath @($Request.Arguments) 2>&1)
-        $ExitCode = $LASTEXITCODE
-    } finally {
-        $ErrorActionPreference = $PreviousPreference
+    $PsExecArguments = @($Request.Arguments)
+    if (-not @($PsExecArguments | Where-Object {
+        [string]::Equals(
+            [string]$_,
+            '-accepteula',
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    }).Count) {
+        $PsExecArguments = @('-accepteula') + $PsExecArguments
     }
-    $PsExecOutput | ForEach-Object { Write-Output ([string]$_) }
+    $Invocation = Invoke-RdpClientCapturedProcess `
+        -FilePath $ManagedPath `
+        -Arguments $PsExecArguments
+    $CombinedOutput = $Invocation.StdOut + "`n" + $Invocation.StdErr
+    $Detached = @($PsExecArguments | Where-Object {
+        [string]::Equals(
+            [string]$_,
+            '-d',
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    }).Count -gt 0
+    $ExitCode = $Invocation.ExitCode
+    if ($Detached -and $ExitCode -ne 0 -and $CombinedOutput -match
+        '(?m)^.+ started on .+ with process ID [0-9]+\.\s*$') {
+        # PsExec 2.43 returns 1 after a successful detached launch. Its stable
+        # PID confirmation distinguishes that case from a start failure.
+        $ExitCode = 0
+    }
+    foreach ($Text in @($Invocation.StdOut, $Invocation.StdErr)) {
+        $Text -split '[\r\n]+' | Where-Object { $_.Length -gt 0 } | ForEach-Object {
+            Write-Output $_
+        }
+    }
     exit $ExitCode
 } catch {
     Write-Output "[ERROR] $($_.Exception.Message)"

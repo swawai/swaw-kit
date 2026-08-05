@@ -207,7 +207,6 @@ exit [int]$env:RDP_PSEXEC_FAKE_EXIT
     Assert-Request -Request (Get-CapturedRequest) -Action remove -DryRun $false
 
     $NativeArguments = @(
-        '-accepteula',
         '-nobanner',
         '-i',
         '2',
@@ -247,14 +246,22 @@ exit [int]$env:RDP_PSEXEC_FAKE_EXIT
         'Get-AuthenticodeSignature',
         'O=Microsoft Corporation',
         'Invoke-WebRequest',
-        'Move-Item'
+        'Move-Item',
+        'Invoke-RdpClientCapturedProcess',
+        'RedirectStandardError = $true',
+        'started on .+ with process ID'
     )) {
         if (-not $RemoteTemplate.Contains($ExpectedSource)) {
             throw "The remote PsExec implementation is missing '$ExpectedSource'."
         }
     }
-    if ($RemoteTemplate.Contains("'-accepteula'")) {
-        throw 'The PsExec wrapper must not inject -accepteula.'
+    if (-not $RemoteTemplate.Contains(
+        "`$PsExecArguments = @('-accepteula') + `$PsExecArguments"
+    )) {
+        throw 'The PsExec wrapper must inject -accepteula for unattended runs.'
+    }
+    if ($RemoteTemplate.Contains('@PsExecArguments 2>&1')) {
+        throw 'PsExec stderr must remain a raw native stream.'
     }
 
     foreach ($InvalidArguments in @(

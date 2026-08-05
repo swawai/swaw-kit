@@ -32,8 +32,8 @@
   {{COMMAND}} .peer psexec add --dry-run        查看 add 将进行的修改
   {{COMMAND}} .peer psexec remove               删除本工具添加的 PsExec
   {{COMMAND}} .peer psexec remove --dry-run     查看 remove 将进行的修改
-  {{COMMAND}} .peer psexec -- <原生参数...>      将参数原样传给对端 PsExec
-  add 不运行 PsExec 或接受 EULA；首次使用时可在原生参数中明确传入 -accepteula
+  {{COMMAND}} .peer psexec -- <原生参数...>      调用对端 PsExec；自动补 -accepteula
+  PsExec 会保留当前 SSH 账号的 EULA 接受记录；remove 只删除本工具托管的程序文件
 
 # 通过系统 hosts 管理别名（可按账号区分凭据）：
   {{COMMAND}} .hosts status            查看本入口别名的 hosts 托管状态
