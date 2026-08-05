@@ -118,7 +118,7 @@ function Assert-Request {
     }
     if ($Action -eq 'add' -and -not $DryRun -and
         [string]$Request.HelperUploadName -notmatch
-        '^\.swaw-kit-psexec-session-[A-Fa-f0-9]{32}\.ps1$') {
+        '^\.swaw-kit-psexec-helper-[A-Fa-f0-9]{32}\.ps1$') {
         throw 'PsExec add did not reference the uploaded session helper.'
     }
 }
@@ -132,7 +132,7 @@ try {
         'peer-ssh.ps1',
         'psexec.ps1',
         'psexec.remote.ps1',
-        'psexec-session-launch.ps1'
+        'helper.ps1'
     )) {
         [IO.File]::Copy(
             (Join-Path (Join-Path $PSScriptRoot '..') $RuntimeFile),
@@ -290,9 +290,14 @@ exit [int]$env:RDP_PSEXEC_FAKE_EXIT
         'Invoke-RdpClientCapturedProcess',
         'RedirectStandardError = $true',
         'started on .+ with process ID',
-        "Join-Path `$ManagedDirectory 'psexec-session-launch.ps1'",
+        "Join-Path `$ManagedDirectory 'helper.ps1'",
         'HelperUploadName',
         'HelperSha256',
+        'Write-RdpClientPsExecField',
+        'Write-RdpClientPsExecFile',
+        "'PsExec SOURCE'",
+        "'Helper VERIFY'",
+        "Write-Output '  ---'",
         "`$Request.Action -eq 'launch'",
         "'-s'"
     )) {
@@ -308,11 +313,19 @@ exit [int]$env:RDP_PSEXEC_FAKE_EXIT
     if ($RemoteTemplate.Contains('@PsExecArguments 2>&1')) {
         throw 'PsExec stderr must remain a raw native stream.'
     }
+    if ($RemoteTemplate.Contains('psexec-session-launch.ps1')) {
+        throw 'The unpublished PsExec helper filename must not remain supported.'
+    }
 
     $HelperTemplate = [IO.File]::ReadAllText(
-        (Join-Path $PSScriptRoot '..\psexec-session-launch.ps1'),
+        (Join-Path $PSScriptRoot '..\helper.ps1'),
         [Text.Encoding]::UTF8
     )
+    if ([IO.File]::Exists(
+        (Join-Path $PSScriptRoot '..\psexec-session-launch.ps1')
+    )) {
+        throw 'The PsExec helper must have one canonical source filename.'
+    }
     foreach ($ExpectedHelperSource in @(
         'WTSQueryUserToken',
         'CreateEnvironmentBlock',

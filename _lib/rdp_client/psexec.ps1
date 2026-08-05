@@ -106,7 +106,7 @@ try {
         $Arguments = @(Get-RdpClientPsExecArguments -Count $ArgumentCount)
     }
 
-    $HelperPath = Join-Path $PSScriptRoot 'psexec-session-launch.ps1'
+    $HelperPath = Join-Path $PSScriptRoot 'helper.ps1'
     if (-not [IO.File]::Exists($HelperPath)) {
         throw "RDP peer PsExec session helper was not found: $HelperPath"
     }
@@ -122,7 +122,7 @@ try {
     $HelperUploadName = ''
     if ($Action -eq 'add' -and -not $DryRun.IsPresent) {
         $HelperUploadName = (
-            '.swaw-kit-psexec-session-' +
+            '.swaw-kit-psexec-helper-' +
             [Guid]::NewGuid().ToString('N') +
             '.ps1'
         )
