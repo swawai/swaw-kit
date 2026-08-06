@@ -20,6 +20,22 @@ export function controlledColumnId(_command, depth) {
   return `finder-column-${depth + 1}`;
 }
 
+export function captureColumnScrollOffsets(columns) {
+  return new Map(
+    [...columns.querySelectorAll(".finder-column")]
+      .map((column) => [column.dataset.scrollKey, column.scrollTop]),
+  );
+}
+
+export function restoreColumnScrollOffsets(columns, offsets) {
+  for (const column of columns.querySelectorAll(".finder-column")) {
+    const offset = offsets.get(column.dataset.scrollKey);
+    if (offset !== undefined) {
+      column.scrollTop = offset;
+    }
+  }
+}
+
 export function createExplorerView({
   breadcrumb,
   columns,
@@ -120,6 +136,7 @@ export function createExplorerView({
     column.className = "finder-column";
     column.id = "finder-column-0";
     column.dataset.depth = "0";
+    column.dataset.scrollKey = "root";
     for (const source of ["control", "kernel", "action"]) {
       appendSection(
         column,
@@ -143,6 +160,7 @@ export function createExplorerView({
     column.className = "finder-column";
     column.id = `finder-column-${depth}`;
     column.dataset.depth = String(depth);
+    column.dataset.scrollKey = `children:${parentAddress}`;
     column.setAttribute("role", "group");
     column.setAttribute("aria-label", `${parent.address} 子命令`);
     appendSection(column, null, childrenOf(catalog, parentAddress), depth);
@@ -150,6 +168,7 @@ export function createExplorerView({
   }
 
   function renderColumns({ focusKey = null, focusDetail = false } = {}) {
+    const scrollOffsets = captureColumnScrollOffsets(columns);
     columns.replaceChildren(createRootColumn());
     for (const [depth, address] of selectedPath.entries()) {
       const command = catalog.commandByAddress.get(address);
@@ -157,6 +176,7 @@ export function createExplorerView({
         columns.append(createChildColumn(address, depth + 1));
       }
     }
+    restoreColumnScrollOffsets(columns, scrollOffsets);
 
     requestAnimationFrame(() => {
       const focusTarget = focusKey
@@ -170,6 +190,9 @@ export function createExplorerView({
         focusTarget?.focus({ preventScroll: true });
         columns.lastElementChild?.scrollIntoView({ block: "nearest", inline: "nearest" });
       }
+      // Browser focus and scrollIntoView may also move a nested scroll container.
+      // Reapply the semantic column offsets after those side effects settle.
+      restoreColumnScrollOffsets(columns, scrollOffsets);
     });
   }
 
