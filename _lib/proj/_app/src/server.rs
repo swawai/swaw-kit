@@ -7,7 +7,7 @@ use std::{
 
 use axum::{
     Json, Router,
-    extract::{Request, State},
+    extract::{Path, Request, State},
     http::{
         HeaderMap, HeaderName, HeaderValue, StatusCode,
         header::{CACHE_CONTROL, ETAG, HOST, IF_MATCH},
@@ -16,7 +16,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::{net::TcpListener, sync::oneshot};
 
 use crate::{
@@ -24,7 +24,7 @@ use crate::{
     catalog_reader::CatalogReader,
     context::EntryContext,
     data_root::{DataRootSession, DataRootSessionState},
-    profile::{EntryProfileDocument, EntryProfileRecord, EntryProfileStore, ProfileUpdateError},
+    profile::{EntryProfileDocument, EntryProfileStore, ProfileUpdateError},
     web_assets,
 };
 
@@ -108,7 +108,11 @@ fn router(expected_authority: String, context: EntryContext, data_root: DataRoot
             "/api/v2/data-root/claim",
             get(claim::get_claim).post(claim::post_claim),
         )
-        .route("/api/v2/profile", get(get_profile).put(put_profile))
+        .route("/api/v2/profile", get(get_profile))
+        .route(
+            "/api/v2/profile/variables/{name}",
+            axum::routing::put(put_profile_variable),
+        )
         .route("/healthz", get(health))
         .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn_with_state(
@@ -194,15 +198,26 @@ async fn get_profile(State(state): State<ServerState>) -> Response {
     profile_response(document)
 }
 
-async fn put_profile(
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProfileVariableUpdate {
+    value: String,
+}
+
+async fn put_profile_variable(
     State(state): State<ServerState>,
+    Path(name): Path<String>,
     headers: HeaderMap,
-    Json(profile): Json<EntryProfileRecord>,
+    Json(update): Json<ProfileVariableUpdate>,
 ) -> Result<Response, (StatusCode, Json<ApiError>)> {
     let expected_revision = expected_revision(&headers, "entry profile")?.to_owned();
     let profile_store = ready_profile_store(&state).await?;
     let update = tokio::task::spawn_blocking(move || {
-        profile_store.replace_if_revision(&expected_revision, profile)
+        profile_store.update_environment_variable_if_revision(
+            &expected_revision,
+            &name,
+            update.value,
+        )
     })
     .await
     .map_err(|error| {

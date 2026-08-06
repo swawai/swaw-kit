@@ -1,4 +1,4 @@
-/* Built-in Entry Profile renderer. */
+/* Generic editor for Catalog commands handled by entry.profile.set. */
 .profile-form {
   display: block;
 }
@@ -18,41 +18,19 @@
   color: var(--ui-status-error);
 }
 
-.profile-section > h3 {
-  display: none;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 12px;
-}
-
-.form-grid-three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
 .form-field {
   min-width: 0;
   display: grid;
-  align-content: start;
-  gap: 6px;
-}
-
-.form-field-wide {
-  grid-column: 1 / -1;
+  gap: 8px;
 }
 
 .form-field label {
   color: var(--ui-text-muted);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
-.form-field input,
-.form-field select {
+.form-field input {
   width: 100%;
   min-height: 40px;
   padding: 8px 10px;
@@ -64,58 +42,16 @@
   font-size: 12px;
 }
 
-.form-field select {
-  font-family: var(--font-ui);
-}
-
-.form-field input:focus-visible,
-.form-field select:focus-visible {
+.form-field input:focus-visible {
   outline: 2px solid var(--ui-focus-ring);
   outline-offset: 2px;
-}
-
-.form-field > p,
-.form-note {
-  margin: 0;
-  color: var(--ui-text-muted);
-  font-size: 11px;
-  line-height: 1.55;
-}
-
-.tool-settings {
-  display: grid;
-  gap: 19px;
-}
-
-.tool-setting {
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.tool-setting legend {
-  width: 100%;
-  margin-bottom: 9px;
-  padding: 0 0 7px;
-  border-bottom: 1px solid var(--ui-border);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.form-note {
-  margin-top: 18px;
-}
-
-.profile-properties {
-  margin-top: 14px;
 }
 
 .profile-actions {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 27px;
+  margin-top: 24px;
   padding-bottom: 8px;
 }
 
@@ -128,15 +64,4 @@
 
 .profile-feedback[data-state="error"] {
   color: var(--ui-status-error);
-}
-
-@media (max-width: 560px) {
-  .form-grid,
-  .form-grid-three {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .form-field-wide {
-    grid-column: auto;
-  }
 }

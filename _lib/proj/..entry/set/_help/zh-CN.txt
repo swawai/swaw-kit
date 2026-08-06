@@ -1,18 +1,11 @@
-原子修改当前 Entry Profile 的一个已知字段。
+按运行时环境变量名修改当前 Entry Profile。
 
-用法:
-  {{INVOCATION}} <field> <value>
-  {{INVOCATION}} --list
-  {{INVOCATION}} --list --json
+该节点是命令组；每个可写的 SWAWKIT_PROJ_* 变量都是一个可独立发现、调用和
+渲染的子命令：
 
-示例:
-  {{INVOCATION}} targetProjectRoot "${SWAWKIT_HOME}"
-  {{INVOCATION}} git.email "dev@example.com"
+  {{COMMAND}} {{ADDRESS}}.SWAWKIT_PROJ_DEFAULT_SHELL pwsh
+  {{COMMAND}} {{ADDRESS}}.SWAWKIT_PROJ_RUST_TOOLCHAIN stable
 
-保存前会验证完整 Profile；字段名未知或值导致 Profile 无效时不会写入文件。
---list 从当前 Entry Profile 结构生成可修改的字符串叶子路径并稳定排序；schema
-属于文档协议，不可修改，也不会出现在列表中。--list --json 输出供 Agent 使用的
-JSON 字符串数组。
-
-Profile path（例如 development.bun.mode）是用户配置 API；SWAWKIT_PROJ_* 是
-Core 根据 Profile 生成并交给子进程的只读运行时投影，不应由用户直接设置。
+每次调用只修改一个值，保存前仍会验证完整 Profile，并在同一把 DataRoot 锁内
+原子发布。Catalog 中不存在的变量不可写；DataRoot、Entry File 与当前命令地址等
+运行时事实也不会伪装成设置命令。

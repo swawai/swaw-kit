@@ -46,9 +46,10 @@ const elements = {
   propertyEntryRow: document.querySelector("#property-entry-row"),
   profileFeedback: document.querySelector("#profile-feedback"),
   profileForm: document.querySelector("#profile-form"),
-  profileResolvedRoot: document.querySelector("#profile-resolved-root"),
   profileSaveButton: document.querySelector("#profile-save-button"),
   profileState: document.querySelector("#profile-state"),
+  profileValue: document.querySelector("#profile-value"),
+  profileVariableName: document.querySelector("#profile-variable-name"),
   retryButton: document.querySelector("#retry-button"),
   selectionStatus: document.querySelector("#selection-status"),
   entryProfileDetail: document.querySelector("#entry-profile-detail"),
@@ -59,10 +60,10 @@ const elements = {
 let catalog = null;
 const detail = createDetailView(elements);
 const entryProfile = createEntryProfileView(elements, {
-  async onProfileChanged(document, page) {
+  async onProfileChanged(document, address) {
     explorer.setSetupRequired(!document.requiredComplete);
     await loadCatalog();
-    explorer.selectEntryPage(page);
+    explorer.selectAddress(address);
   },
 });
 const explorer = createExplorerView({
@@ -70,10 +71,9 @@ const explorer = createExplorerView({
   columns: elements.finderColumns,
   detailPanel: elements.detailPanel,
   onSelectCommand(command) {
-    detail.render(catalog, command);
-  },
-  onSelectEntryPage(page) {
-    entryProfile.render(page);
+    if (!entryProfile.render(command)) {
+      detail.render(catalog, command);
+    }
   },
 });
 const dataRootClaim = createDataRootClaimView(elements, {

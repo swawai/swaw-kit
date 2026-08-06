@@ -48,7 +48,10 @@ $RecordPath = Join-Path $DataRoot '_entry.json'
 try {
     $Setup = Invoke-ProjClaimEntry `
         -EntryPath $EntryPath `
-        -Arguments @('..entry.set', 'targetProjectRoot', '${SWAWKIT_HOME}')
+        -Arguments @(
+            '..entry.set.SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
+            '${SWAWKIT_HOME}'
+        )
     Assert-ProjClaimEntry `
         -Condition ($Setup.ExitCode -eq 0) `
         -Message "initial Entry setup failed: $($Setup.Text)"

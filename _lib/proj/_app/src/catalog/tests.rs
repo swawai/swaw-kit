@@ -48,7 +48,7 @@ fn discovers_control_kernel_and_action_hierarchies() {
         r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile"}"#,
     );
     fixture.file(
-        "home/_lib/proj/..entry/set/run.core.json",
+        "home/_lib/proj/..entry/set/SWAWKIT_PROJ_DEFAULT_SHELL/run.core.json",
         r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile.set"}"#,
     );
     fixture.file(
@@ -91,6 +91,10 @@ fn discovers_control_kernel_and_action_hierarchies() {
             (CommandSource::Control, "..entry"),
             (CommandSource::Control, "..entry.claim"),
             (CommandSource::Control, "..entry.set"),
+            (
+                CommandSource::Control,
+                "..entry.set.SWAWKIT_PROJ_DEFAULT_SHELL",
+            ),
             (CommandSource::Kernel, ""),
             (CommandSource::Kernel, "--nul"),
             (CommandSource::Kernel, "-con"),
@@ -110,6 +114,14 @@ fn discovers_control_kernel_and_action_hierarchies() {
     assert_eq!(entry.handler.as_deref(), Some("entry.profile"));
     let set = node(&snapshot, CommandSource::Control, "..entry.set");
     assert_eq!(set.parent.as_deref(), Some("..entry"));
+    assert!(!set.runnable);
+    let default_shell = node(
+        &snapshot,
+        CommandSource::Control,
+        "..entry.set.SWAWKIT_PROJ_DEFAULT_SHELL",
+    );
+    assert_eq!(default_shell.parent.as_deref(), Some("..entry.set"));
+    assert_eq!(default_shell.handler.as_deref(), Some("entry.profile.set"));
     let claim = node(&snapshot, CommandSource::Control, "..entry.claim");
     assert_eq!(claim.handler.as_deref(), Some("entry.claim"));
 
@@ -136,6 +148,27 @@ fn discovers_control_kernel_and_action_hierarchies() {
         host.help.as_ref().map(|help| help.summary.as_str()),
         Some("Build at build.host")
     );
+}
+
+#[test]
+fn entry_set_directory_modules_match_the_profile_variable_registry() {
+    let kernel = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Proj kernel root");
+    let snapshot = CatalogSnapshot::discover_optional_roots(kernel, None, "swawkit")
+        .expect("source-tree Catalog");
+    let actual = snapshot
+        .commands
+        .iter()
+        .filter(|command| command.handler.as_deref() == Some("entry.profile.set"))
+        .map(|command| command.address.as_str())
+        .collect::<Vec<_>>();
+    let expected = crate::profile::EntryProfileRecord::environment_variable_names()
+        .into_iter()
+        .map(|name| format!("..entry.set.{name}"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
 }
 
 #[test]

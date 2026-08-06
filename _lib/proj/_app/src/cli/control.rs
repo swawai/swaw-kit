@@ -36,15 +36,16 @@ pub(super) fn dispatch_before_data_root(
 
     let snapshot = CatalogSnapshot::discover(context, None)
         .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
-    let command = resolve_control(&snapshot, address)?;
     let arguments = argv.get(1..).unwrap_or_default();
     if matches!(arguments, [marker] if marker.to_str().is_some_and(is_help_marker)) {
+        control_node(&snapshot, address)?;
         let output = render_help(&snapshot, address)
             .map_err(|error| CliError::new(error.to_string()))?;
         write_output(&output)
             .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
         return Ok(Some(PreDataRootControl::Complete(0)));
     }
+    let command = resolve_control(&snapshot, address)?;
 
     match command.handler.as_deref() {
         Some("entry.claim") => Ok(Some(PreDataRootControl::Claim {
@@ -82,7 +83,7 @@ pub(super) fn dispatch(
     let exit_code = match command.handler.as_deref() {
         Some("host.start") => start_host(arguments, context, host_launcher)?,
         Some("entry.profile") => show_profile(arguments, profile_store)?,
-        Some("entry.profile.set") => set_profile(arguments, profile_store)?,
+        Some("entry.profile.set") => set_profile(address, arguments, profile_store)?,
         Some("entry.profile.apply") => apply_profile(arguments, context, profile_store)?,
         Some(handler) => {
             return Err(CliError::new(format!(
@@ -102,13 +103,7 @@ pub(super) fn resolve_control<'a>(
     snapshot: &'a CatalogSnapshot,
     address: &str,
 ) -> Result<&'a CommandNode, CliError> {
-    let Some(command) = snapshot
-        .commands
-        .iter()
-        .find(|node| node.source == CommandSource::Control && node.address == address)
-    else {
-        return Err(CliError::new(format!("command not found: {address}")));
-    };
+    let command = control_node(snapshot, address)?;
     if !command.runnable {
         let reason = command
             .diagnostic
@@ -124,6 +119,17 @@ pub(super) fn resolve_control<'a>(
         )));
     }
     Ok(command)
+}
+
+fn control_node<'a>(
+    snapshot: &'a CatalogSnapshot,
+    address: &str,
+) -> Result<&'a CommandNode, CliError> {
+    snapshot
+        .commands
+        .iter()
+        .find(|node| node.source == CommandSource::Control && node.address == address)
+        .ok_or_else(|| CliError::new(format!("command not found: {address}")))
 }
 
 fn start_host(
@@ -150,42 +156,28 @@ fn show_profile(
     Ok(0)
 }
 
-fn set_profile(arguments: &[OsString], profile_store: &EntryProfileStore) -> Result<i32, CliError> {
-    if arguments.first().is_some_and(|argument| argument == "--list") {
-        let json = match arguments {
-            [_list] => false,
-            [_list, format] if format == "--json" => true,
-            _ => return Err(entry_set_usage()),
-        };
-        let output = render_profile_field_list(json)?;
-        write_output(&output)
-            .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
-        return Ok(0);
-    }
-    let [field, value] = arguments else {
-        return Err(entry_set_usage());
+fn set_profile(
+    address: &str,
+    arguments: &[OsString],
+    profile_store: &EntryProfileStore,
+) -> Result<i32, CliError> {
+    let [value] = arguments else {
+        return Err(CliError::new(format!("usage: {address} <value>")));
     };
-    let field = unicode_argument(field, "profile field")?;
     let value = unicode_argument(value, "profile value")?.to_owned();
+    let variable = address
+        .strip_prefix("..entry.set.")
+        .filter(|name| !name.is_empty() && !name.contains('.'))
+        .ok_or_else(|| {
+            CliError::new(format!(
+                "Catalog invariant failed for '{address}': Entry Profile setter address is invalid"
+            ))
+        })?;
     let document = profile_store
-        .update_field(field, value)
+        .update_environment_variable(variable, value)
         .map_err(|error| CliError::new(error.to_string()))?;
     write_json(&document)?;
     Ok(0)
-}
-
-fn entry_set_usage() -> CliError {
-    CliError::new("usage: ..entry.set <field> <value> | ..entry.set --list [--json]")
-}
-
-pub(super) fn render_profile_field_list(json: bool) -> Result<String, CliError> {
-    let fields = EntryProfileRecord::mutable_string_field_paths();
-    if json {
-        serde_json::to_string_pretty(&fields)
-            .map_err(|error| CliError::new(format!("cannot serialize Profile fields: {error}")))
-    } else {
-        Ok(fields.join("\n"))
-    }
 }
 
 fn apply_profile(

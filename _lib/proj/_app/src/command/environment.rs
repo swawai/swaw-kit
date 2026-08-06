@@ -104,38 +104,13 @@ impl ProcessEnvironment {
     }
 
     fn apply_profile(&mut self, profile: &EntryProfileRecord) {
-        let preferences = &profile.preferences;
-        let development = &profile.development;
-        self.set("SWAWKIT_PROJ_DEFAULT_SHELL", &preferences.default_shell);
-        self.set("SWAWKIT_PROJ_DEFAULT_IDE", &preferences.default_ide);
-        self.set_optional("SWAWKIT_PROJ_HELP_LANG", &preferences.help_language);
-
-        self.set("SWAWKIT_PROJ_BUN_MODE", &development.bun.mode);
-        self.set("SWAWKIT_PROJ_BUN_VERSION", &development.bun.version);
-        self.set_optional("SWAWKIT_PROJ_BUN_SHA256", &development.bun.sha256);
-        self.set("SWAWKIT_PROJ_PWSH_MODE", &development.pwsh.mode);
-        self.set("SWAWKIT_PROJ_PWSH_VERSION", &development.pwsh.version);
-        self.set_optional("SWAWKIT_PROJ_PWSH_SHA256", &development.pwsh.sha256);
-        self.set("SWAWKIT_PROJ_MSVC_MODE", &development.msvc.mode);
-        self.set("SWAWKIT_PROJ_MSVC_CHANNEL", &development.msvc.channel);
-        self.set("SWAWKIT_PROJ_RUST_MODE", &development.rust.mode);
-        self.set("SWAWKIT_PROJ_RUST_TOOLCHAIN", &development.rust.toolchain);
-        self.set("SWAWKIT_PROJ_RUST_PROFILE", &development.rust.profile);
-        self.set("SWAWKIT_PROJ_RUST_HOST", &development.rust.host);
-        self.set("SWAWKIT_PROJ_UV_MODE", &development.uv.mode);
-        self.set("SWAWKIT_PROJ_UV_VERSION", &development.uv.version);
-        self.set("SWAWKIT_PROJ_PYTHON_MODE", &development.python.mode);
-        self.set("SWAWKIT_PROJ_PYTHON_VERSION", &development.python.version);
-        self.set("SWAWKIT_PROJ_GO_MODE", &development.go.mode);
-        self.set_optional("SWAWKIT_PROJ_GO_VERSION", &development.go.version);
-        self.set("SWAWKIT_PROJ_GH_MODE", &development.gh.mode);
-        self.set("SWAWKIT_PROJ_VSCODE_MODE", &development.vscode.mode);
-        self.set("SWAWKIT_PROJ_CURSOR_MODE", &development.cursor.mode);
-
-        self.set_optional("SWAWKIT_PROJ_GIT_ID_NAME", &profile.git.name);
-        self.set_optional("SWAWKIT_PROJ_GIT_ID_EMAIL", &profile.git.email);
-        self.set_optional("SWAWKIT_PROJ_GIT_ID_ACCESS", &profile.git.access);
-        self.set_optional("SWAWKIT_PROJ_REPO_REMOTE", &profile.repository.remote);
+        for (name, value, omit_when_empty) in profile.published_environment_variables() {
+            if omit_when_empty {
+                self.set_optional(name, &value);
+            } else {
+                self.set(name, value);
+            }
+        }
     }
 
     fn set(&mut self, name: impl Into<OsString>, value: impl AsRef<OsStr>) {

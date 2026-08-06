@@ -78,88 +78,45 @@ fn rejects_a_profile_document_without_an_explicit_schema() {
 }
 
 #[test]
-fn derives_every_mutable_string_field_from_the_profile_structure() {
+fn maps_every_mutable_profile_field_to_one_environment_variable() {
     let fields = EntryProfileRecord::mutable_string_field_paths();
-    let actual = fields.iter().map(String::as_str).collect::<Vec<_>>();
-    let expected = vec![
-        "development.bun.mode",
-        "development.bun.sha256",
-        "development.bun.version",
-        "development.cursor.mode",
-        "development.gh.mode",
-        "development.go.mode",
-        "development.go.sha256",
-        "development.go.version",
-        "development.msvc.channel",
-        "development.msvc.mode",
-        "development.pwsh.mode",
-        "development.pwsh.sha256",
-        "development.pwsh.version",
-        "development.python.mode",
-        "development.python.sha256",
-        "development.python.version",
-        "development.rust.host",
-        "development.rust.mode",
-        "development.rust.profile",
-        "development.rust.toolchain",
-        "development.uv.mode",
-        "development.uv.sha256",
-        "development.uv.version",
-        "development.vscode.mode",
-        "git.access",
-        "git.email",
-        "git.name",
-        "preferences.defaultIde",
-        "preferences.defaultShell",
-        "preferences.helpLanguage",
-        "repository.remote",
-        "targetProjectRoot",
-    ];
+    let mapped_fields = EntryProfileRecord::environment_variable_fields();
+    let names = EntryProfileRecord::environment_variable_names();
+    let values = EntryProfileRecord::default().environment_variable_values();
 
-    assert_eq!(actual, expected);
     assert_eq!(fields.len(), 32);
-    assert!(!fields.iter().any(|field| field == "schema"));
-    assert!(fields.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(mapped_fields.len(), fields.len());
+    assert_eq!(names.len(), fields.len());
+    assert_eq!(values.len(), fields.len());
+    assert_eq!(
+        mapped_fields
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>(),
+        fields
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>()
+    );
+    assert!(names.iter().all(|name| name.starts_with("SWAWKIT_PROJ_")));
+    assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[test]
-fn web_profile_form_covers_the_mutable_profile_contract() {
-    let html = include_str!("../../web/index.html");
-    let form = html
-        .split_once("<form class=\"profile-form\" id=\"profile-form\"")
-        .and_then(|(_, tail)| tail.split_once("</form>").map(|(form, _)| form))
-        .expect("profile form in embedded Web application");
-    let mut names = Vec::new();
-    let mut remaining = form;
-    while let Some((_, tail)) = remaining.split_once(" name=\"") {
-        let (name, tail) = tail
-            .split_once('"')
-            .expect("quoted profile form control name");
-        names.push(name.to_owned());
-        remaining = tail;
-    }
-    let unique = names.iter().cloned().collect::<std::collections::BTreeSet<_>>();
-    let expected = EntryProfileRecord::mutable_string_field_paths()
-        .into_iter()
-        .collect::<std::collections::BTreeSet<_>>();
-
-    assert_eq!(unique.len(), names.len(), "duplicate Profile form control");
-    assert_eq!(unique, expected);
-}
-
-#[test]
-fn profile_document_and_field_updates_share_the_atomic_store() {
+fn profile_document_and_variable_updates_share_the_atomic_store() {
     let fixture = Fixture::new();
     let missing = fixture.store.document();
-    assert_eq!(missing.protocol, "swawkit.entry-profile-state/v2");
+    assert_eq!(missing.protocol, "swawkit.entry-profile-state/v3");
     assert_eq!(missing.revision, "missing");
     assert_eq!(missing.status, "setupRequired");
     assert!(!missing.required_complete);
 
     let ready = fixture
         .store
-        .update_field("git.email", "dev@example.com".to_owned())
-        .expect("update known string field");
+        .update_environment_variable(
+            "SWAWKIT_PROJ_GIT_ID_EMAIL",
+            "dev@example.com".to_owned(),
+        )
+        .expect("update known environment variable");
     assert_eq!(ready.status, "ready");
     assert!(ready.revision.starts_with("sha256-"));
     assert_eq!(ready.profile.git.email, "dev@example.com");
@@ -168,10 +125,10 @@ fn profile_document_and_field_updates_share_the_atomic_store() {
     assert!(
         fixture
             .store
-            .update_field("development.unknown", "value".to_owned())
+            .update_environment_variable("SWAWKIT_PROJ_UNKNOWN", "value".to_owned())
             .unwrap_err()
             .to_string()
-            .contains("unknown entry profile field")
+            .contains("unknown Entry Profile environment variable")
     );
     assert_eq!(fs::read(fixture.store.path()).unwrap(), before);
 
@@ -180,7 +137,7 @@ fn profile_document_and_field_updates_share_the_atomic_store() {
     assert!(
         fixture
             .store
-            .update_field("git.name", "User".to_owned())
+            .update_environment_variable("SWAWKIT_PROJ_GIT_ID_NAME", "User".to_owned())
             .unwrap_err()
             .to_string()
             .contains("current profile is unreadable")
@@ -199,14 +156,16 @@ fn revision_is_stable_for_the_same_file_and_detects_stale_replacements() {
 
     let second = fixture
         .store
-        .update_field("git.name", "CLI Writer".to_owned())
+        .update_environment_variable("SWAWKIT_PROJ_GIT_ID_NAME", "CLI Writer".to_owned())
         .expect("update profile");
     assert_ne!(second.revision, first.revision);
 
-    let mut stale = first.profile;
-    stale.git.email = "stale@example.com".to_owned();
     assert!(matches!(
-        fixture.store.replace_if_revision(&first.revision, stale),
+        fixture.store.update_environment_variable_if_revision(
+            &first.revision,
+            "SWAWKIT_PROJ_GIT_ID_EMAIL",
+            "stale@example.com".to_owned(),
+        ),
         Err(ProfileUpdateError::Conflict { current_revision })
             if current_revision == second.revision
     ));
@@ -214,7 +173,7 @@ fn revision_is_stable_for_the_same_file_and_detects_stale_replacements() {
 }
 
 #[test]
-fn field_updates_wait_for_the_cross_process_data_lock() {
+fn variable_updates_wait_for_the_cross_process_data_lock() {
     let fixture = Fixture::new();
     let data_directory = fixture.data_root.parent().unwrap();
     let lock = DataRootLock::acquire_for_test(data_directory, 1, Duration::ZERO)
@@ -222,7 +181,10 @@ fn field_updates_wait_for_the_cross_process_data_lock() {
     let store = fixture.store.clone();
     let (finished, result) = mpsc::channel();
     let worker = thread::spawn(move || {
-        let update = store.update_field("git.name", "Serialized Writer".to_owned());
+        let update = store.update_environment_variable(
+            "SWAWKIT_PROJ_GIT_ID_NAME",
+            "Serialized Writer".to_owned(),
+        );
         finished.send(update).unwrap();
     });
 

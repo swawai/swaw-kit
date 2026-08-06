@@ -1,17 +1,47 @@
-import { defaultEntryPage, entryPage, isEntryPage } from "./entry-navigation.js";
+const PROFILE_PROTOCOL = "swawkit.entry-profile-state/v3";
+const SETTER_HANDLER = "entry.profile.set";
 
 export class EntryProfileConflictError extends Error {}
 
-export async function putEntryProfile(profile, revision, fetchProfile = fetch) {
-  const response = await fetchProfile("/api/v2/profile", {
-    method: "PUT",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "If-Match": `"${revision}"`,
+function normalizeProfileDocument(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Entry Profile 协议无效：响应必须是对象。");
+  }
+  if (value.protocol !== PROFILE_PROTOCOL) {
+    throw new Error(`Entry Profile 协议无效：protocol 必须是 ${PROFILE_PROTOCOL}。`);
+  }
+  if (typeof value.revision !== "string" || value.revision.length === 0) {
+    throw new Error("Entry Profile 协议无效：revision 必须是非空字符串。");
+  }
+  if (!value.variables || typeof value.variables !== "object" || Array.isArray(value.variables)) {
+    throw new Error("Entry Profile 协议无效：variables 必须是对象。");
+  }
+  for (const [name, current] of Object.entries(value.variables)) {
+    if (!name.startsWith("SWAWKIT_PROJ_") || typeof current !== "string") {
+      throw new Error("Entry Profile 协议无效：variables 必须映射变量名到字符串值。");
+    }
+  }
+  return value;
+}
+
+export async function putEntryProfileVariable(
+  name,
+  value,
+  revision,
+  fetchProfile = fetch,
+) {
+  const response = await fetchProfile(
+    `/api/v2/profile/variables/${encodeURIComponent(name)}`,
+    {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "If-Match": `"${revision}"`,
+      },
+      body: JSON.stringify({ value }),
     },
-    body: JSON.stringify(profile),
-  });
+  );
   const document = await response.json();
   if (response.status === 409) {
     throw new EntryProfileConflictError(document.error);
@@ -19,143 +49,69 @@ export async function putEntryProfile(profile, revision, fetchProfile = fetch) {
   if (!response.ok) {
     throw new Error(document.error || `Host 返回 HTTP ${response.status}`);
   }
-  return document;
+  return normalizeProfileDocument(document);
 }
 
 export function createEntryProfileView(elements, { onProfileChanged }) {
-  let currentProfile = null;
-  let currentRevision = "missing";
-  let currentPage = defaultEntryPage();
+  let currentDocument = null;
+  let currentCommand = null;
 
-  function field(name) {
-    return elements.profileForm.elements.namedItem(name);
+  function variableName(command) {
+    return command.address.slice(command.address.lastIndexOf(".") + 1);
   }
 
-  function setField(name, value) {
-    const control = field(name);
-    if (control) {
-      control.value = value ?? "";
+  function renderState() {
+    if (!currentDocument) {
+      elements.profileState.dataset.state = "loading";
+      elements.profileState.textContent = "正在读取 Entry Profile…";
+      return;
     }
-  }
-
-  function render(page = defaultEntryPage()) {
-    const selectedPage = isEntryPage(page) ? page : defaultEntryPage();
-    currentPage = selectedPage;
-    const descriptor = entryPage(selectedPage);
-    elements.entryProfileTitle.textContent = descriptor.title;
-    elements.entryProfileSummary.textContent = descriptor.summary;
-    elements.profileForm.hidden = false;
-    for (const section of elements.profileForm.querySelectorAll("[data-profile-section]")) {
-      section.hidden = section.dataset.profileSection !== selectedPage;
-    }
-    elements.entryProfileDetail.hidden = false;
-    elements.commandDetail.hidden = true;
-    elements.selectionStatus.textContent = `已选择${descriptor.title}`;
-  }
-
-  function updateConditionalRequirements() {
-    for (const [modeName, valueName, enabledMode] of [
-      ["development.bun.mode", "development.bun.version", "managed"],
-      ["development.pwsh.mode", "development.pwsh.version", "managed"],
-      ["development.msvc.mode", "development.msvc.channel", "managed"],
-      ["development.rust.mode", "development.rust.toolchain", "rustup"],
-    ]) {
-      field(valueName).required = field(modeName).value === enabledMode;
-    }
-  }
-
-  function populate(profile) {
-    currentProfile = profile;
-    setField("targetProjectRoot", profile.targetProjectRoot);
-    setField("preferences.defaultShell", profile.preferences.defaultShell);
-    setField("preferences.defaultIde", profile.preferences.defaultIde);
-    setField("preferences.helpLanguage", profile.preferences.helpLanguage);
-
-    for (const name of ["bun", "pwsh", "uv", "python", "go"]) {
-      setField(`development.${name}.mode`, profile.development[name].mode);
-      setField(`development.${name}.version`, profile.development[name].version);
-      setField(`development.${name}.sha256`, profile.development[name].sha256);
-    }
-    setField("development.msvc.mode", profile.development.msvc.mode);
-    setField("development.msvc.channel", profile.development.msvc.channel);
-    for (const name of ["mode", "toolchain", "profile", "host"]) {
-      setField(`development.rust.${name}`, profile.development.rust[name]);
-    }
-    for (const name of ["gh", "vscode", "cursor"]) {
-      setField(`development.${name}.mode`, profile.development[name].mode);
-    }
-
-    setField("git.name", profile.git.name);
-    setField("git.email", profile.git.email);
-    setField("git.access", profile.git.access);
-    setField("repository.remote", profile.repository.remote);
-    updateConditionalRequirements();
-  }
-
-  function readVersionedTool(name) {
-    return {
-      mode: field(`development.${name}.mode`).value,
-      version: field(`development.${name}.version`).value,
-      sha256: field(`development.${name}.sha256`).value,
-    };
-  }
-
-  function readProfile() {
-    return {
-      schema: currentProfile.schema,
-      targetProjectRoot: field("targetProjectRoot").value,
-      preferences: {
-        defaultShell: field("preferences.defaultShell").value,
-        defaultIde: field("preferences.defaultIde").value,
-        helpLanguage: field("preferences.helpLanguage").value,
-      },
-      development: {
-        bun: readVersionedTool("bun"),
-        pwsh: readVersionedTool("pwsh"),
-        msvc: {
-          mode: field("development.msvc.mode").value,
-          channel: field("development.msvc.channel").value,
-        },
-        rust: {
-          mode: field("development.rust.mode").value,
-          toolchain: field("development.rust.toolchain").value,
-          profile: field("development.rust.profile").value,
-          host: field("development.rust.host").value,
-        },
-        uv: readVersionedTool("uv"),
-        python: readVersionedTool("python"),
-        go: readVersionedTool("go"),
-        gh: { mode: field("development.gh.mode").value },
-        vscode: { mode: field("development.vscode.mode").value },
-        cursor: { mode: field("development.cursor.mode").value },
-      },
-      git: {
-        name: field("git.name").value,
-        email: field("git.email").value,
-        access: field("git.access").value,
-      },
-      repository: { remote: field("repository.remote").value },
-    };
-  }
-
-  function renderProfile(document) {
-    currentRevision = document.revision;
-    populate(document.profile);
-    elements.profileResolvedRoot.textContent = document.resolvedTargetProjectRoot || "—";
-    elements.profileState.dataset.state = document.status;
-    if (document.status === "ready") {
-      elements.profileState.textContent = "Entry 配置已生效";
-    } else if (document.status === "invalid") {
-      elements.profileState.textContent = document.error || "Entry 配置无效";
+    elements.profileState.dataset.state = currentDocument.status;
+    if (currentDocument.status === "ready") {
+      elements.profileState.textContent = "Entry Profile 已生效";
+    } else if (currentDocument.status === "invalid") {
+      elements.profileState.textContent = currentDocument.error || "Entry Profile 无效";
     } else {
-      elements.profileState.textContent = "请保存首次设置以解锁命令目录";
+      elements.profileState.textContent = "保存任一有效变量即可发布默认 Profile";
     }
-    return document;
+  }
+
+  function render(command) {
+    if (command.handler !== SETTER_HANDLER) {
+      return false;
+    }
+    currentCommand = command;
+    const name = variableName(command);
+    const known = currentDocument && Object.hasOwn(currentDocument.variables, name);
+    elements.commandDetail.hidden = true;
+    elements.entryProfileDetail.hidden = false;
+    elements.entryProfileTitle.textContent = name;
+    elements.entryProfileSummary.textContent = command.summary
+      || "原子修改这个 Entry Profile 变量。";
+    elements.profileVariableName.textContent = name;
+    elements.profileValue.value = known ? currentDocument.variables[name] : "";
+    elements.profileValue.disabled = !known;
+    elements.profileSaveButton.disabled = !known;
+    elements.profileFeedback.textContent = known || !currentDocument
+      ? ""
+      : "Catalog 声明了 Profile 中不存在的变量。";
+    elements.profileFeedback.dataset.state = known || !currentDocument ? "" : "error";
+    renderState();
+    elements.selectionStatus.textContent = `已选择命令 ${command.address}`;
+    return true;
+  }
+
+  function acceptDocument(document) {
+    currentDocument = normalizeProfileDocument(document);
+    if (currentCommand) {
+      render(currentCommand);
+    }
+    return currentDocument;
   }
 
   async function loadProfile() {
-    elements.profileState.dataset.state = "loading";
-    elements.profileState.textContent = "正在读取 Entry 配置…";
+    currentDocument = null;
+    renderState();
     const response = await fetch("/api/v2/profile", {
       cache: "no-store",
       headers: { Accept: "application/json" },
@@ -163,44 +119,47 @@ export function createEntryProfileView(elements, { onProfileChanged }) {
     if (!response.ok) {
       throw new Error(`Host 返回 HTTP ${response.status}`);
     }
-    return renderProfile(await response.json());
+    return acceptDocument(await response.json());
   }
 
   async function saveProfile() {
-    updateConditionalRequirements();
-    if (!elements.profileForm.reportValidity()) {
+    if (!currentDocument || !currentCommand) {
       return;
     }
+    const name = variableName(currentCommand);
     elements.profileSaveButton.disabled = true;
     elements.profileFeedback.dataset.state = "";
     elements.profileFeedback.textContent = "正在保存…";
     try {
-      const document = await putEntryProfile(readProfile(), currentRevision);
-      renderProfile(document);
-      elements.profileFeedback.textContent = "配置已保存";
-      await onProfileChanged(document, currentPage);
+      const document = await putEntryProfileVariable(
+        name,
+        elements.profileValue.value,
+        currentDocument.revision,
+      );
+      acceptDocument(document);
+      elements.profileFeedback.textContent = "变量已保存";
+      await onProfileChanged(document, currentCommand.address);
     } catch (error) {
       elements.profileFeedback.dataset.state = "error";
       if (error instanceof EntryProfileConflictError) {
         try {
           const latest = await loadProfile();
-          await onProfileChanged(latest, currentPage);
-          elements.profileFeedback.textContent = "配置已被其他进程修改，已重新载入最新版本；请确认后再次保存。";
+          await onProfileChanged(latest, currentCommand.address);
+          elements.profileFeedback.textContent = "Profile 已被其他进程修改，已重新载入最新值。";
         } catch {
-          elements.profileFeedback.textContent = "配置已被其他进程修改，请重新加载页面后再保存。";
+          elements.profileFeedback.textContent = "Profile 已变化，请重新加载页面后再保存。";
         }
       } else {
         elements.profileFeedback.textContent = error instanceof Error
           ? error.message
-          : "保存配置时发生未知错误";
+          : "保存变量时发生未知错误。";
       }
     } finally {
-      elements.profileSaveButton.disabled = false;
+      const known = currentDocument
+        && currentCommand
+        && Object.hasOwn(currentDocument.variables, variableName(currentCommand));
+      elements.profileSaveButton.disabled = !known;
     }
-  }
-
-  for (const mode of elements.profileForm.querySelectorAll("select[name$='.mode']")) {
-    mode.addEventListener("change", updateConditionalRequirements);
   }
 
   return {

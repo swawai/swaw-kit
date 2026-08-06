@@ -14,12 +14,8 @@ pub struct EntryProfileRecord {
 }
 
 impl EntryProfileRecord {
-    /// Returns every mutable string leaf in the persisted Profile schema.
-    ///
-    /// The list is derived from the serialized record instead of maintaining a
-    /// second field catalog for CLI discovery. `schema` identifies the document
-    /// contract and is intentionally not mutable.
-    pub fn mutable_string_field_paths() -> Vec<String> {
+    #[cfg(test)]
+    pub(crate) fn mutable_string_field_paths() -> Vec<String> {
         let document = serde_json::to_value(Self::default())
             .expect("the default Entry Profile must serialize");
         let mut fields = Vec::new();
@@ -98,6 +94,7 @@ impl EntryProfileRecord {
     }
 }
 
+#[cfg(test)]
 fn collect_string_field_paths(
     value: &serde_json::Value,
     prefix: &str,

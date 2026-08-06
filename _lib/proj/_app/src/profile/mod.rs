@@ -1,6 +1,7 @@
 mod document;
 mod error;
 mod model;
+mod variables;
 
 use std::fs;
 use std::os::windows::fs::MetadataExt;
@@ -165,30 +166,14 @@ impl EntryProfileStore {
         )
     }
 
-    pub fn update_field(
+    pub fn update_environment_variable(
         &self,
-        field: &str,
+        name: &str,
         value: String,
     ) -> Result<EntryProfileDocument, ProfileError> {
         let _lock = self.acquire_lock()?;
-        let mut record = match self.snapshot().state {
-            EntryProfileState::Missing { .. } => EntryProfileRecord::default(),
-            EntryProfileState::Invalid {
-                record: Some(record),
-                ..
-            } => record,
-            EntryProfileState::Invalid {
-                record: None,
-                error,
-                ..
-            } => {
-                return Err(ProfileError::new(format!(
-                    "cannot update one field because the current profile is unreadable: {error}. Replace it with '..entry.apply --file <path>'"
-                )));
-            }
-            EntryProfileState::Ready(profile) => profile.record().clone(),
-        };
-        record.set_value(field, value)?;
+        let mut record = record_for_variable_update(self.snapshot().state)?;
+        record.set_environment_variable(name, value)?;
         let (profile, revision) = self.save_locked(record)?;
         Ok(EntryProfileDocument::from_state(
             EntryProfileState::Ready(profile),
@@ -210,10 +195,11 @@ impl EntryProfileStore {
         ))
     }
 
-    pub fn replace_if_revision(
+    pub fn update_environment_variable_if_revision(
         &self,
         expected_revision: &str,
-        record: EntryProfileRecord,
+        name: &str,
+        value: String,
     ) -> Result<EntryProfileDocument, ProfileUpdateError> {
         let _lock = self.acquire_lock().map_err(ProfileUpdateError::Profile)?;
         let current = self.snapshot();
@@ -222,6 +208,11 @@ impl EntryProfileStore {
                 current_revision: current.revision,
             });
         }
+        let mut record = record_for_variable_update(current.state)
+            .map_err(ProfileUpdateError::Profile)?;
+        record
+            .set_environment_variable(name, value)
+            .map_err(ProfileUpdateError::Profile)?;
         let (profile, revision) = self
             .save_locked(record)
             .map_err(ProfileUpdateError::Profile)?;
@@ -251,6 +242,26 @@ impl EntryProfileStore {
             ))
         })?;
         DataRootLock::acquire(data_directory).map_err(|error| ProfileError::new(error.to_string()))
+    }
+}
+
+fn record_for_variable_update(
+    state: EntryProfileState,
+) -> Result<EntryProfileRecord, ProfileError> {
+    match state {
+        EntryProfileState::Missing { .. } => Ok(EntryProfileRecord::default()),
+        EntryProfileState::Invalid {
+            record: Some(record),
+            ..
+        } => Ok(record),
+        EntryProfileState::Invalid {
+            record: None,
+            error,
+            ..
+        } => Err(ProfileError::new(format!(
+            "cannot update one variable because the current profile is unreadable: {error}. Replace it with '..entry.apply --file <path>'"
+        ))),
+        EntryProfileState::Ready(profile) => Ok(profile.record().clone()),
     }
 }
 

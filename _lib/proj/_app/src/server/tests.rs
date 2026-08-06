@@ -175,10 +175,6 @@ async fn serves_only_the_declared_local_surface() {
         ("/assets/explorer.js", "text/javascript; charset=utf-8"),
         ("/assets/detail.js", "text/javascript; charset=utf-8"),
         ("/assets/entry-profile.js", "text/javascript; charset=utf-8"),
-        (
-            "/assets/entry-navigation.js",
-            "text/javascript; charset=utf-8",
-        ),
         ("/assets/claim.js", "text/javascript; charset=utf-8"),
     ] {
         let response = send(app.clone(), Method::GET, path, Some(AUTHORITY)).await;

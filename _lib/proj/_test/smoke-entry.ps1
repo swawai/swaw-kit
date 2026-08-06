@@ -88,8 +88,7 @@ try {
     $Saved = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.set',
-            'targetProjectRoot',
+            '..entry.set.SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjEntrySmoke `

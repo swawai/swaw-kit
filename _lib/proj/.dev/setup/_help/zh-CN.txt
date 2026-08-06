@@ -28,26 +28,26 @@ channel、mode 或 hash 后，这些命令会要求重新 setup。与开发环�
 Bun 支持精确版本或 latest。latest 只在首次 setup 时解析为精确版本；
 选择记录在项目 dev_env/bun 中，重复 setup 不会隐式升级。
 GitHub Release API 提供的 digest 可用时会用于校验。
-可通过 {{COMMAND}} ..entry 表单或 ..entry.set 的
-development.bun.sha256 字段进一步锁定安装包；
+可通过 {{COMMAND}} ..entry.set.SWAWKIT_PROJ_BUN_SHA256 进一步锁定安装包；
 未设置时只给出黄色提示，不阻塞安装。latest 不能与固定 SHA 同时声明；
 需要固定 SHA 时应同时声明精确版本。
 
 PowerShell 支持精确版本或 latest，语义与 Bun 相同：首次 setup 通过官方
 GitHub Release API 将 latest 解析并锁定为精确版本，重复 setup 不会隐式升级。
-Windows x64 资产名称随版本生成，GitHub digest 可用时会用于校验；也可在
-通过 development.pwsh.sha256 字段锁定精确版本的安装包。
+Windows x64 资产名称随版本生成，GitHub digest 可用时会用于校验；也可通过
+{{COMMAND}} ..entry.set.SWAWKIT_PROJ_PWSH_SHA256 锁定精确版本的安装包。
 
 MSVC 通过 Visual Studio channel 自动解析最新版 x64 工具链和 Windows SDK。
 product manifest 以 channel 身份和实际内容哈希缓存；所有 VSIX、MSI、CAB
 均使用微软 manifest 提供的 SHA-256 严格校验，
-项目只需通过 development.msvc.channel 声明 channel，不维护版本链接或 hash。
+项目只需通过 {{COMMAND}} ..entry.set.SWAWKIT_PROJ_MSVC_CHANNEL 声明 channel，
+不维护版本链接或 hash。
 
 Rust 通过 rustup 安装到隔离的 CARGO_HOME/RUSTUP_HOME，不修改用户 PATH。
 V0 只支持 minimal profile；toolchain 可声明 stable、beta、nightly、
 带日期的 channel，或具体版本。移动 channel 只在首次安装时解析；
 重复 setup 不隐式升级健康工具链。
-development.rust.toolchain 是受管命令的权威声明；项目目录中的
+SWAWKIT_PROJ_RUST_TOOLCHAIN 是受管命令的权威声明；项目目录中的
 rust-toolchain.toml 不会改变 .cargo/.rustc 选用的编译器，
 并拒绝 cargo/rustc 的 +toolchain 临时覆盖。
 

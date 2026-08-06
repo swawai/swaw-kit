@@ -5,36 +5,19 @@ import {
   leafName,
   sortCommands,
 } from "./catalog-model.js";
-import {
-  createEntryNavigationColumn,
-  defaultEntryPage,
-  entryPageLabel,
-  isEntryPage,
-} from "./entry-navigation.js";
 
 const sourceLabels = {
   control: "Control Plane",
   kernel: "Kernel Commands",
   action: "Project Actions",
 };
-const ENTRY_PROFILE_HANDLER = "entry.profile";
-const ENTRY_PAGE_KEY_PREFIX = "__entry__.";
 
 export function commandDisabledDuringSetup(setupRequired, command) {
   return setupRequired && command.source !== "control";
 }
 
-export function findEntryProfileCommand(catalog) {
-  return catalog?.roots.find((command) => (
-    command.source === "control"
-    && command.handler === ENTRY_PROFILE_HANDLER
-  )) ?? null;
-}
-
-export function controlledColumnId(command, depth) {
-  return command.handler === ENTRY_PROFILE_HANDLER
-    ? "finder-column-entry"
-    : `finder-column-${depth + 1}`;
+export function controlledColumnId(_command, depth) {
+  return `finder-column-${depth + 1}`;
 }
 
 export function createExplorerView({
@@ -42,12 +25,9 @@ export function createExplorerView({
   columns,
   detailPanel,
   onSelectCommand,
-  onSelectEntryPage,
 }) {
   let catalog = null;
   let selectedPath = [];
-  let entryProfileSelected = false;
-  let selectedEntryPage = defaultEntryPage();
   let setupRequired = false;
 
   function createCommandRow(command, depth) {
@@ -84,7 +64,6 @@ export function createExplorerView({
     icon.className = "row-icon";
     icon.textContent = group ? "⌑" : ">_";
     icon.setAttribute("aria-hidden", "true");
-
     copy.className = "row-copy";
     name.className = "row-name";
     name.textContent = depth === 0 ? command.address : leafName(command.address);
@@ -101,7 +80,6 @@ export function createExplorerView({
               : "不可运行"
     );
     copy.append(name, summary);
-
     chevron.className = "row-chevron";
     chevron.textContent = expandable ? "›" : "";
     chevron.setAttribute("aria-hidden", "true");
@@ -120,12 +98,10 @@ export function createExplorerView({
     if (commands.length === 0) {
       return;
     }
-
     const section = document.createElement("section");
     const list = document.createElement("ul");
     section.className = "column-section";
     list.className = "column-list";
-
     for (const command of sortCommands(catalog, commands)) {
       list.append(createCommandRow(command, depth));
     }
@@ -141,20 +117,18 @@ export function createExplorerView({
 
   function createRootColumn() {
     const column = document.createElement("div");
-    const control = catalog.roots
-      .filter((command) => command.source === "control");
-    const kernel = catalog.roots
-      .filter((command) => command.source === "kernel");
-    const actions = catalog.roots
-      .filter((command) => command.source === "action");
     column.className = "finder-column";
     column.id = "finder-column-0";
     column.dataset.depth = "0";
-    appendSection(column, sourceLabels.control, control, 0);
-    appendSection(column, sourceLabels.kernel, kernel, 0);
-    appendSection(column, sourceLabels.action, actions, 0);
-
-    if (control.length === 0 && kernel.length === 0 && actions.length === 0) {
+    for (const source of ["control", "kernel", "action"]) {
+      appendSection(
+        column,
+        sourceLabels[source],
+        catalog.roots.filter((command) => command.source === source),
+        0,
+      );
+    }
+    if (catalog.roots.length === 0) {
       const empty = document.createElement("p");
       empty.className = "empty-column";
       empty.textContent = "Catalog 中没有可显示的命令。";
@@ -170,39 +144,16 @@ export function createExplorerView({
     column.id = `finder-column-${depth}`;
     column.dataset.depth = String(depth);
     column.setAttribute("role", "group");
-    column.setAttribute(
-      "aria-label",
-      `${parent.address} 子命令`,
-    );
+    column.setAttribute("aria-label", `${parent.address} 子命令`);
     appendSection(column, null, childrenOf(catalog, parentAddress), depth);
     return column;
   }
 
-  function renderColumns({
-    focusKey = null,
-    focusDetail = false,
-    scrollTarget = null,
-  } = {}) {
+  function renderColumns({ focusKey = null, focusDetail = false } = {}) {
     columns.replaceChildren(createRootColumn());
-    const entryCommand = findEntryProfileCommand(catalog);
-    const entryPathActive = entryCommand
-      && selectedPath[0] === entryCommand.address;
-    if (entryPathActive) {
-      const commandRows = sortCommands(
-        catalog,
-        childrenOf(catalog, entryCommand.address),
-      ).map((command) => createCommandRow(command, 1));
-      columns.append(createEntryNavigationColumn({
-        selectedPage: entryProfileSelected ? selectedEntryPage : null,
-        onSelect: selectEntryPage,
-        commandRows,
-      }));
-    }
     for (const [depth, address] of selectedPath.entries()) {
-      if (entryPathActive && depth === 0) {
-        continue;
-      }
-      if (hasChildren(catalog, catalog.commandByAddress.get(address))) {
+      const command = catalog.commandByAddress.get(address);
+      if (command && hasChildren(catalog, command)) {
         columns.append(createChildColumn(address, depth + 1));
       }
     }
@@ -212,21 +163,12 @@ export function createExplorerView({
         ? [...columns.querySelectorAll(".command-row")]
           .find((row) => row.dataset.navigationKey === focusKey)
         : null;
-      if (scrollTarget === "detail") {
-        if (focusDetail) {
-          detailPanel.focus({ preventScroll: true });
-        } else {
-          focusTarget?.focus({ preventScroll: true });
-        }
+      if (focusDetail) {
+        detailPanel.focus({ preventScroll: true });
         detailPanel.scrollIntoView({ block: "nearest", inline: "nearest" });
-      } else if (scrollTarget === "navigation") {
-        focusTarget?.focus({ preventScroll: true });
-        columns.lastElementChild?.scrollIntoView({ block: "nearest", inline: "nearest" });
       } else {
         focusTarget?.focus({ preventScroll: true });
-        if (scrollTarget === "focus") {
-          focusTarget?.scrollIntoView({ block: "nearest", inline: "nearest" });
-        }
+        columns.lastElementChild?.scrollIntoView({ block: "nearest", inline: "nearest" });
       }
     });
   }
@@ -237,21 +179,14 @@ export function createExplorerView({
     home.className = "breadcrumb-home";
     home.textContent = "控制台";
     fragment.append(home);
-
-    const entryCommand = findEntryProfileCommand(catalog);
-    const items = entryProfileSelected && entryCommand
-      ? [entryCommand.address, entryPageLabel(selectedEntryPage)]
-      : selectedPath.map((address, depth) => (
-        depth === 0 ? address : leafName(address)
-      ));
-    for (const label of items) {
+    for (const [depth, address] of selectedPath.entries()) {
       const separator = document.createElement("span");
       const item = document.createElement("span");
       separator.className = "breadcrumb-separator";
       separator.textContent = "›";
       separator.setAttribute("aria-hidden", "true");
       item.className = "breadcrumb-item";
-      item.textContent = label;
+      item.textContent = depth === 0 ? address : leafName(address);
       fragment.append(separator, item);
     }
     breadcrumb.replaceChildren(fragment);
@@ -263,59 +198,46 @@ export function createExplorerView({
     if (!command || commandDisabledDuringSetup(setupRequired, command)) {
       return;
     }
-
     selectedPath = [...selectedPath.slice(0, depth), address];
-    if (command.handler === ENTRY_PROFILE_HANDLER) {
-      entryProfileSelected = true;
-      selectedEntryPage = defaultEntryPage();
-      onSelectEntryPage(selectedEntryPage);
-    } else {
-      entryProfileSelected = false;
-      onSelectCommand(command);
-    }
+    onSelectCommand(command);
     renderBreadcrumb();
     renderColumns({
-      focusKey: Object.hasOwn(options, "focusKey")
-        ? options.focusKey
-        : address,
+      focusKey: address,
       focusDetail: options.focusDetail === true,
-      scrollTarget: options.scrollTarget
-        ?? (hasChildren(catalog, command) ? "navigation" : "detail"),
     });
   }
 
-  function selectEntryProfile(options = {}) {
-    const command = findEntryProfileCommand(catalog);
-    if (!command) {
+  function addressPath(address) {
+    const path = [];
+    let current = catalog.commandByAddress.get(address);
+    while (current) {
+      path.unshift(current.address);
+      current = current.parent
+        ? catalog.commandByAddress.get(current.parent)
+        : null;
+    }
+    return path;
+  }
+
+  function selectAddress(address, options = {}) {
+    const command = catalog.commandByAddress.get(address);
+    if (!command || commandDisabledDuringSetup(setupRequired, command)) {
       return;
     }
-    entryProfileSelected = true;
-    selectedPath = [command.address];
-    selectedEntryPage = defaultEntryPage();
-    onSelectEntryPage(selectedEntryPage);
+    selectedPath = addressPath(address);
+    onSelectCommand(command);
     renderBreadcrumb();
     renderColumns({
-      focusKey: command.address,
+      focusKey: address,
       focusDetail: options.focusDetail === true,
-      scrollTarget: "navigation",
     });
   }
 
-  function selectEntryPage(page, options = {}) {
-    const command = findEntryProfileCommand(catalog);
-    if (!command || !isEntryPage(page)) {
-      return;
-    }
-    entryProfileSelected = true;
-    selectedPath = [command.address];
-    selectedEntryPage = page;
-    onSelectEntryPage(page);
-    renderBreadcrumb();
-    renderColumns({
-      focusKey: `${ENTRY_PAGE_KEY_PREFIX}${page}`,
-      focusDetail: options.focusDetail === true,
-      scrollTarget: "detail",
-    });
+  function defaultCommand() {
+    const available = catalog.roots.filter(
+      (command) => !commandDisabledDuringSetup(setupRequired, command),
+    );
+    return sortCommands(catalog, available)[0] ?? null;
   }
 
   function handleKeyboard(event) {
@@ -323,7 +245,6 @@ export function createExplorerView({
     if (!button) {
       return;
     }
-
     const rows = [...button.closest(".finder-column")?.querySelectorAll(".command-row") ?? []];
     const index = rows.indexOf(button);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -334,24 +255,11 @@ export function createExplorerView({
     }
 
     const depth = Number(button.dataset.depth);
-    if (
-      button.dataset.kind === "entry-page"
-      && (event.key === "Enter" || event.key === " ")
-    ) {
-      event.preventDefault();
-      selectEntryPage(button.dataset.page, { focusDetail: true });
-      return;
-    }
-
     if (event.key === "ArrowRight") {
-      const address = button.dataset.address;
-      const children = address ? childrenOf(catalog, address) : [];
+      const children = childrenOf(catalog, button.dataset.address);
       if (children.length > 0) {
         event.preventDefault();
-        selectCommand(address, depth, {
-          focusKey: null,
-          scrollTarget: "navigation",
-        });
+        selectCommand(button.dataset.address, depth);
         requestAnimationFrame(() => {
           const nextColumn = columns.querySelector(`[data-depth="${depth + 1}"]`);
           nextColumn?.querySelector(".command-row")?.focus();
@@ -359,8 +267,7 @@ export function createExplorerView({
       }
     } else if (event.key === "ArrowLeft" && depth > 0) {
       event.preventDefault();
-      const parentAddress = selectedPath[depth - 1];
-      selectCommand(parentAddress, depth - 1, { scrollTarget: "focus" });
+      selectAddress(selectedPath[depth - 1]);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       selectCommand(button.dataset.address, depth, { focusDetail: true });
@@ -368,32 +275,42 @@ export function createExplorerView({
   }
 
   function setCatalog(nextCatalog) {
+    const previous = selectedPath.at(-1);
     catalog = nextCatalog;
-    selectedPath = [];
-    entryProfileSelected = false;
-    const command = findEntryProfileCommand(catalog);
-    if (command) {
-      entryProfileSelected = true;
-      selectedPath = [command.address];
-      selectedEntryPage = defaultEntryPage();
-      onSelectEntryPage(selectedEntryPage);
+    if (previous && catalog.commandByAddress.has(previous)) {
+      selectAddress(previous);
+      return;
     }
-    renderBreadcrumb();
-    renderColumns();
+    const command = defaultCommand();
+    if (command) {
+      selectAddress(command.address);
+    } else {
+      selectedPath = [];
+      renderBreadcrumb();
+      renderColumns();
+    }
   }
 
   function setSetupRequired(required) {
     setupRequired = required;
-    if (catalog) {
-      selectEntryProfile();
+    if (!catalog) {
+      return;
+    }
+    const selected = catalog.commandByAddress.get(selectedPath.at(-1));
+    if (selected && !commandDisabledDuringSetup(setupRequired, selected)) {
+      renderColumns();
+      return;
+    }
+    const command = defaultCommand();
+    if (command) {
+      selectAddress(command.address);
     }
   }
 
   return {
     handleKeyboard,
+    selectAddress,
     selectCommand,
-    selectEntryProfile,
-    selectEntryPage,
     setCatalog,
     setSetupRequired,
   };

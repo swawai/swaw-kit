@@ -86,26 +86,56 @@ fn host_process_uses_the_shared_core_with_a_clean_launch_envelope() {
 }
 
 #[test]
-fn entry_set_field_list_has_matching_human_and_agent_formats() {
-    let human = crate::cli::control::render_profile_field_list(false).unwrap();
-    let human_fields = human.lines().collect::<Vec<_>>();
-    let json = crate::cli::control::render_profile_field_list(true).unwrap();
-    let agent_fields = serde_json::from_str::<Vec<String>>(&json).unwrap();
+fn entry_set_variables_are_independent_catalog_commands() {
+    let fixture = Fixture::new();
+    for name in EntryProfileRecord::environment_variable_names() {
+        fixture.core_command(
+            &format!("..entry.set.{name}"),
+            "entry.profile.set",
+        );
+    }
 
-    assert_eq!(human_fields.len(), 32);
-    assert_eq!(
-        agent_fields.iter().map(String::as_str).collect::<Vec<_>>(),
-        human_fields
-    );
-    assert!(!human_fields.contains(&"schema"));
+    let snapshot = CatalogSnapshot::discover(&fixture.context, None).unwrap();
+    let setters = snapshot
+        .commands
+        .iter()
+        .filter(|command| command.handler.as_deref() == Some("entry.profile.set"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(setters.len(), 32);
+    assert!(setters.iter().all(|command| {
+        command.parent.as_deref() == Some("..entry.set")
+            && command
+                .address
+                .strip_prefix("..entry.set.")
+                .is_some_and(|name| name.starts_with("SWAWKIT_PROJ_"))
+    }));
 }
 
 #[test]
 fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     let fixture = Fixture::new();
     fixture.core_command("..entry", "entry.profile");
-    fixture.core_command("..entry.set", "entry.profile.set");
+    fixture.core_command(
+        "..entry.set.SWAWKIT_PROJ_GIT_ID_NAME",
+        "entry.profile.set",
+    );
     fixture.core_command("..entry.apply", "entry.profile.apply");
+    fs::create_dir_all(
+        fixture
+            .context
+            .kernel_root()
+            .join("..entry/set/_help"),
+    )
+    .unwrap();
+    fs::write(
+        fixture
+            .context
+            .kernel_root()
+            .join("..entry/set/_help/zh-CN.txt"),
+        "Set Entry Profile variables",
+    )
+    .unwrap();
     let global_guard = fixture.context.kernel_root().join("_global");
     fs::create_dir_all(&global_guard).unwrap();
     fs::write(
@@ -129,28 +159,26 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     );
     assert!(!fixture.data_root().join("_profile.json").exists());
 
-    for arguments in [
-        argv(&["..entry.set", "--list"]),
-        argv(&["..entry.set", "--list", "--json"]),
-    ] {
-        assert_eq!(
-            run_with_approver(
-                &fixture.context,
-                &arguments,
-                None,
-                None,
-                &mut unexpected_claim,
-            )
-            .unwrap(),
-            0
-        );
-        assert!(!fixture.data_root().join("_profile.json").exists());
-    }
+    assert_eq!(
+        run_with_approver(
+            &fixture.context,
+            &argv(&["..entry.set", ".h"]),
+            None,
+            None,
+            &mut unexpected_claim,
+        )
+        .unwrap(),
+        0
+    );
+    assert!(!fixture.data_root().join("_profile.json").exists());
 
     assert_eq!(
         run_with_approver(
             &fixture.context,
-            &argv(&["..entry.set", "git.name", "Fixture User"]),
+            &argv(&[
+                "..entry.set.SWAWKIT_PROJ_GIT_ID_NAME",
+                "Fixture User",
+            ]),
             None,
             None,
             &mut unexpected_claim,
@@ -168,13 +196,13 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     let before_invalid_update = fs::read(fixture.data_root().join("_profile.json")).unwrap();
     let invalid_update = run_with_approver(
         &fixture.context,
-        &argv(&["..entry.set", "development.unknown", "value"]),
+        &argv(&["..entry.set.SWAWKIT_PROJ_UNKNOWN", "value"]),
         None,
         None,
         &mut unexpected_claim,
     )
     .unwrap_err();
-    assert!(invalid_update.to_string().contains("unknown entry profile field"));
+    assert!(invalid_update.to_string().contains("command not found"));
     assert_eq!(
         fs::read(fixture.data_root().join("_profile.json")).unwrap(),
         before_invalid_update
