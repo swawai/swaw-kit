@@ -1,13 +1,7 @@
 use std::{
     fs,
-    io::{Read, Write},
-    net::TcpStream,
     path::PathBuf,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        mpsc,
-    },
-    time::Duration,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use axum::{
@@ -18,9 +12,15 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use super::*;
-use crate::{context::EntryContext, profile::EntryProfileStore};
+use crate::{
+    context::EntryContext,
+    data_root::{DataRootClaim, DataRootSession, ResolveDataRootRequest, resolve_data_root},
+    profile::EntryProfileStore,
+};
 
+mod claim;
 mod profile;
+mod runtime;
 
 const AUTHORITY: &str = "127.0.0.1:43127";
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -34,8 +34,22 @@ impl Fixture {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root =
             std::env::temp_dir().join(format!("swawkit-server-{}-{sequence}", std::process::id()));
-        fs::create_dir_all(&root).expect("create fixture root");
-        Self { root }
+        fs::create_dir_all(root.join("home")).expect("create fixture root");
+        fs::write(root.join("swawkit.exe"), b"fixture").expect("create fixture entry");
+        let fixture = Self { root };
+        let context = fixture.context();
+        let mut approve = |_claim: &DataRootClaim| Ok(true);
+        resolve_data_root(
+            ResolveDataRootRequest {
+                swawkit_home: &context.swawkit_home,
+                entry_file: &context.entry_file,
+                inherited_data_root: None,
+                legacy_data_directory: None,
+            },
+            &mut approve,
+        )
+        .expect("bind fixture DataRoot");
+        fixture
     }
 
     fn directory(&self, relative: &str) -> PathBuf {
@@ -51,16 +65,29 @@ impl Fixture {
         fs::write(path, text).expect("write fixture file");
     }
 
-    fn reader(&self) -> CatalogReader {
-        CatalogReader::new(
-            EntryContext {
-                swawkit_home: self.root.join("home"),
-                entry_file: self.root.join("swawkit.cmd"),
-                entry_name: "swawkit".to_owned(),
-                invocation_directory: self.root.clone(),
-            },
-            self.profile_store(),
-        )
+    fn context(&self) -> EntryContext {
+        EntryContext {
+            swawkit_home: self.root.join("home"),
+            entry_file: self.root.join("swawkit.exe"),
+            entry_name: "swawkit".to_owned(),
+            invocation_directory: self.root.clone(),
+        }
+    }
+
+    fn data_root_session(&self) -> DataRootSession {
+        let context = self.context();
+        DataRootSession::new(ResolveDataRootRequest {
+            swawkit_home: &context.swawkit_home,
+            entry_file: &context.entry_file,
+            inherited_data_root: None,
+            legacy_data_directory: None,
+        })
+    }
+
+    fn replace_entry(&self, content: &[u8]) {
+        let path = self.context().entry_file;
+        fs::remove_file(&path).expect("remove fixture entry");
+        fs::write(path, content).expect("replace fixture entry");
     }
 
     fn profile_store(&self) -> EntryProfileStore {
@@ -70,7 +97,11 @@ impl Fixture {
     }
 
     fn app(&self) -> Router {
-        router(AUTHORITY.to_owned(), self.reader(), self.profile_store())
+        router(
+            AUTHORITY.to_owned(),
+            self.context(),
+            self.data_root_session(),
+        )
     }
 }
 
@@ -138,6 +169,7 @@ async fn serves_only_the_declared_local_surface() {
             "/assets/styles/entry-profile.css",
             "text/css; charset=utf-8",
         ),
+        ("/assets/styles/claim.css", "text/css; charset=utf-8"),
         ("/assets/app.js", "text/javascript; charset=utf-8"),
         ("/assets/catalog-model.js", "text/javascript; charset=utf-8"),
         ("/assets/explorer.js", "text/javascript; charset=utf-8"),
@@ -147,6 +179,7 @@ async fn serves_only_the_declared_local_surface() {
             "/assets/entry-navigation.js",
             "text/javascript; charset=utf-8",
         ),
+        ("/assets/claim.js", "text/javascript; charset=utf-8"),
     ] {
         let response = send(app.clone(), Method::GET, path, Some(AUTHORITY)).await;
         assert_eq!(response.status(), StatusCode::OK, "{path}");
@@ -236,7 +269,8 @@ async fn returns_a_safe_error_when_catalog_discovery_fails() {
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("error body");
-    assert_eq!(&body[..], b"catalog discovery failed\n");
+    let document: Value = serde_json::from_slice(&body).expect("error JSON");
+    assert_eq!(document["error"], "catalog discovery failed");
 }
 
 #[tokio::test]
@@ -321,64 +355,6 @@ async fn rejects_missing_or_foreign_host_headers() {
             .status(),
         StatusCode::MISDIRECTED_REQUEST
     );
-}
-
-#[tokio::test]
-async fn binds_independent_random_ports_on_ipv4_loopback() {
-    let first = bind_loopback().await.expect("first listener");
-    let second = bind_loopback().await.expect("second listener");
-    let first_address = first.local_addr().expect("first address");
-    let second_address = second.local_addr().expect("second address");
-
-    assert_eq!(first_address.ip(), Ipv4Addr::LOCALHOST);
-    assert_eq!(second_address.ip(), Ipv4Addr::LOCALHOST);
-    assert_ne!(first_address.port(), 0);
-    assert_ne!(second_address.port(), 0);
-    assert_ne!(first_address.port(), second_address.port());
-}
-
-#[test]
-fn shutdown_signal_stops_the_live_http_server() {
-    let fixture = Fixture::new();
-    fixture.directory("home/_lib/proj");
-    let (events, received_events) = mpsc::channel();
-    let (shutdown, shutdown_receiver) = oneshot::channel();
-    let server_thread = spawn(
-        fixture.reader(),
-        fixture.profile_store(),
-        move |event| events.send(event).map_err(|error| error.to_string()),
-        shutdown_receiver,
-    )
-    .expect("server thread");
-
-    let ready = received_events
-        .recv_timeout(Duration::from_secs(5))
-        .expect("ready event");
-    let ServerEvent::Ready(url) = ready else {
-        panic!("expected ready event");
-    };
-    let authority = url
-        .strip_prefix("http://")
-        .and_then(|value| value.strip_suffix('/'))
-        .expect("loopback URL");
-
-    let mut stream = TcpStream::connect(authority).expect("HTTP connection");
-    write!(
-        stream,
-        "GET /healthz HTTP/1.1\r\nHost: {authority}\r\nConnection: close\r\n\r\n"
-    )
-    .expect("HTTP request");
-    let mut response = String::new();
-    stream.read_to_string(&mut response).expect("HTTP response");
-    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
-    assert!(response.ends_with("\r\nok\n"));
-
-    shutdown.send(()).expect("shutdown signal");
-    let stopped = received_events
-        .recv_timeout(Duration::from_secs(5))
-        .expect("stopped event");
-    assert!(matches!(stopped, ServerEvent::Stopped(Ok(()))));
-    server_thread.join().expect("clean server thread");
 }
 
 fn command<'a>(document: &'a Value, address: &str) -> Option<&'a Value> {

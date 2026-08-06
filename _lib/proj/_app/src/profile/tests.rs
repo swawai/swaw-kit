@@ -78,6 +78,76 @@ fn rejects_a_profile_document_without_an_explicit_schema() {
 }
 
 #[test]
+fn derives_every_mutable_string_field_from_the_profile_structure() {
+    let fields = EntryProfileRecord::mutable_string_field_paths();
+    let actual = fields.iter().map(String::as_str).collect::<Vec<_>>();
+    let expected = vec![
+        "development.bun.mode",
+        "development.bun.sha256",
+        "development.bun.version",
+        "development.cursor.mode",
+        "development.gh.mode",
+        "development.go.mode",
+        "development.go.sha256",
+        "development.go.version",
+        "development.msvc.channel",
+        "development.msvc.mode",
+        "development.pwsh.mode",
+        "development.pwsh.sha256",
+        "development.pwsh.version",
+        "development.python.mode",
+        "development.python.sha256",
+        "development.python.version",
+        "development.rust.host",
+        "development.rust.mode",
+        "development.rust.profile",
+        "development.rust.toolchain",
+        "development.uv.mode",
+        "development.uv.sha256",
+        "development.uv.version",
+        "development.vscode.mode",
+        "git.access",
+        "git.email",
+        "git.name",
+        "preferences.defaultIde",
+        "preferences.defaultShell",
+        "preferences.helpLanguage",
+        "repository.remote",
+        "targetProjectRoot",
+    ];
+
+    assert_eq!(actual, expected);
+    assert_eq!(fields.len(), 32);
+    assert!(!fields.iter().any(|field| field == "schema"));
+    assert!(fields.windows(2).all(|pair| pair[0] < pair[1]));
+}
+
+#[test]
+fn web_profile_form_covers_the_mutable_profile_contract() {
+    let html = include_str!("../../web/index.html");
+    let form = html
+        .split_once("<form class=\"profile-form\" id=\"profile-form\"")
+        .and_then(|(_, tail)| tail.split_once("</form>").map(|(form, _)| form))
+        .expect("profile form in embedded Web application");
+    let mut names = Vec::new();
+    let mut remaining = form;
+    while let Some((_, tail)) = remaining.split_once(" name=\"") {
+        let (name, tail) = tail
+            .split_once('"')
+            .expect("quoted profile form control name");
+        names.push(name.to_owned());
+        remaining = tail;
+    }
+    let unique = names.iter().cloned().collect::<std::collections::BTreeSet<_>>();
+    let expected = EntryProfileRecord::mutable_string_field_paths()
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(unique.len(), names.len(), "duplicate Profile form control");
+    assert_eq!(unique, expected);
+}
+
+#[test]
 fn profile_document_and_field_updates_share_the_atomic_store() {
     let fixture = Fixture::new();
     let missing = fixture.store.document();

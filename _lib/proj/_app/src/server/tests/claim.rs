@@ -1,0 +1,237 @@
+use axum::http::header::{ETAG, IF_MATCH};
+
+use super::*;
+
+async fn send_claim(app: Router, confirmation: &str, revision: Option<&HeaderValue>) -> Response {
+    let mut request = Request::builder()
+        .method(Method::POST)
+        .uri("/api/v2/data-root/claim")
+        .header(HOST, AUTHORITY)
+        .header(CONTENT_TYPE, "application/json");
+    if let Some(revision) = revision {
+        request = request.header(IF_MATCH, revision);
+    }
+    app.oneshot(
+        request
+            .body(Body::from(
+                json!({ "confirmation": confirmation }).to_string(),
+            ))
+            .expect("claim request"),
+    )
+    .await
+    .expect("claim response")
+}
+
+#[tokio::test]
+async fn pending_claim_gates_the_host_and_transitions_to_ready() {
+    let fixture = Fixture::new();
+    fixture.replace_entry(b"copied entry");
+    let record_path = fixture.root.join("home/data/proj.swawkit/_entry.json");
+    let before = fs::read(&record_path).expect("existing entry record");
+    let app = fixture.app();
+
+    let pending = send(
+        app.clone(),
+        Method::GET,
+        "/api/v2/data-root/claim",
+        Some(AUTHORITY),
+    )
+    .await;
+    assert_eq!(pending.status(), StatusCode::OK);
+    let revision = pending.headers().get(ETAG).expect("claim ETag").clone();
+    let body = to_bytes(pending.into_body(), usize::MAX)
+        .await
+        .expect("claim body");
+    let document: Value = serde_json::from_slice(&body).expect("claim JSON");
+    assert_eq!(document["protocol"], "swawkit.data-root-claim/v1");
+    assert_eq!(document["status"], "claimRequired");
+    assert_eq!(document["claim"]["entryName"], "swawkit");
+    assert_eq!(document["claim"]["kind"], "current");
+    assert!(
+        document["claim"]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("File ID")
+    );
+
+    assert_eq!(
+        send(app.clone(), Method::GET, "/api/v2/profile", Some(AUTHORITY))
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        send_claim(app.clone(), "wrong", Some(&revision))
+            .await
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(fs::read(&record_path).unwrap(), before);
+    assert_eq!(
+        send_claim(app.clone(), "swawkit", None).await.status(),
+        StatusCode::PRECONDITION_REQUIRED
+    );
+    assert_eq!(fs::read(&record_path).unwrap(), before);
+
+    let malformed_revision = HeaderValue::from_static("unquoted");
+    let malformed = send_claim(app.clone(), "swawkit", Some(&malformed_revision)).await;
+    assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+    let malformed_body = to_bytes(malformed.into_body(), usize::MAX)
+        .await
+        .expect("malformed If-Match body");
+    let malformed_document: Value =
+        serde_json::from_slice(&malformed_body).expect("malformed If-Match JSON");
+    assert!(
+        malformed_document["error"]
+            .as_str()
+            .unwrap()
+            .contains("DataRoot claim")
+    );
+    assert!(
+        !malformed_document["error"]
+            .as_str()
+            .unwrap()
+            .contains("entry profile")
+    );
+
+    let claimed = send_claim(app.clone(), "swawkit", Some(&revision)).await;
+    assert_eq!(claimed.status(), StatusCode::OK);
+    let claimed_body = to_bytes(claimed.into_body(), usize::MAX)
+        .await
+        .expect("claimed body");
+    let claimed_document: Value = serde_json::from_slice(&claimed_body).expect("claimed JSON");
+    assert_eq!(claimed_document["protocol"], "swawkit.data-root-claim/v1");
+    assert_eq!(claimed_document["status"], "claimed");
+    assert_eq!(claimed_document["warnings"], json!([]));
+    assert_ne!(fs::read(&record_path).unwrap(), before);
+    assert_eq!(
+        send(
+            app.clone(),
+            Method::GET,
+            "/api/v2/data-root/claim",
+            Some(AUTHORITY)
+        )
+        .await
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        send(app, Method::GET, "/api/v2/profile", Some(AUTHORITY))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn stale_claim_revision_cannot_confirm_a_new_file_identity() {
+    let fixture = Fixture::new();
+    fixture.replace_entry(b"first copy");
+    let record_path = fixture.root.join("home/data/proj.swawkit/_entry.json");
+    let before = fs::read(&record_path).expect("existing entry record");
+    let app = fixture.app();
+    let pending = send(
+        app.clone(),
+        Method::GET,
+        "/api/v2/data-root/claim",
+        Some(AUTHORITY),
+    )
+    .await;
+    let stale_revision = pending.headers().get(ETAG).expect("claim ETag").clone();
+
+    fixture.replace_entry(b"second copy");
+    assert_eq!(
+        send_claim(app, "swawkit", Some(&stale_revision))
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(fs::read(record_path).unwrap(), before);
+}
+
+#[tokio::test]
+async fn ready_probe_keeps_automatic_repair_warnings_visible() {
+    let fixture = Fixture::new();
+    let environment = fixture.directory("home/data/proj.swawkit/dev_env");
+    fs::write(
+        environment.join("env.ps1"),
+        concat!(
+            "# Generated by Swaw Kit Proj.\n",
+            "$env:SWAWKIT_PROJ_DEV_ENV_ROOT = 'D:\\stale'\n",
+        ),
+    )
+    .expect("stale development environment publication");
+    let app = fixture.app();
+
+    for _ in 0..2 {
+        let response = send(
+            app.clone(),
+            Method::GET,
+            "/api/v2/data-root/claim",
+            Some(AUTHORITY),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("ready body");
+        let document: Value = serde_json::from_slice(&body).expect("ready JSON");
+        assert_eq!(document["protocol"], "swawkit.data-root-claim/v1");
+        assert_eq!(document["status"], "ready");
+        assert_eq!(document["warnings"].as_array().unwrap().len(), 1);
+        assert!(
+            document["warnings"][0]
+                .as_str()
+                .unwrap()
+                .contains(".dev.setup")
+        );
+    }
+}
+
+#[tokio::test]
+async fn claim_warnings_survive_a_failed_client_load_and_retry() {
+    let fixture = Fixture::new();
+    fixture.replace_entry(b"copied entry");
+    let environment = fixture.directory("home/data/proj.swawkit/dev_env");
+    fs::write(
+        environment.join("env.ps1"),
+        concat!(
+            "# Generated by Swaw Kit Proj.\n",
+            "$env:SWAWKIT_PROJ_DEV_ENV_ROOT = 'D:\\stale'\n",
+        ),
+    )
+    .expect("stale development environment publication");
+    let app = fixture.app();
+    let pending = send(
+        app.clone(),
+        Method::GET,
+        "/api/v2/data-root/claim",
+        Some(AUTHORITY),
+    )
+    .await;
+    let revision = pending.headers().get(ETAG).expect("claim ETag").clone();
+
+    let claimed = send_claim(app.clone(), "swawkit", Some(&revision)).await;
+    assert_eq!(claimed.status(), StatusCode::OK);
+    let claimed_body = to_bytes(claimed.into_body(), usize::MAX)
+        .await
+        .expect("claimed body");
+    let claimed_document: Value =
+        serde_json::from_slice(&claimed_body).expect("claimed JSON");
+    assert_eq!(claimed_document["warnings"].as_array().unwrap().len(), 1);
+
+    let retry = send(
+        app,
+        Method::GET,
+        "/api/v2/data-root/claim",
+        Some(AUTHORITY),
+    )
+    .await;
+    assert_eq!(retry.status(), StatusCode::OK);
+    let retry_body = to_bytes(retry.into_body(), usize::MAX)
+        .await
+        .expect("retry body");
+    let retry_document: Value = serde_json::from_slice(&retry_body).expect("retry JSON");
+    assert_eq!(retry_document["status"], "ready");
+    assert_eq!(retry_document["warnings"], claimed_document["warnings"]);
+}

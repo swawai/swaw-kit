@@ -20,6 +20,15 @@
           </nav>
 
           <div class="explorer-frame" id="explorer-frame">
+            <aside class="application-notice" id="application-notice" role="status" hidden>
+              <span class="application-notice-symbol" aria-hidden="true">!</span>
+              <p>
+                <strong>DataRoot 已认领，但有事项需要留意</strong>
+                <span id="application-notice-message"></span>
+              </p>
+              <button id="application-notice-dismiss" type="button" aria-label="关闭提示">×</button>
+            </aside>
+
             <div class="finder-state" id="loading-state">
               <span class="spinner" aria-hidden="true"></span>
               <p>正在从 Host 读取命令目录</p>
@@ -31,6 +40,64 @@
               <p id="error-message">无法连接 Host。</p>
               <button class="secondary-button" id="retry-button" type="button">重新加载</button>
             </div>
+
+            <section class="claim-state" id="claim-state" aria-labelledby="claim-title" hidden>
+              <article class="claim-card">
+                <header class="claim-heading">
+                  <p class="claim-eyebrow">DataRoot Claim</p>
+                  <h2 id="claim-title">确认这个入口的数据归属</h2>
+                  <p>入口文件的身份已经变化。认领前请核对以下信息；确认后，现有 DataRoot 将归属于这个入口。</p>
+                </header>
+
+                <dl class="claim-details">
+                  <div>
+                    <dt>Kind</dt>
+                    <dd><code id="claim-kind">—</code></dd>
+                  </div>
+                  <div>
+                    <dt>Entry Name</dt>
+                    <dd><code id="claim-entry-name">—</code></dd>
+                  </div>
+                  <div class="claim-detail-wide">
+                    <dt>Entry File</dt>
+                    <dd><code id="claim-entry-file">—</code></dd>
+                  </div>
+                  <div class="claim-detail-wide">
+                    <dt>Volume ID</dt>
+                    <dd><code id="claim-volume-id">—</code></dd>
+                  </div>
+                  <div class="claim-detail-wide">
+                    <dt>File ID</dt>
+                    <dd><code id="claim-file-id">—</code></dd>
+                  </div>
+                  <div class="claim-detail-wide">
+                    <dt>Target DataRoot</dt>
+                    <dd><code id="claim-data-root">—</code></dd>
+                  </div>
+                  <div class="claim-detail-wide">
+                    <dt>Source DataRoot</dt>
+                    <dd><code id="claim-source-data-root">—</code></dd>
+                  </div>
+                  <div class="claim-detail-wide">
+                    <dt>Reason</dt>
+                    <dd id="claim-reason">—</dd>
+                  </div>
+                </dl>
+
+                <form class="claim-form" id="claim-form">
+                  <label for="claim-confirmation">
+                    输入 <code id="claim-confirmation-name">—</code> 以确认认领
+                  </label>
+                  <div class="claim-controls">
+                    <input id="claim-confirmation" name="confirmation" type="text" required
+                      autocomplete="off" autocapitalize="none" spellcheck="false">
+                    <button class="claim-submit" id="claim-submit" type="submit" disabled>确认认领</button>
+                  </div>
+                  <p class="claim-note">名称必须完全一致；大小写和空格都会参与校验。</p>
+                  <p class="claim-feedback" id="claim-feedback" aria-live="polite"></p>
+                </form>
+              </article>
+            </section>
 
             <div class="explorer-flow" id="explorer-flow" hidden>
               <div class="finder-columns" id="finder-columns" aria-label="命令层级"></div>

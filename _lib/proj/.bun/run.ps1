@@ -9,8 +9,9 @@ $Context = New-ProjDevContextFromEnvironment
 $BunDefinition = Get-ProjDevBunDefinition
 if ($null -eq $BunDefinition) {
     throw (
-        'Bun is disabled for this project. Set SWAWKIT_PROJ_BUN_MODE=managed ' +
-        "and run '$($Context.EntryCommand) .dev.setup'."
+        'Bun is disabled for this project. Run ' +
+        "'$($Context.EntryCommand) ..entry.set development.bun.mode managed', " +
+        "then '$($Context.EntryCommand) .dev.setup'."
     )
 }
 $BunDefinition = Get-ProjDevBunResolvedDefinition `

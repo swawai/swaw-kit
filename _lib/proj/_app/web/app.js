@@ -1,11 +1,29 @@
 import { createCatalog } from "./catalog-model.js";
+import { createDataRootClaimView } from "./claim.js";
 import { createDetailView } from "./detail.js";
 import { createExplorerView } from "./explorer.js";
 import { createEntryProfileView } from "./entry-profile.js";
 
 const elements = {
+  applicationNotice: document.querySelector("#application-notice"),
+  applicationNoticeDismiss: document.querySelector("#application-notice-dismiss"),
+  applicationNoticeMessage: document.querySelector("#application-notice-message"),
   breadcrumb: document.querySelector("#breadcrumb"),
   cliCommand: document.querySelector("#cli-command"),
+  claimConfirmation: document.querySelector("#claim-confirmation"),
+  claimConfirmationName: document.querySelector("#claim-confirmation-name"),
+  claimDataRoot: document.querySelector("#claim-data-root"),
+  claimEntryFile: document.querySelector("#claim-entry-file"),
+  claimEntryName: document.querySelector("#claim-entry-name"),
+  claimFeedback: document.querySelector("#claim-feedback"),
+  claimFileId: document.querySelector("#claim-file-id"),
+  claimForm: document.querySelector("#claim-form"),
+  claimKind: document.querySelector("#claim-kind"),
+  claimReason: document.querySelector("#claim-reason"),
+  claimSourceDataRoot: document.querySelector("#claim-source-data-root"),
+  claimState: document.querySelector("#claim-state"),
+  claimSubmit: document.querySelector("#claim-submit"),
+  claimVolumeId: document.querySelector("#claim-volume-id"),
   commandDetail: document.querySelector("#command-detail"),
   copyButton: document.querySelector("#copy-button"),
   copyFeedback: document.querySelector("#copy-feedback"),
@@ -58,6 +76,12 @@ const explorer = createExplorerView({
     entryProfile.render(page);
   },
 });
+const dataRootClaim = createDataRootClaimView(elements, {
+  onClaimRequired() {
+    setLoadState("claim");
+  },
+  onReady: loadApplication,
+});
 
 function setLoadState(status, message = "") {
   const loading = status === "loading";
@@ -65,11 +89,32 @@ function setLoadState(status, message = "") {
 
   elements.loadingState.hidden = !loading;
   elements.errorState.hidden = !failed;
+  elements.claimState.hidden = status !== "claim";
   elements.explorerFlow.hidden = status !== "ready";
   elements.explorerFrame.setAttribute("aria-busy", String(loading));
 
   if (failed) {
     elements.errorMessage.textContent = message || "无法连接 Host。";
+  }
+}
+
+function showApplicationWarnings(warnings = []) {
+  const messages = warnings.filter(
+    (warning) => typeof warning === "string" && warning.length > 0,
+  );
+  elements.applicationNoticeMessage.textContent = messages.join("\n");
+  elements.applicationNotice.hidden = messages.length === 0;
+}
+
+async function startApplication() {
+  setLoadState("loading");
+  try {
+    await dataRootClaim.ensureReady();
+  } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : "读取 DataRoot 状态时发生未知错误。";
+    setLoadState("error", message);
   }
 }
 
@@ -95,7 +140,7 @@ async function loadCatalog() {
   }
 }
 
-async function loadApplication() {
+async function loadApplication(warnings = []) {
   setLoadState("loading");
   try {
     const document = await entryProfile.loadProfile();
@@ -110,6 +155,7 @@ async function loadApplication() {
     catalog = createCatalog(await response.json());
     explorer.setCatalog(catalog);
     setLoadState("ready");
+    showApplicationWarnings(warnings);
   } catch (error) {
     const message = error instanceof Error
       ? error.message
@@ -124,6 +170,9 @@ elements.profileForm.addEventListener("submit", (event) => {
   entryProfile.saveProfile();
 });
 elements.finderColumns.addEventListener("keydown", explorer.handleKeyboard);
-elements.retryButton.addEventListener("click", loadApplication);
+elements.retryButton.addEventListener("click", startApplication);
+elements.applicationNoticeDismiss.addEventListener("click", () => {
+  elements.applicationNotice.hidden = true;
+});
 
-loadApplication();
+startApplication();

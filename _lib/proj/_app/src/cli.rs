@@ -21,10 +21,7 @@ use swawkit_proj::{
 };
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
-use claim::ConsoleClaimApprover;
-
 pub fn run(context: &EntryContext, argv: &[OsString]) -> Result<i32, CliError> {
-    let mut approver = ConsoleClaimApprover::default();
     let inherited_data_root = env::var_os("SWAWKIT_PROJ_DATA_ROOT")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
@@ -32,6 +29,9 @@ pub fn run(context: &EntryContext, argv: &[OsString]) -> Result<i32, CliError> {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .map(|path| path.join("data"));
+    let mut approver = |pending: &swawkit_proj::data_root::DataRootClaim| {
+        Err(claim::rejection(context, pending))
+    };
     run_with_approver(
         context,
         argv,
@@ -67,6 +67,21 @@ fn run_with_host_launcher(
     approver: &mut impl DataRootClaimApprover,
     host_launcher: &mut impl FnMut(&EntryContext) -> Result<i32, CliError>,
 ) -> Result<i32, CliError> {
+    match control::dispatch_before_data_root(context, argv, host_launcher)? {
+        Some(control::PreDataRootControl::Claim { snapshot, address }) => {
+            return claim::run(
+                context,
+                argv,
+                inherited_data_root,
+                legacy_data_directory,
+                &snapshot,
+                &address,
+            );
+        }
+        Some(control::PreDataRootControl::Complete(exit_code)) => return Ok(exit_code),
+        None => {}
+    }
+
     let resolved = resolve_data_root(
         ResolveDataRootRequest {
             swawkit_home: &context.swawkit_home,

@@ -1,0 +1,232 @@
+.claim-state {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: start center;
+  padding: clamp(20px, 5vw, 56px) 20px;
+  overflow-y: auto;
+  background: var(--ui-surface-muted);
+}
+
+.claim-card {
+  width: min(100%, 820px);
+  padding: clamp(20px, 4vw, 34px);
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius-control);
+  background: var(--ui-surface);
+}
+
+.claim-heading {
+  max-width: 66ch;
+}
+
+.claim-eyebrow {
+  margin: 0 0 7px;
+  color: var(--ui-status-warning);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.claim-heading h2 {
+  margin: 0;
+  font-size: clamp(20px, 3vw, 27px);
+  line-height: 1.2;
+}
+
+.claim-heading > p:last-child {
+  margin: 10px 0 0;
+  color: var(--ui-text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.claim-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 24px 0 0;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-border);
+}
+
+.claim-details > div {
+  min-width: 0;
+  padding: 11px 13px;
+  background: var(--ui-surface);
+}
+
+.claim-details .claim-detail-wide {
+  grid-column: 1 / -1;
+}
+
+.claim-details dt {
+  margin-bottom: 5px;
+  color: var(--ui-text-subtle);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.claim-details dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ui-text);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.claim-details code {
+  white-space: pre-wrap;
+}
+
+.claim-form {
+  margin-top: 24px;
+  padding-top: 22px;
+  border-top: 1px solid var(--ui-border);
+}
+
+.claim-form > label {
+  display: block;
+  margin-bottom: 9px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claim-controls {
+  display: flex;
+  align-items: stretch;
+  gap: 9px;
+}
+
+.claim-controls input {
+  min-width: 0;
+  min-height: 36px;
+  flex: 1 1 auto;
+  padding: 8px 10px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  font: 13px/1.3 var(--font-mono);
+}
+
+.claim-submit {
+  min-height: 36px;
+  padding: 8px 15px;
+  border: 1px solid var(--ui-selection-bg);
+  border-radius: var(--radius-control);
+  color: var(--ui-selection-text);
+  background: var(--ui-selection-bg);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.claim-submit:disabled {
+  border-color: var(--ui-border);
+  color: var(--ui-text-muted);
+  background: var(--ui-surface-muted);
+  cursor: not-allowed;
+}
+
+.claim-note,
+.claim-feedback {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.claim-note {
+  color: var(--ui-text-subtle);
+}
+
+.claim-feedback {
+  min-height: 1.5em;
+  color: var(--ui-text-muted);
+}
+
+.claim-feedback[data-state="error"] {
+  color: var(--ui-status-error);
+}
+
+.application-notice {
+  max-width: min(680px, calc(100% - 24px));
+  position: absolute;
+  z-index: 3;
+  top: 12px;
+  left: 50%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  box-shadow: 0 4px 18px rgb(0 0 0 / 12%);
+  transform: translateX(-50%);
+}
+
+.application-notice-symbol {
+  color: var(--ui-status-warning);
+  font-weight: 800;
+}
+
+.application-notice p {
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.application-notice strong,
+#application-notice-message {
+  display: block;
+}
+
+#application-notice-message {
+  margin-top: 2px;
+  color: var(--ui-text-muted);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+#application-notice-dismiss {
+  margin: -4px -4px -4px auto;
+  padding: 2px 5px;
+  border: 0;
+  color: var(--ui-text-muted);
+  background: transparent;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+@media (max-width: 560px) {
+  .claim-state {
+    display: block;
+    padding: 12px;
+  }
+
+  .claim-card {
+    padding: 18px;
+  }
+
+  .claim-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .claim-details .claim-detail-wide {
+    grid-column: auto;
+  }
+
+  .claim-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

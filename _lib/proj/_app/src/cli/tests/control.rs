@@ -4,6 +4,7 @@ use super::*;
 fn control_web_command_launches_the_entry_before_profile_gating() {
     let fixture = Fixture::new();
     fixture.core_command("..web", "host.start");
+    fs::create_dir_all(fixture.data_root()).unwrap();
     let mut unexpected_claim =
         |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
     let mut launched = false;
@@ -24,6 +25,7 @@ fn control_web_command_launches_the_entry_before_profile_gating() {
 
     assert_eq!(exit_code, 0);
     assert!(launched);
+    assert!(read_entry_record(&fixture.data_root()).valid_record().is_none());
     assert!(!fixture.data_root().join("_profile.json").exists());
 }
 
@@ -84,6 +86,21 @@ fn host_process_uses_the_shared_core_with_a_clean_launch_envelope() {
 }
 
 #[test]
+fn entry_set_field_list_has_matching_human_and_agent_formats() {
+    let human = crate::cli::control::render_profile_field_list(false).unwrap();
+    let human_fields = human.lines().collect::<Vec<_>>();
+    let json = crate::cli::control::render_profile_field_list(true).unwrap();
+    let agent_fields = serde_json::from_str::<Vec<String>>(&json).unwrap();
+
+    assert_eq!(human_fields.len(), 32);
+    assert_eq!(
+        agent_fields.iter().map(String::as_str).collect::<Vec<_>>(),
+        human_fields
+    );
+    assert!(!human_fields.contains(&"schema"));
+}
+
+#[test]
 fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     let fixture = Fixture::new();
     fixture.core_command("..entry", "entry.profile");
@@ -112,6 +129,24 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     );
     assert!(!fixture.data_root().join("_profile.json").exists());
 
+    for arguments in [
+        argv(&["..entry.set", "--list"]),
+        argv(&["..entry.set", "--list", "--json"]),
+    ] {
+        assert_eq!(
+            run_with_approver(
+                &fixture.context,
+                &arguments,
+                None,
+                None,
+                &mut unexpected_claim,
+            )
+            .unwrap(),
+            0
+        );
+        assert!(!fixture.data_root().join("_profile.json").exists());
+    }
+
     assert_eq!(
         run_with_approver(
             &fixture.context,
@@ -129,6 +164,21 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
         panic!("expected ready profile");
     };
     assert_eq!(profile.record().git.name, "Fixture User");
+
+    let before_invalid_update = fs::read(fixture.data_root().join("_profile.json")).unwrap();
+    let invalid_update = run_with_approver(
+        &fixture.context,
+        &argv(&["..entry.set", "development.unknown", "value"]),
+        None,
+        None,
+        &mut unexpected_claim,
+    )
+    .unwrap_err();
+    assert!(invalid_update.to_string().contains("unknown entry profile field"));
+    assert_eq!(
+        fs::read(fixture.data_root().join("_profile.json")).unwrap(),
+        before_invalid_update
+    );
 
     let mut replacement = profile.record().clone();
     replacement.git.name = "Applied User".to_owned();

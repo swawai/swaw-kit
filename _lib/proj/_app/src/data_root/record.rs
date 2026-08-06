@@ -6,6 +6,7 @@ use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 use crate::atomic_file;
@@ -59,6 +60,43 @@ pub enum EntryRecordState {
     Valid { path: PathBuf, record: EntryRecord },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum EntryRecordFingerprint {
+    Missing,
+    PresentSha256(String),
+    Unreadable,
+}
+
+impl EntryRecordFingerprint {
+    fn present(content: &[u8]) -> Self {
+        Self::PresentSha256(format!("{:x}", Sha256::digest(content)))
+    }
+
+    pub(crate) fn revision(&self) -> String {
+        match self {
+            Self::Missing => "missing".to_owned(),
+            Self::PresentSha256(digest) => format!("sha256-{digest}"),
+            Self::Unreadable => "unreadable".to_owned(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_state(state: &EntryRecordState) -> Self {
+        match state {
+            EntryRecordState::Missing { .. } => Self::Missing,
+            EntryRecordState::Invalid { error, .. } => Self::present(error.as_bytes()),
+            EntryRecordState::Valid { record, .. } => Self::present(
+                &serde_json::to_vec(record).expect("serialize fixture entry record"),
+            ),
+        }
+    }
+}
+
+pub(crate) struct EntryRecordRead {
+    pub(crate) state: EntryRecordState,
+    pub(crate) fingerprint: EntryRecordFingerprint,
+}
+
 impl EntryRecordState {
     pub fn valid_record(&self) -> Option<&EntryRecord> {
         match self {
@@ -77,23 +115,41 @@ impl EntryRecordState {
 }
 
 pub fn read_entry_record(data_root: &Path) -> EntryRecordState {
+    read_entry_record_with_fingerprint(data_root).state
+}
+
+pub(crate) fn read_entry_record_with_fingerprint(data_root: &Path) -> EntryRecordRead {
     let path = data_root.join("_entry.json");
-    if !path.is_file() {
-        return EntryRecordState::Missing { path };
-    }
-    let result = fs::read_to_string(&path)
+    let content = match fs::read(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return EntryRecordRead {
+                state: EntryRecordState::Missing { path },
+                fingerprint: EntryRecordFingerprint::Missing,
+            };
+        }
+        Err(error) => {
+            return EntryRecordRead {
+                state: EntryRecordState::Invalid {
+                    path,
+                    error: error.to_string(),
+                },
+                fingerprint: EntryRecordFingerprint::Unreadable,
+            };
+        }
+    };
+    let fingerprint = EntryRecordFingerprint::present(&content);
+    let result = serde_json::from_slice::<EntryRecord>(&content)
         .map_err(|error| error.to_string())
-        .and_then(|content| {
-            serde_json::from_str::<EntryRecord>(&content).map_err(|error| error.to_string())
-        })
         .and_then(|record| {
             record.validate()?;
             Ok(record)
         });
-    match result {
+    let state = match result {
         Ok(record) => EntryRecordState::Valid { path, record },
         Err(error) => EntryRecordState::Invalid { path, error },
-    }
+    };
+    EntryRecordRead { state, fingerprint }
 }
 
 pub(crate) fn publish_entry_record(
@@ -227,6 +283,26 @@ mod tests {
             read_entry_record(&fixture.0),
             EntryRecordState::Valid { .. }
         ));
+    }
+
+    #[test]
+    fn fingerprints_missing_present_and_unreadable_records() {
+        let fixture = Fixture::new();
+        let missing = read_entry_record_with_fingerprint(&fixture.0);
+        assert_eq!(missing.fingerprint.revision(), "missing");
+
+        fixture.write("first invalid record");
+        let first = read_entry_record_with_fingerprint(&fixture.0);
+        fixture.write("second invalid record");
+        let second = read_entry_record_with_fingerprint(&fixture.0);
+        assert!(first.fingerprint.revision().starts_with("sha256-"));
+        assert_ne!(first.fingerprint, second.fingerprint);
+
+        fs::remove_file(fixture.0.join("_entry.json")).expect("remove readable record");
+        fs::create_dir(fixture.0.join("_entry.json")).expect("create unreadable record path");
+        let unreadable = read_entry_record_with_fingerprint(&fixture.0);
+        assert_eq!(unreadable.fingerprint.revision(), "unreadable");
+        assert!(matches!(unreadable.state, EntryRecordState::Invalid { .. }));
     }
 
     #[test]

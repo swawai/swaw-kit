@@ -9,7 +9,7 @@ import {
 
 describe("Entry Profile navigation", () => {
   test("keeps each settings page address unique", () => {
-    const addresses = entryPages.map(([address]) => address);
+    const addresses = entryPages.map(({ id }) => id);
     expect(new Set(addresses).size).toBe(addresses.length);
   });
 

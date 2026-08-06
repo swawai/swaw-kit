@@ -69,6 +69,126 @@ fn approve(_claim: &DataRootClaim) -> Result<bool, ClaimApprovalError> {
 }
 
 #[test]
+fn inspection_is_read_only_for_fresh_and_unbound_entries() {
+    let fixture = Fixture::new();
+    let fresh_entry = fixture.write_entry("fresh", "entry");
+    let fresh = inspect_data_root(fixture.request(&fresh_entry)).expect("inspect fresh Entry");
+    assert!(fresh.claim.is_none());
+    assert!(!fixture.swawkit_home.join("data").exists());
+
+    let unbound_entry = fixture.write_entry("unbound", "entry");
+    let data_root = fixture.data_root("unbound");
+    fs::create_dir_all(&data_root).expect("create unbound DataRoot");
+    fs::write(data_root.join("_entry.json"), "invalid").expect("write invalid record");
+    let before = fs::read(data_root.join("_entry.json")).expect("read invalid record");
+
+    let unbound = inspect_data_root(fixture.request(&unbound_entry)).expect("inspect claim");
+    assert!(matches!(
+        unbound.claim,
+        Some(DataRootClaim {
+            kind: ClaimKind::Current,
+            ..
+        })
+    ));
+    assert_eq!(
+        fs::read(data_root.join("_entry.json")).expect("reread invalid record"),
+        before
+    );
+    assert!(!fixture.swawkit_home.join("data/_proj-entry.lock").exists());
+}
+
+#[test]
+fn explicit_claim_applies_only_the_inspected_plan() {
+    let fixture = Fixture::new();
+    let entry = fixture.write_entry("explicit", "entry");
+    let data_root = fixture.data_root("explicit");
+    fs::create_dir_all(&data_root).expect("create unbound DataRoot");
+    let inspection = inspect_data_root(fixture.request(&entry)).expect("inspect claim");
+    let claim = inspection.claim.expect("required claim");
+
+    let resolved = claim_data_root(fixture.request(&entry), &claim).expect("apply claim");
+    assert_eq!(resolved.path, data_root);
+    assert!(read_entry_record(&data_root).valid_record().is_some());
+
+    let stale = claim_data_root(fixture.request(&entry), &claim).expect("idempotent claim");
+    assert_eq!(stale.path, data_root);
+}
+
+#[test]
+fn explicit_expected_claim_rejects_a_changed_incumbent_record() {
+    let fixture = Fixture::new();
+    let entry = fixture.write_entry("explicit-conflict", "target entry");
+    let incumbent_a = fixture.write_entry("incumbent-a", "first incumbent");
+    let incumbent_c = fixture.write_entry("incumbent-c", "second incumbent");
+    let data_root = fixture.data_root("explicit-conflict");
+    fs::create_dir_all(&data_root).expect("create occupied DataRoot");
+    publish_incumbent(&data_root, "explicit-conflict", &incumbent_a);
+
+    let expected = inspect_data_root(fixture.request(&entry))
+        .expect("inspect first incumbent")
+        .claim
+        .expect("claim first incumbent");
+    publish_incumbent(&data_root, "explicit-conflict", &incumbent_c);
+    let current = inspect_data_root(fixture.request(&entry))
+        .expect("inspect second incumbent")
+        .claim
+        .expect("claim second incumbent");
+    assert_ne!(expected.revision(), current.revision());
+
+    let error = claim_data_root(fixture.request(&entry), &expected).unwrap_err();
+    assert!(error.is_state_changed());
+    assert_record_matches(&data_root, &incumbent_c);
+}
+
+#[test]
+fn approver_expected_claim_rejects_a_changed_incumbent_record() {
+    let fixture = Fixture::new();
+    let entry = fixture.write_entry("callback-conflict", "target entry");
+    let incumbent_a = fixture.write_entry("callback-a", "first incumbent");
+    let incumbent_c = fixture.write_entry("callback-c", "second incumbent");
+    let data_root = fixture.data_root("callback-conflict");
+    fs::create_dir_all(&data_root).expect("create occupied DataRoot");
+    publish_incumbent(&data_root, "callback-conflict", &incumbent_a);
+    let mut approver = |_claim: &DataRootClaim| {
+        publish_incumbent(&data_root, "callback-conflict", &incumbent_c);
+        Ok(true)
+    };
+
+    let error = resolve_data_root(fixture.request(&entry), &mut approver).unwrap_err();
+    assert!(error.is_state_changed());
+    assert_record_matches(&data_root, &incumbent_c);
+}
+
+#[test]
+fn completed_explicit_legacy_claim_cleans_legacy_residue() {
+    let fixture = Fixture::new();
+    let entry = fixture.write_entry("legacy-new", "entry");
+    let identity = EntryIdentity::read(&entry).expect("entry identity");
+    let legacy_directory = fixture.legacy_data_directory.clone();
+    let legacy_root = legacy_directory.join("proj.legacy-old");
+    fs::create_dir_all(&legacy_root).expect("create legacy DataRoot");
+    publish_entry_record(&legacy_root, "legacy-old", &entry, &identity)
+        .expect("publish legacy record");
+    fs::write(legacy_directory.join("_proj-entry.lock"), "").expect("write legacy lock");
+    let expected = inspect_data_root(fixture.request(&entry))
+        .expect("inspect legacy claim")
+        .claim
+        .expect("legacy claim");
+    assert_eq!(expected.kind, ClaimKind::MigrateLegacy);
+
+    let target = fixture.data_root("legacy-new");
+    fs::create_dir_all(target.parent().expect("target parent")).expect("create current data root");
+    fs::rename(&legacy_root, &target).expect("simulate completed legacy move");
+    publish_entry_record(&target, "legacy-new", &entry, &identity)
+        .expect("complete target record");
+
+    let resolved = claim_data_root(fixture.request(&entry), &expected)
+        .expect("accept completed legacy claim");
+    assert_eq!(resolved.path, target);
+    assert!(!legacy_directory.exists());
+}
+
+#[test]
 fn creates_and_then_directly_reuses_a_bound_data_root() {
     let fixture = Fixture::new();
     let entry = fixture.write_entry("alpha", "first");
@@ -260,4 +380,17 @@ fn replace_entry(path: &Path, content: &str) {
     fs::write(&replacement, content).expect("write replacement");
     fs::remove_file(path).expect("remove previous entry");
     fs::rename(replacement, path).expect("publish replacement entry");
+}
+
+fn publish_incumbent(data_root: &Path, entry_name: &str, entry_file: &Path) {
+    let identity = EntryIdentity::read(entry_file).expect("incumbent identity");
+    publish_entry_record(data_root, entry_name, entry_file, &identity)
+        .expect("publish incumbent record");
+}
+
+fn assert_record_matches(data_root: &Path, entry_file: &Path) {
+    let expected = EntryIdentity::read(entry_file).expect("expected incumbent identity");
+    let state = read_entry_record(data_root);
+    let record = state.valid_record().expect("incumbent record remains valid");
+    assert!(record.matches_identity(&expected));
 }

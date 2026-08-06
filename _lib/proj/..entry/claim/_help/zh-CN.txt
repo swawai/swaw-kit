@@ -1,0 +1,11 @@
+查看或确认当前 Entry 的 DataRoot 认领计划。
+
+用法:
+  {{INVOCATION}}
+  {{INVOCATION}} --dry-run
+  {{INVOCATION}} --json
+  {{INVOCATION}} --yes
+
+默认和 --dry-run 只读取并展示计划，不创建目录、锁文件或身份记录；--json 输出
+供 Agent 使用的结构化结果。只有 --yes 会执行当前计划，执行前仍会重新检查入口
+身份与 DataRoot 状态；状态已经变化时拒绝认领，不提供绕过检查的 force 模式。

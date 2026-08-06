@@ -10,9 +10,10 @@ use std::path::Path;
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
-    FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, FileAttributeTagInfo, FileIdInfo,
-    GetFileInformationByHandleEx, GetVolumeNameForVolumeMountPointW, OPEN_EXISTING,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_INFO,
+    FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    FileAttributeTagInfo, FileIdInfo, GetFileInformationByHandleEx,
+    GetVolumeNameForVolumeMountPointW, OPEN_EXISTING,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,23 +24,33 @@ pub struct EntryIdentity {
 
 impl EntryIdentity {
     pub fn read(entry_file: &Path) -> Result<Self, EntryIdentityError> {
-        let entry_file = std::path::absolute(entry_file).map_err(|error| {
+        Self::read_path(entry_file, IdentityPathKind::File)
+    }
+
+    pub(crate) fn read_directory(directory: &Path) -> Result<Self, EntryIdentityError> {
+        Self::read_path(directory, IdentityPathKind::Directory)
+    }
+
+    fn read_path(path: &Path, kind: IdentityPathKind) -> Result<Self, EntryIdentityError> {
+        let path = std::path::absolute(path).map_err(|error| {
             EntryIdentityError::new(format!(
-                "invalid project entry path '{}': {error}",
-                entry_file.display()
+                "invalid {} path '{}': {error}",
+                kind.label(),
+                path.display()
             ))
         })?;
-        if !entry_file.is_file() {
+        if !kind.matches(&path) {
             return Err(EntryIdentityError::new(format!(
-                "project entry file does not exist: {}",
-                entry_file.display()
+                "{} does not exist: {}",
+                kind.label(),
+                path.display()
             )));
         }
 
-        let file = open_identity_handle(&entry_file)?;
-        reject_reparse_point(&file, &entry_file)?;
-        let file_id = read_file_id(&file, &entry_file)?;
-        let volume_id = read_volume_id(&entry_file)?;
+        let file = open_identity_handle(&path, kind)?;
+        reject_reparse_point(&file, &path, kind)?;
+        let file_id = read_file_id(&file, &path)?;
+        let volume_id = read_volume_id(&path)?;
         Ok(Self { volume_id, file_id })
     }
 
@@ -73,6 +84,36 @@ impl EntryIdentity {
     }
 }
 
+#[derive(Clone, Copy)]
+enum IdentityPathKind {
+    File,
+    Directory,
+}
+
+impl IdentityPathKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::File => "project entry file",
+            Self::Directory => "project DataRoot directory",
+        }
+    }
+
+    fn matches(self, path: &Path) -> bool {
+        match self {
+            Self::File => path.is_file(),
+            Self::Directory => path.is_dir(),
+        }
+    }
+
+    fn open_flags(self) -> u32 {
+        FILE_FLAG_OPEN_REPARSE_POINT
+            | match self {
+                Self::File => 0,
+                Self::Directory => FILE_FLAG_BACKUP_SEMANTICS,
+            }
+    }
+}
+
 pub(crate) fn is_valid_volume_id(value: &str) -> bool {
     let lowercase = value.to_ascii_lowercase();
     let Some(body) = lowercase
@@ -91,7 +132,10 @@ pub(crate) fn is_valid_file_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn open_identity_handle(path: &Path) -> Result<File, EntryIdentityError> {
+fn open_identity_handle(
+    path: &Path,
+    kind: IdentityPathKind,
+) -> Result<File, EntryIdentityError> {
     let path_wide = null_terminated(path.as_os_str())?;
     let handle = unsafe {
         CreateFileW(
@@ -100,22 +144,30 @@ fn open_identity_handle(path: &Path) -> Result<File, EntryIdentityError> {
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             std::ptr::null(),
             OPEN_EXISTING,
-            FILE_FLAG_OPEN_REPARSE_POINT,
+            kind.open_flags(),
             std::ptr::null_mut(),
         )
     };
     if handle == INVALID_HANDLE_VALUE {
-        return Err(last_os_error("cannot open project entry for identity", path));
+        return Err(last_os_error(
+            &format!("cannot open {} for identity", kind.label()),
+            path,
+        ));
     }
     Ok(unsafe { File::from_raw_handle(handle as RawHandle) })
 }
 
-fn reject_reparse_point(file: &File, path: &Path) -> Result<(), EntryIdentityError> {
+fn reject_reparse_point(
+    file: &File,
+    path: &Path,
+    kind: IdentityPathKind,
+) -> Result<(), EntryIdentityError> {
     let mut attributes = FILE_ATTRIBUTE_TAG_INFO::default();
     query_file_information(file, FileAttributeTagInfo, &mut attributes, path)?;
     if attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(EntryIdentityError::new(format!(
-            "project entry file cannot be a reparse point: {}",
+            "{} cannot be a reparse point: {}",
+            kind.label(),
             path.display()
         )));
     }
@@ -153,14 +205,14 @@ fn query_file_information<T>(
         )
     };
     if succeeded == 0 {
-        return Err(last_os_error("cannot query project entry identity", path));
+        return Err(last_os_error("cannot query filesystem identity", path));
     }
     Ok(())
 }
 
 fn read_volume_id(path: &Path) -> Result<String, EntryIdentityError> {
     let volume_root = path.ancestors().last().ok_or_else(|| {
-        EntryIdentityError::new(format!("project entry has no volume root: {}", path.display()))
+        EntryIdentityError::new(format!("path has no volume root: {}", path.display()))
     })?;
     let root_wide = null_terminated(volume_root.as_os_str())?;
     let mut volume_name = [0_u16; 64];
@@ -172,7 +224,7 @@ fn read_volume_id(path: &Path) -> Result<String, EntryIdentityError> {
         )
     };
     if succeeded == 0 {
-        return Err(last_os_error("cannot query project entry volume identity", path));
+        return Err(last_os_error("cannot query filesystem volume identity", path));
     }
     let length = volume_name
         .iter()
@@ -265,6 +317,26 @@ mod tests {
 
         fs::remove_file(original).expect("remove original");
         fs::remove_file(copy).expect("remove copy");
+    }
+
+    #[test]
+    fn reads_stable_directory_identity_and_distinguishes_a_replacement() {
+        let original = fixture_path("original-directory");
+        let displaced = fixture_path("displaced-directory");
+        fs::create_dir(&original).expect("create original directory");
+
+        let first = EntryIdentity::read_directory(&original).expect("first identity");
+        fs::rename(&original, &displaced).expect("displace original directory");
+        let moved = EntryIdentity::read_directory(&displaced).expect("moved identity");
+        fs::create_dir(&original).expect("create replacement directory");
+        let replacement = EntryIdentity::read_directory(&original).expect("replacement identity");
+
+        assert_eq!(first, moved);
+        assert_eq!(first.volume_id(), replacement.volume_id());
+        assert_ne!(first.file_id(), replacement.file_id());
+
+        fs::remove_dir(original).expect("remove replacement directory");
+        fs::remove_dir(displaced).expect("remove displaced directory");
     }
 
     #[test]

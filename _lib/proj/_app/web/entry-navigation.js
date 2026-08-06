@@ -1,21 +1,41 @@
 // Trusted UI sections owned by the built-in Entry Profile renderer.
-export const entryPages = [
-  ["project", "项目绑定", "目标项目与解析结果"],
-  ["preferences", "交互偏好", "Shell、IDE 与帮助语言"],
-  ["development", "开发环境", "工具模式与版本声明"],
-  ["git", "Git 与仓库", "身份、访问方式与远端"],
-];
+export const entryPages = Object.freeze([
+  Object.freeze({
+    id: "project",
+    title: "项目绑定",
+    summary: "当前入口所控制的目标项目。",
+  }),
+  Object.freeze({
+    id: "preferences",
+    title: "交互偏好",
+    summary: "命令模块可共享的 Shell、IDE 与帮助语言声明。",
+  }),
+  Object.freeze({
+    id: "development",
+    title: "开发环境",
+    summary: "由项目管理或复用的开发工具声明。",
+  }),
+  Object.freeze({
+    id: "git",
+    title: "Git 与仓库",
+    summary: "按 Entry 隔离的可选身份、访问方式与远端信息。",
+  }),
+]);
+
+export function entryPage(page) {
+  return entryPages.find(({ id }) => id === page) ?? entryPages[0];
+}
 
 export function isEntryPage(page) {
-  return entryPages.some(([candidate]) => candidate === page);
+  return entryPages.some(({ id }) => id === page);
 }
 
 export function defaultEntryPage() {
-  return "project";
+  return entryPages[0].id;
 }
 
 export function entryPageLabel(page) {
-  return entryPages.find(([candidate]) => candidate === page)?.[1] ?? "项目绑定";
+  return entryPage(page).title;
 }
 
 export function createEntryNavigationColumn({
@@ -37,7 +57,7 @@ export function createEntryNavigationColumn({
   heading.textContent = "Entry Profile";
   list.className = "column-list";
 
-  for (const [page, label, summaryText] of entryPages) {
+  for (const { id: page, title, summary: summaryText } of entryPages) {
     const item = document.createElement("li");
     const button = document.createElement("button");
     const icon = document.createElement("span");
@@ -59,7 +79,7 @@ export function createEntryNavigationColumn({
     icon.setAttribute("aria-hidden", "true");
     copy.className = "row-copy";
     name.className = "row-name";
-    name.textContent = label;
+    name.textContent = title;
     summary.className = "row-summary";
     summary.textContent = summaryText;
     copy.append(name, summary);

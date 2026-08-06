@@ -1,6 +1,9 @@
 use std::error::Error;
 use std::fmt;
+use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
+
+use sha2::{Digest, Sha256};
 
 use super::plan::DataRootPlan;
 
@@ -9,6 +12,16 @@ pub enum ClaimKind {
     Current,
     Rename,
     MigrateLegacy,
+}
+
+impl ClaimKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Current => "current",
+            Self::Rename => "rename",
+            Self::MigrateLegacy => "migrateLegacy",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,28 +34,55 @@ pub struct DataRootClaim {
     pub data_root: PathBuf,
     pub source_data_root: Option<PathBuf>,
     pub reason: String,
+    observed_directory_identity: crate::entry::EntryIdentity,
+    observed_record_revision: String,
 }
 
 impl DataRootClaim {
     pub(crate) fn from_plan(plan: &DataRootPlan) -> Option<Self> {
-        let (kind, source_data_root, reason) = match plan {
-            DataRootPlan::ClaimCurrent { reason, .. } => (ClaimKind::Current, None, reason.clone()),
+        let (
+            kind,
+            source_data_root,
+            observed_directory_identity,
+            observed_record_revision,
+            reason,
+        ) = match plan {
+            DataRootPlan::ClaimCurrent {
+                observed_directory_identity,
+                observed_record_revision,
+                reason,
+                ..
+            } => (
+                ClaimKind::Current,
+                None,
+                observed_directory_identity.clone(),
+                observed_record_revision.clone(),
+                reason.clone(),
+            ),
             DataRootPlan::ClaimRename {
                 source_data_root,
+                observed_directory_identity,
+                observed_record_revision,
                 reason,
                 ..
             } => (
                 ClaimKind::Rename,
                 Some(source_data_root.clone()),
+                observed_directory_identity.clone(),
+                observed_record_revision.clone(),
                 reason.clone(),
             ),
             DataRootPlan::ClaimMigrateLegacy {
                 source_data_root,
+                observed_directory_identity,
+                observed_record_revision,
                 reason,
                 ..
             } => (
                 ClaimKind::MigrateLegacy,
                 Some(source_data_root.clone()),
+                observed_directory_identity.clone(),
+                observed_record_revision.clone(),
                 reason.clone(),
             ),
             DataRootPlan::Direct { .. }
@@ -59,8 +99,57 @@ impl DataRootClaim {
             data_root: target.data_root.clone(),
             source_data_root,
             reason,
+            observed_directory_identity,
+            observed_record_revision,
         })
     }
+
+    pub fn revision(&self) -> String {
+        let mut digest = Sha256::new();
+        hash_text(&mut digest, self.kind.as_str());
+        hash_text(&mut digest, &self.entry_name);
+        hash_path(&mut digest, &self.entry_file);
+        hash_text(&mut digest, &self.volume_id);
+        hash_text(&mut digest, &self.file_id);
+        hash_path(&mut digest, &self.data_root);
+        match &self.source_data_root {
+            Some(path) => {
+                digest.update([1]);
+                hash_path(&mut digest, path);
+            }
+            None => digest.update([0]),
+        }
+        hash_text(&mut digest, &self.reason);
+        hash_text(
+            &mut digest,
+            self.observed_directory_identity.volume_id(),
+        );
+        hash_text(&mut digest, self.observed_directory_identity.file_id());
+        hash_text(&mut digest, &self.observed_record_revision);
+        format!("sha256-{:x}", digest.finalize())
+    }
+
+    pub(crate) fn observed_directory_identity(&self) -> &crate::entry::EntryIdentity {
+        &self.observed_directory_identity
+    }
+}
+
+fn hash_text(digest: &mut Sha256, value: &str) {
+    hash_bytes(digest, value.as_bytes());
+}
+
+fn hash_path(digest: &mut Sha256, value: &std::path::Path) {
+    let wide = value
+        .as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    hash_bytes(digest, &wide);
+}
+
+fn hash_bytes(digest: &mut Sha256, value: &[u8]) {
+    digest.update(value.len().to_le_bytes());
+    digest.update(value);
 }
 
 pub trait DataRootClaimApprover {

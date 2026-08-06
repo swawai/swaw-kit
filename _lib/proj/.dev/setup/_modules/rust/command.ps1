@@ -10,16 +10,17 @@ function Resolve-ProjDevRustCommand {
     $Definition = Get-ProjDevRustDefinition
     if ($null -eq $Definition) {
         throw (
-            'Rust is disabled for this project. Set SWAWKIT_PROJ_RUST_MODE=' +
-            "rustup and run '$($Context.EntryCommand) .dev.setup'."
+            'Rust is disabled for this project. Run ' +
+            "'$($Context.EntryCommand) ..entry.set development.rust.mode rustup', " +
+            "then '$($Context.EntryCommand) .dev.setup'."
         )
     }
     $MsvcDefinition = Get-ProjDevMsvcDefinition
     if ($null -eq $MsvcDefinition) {
         throw (
-            'Rust V0 requires the managed MSVC environment. Set ' +
-            'SWAWKIT_PROJ_MSVC_MODE=managed and run ' +
-            "'$($Context.EntryCommand) .dev.setup'."
+            'Rust V0 requires the managed MSVC environment. Run ' +
+            "'$($Context.EntryCommand) ..entry.set development.msvc.mode managed', " +
+            "then '$($Context.EntryCommand) .dev.setup'."
         )
     }
     Assert-ProjDevWindowsX64 -ToolName 'Rust'
@@ -70,10 +71,15 @@ function Invoke-ProjDevRustCommand {
 
     if ($Arguments.Count -gt 0 -and
         [string]$Arguments[0] -cmatch '^\+') {
+        $EntryCommand = [string]$env:SWAWKIT_PROJ_ENTRY_COMMAND
+        if ([string]::IsNullOrWhiteSpace($EntryCommand)) {
+            $EntryCommand = 'swawkit'
+        }
         throw (
             'Swaw Kit owns the Rust toolchain selection; +toolchain ' +
-            'overrides are not allowed. Change SWAWKIT_PROJ_RUST_TOOLCHAIN ' +
-            "and run 'swawkit .dev.setup'."
+            'overrides are not allowed. Run ' +
+            "'$EntryCommand ..entry.set development.rust.toolchain <value>', " +
+            "then '$EntryCommand .dev.setup'."
         )
     }
     $Command = Resolve-ProjDevRustCommand `

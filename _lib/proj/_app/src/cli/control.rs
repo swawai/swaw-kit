@@ -3,12 +3,62 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use swawkit_proj::{
-    catalog::{CatalogSnapshot, CommandNode, CommandSource},
+    catalog::{CatalogSnapshot, CommandNode, CommandSource, is_help_marker},
     context::EntryContext,
+    help::render_help,
     profile::{EntryProfileDocument, EntryProfileRecord, EntryProfileStore},
 };
 
 use super::{CliError, write_output};
+
+pub(super) enum PreDataRootControl {
+    Claim {
+        snapshot: CatalogSnapshot,
+        address: String,
+    },
+    Complete(i32),
+}
+
+pub(super) fn dispatch_before_data_root(
+    context: &EntryContext,
+    argv: &[OsString],
+    host_launcher: &mut impl FnMut(&EntryContext) -> Result<i32, CliError>,
+) -> Result<Option<PreDataRootControl>, CliError> {
+    let Some(address) = argv.first() else {
+        return Ok(None);
+    };
+    let address = address
+        .to_str()
+        .ok_or_else(|| CliError::new("command address is not valid Unicode"))?;
+    if !address.starts_with("..") {
+        return Ok(None);
+    }
+
+    let snapshot = CatalogSnapshot::discover(context, None)
+        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    let command = resolve_control(&snapshot, address)?;
+    let arguments = argv.get(1..).unwrap_or_default();
+    if matches!(arguments, [marker] if marker.to_str().is_some_and(is_help_marker)) {
+        let output = render_help(&snapshot, address)
+            .map_err(|error| CliError::new(error.to_string()))?;
+        write_output(&output)
+            .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
+        return Ok(Some(PreDataRootControl::Complete(0)));
+    }
+
+    match command.handler.as_deref() {
+        Some("entry.claim") => Ok(Some(PreDataRootControl::Claim {
+            snapshot,
+            address: address.to_owned(),
+        })),
+        Some("host.start") => Ok(Some(PreDataRootControl::Complete(start_host(
+            arguments,
+            context,
+            host_launcher,
+        )?))),
+        _ => Ok(None),
+    }
+}
 
 pub(super) fn dispatch(
     snapshot: &CatalogSnapshot,
@@ -48,7 +98,7 @@ pub(super) fn dispatch(
     Ok(Some(exit_code))
 }
 
-fn resolve_control<'a>(
+pub(super) fn resolve_control<'a>(
     snapshot: &'a CatalogSnapshot,
     address: &str,
 ) -> Result<&'a CommandNode, CliError> {
@@ -101,8 +151,19 @@ fn show_profile(
 }
 
 fn set_profile(arguments: &[OsString], profile_store: &EntryProfileStore) -> Result<i32, CliError> {
+    if arguments.first().is_some_and(|argument| argument == "--list") {
+        let json = match arguments {
+            [_list] => false,
+            [_list, format] if format == "--json" => true,
+            _ => return Err(entry_set_usage()),
+        };
+        let output = render_profile_field_list(json)?;
+        write_output(&output)
+            .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
+        return Ok(0);
+    }
     let [field, value] = arguments else {
-        return Err(CliError::new("usage: ..entry.set <field> <value>"));
+        return Err(entry_set_usage());
     };
     let field = unicode_argument(field, "profile field")?;
     let value = unicode_argument(value, "profile value")?.to_owned();
@@ -111,6 +172,20 @@ fn set_profile(arguments: &[OsString], profile_store: &EntryProfileStore) -> Res
         .map_err(|error| CliError::new(error.to_string()))?;
     write_json(&document)?;
     Ok(0)
+}
+
+fn entry_set_usage() -> CliError {
+    CliError::new("usage: ..entry.set <field> <value> | ..entry.set --list [--json]")
+}
+
+pub(super) fn render_profile_field_list(json: bool) -> Result<String, CliError> {
+    let fields = EntryProfileRecord::mutable_string_field_paths();
+    if json {
+        serde_json::to_string_pretty(&fields)
+            .map_err(|error| CliError::new(format!("cannot serialize Profile fields: {error}")))
+    } else {
+        Ok(fields.join("\n"))
+    }
 }
 
 fn apply_profile(

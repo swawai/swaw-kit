@@ -41,13 +41,13 @@ Windows x64 资产名称随版本生成，GitHub digest 可用时会用于校验
 MSVC 通过 Visual Studio channel 自动解析最新版 x64 工具链和 Windows SDK。
 product manifest 以 channel 身份和实际内容哈希缓存；所有 VSIX、MSI、CAB
 均使用微软 manifest 提供的 SHA-256 严格校验，
-项目只需声明 SWAWKIT_PROJ_MSVC_CHANNEL，不维护版本链接或 hash。
+项目只需通过 development.msvc.channel 声明 channel，不维护版本链接或 hash。
 
 Rust 通过 rustup 安装到隔离的 CARGO_HOME/RUSTUP_HOME，不修改用户 PATH。
 V0 只支持 minimal profile；toolchain 可声明 stable、beta、nightly、
 带日期的 channel，或具体版本。移动 channel 只在首次安装时解析；
 重复 setup 不隐式升级健康工具链。
-SWAWKIT_PROJ_RUST_TOOLCHAIN 是受管命令的权威声明；项目目录中的
+development.rust.toolchain 是受管命令的权威声明；项目目录中的
 rust-toolchain.toml 不会改变 .cargo/.rustc 选用的编译器，
 并拒绝 cargo/rustc 的 +toolchain 临时覆盖。
 

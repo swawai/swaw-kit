@@ -51,6 +51,10 @@ fn discovers_control_kernel_and_action_hierarchies() {
         "home/_lib/proj/..entry/set/run.core.json",
         r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile.set"}"#,
     );
+    fixture.file(
+        "home/_lib/proj/..entry/claim/run.core.json",
+        r#"{"schema":"swawkit.core-command/v1","handler":"entry.claim"}"#,
+    );
     fixture.file("home/_lib/proj/.dev/run.ps1", "");
     fixture.file("home/_lib/proj/.dev/setup/run.cmd", "");
     fixture.file("home/_lib/proj/.help/run.ps1", "");
@@ -85,6 +89,7 @@ fn discovers_control_kernel_and_action_hierarchies() {
         addresses,
         [
             (CommandSource::Control, "..entry"),
+            (CommandSource::Control, "..entry.claim"),
             (CommandSource::Control, "..entry.set"),
             (CommandSource::Kernel, ""),
             (CommandSource::Kernel, "--nul"),
@@ -105,6 +110,8 @@ fn discovers_control_kernel_and_action_hierarchies() {
     assert_eq!(entry.handler.as_deref(), Some("entry.profile"));
     let set = node(&snapshot, CommandSource::Control, "..entry.set");
     assert_eq!(set.parent.as_deref(), Some("..entry"));
+    let claim = node(&snapshot, CommandSource::Control, "..entry.claim");
+    assert_eq!(claim.handler.as_deref(), Some("entry.claim"));
 
     let setup = node(&snapshot, CommandSource::Kernel, ".dev.setup");
     assert_eq!(setup.parent.as_deref(), Some(".dev"));

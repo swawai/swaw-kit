@@ -31,116 +31,27 @@ function New-ProjDataRootClaim {
     }
 }
 
-function Read-ProjTimedClaimAnswerCore {
-    param(
-        [Parameter(Mandatory = $true)][string]$Prompt,
-        [ValidateRange(1, 300)][int]$TimeoutSeconds,
-        [Parameter(Mandatory = $true)][scriptblock]$ReadKey
-    )
-
-    Write-Host -NoNewline "$Prompt (${TimeoutSeconds}s timeout): "
-    $Answer = [Text.StringBuilder]::new()
-    $Stopwatch = [Diagnostics.Stopwatch]::StartNew()
-    try {
-        while ($Stopwatch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
-            $Key = & $ReadKey
-            if ($null -eq $Key) {
-                Start-Sleep -Milliseconds 50
-                continue
-            }
-
-            if ($Key.Key -eq [ConsoleKey]::Enter) {
-                Write-Host
-                return $Answer.ToString()
-            }
-            if ($Key.Key -eq [ConsoleKey]::Backspace) {
-                if ($Answer.Length -gt 0) {
-                    [void]$Answer.Remove($Answer.Length - 1, 1)
-                    Write-Host -NoNewline "`b `b"
-                }
-                continue
-            }
-            if (-not [char]::IsControl($Key.KeyChar)) {
-                [void]$Answer.Append($Key.KeyChar)
-                Write-Host -NoNewline $Key.KeyChar
-            }
-        }
-    } finally {
-        $Stopwatch.Stop()
-    }
-    Write-Host
-    return $null
-}
-
-function Read-ProjTimedClaimAnswer {
-    param(
-        [Parameter(Mandatory = $true)][string]$Prompt,
-        [ValidateRange(1, 300)][int]$TimeoutSeconds = 20
-    )
-
-    if ([Console]::IsInputRedirected) {
-        return $null
-    }
-    try {
-        [void][Console]::KeyAvailable
-    } catch {
-        return $null
-    }
-
-    return Read-ProjTimedClaimAnswerCore `
-        -Prompt $Prompt `
-        -TimeoutSeconds $TimeoutSeconds `
-        -ReadKey {
-            if (-not [Console]::KeyAvailable) {
-                return $null
-            }
-            return [Console]::ReadKey($true)
-        }
-}
-
 function Confirm-ProjDataRootClaim {
     param(
-        [Parameter(Mandatory = $true)][object]$Claim,
-        [ValidateRange(1, 300)][int]$TimeoutSeconds = 20
+        [Parameter(Mandatory = $true)][object]$Claim
     )
 
-    Write-Host '[CLAIM] Project DataRoot requires explicit ownership.' `
-        -ForegroundColor Yellow
-    Write-Host "  SWAWKIT_PROJ_TARGET_PROJECT_ROOT: $($Claim.ProjectRoot)"
-    Write-Host "  SWAWKIT_PROJ_ACTION_ROOT:         $($Claim.ActionRoot)"
-    Write-Host "  entry:                    $($Claim.EntryFile)"
-    Write-Host "  volumeId:                 $($Claim.VolumeId)"
-    Write-Host "  fileId:                   $($Claim.FileId)"
-    Write-Host "  target:                   $($Claim.DataRoot)"
+    $Lines = @(
+        'Project DataRoot ownership claim is required.'
+        "Kind: $($Claim.Kind)"
+        "Entry: $($Claim.EntryName)"
+        "Entry File: $($Claim.EntryFile)"
+        "Volume ID: $($Claim.VolumeId)"
+        "File ID: $($Claim.FileId)"
+        "Target: $($Claim.DataRoot)"
+    )
     if (-not [string]::IsNullOrWhiteSpace($Claim.SourceDataRoot)) {
-        Write-Host "  rename:                   $($Claim.SourceDataRoot)"
+        $Lines += "Source: $($Claim.SourceDataRoot)"
     }
-    Write-Host "  reason:                   $($Claim.Reason)"
-    if ([Console]::IsInputRedirected) {
-        Write-Host '[FAILED] Confirmation input is redirected.' `
-            -ForegroundColor Red
-        throw (New-ProjDataRootClaimException -Message (
-            'Project DataRoot claim requires an interactive terminal.'
-        ))
-    }
-    $Answer = Read-ProjTimedClaimAnswer `
-        -Prompt "Type the new name '$($Claim.EntryName)' to confirm" `
-        -TimeoutSeconds $TimeoutSeconds
-    if ($null -eq $Answer) {
-        Write-Host "[FAILED] No input within $TimeoutSeconds seconds." `
-            -ForegroundColor Red
-        throw (New-ProjDataRootClaimException -Message (
-            'Project DataRoot claim timed out.'
-        ))
-    }
-    if ([string]$Answer -cne [string]$Claim.EntryName) {
-        Write-Host (
-            "[FAILED] Expected '$($Claim.EntryName)'; " +
-            "you typed '$Answer'."
-        ) -ForegroundColor Red
-        throw (New-ProjDataRootClaimException -Message (
-            'Project DataRoot claim was not confirmed.'
-        ))
-    }
-    return $true
+    $Lines += "Reason: $($Claim.Reason)"
+    $Lines += "Review: $($Claim.EntryName) ..entry.claim"
+    $Lines += "Apply: $($Claim.EntryName) ..entry.claim --yes"
+    throw (New-ProjDataRootClaimException -Message (
+        [string]::Join([Environment]::NewLine, $Lines)
+    ))
 }

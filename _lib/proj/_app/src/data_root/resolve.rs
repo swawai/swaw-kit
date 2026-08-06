@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::entry::{EntryIdentity, EntryIdentityError};
 
-use super::claim::{ClaimApprovalError, DataRootClaim, DataRootClaimApprover};
+use super::claim::{ClaimApprovalError, ClaimKind, DataRootClaim, DataRootClaimApprover};
 use super::development_environment::{
     DevelopmentEnvironmentRepair, DevelopmentEnvironmentRepairError, repair_development_environment,
 };
@@ -17,6 +17,7 @@ use super::plan::{
     plan_data_root,
 };
 
+#[derive(Clone, Copy)]
 pub struct ResolveDataRootRequest<'a> {
     pub swawkit_home: &'a Path,
     pub entry_file: &'a Path,
@@ -29,6 +30,35 @@ pub struct ResolvedDataRoot {
     pub path: PathBuf,
     pub development_environment_repair: DevelopmentEnvironmentRepair,
     pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataRootInspection {
+    pub data_root: PathBuf,
+    pub claim: Option<DataRootClaim>,
+}
+
+pub fn inspect_data_root(
+    request: ResolveDataRootRequest<'_>,
+) -> Result<DataRootInspection, ResolveDataRootError> {
+    let request = OwnedRequest::from_request(request)?;
+    let data_directory = request.swawkit_home.join("data");
+    let plan = build_plan(&request, &data_directory)?;
+    Ok(DataRootInspection {
+        data_root: plan.target().data_root.clone(),
+        claim: DataRootClaim::from_plan(&plan),
+    })
+}
+
+pub fn claim_data_root(
+    request: ResolveDataRootRequest<'_>,
+    expected: &DataRootClaim,
+) -> Result<ResolvedDataRoot, ResolveDataRootError> {
+    let request = OwnedRequest::from_request(request)?;
+    let data_directory = request.swawkit_home.join("data");
+    let lock = DataRootLock::acquire(&data_directory)?;
+    let plan = build_plan(&request, &data_directory)?;
+    complete_expected_claim(plan, expected, lock)
 }
 
 pub fn resolve_data_root(
@@ -52,16 +82,7 @@ pub fn resolve_data_root(
 
     let lock = DataRootLock::acquire(&data_directory)?;
     let current_plan = build_plan(&request, &data_directory)?;
-    if !claim_state_stable(&initial_plan, &current_plan) {
-        return Err(ResolveDataRootError::state_changed());
-    }
-    let completed_legacy_source = match &initial_plan {
-        DataRootPlan::ClaimMigrateLegacy {
-            source_data_root, ..
-        } if matches!(current_plan, DataRootPlan::Direct { .. }) => Some(source_data_root.clone()),
-        _ => None,
-    };
-    complete_locked(current_plan, completed_legacy_source, lock)
+    complete_expected_claim(current_plan, &claim, lock)
 }
 
 fn build_plan(
@@ -118,43 +139,39 @@ fn complete_locked(
     Ok(resolved)
 }
 
-fn claim_state_stable(initial: &DataRootPlan, current: &DataRootPlan) -> bool {
-    let initial_target = initial.target();
-    let current_target = current.target();
-    if !ordinal_path_eq(&initial_target.entry_file, &current_target.entry_file)
-        || !ordinal_path_eq(&initial_target.data_root, &current_target.data_root)
-        || !ordinal_text_eq(&initial_target.entry_name, &current_target.entry_name)
-        || initial_target.identity != current_target.identity
-    {
+fn complete_expected_claim(
+    plan: DataRootPlan,
+    expected: &DataRootClaim,
+    lock: DataRootLock,
+) -> Result<ResolvedDataRoot, ResolveDataRootError> {
+    match DataRootClaim::from_plan(&plan) {
+        Some(current) if &current == expected => complete_locked(plan, None, lock),
+        None if direct_target_matches(&plan, expected) => {
+            let completed_legacy_source = if expected.kind == ClaimKind::MigrateLegacy {
+                expected.source_data_root.clone()
+            } else {
+                None
+            };
+            complete_locked(plan, completed_legacy_source, lock)
+        }
+        _ => Err(ResolveDataRootError::state_changed()),
+    }
+}
+
+fn direct_target_matches(plan: &DataRootPlan, expected: &DataRootClaim) -> bool {
+    let DataRootPlan::Direct {
+        target,
+        data_root_identity,
+    } = plan
+    else {
         return false;
-    }
-    if matches!(current, DataRootPlan::Direct { .. }) {
-        return true;
-    }
-    match (initial, current) {
-        (DataRootPlan::ClaimCurrent { .. }, DataRootPlan::ClaimCurrent { .. }) => true,
-        (
-            DataRootPlan::ClaimRename {
-                source_data_root: initial_source,
-                ..
-            },
-            DataRootPlan::ClaimRename {
-                source_data_root: current_source,
-                ..
-            },
-        )
-        | (
-            DataRootPlan::ClaimMigrateLegacy {
-                source_data_root: initial_source,
-                ..
-            },
-            DataRootPlan::ClaimMigrateLegacy {
-                source_data_root: current_source,
-                ..
-            },
-        ) => ordinal_path_eq(initial_source, current_source),
-        _ => false,
-    }
+    };
+    ordinal_path_eq(&target.entry_file, &expected.entry_file)
+        && ordinal_path_eq(&target.data_root, &expected.data_root)
+        && ordinal_text_eq(&target.entry_name, &expected.entry_name)
+        && target.identity.volume_id() == expected.volume_id
+        && target.identity.file_id() == expected.file_id
+        && data_root_identity == expected.observed_directory_identity()
 }
 
 fn remove_legacy_residue(legacy_data_root: &Path) -> Option<String> {
@@ -317,3 +334,7 @@ resolve_error_from!(DevelopmentEnvironmentRepairError);
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "resolve/directory_identity_tests.rs"]
+mod directory_identity_tests;

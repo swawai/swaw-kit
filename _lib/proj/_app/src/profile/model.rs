@@ -14,6 +14,21 @@ pub struct EntryProfileRecord {
 }
 
 impl EntryProfileRecord {
+    /// Returns every mutable string leaf in the persisted Profile schema.
+    ///
+    /// The list is derived from the serialized record instead of maintaining a
+    /// second field catalog for CLI discovery. `schema` identifies the document
+    /// contract and is intentionally not mutable.
+    pub fn mutable_string_field_paths() -> Vec<String> {
+        let document = serde_json::to_value(Self::default())
+            .expect("the default Entry Profile must serialize");
+        let mut fields = Vec::new();
+        collect_string_field_paths(&document, "", &mut fields);
+        fields.retain(|field| field != "schema");
+        fields.sort_unstable();
+        fields
+    }
+
     pub fn validate(&self) -> Result<(), ProfileError> {
         if self.schema != PROFILE_SCHEMA {
             return Err(ProfileError::new(format!(
@@ -80,6 +95,27 @@ impl EntryProfileRecord {
             ProfileError::new(format!("cannot update entry profile field: {error}"))
         })?;
         Ok(())
+    }
+}
+
+fn collect_string_field_paths(
+    value: &serde_json::Value,
+    prefix: &str,
+    fields: &mut Vec<String>,
+) {
+    match value {
+        serde_json::Value::String(_) if !prefix.is_empty() => fields.push(prefix.to_owned()),
+        serde_json::Value::Object(object) => {
+            for (name, child) in object {
+                let path = if prefix.is_empty() {
+                    name.to_owned()
+                } else {
+                    format!("{prefix}.{name}")
+                };
+                collect_string_field_paths(child, &path, fields);
+            }
+        }
+        _ => {}
     }
 }
 

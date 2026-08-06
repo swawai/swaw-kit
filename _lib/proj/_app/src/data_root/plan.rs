@@ -21,17 +21,22 @@ pub struct PlanTarget {
 pub enum DataRootPlan {
     Direct {
         target: PlanTarget,
+        data_root_identity: EntryIdentity,
     },
     Create {
         target: PlanTarget,
     },
     ClaimCurrent {
         target: PlanTarget,
+        observed_directory_identity: EntryIdentity,
+        observed_record_revision: String,
         reason: String,
     },
     ClaimRename {
         target: PlanTarget,
         source_data_root: PathBuf,
+        observed_directory_identity: EntryIdentity,
+        observed_record_revision: String,
         reason: String,
     },
     MigrateLegacy {
@@ -42,6 +47,8 @@ pub enum DataRootPlan {
     ClaimMigrateLegacy {
         target: PlanTarget,
         source_data_root: PathBuf,
+        observed_directory_identity: EntryIdentity,
+        observed_record_revision: String,
         reason: String,
     },
 }
@@ -49,7 +56,7 @@ pub enum DataRootPlan {
 impl DataRootPlan {
     pub fn target(&self) -> &PlanTarget {
         match self {
-            Self::Direct { target }
+            Self::Direct { target, .. }
             | Self::Create { target }
             | Self::ClaimCurrent { target, .. }
             | Self::ClaimRename { target, .. }
@@ -141,7 +148,10 @@ pub fn plan_data_root(
             .map(|record| ordinal_text_eq(&record.entry_name, &entry_name))
             .unwrap_or(false);
         if identity_matches && name_matches {
-            return Ok(DataRootPlan::Direct { target });
+            return Ok(DataRootPlan::Direct {
+                target,
+                data_root_identity: candidate_root.directory_identity().clone(),
+            });
         }
         if let Some(current) = current_matches.first()
             && !ordinal_path_eq(&current.path, &candidate)
@@ -160,13 +170,20 @@ pub fn plan_data_root(
             Some(_) if !name_matches => "entry name does not match the identity record".to_owned(),
             Some(_) => "File ID does not match the identity record".to_owned(),
         };
-        return Ok(DataRootPlan::ClaimCurrent { target, reason });
+        return Ok(DataRootPlan::ClaimCurrent {
+            target,
+            observed_directory_identity: candidate_root.directory_identity().clone(),
+            observed_record_revision: candidate_root.record_revision(),
+            reason,
+        });
     }
 
     if let Some(current) = current_matches.first() {
         return Ok(DataRootPlan::ClaimRename {
             target,
             source_data_root: current.path.clone(),
+            observed_directory_identity: current.directory_identity().clone(),
+            observed_record_revision: current.record_revision(),
             reason: "the entry File ID is bound under another entry name".to_owned(),
         });
     }
@@ -191,6 +208,8 @@ pub fn plan_data_root(
         return Ok(DataRootPlan::ClaimMigrateLegacy {
             target,
             source_data_root: legacy.path.clone(),
+            observed_directory_identity: legacy.directory_identity().clone(),
+            observed_record_revision: legacy.record_revision(),
             reason: "the entry File ID is stored under a renamed legacy DataRoot".to_owned(),
         });
     }

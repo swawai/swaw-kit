@@ -1,9 +1,4 @@
-const pageCopy = {
-  project: ["项目绑定", "当前入口所控制的目标项目。"],
-  preferences: ["交互偏好", "命令模块可共享的 Shell、IDE 与帮助语言声明。"],
-  development: ["开发环境", "由项目管理或复用的开发工具声明。"],
-  git: ["Git 与仓库", "按 Entry 隔离的可选身份、访问方式与远端信息。"],
-};
+import { defaultEntryPage, entryPage, isEntryPage } from "./entry-navigation.js";
 
 export class EntryProfileConflictError extends Error {}
 
@@ -30,7 +25,7 @@ export async function putEntryProfile(profile, revision, fetchProfile = fetch) {
 export function createEntryProfileView(elements, { onProfileChanged }) {
   let currentProfile = null;
   let currentRevision = "missing";
-  let currentPage = "project";
+  let currentPage = defaultEntryPage();
 
   function field(name) {
     return elements.profileForm.elements.namedItem(name);
@@ -43,19 +38,19 @@ export function createEntryProfileView(elements, { onProfileChanged }) {
     }
   }
 
-  function render(page = "project") {
-    const selectedPage = pageCopy[page] ? page : "project";
+  function render(page = defaultEntryPage()) {
+    const selectedPage = isEntryPage(page) ? page : defaultEntryPage();
     currentPage = selectedPage;
-    const [title, summary] = pageCopy[selectedPage] ?? pageCopy.project;
-    elements.entryProfileTitle.textContent = title;
-    elements.entryProfileSummary.textContent = summary;
+    const descriptor = entryPage(selectedPage);
+    elements.entryProfileTitle.textContent = descriptor.title;
+    elements.entryProfileSummary.textContent = descriptor.summary;
     elements.profileForm.hidden = false;
     for (const section of elements.profileForm.querySelectorAll("[data-profile-section]")) {
       section.hidden = section.dataset.profileSection !== selectedPage;
     }
     elements.entryProfileDetail.hidden = false;
     elements.commandDetail.hidden = true;
-    elements.selectionStatus.textContent = `已选择${title}`;
+    elements.selectionStatus.textContent = `已选择${descriptor.title}`;
   }
 
   function updateConditionalRequirements() {

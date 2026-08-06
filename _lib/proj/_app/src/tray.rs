@@ -13,9 +13,8 @@ use winit::{
 };
 
 use swawkit_proj::{
-    catalog_reader::CatalogReader,
     context::EntryContext,
-    profile::EntryProfileStore,
+    data_root::DataRootSession,
     server::{self, ServerEvent},
 };
 
@@ -196,8 +195,7 @@ impl ApplicationHandler<AppEvent> for App {
     }
 }
 
-pub fn run(context: EntryContext, profile_store: EntryProfileStore) -> Result<(), Box<dyn Error>> {
-    let catalog_reader = CatalogReader::new(context, profile_store.clone());
+pub fn run(context: EntryContext, data_root: DataRootSession) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::<AppEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
@@ -209,8 +207,8 @@ pub fn run(context: EntryContext, profile_store: EntryProfileStore) -> Result<()
     let (shutdown, shutdown_receiver) = oneshot::channel();
     let server_proxy = event_loop.create_proxy();
     let server_thread = server::spawn(
-        catalog_reader,
-        profile_store,
+        context,
+        data_root,
         move |event| {
             server_proxy
                 .send_event(AppEvent::Server(event))

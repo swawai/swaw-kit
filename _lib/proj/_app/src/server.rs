@@ -22,14 +22,18 @@ use tokio::{net::TcpListener, sync::oneshot};
 use crate::{
     catalog::CatalogSnapshot,
     catalog_reader::CatalogReader,
+    context::EntryContext,
+    data_root::{DataRootSession, DataRootSessionState},
     profile::{EntryProfileDocument, EntryProfileRecord, EntryProfileStore, ProfileUpdateError},
     web_assets,
 };
 
+mod claim;
+
 #[derive(Clone)]
 struct ServerState {
-    catalog_reader: CatalogReader,
-    profile_store: EntryProfileStore,
+    context: EntryContext,
+    data_root: DataRootSession,
 }
 
 #[derive(Debug)]
@@ -39,8 +43,8 @@ pub enum ServerEvent {
 }
 
 pub fn spawn<F>(
-    catalog_reader: CatalogReader,
-    profile_store: EntryProfileStore,
+    context: EntryContext,
+    data_root: DataRootSession,
     notify: F,
     shutdown: oneshot::Receiver<()>,
 ) -> io::Result<thread::JoinHandle<()>>
@@ -55,8 +59,8 @@ where
                 .build()
             {
                 Ok(runtime) => runtime.block_on(run_server(
-                    catalog_reader,
-                    profile_store,
+                    context,
+                    data_root,
                     |url| notify(ServerEvent::Ready(url)),
                     shutdown,
                 )),
@@ -68,8 +72,8 @@ where
 }
 
 async fn run_server<F>(
-    catalog_reader: CatalogReader,
-    profile_store: EntryProfileStore,
+    context: EntryContext,
+    data_root: DataRootSession,
     notify_ready: F,
     shutdown: oneshot::Receiver<()>,
 ) -> Result<(), String>
@@ -83,7 +87,7 @@ where
 
     notify_ready(url)?;
 
-    axum::serve(listener, router(authority, catalog_reader, profile_store))
+    axum::serve(listener, router(authority, context, data_root))
         .with_graceful_shutdown(async move {
             let _ = shutdown.await;
         })
@@ -95,15 +99,15 @@ async fn bind_loopback() -> io::Result<TcpListener> {
     TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await
 }
 
-fn router(
-    expected_authority: String,
-    catalog_reader: CatalogReader,
-    profile_store: EntryProfileStore,
-) -> Router {
+fn router(expected_authority: String, context: EntryContext, data_root: DataRootSession) -> Router {
     Router::new()
         .route("/", get(web_assets::index))
         .route("/assets/{*path}", get(web_assets::asset))
         .route("/api/v2/catalog", get(get_catalog))
+        .route(
+            "/api/v2/data-root/claim",
+            get(claim::get_claim).post(claim::post_claim),
+        )
         .route("/api/v2/profile", get(get_profile).put(put_profile))
         .route("/healthz", get(health))
         .layer(middleware::from_fn(security_headers))
@@ -111,10 +115,7 @@ fn router(
             Arc::<str>::from(expected_authority),
             enforce_authority,
         ))
-        .with_state(ServerState {
-            catalog_reader,
-            profile_store,
-        })
+        .with_state(ServerState { context, data_root })
 }
 
 async fn enforce_authority(
@@ -156,13 +157,18 @@ async fn security_headers(request: Request, next: Next) -> Response {
 
 async fn get_catalog(
     State(state): State<ServerState>,
-) -> Result<Json<CatalogSnapshot>, (StatusCode, &'static str)> {
-    state.catalog_reader.read().await.map(Json).map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "catalog discovery failed\n",
-        )
-    })
+) -> Result<Json<CatalogSnapshot>, (StatusCode, Json<ApiError>)> {
+    let profile_store = ready_profile_store(&state).await?;
+    CatalogReader::new(state.context, profile_store)
+        .read()
+        .await
+        .map(Json)
+        .map_err(|_| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "catalog discovery failed",
+            )
+        })
 }
 
 #[derive(Debug, Serialize)]
@@ -171,7 +177,21 @@ struct ApiError {
 }
 
 async fn get_profile(State(state): State<ServerState>) -> Response {
-    profile_response(state.profile_store.document())
+    let profile_store = match ready_profile_store(&state).await {
+        Ok(profile_store) => profile_store,
+        Err(error) => return error.into_response(),
+    };
+    let document = match tokio::task::spawn_blocking(move || profile_store.document()).await {
+        Ok(document) => document,
+        Err(error) => {
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("entry profile worker failed: {error}"),
+            )
+            .into_response();
+        }
+    };
+    profile_response(document)
 }
 
 async fn put_profile(
@@ -179,11 +199,19 @@ async fn put_profile(
     headers: HeaderMap,
     Json(profile): Json<EntryProfileRecord>,
 ) -> Result<Response, (StatusCode, Json<ApiError>)> {
-    let expected_revision = expected_revision(&headers)?;
-    match state
-        .profile_store
-        .replace_if_revision(expected_revision, profile)
-    {
+    let expected_revision = expected_revision(&headers, "entry profile")?.to_owned();
+    let profile_store = ready_profile_store(&state).await?;
+    let update = tokio::task::spawn_blocking(move || {
+        profile_store.replace_if_revision(&expected_revision, profile)
+    })
+    .await
+    .map_err(|error| {
+        api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("entry profile worker failed: {error}"),
+        )
+    })?;
+    match update {
         Ok(document) => Ok(profile_response(document)),
         Err(ProfileUpdateError::Conflict { .. }) => Err(api_error(
             StatusCode::CONFLICT,
@@ -196,17 +224,20 @@ async fn put_profile(
     }
 }
 
-fn expected_revision(headers: &HeaderMap) -> Result<&str, (StatusCode, Json<ApiError>)> {
+fn expected_revision<'a>(
+    headers: &'a HeaderMap,
+    subject: &str,
+) -> Result<&'a str, (StatusCode, Json<ApiError>)> {
     let value = headers.get(IF_MATCH).ok_or_else(|| {
         api_error(
             StatusCode::PRECONDITION_REQUIRED,
-            "If-Match with the loaded entry profile revision is required",
+            format!("If-Match with the loaded {subject} revision is required"),
         )
     })?;
     let value = value.to_str().map_err(|_| {
         api_error(
             StatusCode::BAD_REQUEST,
-            "If-Match must contain one strong entry profile revision",
+            format!("If-Match must contain one strong {subject} revision"),
         )
     })?;
     value
@@ -216,7 +247,7 @@ fn expected_revision(headers: &HeaderMap) -> Result<&str, (StatusCode, Json<ApiE
         .ok_or_else(|| {
             api_error(
                 StatusCode::BAD_REQUEST,
-                "If-Match must contain one quoted strong entry profile revision",
+                format!("If-Match must contain one quoted strong {subject} revision"),
             )
         })
 }
@@ -234,6 +265,35 @@ fn api_error(status: StatusCode, error: impl Into<String>) -> (StatusCode, Json<
             error: error.into(),
         }),
     )
+}
+
+async fn data_root_status(
+    state: &ServerState,
+) -> Result<DataRootSessionState, (StatusCode, Json<ApiError>)> {
+    let data_root = state.data_root.clone();
+    tokio::task::spawn_blocking(move || data_root.status())
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DataRoot worker failed: {error}"),
+            )
+        })?
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
+}
+
+async fn ready_profile_store(
+    state: &ServerState,
+) -> Result<EntryProfileStore, (StatusCode, Json<ApiError>)> {
+    match data_root_status(state).await? {
+        DataRootSessionState::Ready(resolved) => {
+            Ok(EntryProfileStore::new(&state.context.swawkit_home, resolved.path))
+        }
+        DataRootSessionState::ClaimRequired(_) => Err(api_error(
+            StatusCode::CONFLICT,
+            "DataRoot ownership claim is required",
+        )),
+    }
 }
 
 async fn health() -> &'static str {

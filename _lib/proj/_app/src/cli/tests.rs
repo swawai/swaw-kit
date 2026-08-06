@@ -305,6 +305,70 @@ fn an_unbound_candidate_requires_approval_before_execution() {
 }
 
 #[test]
+fn ordinary_cli_rejects_a_claim_immediately_with_dedicated_commands() {
+    let fixture = Fixture::new();
+    fixture.command(".tool", "run.cmd", "@exit /b 0\r\n");
+    fs::create_dir_all(fixture.data_root()).unwrap();
+
+    let mut reject =
+        |pending: &DataRootClaim| Err(claim::rejection(&fixture.context, pending));
+    let error = run_with_approver(
+        &fixture.context,
+        &argv(&[".tool"]),
+        None,
+        None,
+        &mut reject,
+    )
+    .expect_err("ordinary command must not claim DataRoot");
+    let message = error.to_string();
+    assert!(message.contains("Status: claimRequired"));
+    assert!(message.contains("Review: fixture ..entry.claim"));
+    assert!(message.contains("Apply: fixture ..entry.claim --yes"));
+    assert!(
+        read_entry_record(&fixture.data_root())
+            .valid_record()
+            .is_none()
+    );
+}
+
+#[test]
+fn dedicated_claim_preview_is_read_only_and_yes_applies_it() {
+    let fixture = Fixture::new();
+    fixture.core_command("..entry.claim", "entry.claim");
+    fs::create_dir_all(fixture.data_root()).unwrap();
+    let record_path = fixture.data_root().join("_entry.json");
+    let mut unexpected =
+        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim callback was not expected"));
+
+    assert_eq!(
+        run_with_approver(
+            &fixture.context,
+            &argv(&["..entry.claim"]),
+            None,
+            None,
+            &mut unexpected,
+        )
+        .unwrap(),
+        0
+    );
+    assert!(!record_path.exists());
+    assert!(!fixture.root.join("data/_proj-entry.lock").exists());
+
+    assert_eq!(
+        run_with_approver(
+            &fixture.context,
+            &argv(&["..entry.claim", "--yes"]),
+            None,
+            None,
+            &mut unexpected,
+        )
+        .unwrap(),
+        0
+    );
+    assert!(read_entry_record(&fixture.data_root()).valid_record().is_some());
+}
+
+#[test]
 fn help_shape_keeps_non_help_invocations_for_the_executor() {
     assert_eq!(help_target(&argv(&[".tool"])).unwrap(), None);
     assert_eq!(help_target(&argv(&[".tool", "value"])).unwrap(), None);

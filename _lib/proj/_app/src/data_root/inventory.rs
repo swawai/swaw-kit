@@ -6,7 +6,11 @@ use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
-use super::record::{EntryRecordState, read_entry_record};
+use crate::entry::EntryIdentity;
+
+use super::record::{
+    EntryRecordFingerprint, EntryRecordState, read_entry_record_with_fingerprint,
+};
 
 #[derive(Debug, Clone)]
 pub struct DataRootInventory {
@@ -70,8 +74,17 @@ impl DataRootInventory {
             if !metadata.is_dir() {
                 continue;
             }
+            let directory_identity = EntryIdentity::read_directory(&path).map_err(|error| {
+                DataRootInventoryError::new(format!(
+                    "cannot read project DataRoot identity '{}': {error}",
+                    path.display()
+                ))
+            })?;
+            let record_read = read_entry_record_with_fingerprint(&path);
             roots.push(DataRootSnapshot {
-                record: read_entry_record(&path),
+                record: record_read.state,
+                record_fingerprint: record_read.fingerprint,
+                directory_identity,
                 path,
             });
         }
@@ -96,7 +109,17 @@ impl DataRootInventory {
             directory,
             roots: snapshots
                 .into_iter()
-                .map(|(path, record)| DataRootSnapshot { path, record })
+                .enumerate()
+                .map(|(index, (path, record))| DataRootSnapshot {
+                    record_fingerprint: EntryRecordFingerprint::from_state(&record),
+                    directory_identity: EntryIdentity::from_parts(
+                        r"\\?\volume{91cf565a-694f-4232-be2d-368578d28629}",
+                        format!("{:032x}", index + 1),
+                    )
+                    .expect("synthetic DataRoot identity"),
+                    path,
+                    record,
+                })
                 .collect(),
         }
     }
@@ -106,6 +129,18 @@ impl DataRootInventory {
 pub(crate) struct DataRootSnapshot {
     pub(crate) path: PathBuf,
     pub(crate) record: EntryRecordState,
+    record_fingerprint: EntryRecordFingerprint,
+    directory_identity: EntryIdentity,
+}
+
+impl DataRootSnapshot {
+    pub(crate) fn directory_identity(&self) -> &EntryIdentity {
+        &self.directory_identity
+    }
+
+    pub(crate) fn record_revision(&self) -> String {
+        self.record_fingerprint.revision()
+    }
 }
 
 fn reject_reparse_point(path: &Path, label: &str) -> Result<(), DataRootInventoryError> {
