@@ -88,7 +88,7 @@ copy .\Favorites\template.sshaccdss1.cmd   .\sshaccess.cmd   # 复制后修改 s
 
 WSL 实例管理：https://swaw.com/zh/p/swaw-kit-wsl-release/  
 SSH 主机管理：https://swaw.com/zh/p/ssh-remote-kit-windows/  
-Git 多身份管理：https://swaw.com/zh/p/swaw-kit-git/
+Git 多身份管理：https://swaw.com/zh/p/swaw-kit-git/  
 Windows 开启 SSH 服务：https://swaw.com/zh/p/swaw-kit-git/
 
 ## 微软 Sysinternals
