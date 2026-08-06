@@ -6,6 +6,9 @@
 输出:
   Favorites/template.proj1.exe
 
+干净源码中若模板和根目录 swawkit.exe 尚不存在，swawkit.cmd 会通过固定的
+Bootstrap MSVC 工具链生成同一模板，再以不覆盖既有 Entry 的方式种下 swawkit.exe。
+
 模板可在 SWAWKIT_HOME 根目录或其一级目录（如 Favorites）内复制并改名。
 无参数启动 Host、托盘和本地 Web 控制台；带参数时同步执行 Rust CLI，
 保留原生参数边界并返回真实退出码。移出上述范围后会拒绝启动，避免记录绝对路径。

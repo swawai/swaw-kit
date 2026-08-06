@@ -36,6 +36,14 @@ Assert-ProjBootstrapContractTest `
         [IO.Path]::GetFullPath($Layout.BuildRoot).Equals(
             (Join-Path $RepoRoot 'data\proj_cache\bootstrap\build\app'),
             [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.LauncherTemplatePath).Equals(
+            (Join-Path $RepoRoot 'Favorites\template.proj1.exe'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.RootEntryPath).Equals(
+            (Join-Path $RepoRoot 'swawkit.exe'),
+            [StringComparison]::OrdinalIgnoreCase
         )
     ) `
     -Message 'the Bootstrap generated state escaped the shared Proj cache'

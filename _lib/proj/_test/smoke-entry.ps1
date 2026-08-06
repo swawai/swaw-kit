@@ -37,11 +37,10 @@ function Invoke-ProjEntrySmoke {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-$SourceEntry = Join-Path $RepoRoot 'swawkit.cmd'
+$SourceEntry = Join-Path $RepoRoot 'Favorites\template.proj1.exe'
 $EntryName = "test-native-entry-$([Guid]::NewGuid().ToString('N'))"
-$EntryPath = Join-Path $RepoRoot "$EntryName.cmd"
+$EntryPath = Join-Path $RepoRoot "$EntryName.exe"
 $DataRoot = Join-Path $RepoRoot "data\proj.$EntryName"
-$SourceText = [IO.File]::ReadAllText($SourceEntry)
 $PoisonedEnvironment = [ordered]@{
     SWAWKIT_HOME = 'C:\foreign-home'
     SWAWKIT_PROJ_PROTOCOL = 'foreign'
@@ -60,18 +59,9 @@ $PoisonedEnvironment = [ordered]@{
 }
 $SavedEnvironment = @{}
 
-& (Join-Path $RepoRoot '_lib\proj\_bootstrap\run.ps1')
+& (Join-Path $RepoRoot '_lib\proj\_bootstrap\launcher.ps1')
 [IO.File]::Copy($SourceEntry, $EntryPath, $false)
 try {
-    Assert-ProjEntrySmoke `
-        -Condition (
-            $SourceText.Contains('set "SWAWKIT_PROJ_ARGV_1=..web"') -and
-            $SourceText -notmatch '(?im)^\s*start(?:\s|$)'
-        ) `
-        -Message (
-            'the zero-argument CMD path must delegate to the non-blocking ' +
-            'Rust ..web handler without START'
-        )
     foreach ($Name in $PoisonedEnvironment.Keys) {
         $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable(
             $Name,

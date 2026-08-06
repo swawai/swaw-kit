@@ -52,6 +52,8 @@ function Invoke-ProjLauncherRuntimeProcess {
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 if ([string]::IsNullOrWhiteSpace($LauncherPath)) {
+    & (Join-Path $RepoRoot '_lib\proj\_bootstrap\launcher.ps1')
+    & (Join-Path $RepoRoot '_lib\proj\_bootstrap\run.ps1')
     $LauncherPath = Join-Path $RepoRoot 'Favorites\template.proj1.exe'
 }
 $LauncherPath = [IO.Path]::GetFullPath($LauncherPath)

@@ -40,19 +40,15 @@ function Invoke-ProjShellTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-$SourceEntry = Join-Path $RepoRoot 'swawkit.cmd'
+$SourceEntry = Join-Path $RepoRoot 'Favorites\template.proj1.exe'
 $EntryName = "test-shell-$([Guid]::NewGuid().ToString('N'))"
-$script:ProjShellEntry = Join-Path $RepoRoot "$EntryName.cmd"
+$script:ProjShellEntry = Join-Path $RepoRoot "$EntryName.exe"
 $RuntimeBin = Join-Path $RepoRoot '_lib\proj\_bin'
 $DataRoot = Join-Path $RepoRoot "data\proj.$EntryName"
 $UserPathBefore = [Environment]::GetEnvironmentVariable('PATH', 'User')
 $MachinePathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
-$EntryContent = [IO.File]::ReadAllText($SourceEntry)
-[IO.File]::WriteAllText(
-    $script:ProjShellEntry,
-    $EntryContent,
-    [Text.UTF8Encoding]::new($false)
-)
+& (Join-Path $RepoRoot '_lib\proj\_bootstrap\launcher.ps1')
+[IO.File]::Copy($SourceEntry, $script:ProjShellEntry, $false)
 
 try {
 $SetupOutput = @(

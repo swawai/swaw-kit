@@ -19,6 +19,11 @@ function Get-ProjBootstrapLayout {
         AppRoot = Join-Path $KernelRoot '_app'
         AppBuildPath = Join-Path $KernelRoot '_app\build.ps1'
         RuntimePath = Join-Path $KernelRoot '_bin\swawkit-proj.exe'
+        LauncherBuildPath = Join-Path $KernelRoot '_launcher\build.ps1'
+        LauncherTemplatePath = Join-Path $ProjHome (
+            'Favorites\template.proj1.exe'
+        )
+        RootEntryPath = Join-Path $ProjHome 'swawkit.exe'
         CacheRoot = $CacheRoot
         BootstrapDataRoot = $BootstrapDataRoot
         ToolchainRoot = Join-Path $BootstrapDataRoot 'toolchains'

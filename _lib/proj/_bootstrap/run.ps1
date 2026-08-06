@@ -8,7 +8,8 @@ Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot '_lib\layout.ps1')
 $Layout = Get-ProjBootstrapLayout
 if ([IO.File]::Exists($Layout.RuntimePath)) {
-    exit 0
+    $global:LASTEXITCODE = 0
+    return
 }
 
 . (Join-Path $PSScriptRoot 'toolchains\runtime.ps1')
