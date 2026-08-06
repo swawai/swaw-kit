@@ -88,12 +88,12 @@ try {
     $Saved = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.set.SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
+            '..entry.env.SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjEntrySmoke `
         -Condition ($Saved.ExitCode -eq 0) `
-        -Message "..entry.set failed: $($Saved.Text)"
+        -Message "..entry.env failed: $($Saved.Text)"
     $SavedDocument = $Saved.Text | ConvertFrom-Json
     Assert-ProjEntrySmoke `
         -Condition (

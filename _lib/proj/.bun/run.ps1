@@ -10,7 +10,7 @@ $BunDefinition = Get-ProjDevBunDefinition
 if ($null -eq $BunDefinition) {
     throw (
         'Bun is disabled for this project. Run ' +
-        "'$($Context.EntryCommand) ..entry.set.SWAWKIT_PROJ_BUN_MODE managed', " +
+        "'$($Context.EntryCommand) ..entry.env.SWAWKIT_PROJ_BUN_MODE managed', " +
         "then '$($Context.EntryCommand) .dev.setup'."
     )
 }

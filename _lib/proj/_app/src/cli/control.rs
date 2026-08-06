@@ -166,7 +166,7 @@ fn set_profile(
     };
     let value = unicode_argument(value, "profile value")?.to_owned();
     let variable = address
-        .strip_prefix("..entry.set.")
+        .strip_prefix("..entry.env.")
         .filter(|name| !name.is_empty() && !name.contains('.'))
         .ok_or_else(|| {
             CliError::new(format!(

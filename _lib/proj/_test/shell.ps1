@@ -53,7 +53,7 @@ $MachinePathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
 try {
 $SetupOutput = @(
     & $script:ProjShellEntry `
-        '..entry.set.SWAWKIT_PROJ_TARGET_PROJECT_ROOT' `
+        '..entry.env.SWAWKIT_PROJ_TARGET_PROJECT_ROOT' `
         '${SWAWKIT_HOME}' `
         2>&1
 )
@@ -68,7 +68,7 @@ foreach ($ModeVariable in @(
 )) {
     $ModeOutput = @(
         & $script:ProjShellEntry `
-            "..entry.set.$ModeVariable" `
+            "..entry.env.$ModeVariable" `
             'disabled' `
             2>&1
     )
