@@ -20,6 +20,10 @@ export function controlledColumnId(_command, depth) {
   return `finder-column-${depth + 1}`;
 }
 
+export function childrenColumnWidth(command) {
+  return command.childrenColumnWidth || "normal";
+}
+
 export function captureColumnScrollOffsets(columns) {
   return new Map(
     [...columns.querySelectorAll(".finder-column")]
@@ -137,6 +141,7 @@ export function createExplorerView({
     column.id = "finder-column-0";
     column.dataset.depth = "0";
     column.dataset.scrollKey = "root";
+    column.dataset.width = "normal";
     for (const source of ["control", "kernel", "action"]) {
       appendSection(
         column,
@@ -161,6 +166,7 @@ export function createExplorerView({
     column.id = `finder-column-${depth}`;
     column.dataset.depth = String(depth);
     column.dataset.scrollKey = `children:${parentAddress}`;
+    column.dataset.width = childrenColumnWidth(parent);
     column.setAttribute("role", "group");
     column.setAttribute("aria-label", `${parent.address} 子命令`);
     appendSection(column, null, childrenOf(catalog, parentAddress), depth);

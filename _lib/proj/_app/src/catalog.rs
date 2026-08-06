@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 mod address;
 mod entry;
 mod filesystem;
+mod view;
 
 use address::{child_address, parent_address};
 pub(crate) use entry::{CommandAdapter, resolve_entry};
@@ -15,8 +16,10 @@ use filesystem::{
     FileCandidate, absolute_path, assert_command_root, child_directories, directory_files,
 };
 pub(crate) use filesystem::{NamedDirectory, named_directories};
+pub use view::{ChildrenColumnView, ColumnWidth, CommandView};
+use view::read_local_web_view;
 
-pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v2";
+pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v3";
 
 pub const HELP_ADDRESS: &str = ".help";
 pub const HELP_MARKERS: [&str; 4] = [HELP_ADDRESS, ".h", "-h", "--help"];
@@ -120,6 +123,7 @@ pub struct CommandNode {
     pub adapter: Option<String>,
     pub handler: Option<String>,
     pub help: Option<HelpDocument>,
+    pub view: Option<CommandView>,
     pub diagnostic: Option<String>,
     /// Retains the Help protocol state without expanding the public Web API.
     #[serde(skip)]
@@ -194,6 +198,13 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
             (None, Some(diagnostic))
         }
     };
+    let view = match read_local_web_view(&pending.path) {
+        Ok(view) => view,
+        Err(error) => {
+            diagnostics.push(error.to_string());
+            None
+        }
+    };
 
     CommandNode {
         address: pending.address.clone(),
@@ -207,6 +218,7 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str) -> CommandNode {
             .map(|entry| entry.adapter.as_str().to_owned()),
         handler: entry.and_then(|entry| entry.handler),
         help,
+        view,
         diagnostic: (!diagnostics.is_empty()).then(|| diagnostics.join("; ")),
         help_diagnostic,
         directory: pending.path.clone(),

@@ -49,7 +49,7 @@ try {
     $Setup = Invoke-ProjClaimEntry `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.env.SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
+            '..entry.env.project.SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjClaimEntry `

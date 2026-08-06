@@ -48,8 +48,16 @@ fn discovers_control_kernel_and_action_hierarchies() {
         r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile"}"#,
     );
     fixture.file(
-        "home/_lib/proj/..entry/env/SWAWKIT_PROJ_DEFAULT_SHELL/run.core.json",
+        "home/_lib/proj/..entry/env/preferences/SWAWKIT_PROJ_DEFAULT_SHELL/run.core.json",
         r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile.set"}"#,
+    );
+    fixture.file(
+        "home/_lib/proj/..entry/env/_view/web.json",
+        r#"{"schema":"swawkit.command-view/web/v1","childrenColumn":{"width":"normal"}}"#,
+    );
+    fixture.file(
+        "home/_lib/proj/..entry/env/preferences/_view/web.json",
+        r#"{"schema":"swawkit.command-view/web/v1","childrenColumn":{"width":"wide"}}"#,
     );
     fixture.file(
         "home/_lib/proj/..entry/claim/run.core.json",
@@ -91,9 +99,10 @@ fn discovers_control_kernel_and_action_hierarchies() {
             (CommandSource::Control, "..entry"),
             (CommandSource::Control, "..entry.claim"),
             (CommandSource::Control, "..entry.env"),
+            (CommandSource::Control, "..entry.env.preferences"),
             (
                 CommandSource::Control,
-                "..entry.env.SWAWKIT_PROJ_DEFAULT_SHELL",
+                "..entry.env.preferences.SWAWKIT_PROJ_DEFAULT_SHELL",
             ),
             (CommandSource::Kernel, ""),
             (CommandSource::Kernel, "--nul"),
@@ -115,12 +124,32 @@ fn discovers_control_kernel_and_action_hierarchies() {
     let env = node(&snapshot, CommandSource::Control, "..entry.env");
     assert_eq!(env.parent.as_deref(), Some("..entry"));
     assert!(!env.runnable);
+    assert_eq!(
+        env.view.as_ref().map(|view| view.children_column.width),
+        Some(ColumnWidth::Normal)
+    );
+    let preferences = node(
+        &snapshot,
+        CommandSource::Control,
+        "..entry.env.preferences",
+    );
+    assert_eq!(preferences.parent.as_deref(), Some("..entry.env"));
+    assert_eq!(
+        preferences
+            .view
+            .as_ref()
+            .map(|view| view.children_column.width),
+        Some(ColumnWidth::Wide)
+    );
     let default_shell = node(
         &snapshot,
         CommandSource::Control,
-        "..entry.env.SWAWKIT_PROJ_DEFAULT_SHELL",
+        "..entry.env.preferences.SWAWKIT_PROJ_DEFAULT_SHELL",
     );
-    assert_eq!(default_shell.parent.as_deref(), Some("..entry.env"));
+    assert_eq!(
+        default_shell.parent.as_deref(),
+        Some("..entry.env.preferences")
+    );
     assert_eq!(default_shell.handler.as_deref(), Some("entry.profile.set"));
     let claim = node(&snapshot, CommandSource::Control, "..entry.claim");
     assert_eq!(claim.handler.as_deref(), Some("entry.claim"));
@@ -163,12 +192,35 @@ fn entry_env_directory_modules_match_the_profile_variable_registry() {
         .filter(|command| command.handler.as_deref() == Some("entry.profile.set"))
         .map(|command| command.address.as_str())
         .collect::<Vec<_>>();
-    let expected = crate::profile::EntryProfileRecord::environment_variable_names()
+    let expected = crate::profile::EntryProfileRecord::environment_variable_commands()
         .into_iter()
-        .map(|name| format!("..entry.env.{name}"))
+        .map(|(group, name)| format!("..entry.env.{group}.{name}"))
         .collect::<Vec<_>>();
 
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn reports_an_invalid_parent_owned_web_view_without_stopping_discovery() {
+    let fixture = Fixture::new();
+    let kernel = fixture.directory("home/_lib/proj");
+    let actions = fixture.directory("project/.swaw");
+    fixture.file("home/_lib/proj/run.ps1", "");
+    fixture.file(
+        "home/_lib/proj/.broken/_view/web.json",
+        r#"{"schema":"swawkit.command-view/web/v1","childrenColumn":{"width":"480px"}}"#,
+    );
+
+    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
+    let broken = node(&snapshot, CommandSource::Kernel, ".broken");
+
+    assert!(broken.view.is_none());
+    assert!(
+        broken
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("unknown variant `480px`"))
+    );
 }
 
 #[test]

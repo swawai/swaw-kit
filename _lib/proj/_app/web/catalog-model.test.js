@@ -5,7 +5,7 @@ import {
   isGroup,
 } from "./catalog-model.js";
 
-const protocol = "swawkit.command-catalog/v2";
+const protocol = "swawkit.command-catalog/v3";
 
 function node(address, overrides = {}) {
   return {
@@ -18,6 +18,7 @@ function node(address, overrides = {}) {
     adapter: null,
     handler: null,
     help: null,
+    view: null,
     diagnostic: null,
     ...overrides,
   };
@@ -32,7 +33,7 @@ function payload(commands, overrides = {}) {
   };
 }
 
-describe("Catalog v2 model", () => {
+describe("Catalog v3 model", () => {
   test("derives a non-runnable group only from its children", () => {
     const catalog = createCatalog(payload([
       node(".dev"),
@@ -99,7 +100,7 @@ describe("Catalog v2 model", () => {
 
   test("rejects an unknown protocol version", () => {
     expect(() => createCatalog(payload([], { protocol: "catalog/v2" })))
-      .toThrow("protocol 必须是 swawkit.command-catalog/v2");
+      .toThrow("protocol 必须是 swawkit.command-catalog/v3");
   });
 
   test("rejects a missing entry name", () => {
@@ -135,5 +136,22 @@ describe("Catalog v2 model", () => {
     expect(() => createCatalog(payload([
       node(".legacy", { source: "project" }),
     ]))).toThrow("source 只能是 control、kernel 或 action");
+  });
+
+  test("normalizes the parent-owned child column width", () => {
+    const catalog = createCatalog(payload([
+      node("..entry.env.rust", {
+        source: "control",
+        view: { childrenColumn: { width: "wide" } },
+      }),
+    ]));
+
+    expect(catalog.commandByAddress.get("..entry.env.rust").childrenColumnWidth)
+      .toBe("wide");
+    expect(() => createCatalog(payload([
+      node(".broken", {
+        view: { childrenColumn: { width: "480px" } },
+      }),
+    ]))).toThrow("width 只能是 normal 或 wide");
   });
 });

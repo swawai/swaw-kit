@@ -82,11 +82,13 @@ fn maps_every_mutable_profile_field_to_one_environment_variable() {
     let fields = EntryProfileRecord::mutable_string_field_paths();
     let mapped_fields = EntryProfileRecord::environment_variable_fields();
     let names = EntryProfileRecord::environment_variable_names();
+    let commands = EntryProfileRecord::environment_variable_commands();
     let values = EntryProfileRecord::default().environment_variable_values();
 
     assert_eq!(fields.len(), 32);
     assert_eq!(mapped_fields.len(), fields.len());
     assert_eq!(names.len(), fields.len());
+    assert_eq!(commands.len(), fields.len());
     assert_eq!(values.len(), fields.len());
     assert_eq!(
         mapped_fields
@@ -99,6 +101,32 @@ fn maps_every_mutable_profile_field_to_one_environment_variable() {
     );
     assert!(names.iter().all(|name| name.starts_with("SWAWKIT_PROJ_")));
     assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(
+        commands
+            .iter()
+            .map(|(group, _)| *group)
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from([
+            "bun",
+            "git",
+            "go",
+            "msvc",
+            "preferences",
+            "project",
+            "pwsh",
+            "python",
+            "rust",
+            "system",
+            "uv",
+        ])
+    );
+    assert_eq!(
+        commands
+            .iter()
+            .map(|(_, name)| *name)
+            .collect::<std::collections::BTreeSet<_>>(),
+        names.into_iter().collect::<std::collections::BTreeSet<_>>()
+    );
 }
 
 #[test]

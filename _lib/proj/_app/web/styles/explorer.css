@@ -34,6 +34,11 @@
   scrollbar-color: var(--ui-scrollbar) var(--ui-scrollbar-track);
 }
 
+.finder-column[data-width="wide"] {
+  width: var(--column-width-wide);
+  flex-basis: var(--column-width-wide);
+}
+
 .column-section + .column-section {
   margin-top: 12px;
 }
@@ -225,5 +230,10 @@
   .finder-column {
     width: min(82vw, 290px);
     flex-basis: min(82vw, 290px);
+  }
+
+  .finder-column[data-width="wide"] {
+    width: min(92vw, 380px);
+    flex-basis: min(92vw, 380px);
   }
 }

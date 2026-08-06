@@ -1,4 +1,4 @@
-const CATALOG_PROTOCOL = "swawkit.command-catalog/v2";
+const CATALOG_PROTOCOL = "swawkit.command-catalog/v3";
 
 const collator = new Intl.Collator("zh-CN", {
   numeric: true,
@@ -45,6 +45,28 @@ function normalizeHelp(value, index) {
   };
 }
 
+function normalizeView(value, index) {
+  if (value === null) {
+    return null;
+  }
+  const view = requireObject(value, `commands[${index}].view`);
+  const childrenColumn = requireObject(
+    view.childrenColumn,
+    `commands[${index}].view.childrenColumn`,
+  );
+  const width = requireString(
+    childrenColumn.width,
+    `commands[${index}].view.childrenColumn.width`,
+    { allowEmpty: false },
+  );
+  if (!new Set(["normal", "wide"]).has(width)) {
+    throw contractError(
+      `commands[${index}].view.childrenColumn.width 只能是 normal 或 wide。`,
+    );
+  }
+  return { childrenColumnWidth: width };
+}
+
 function normalizeCommand(value, index) {
   const command = requireObject(value, `commands[${index}]`);
   const field = (name) => `commands[${index}].${name}`;
@@ -73,10 +95,12 @@ function normalizeCommand(value, index) {
   }
 
   const help = normalizeHelp(command.help, index);
+  const view = normalizeView(command.view, index);
   return {
     address,
     adapter: adapter ?? "",
     aliasOf: nullableString(command.aliasOf, field("aliasOf")),
+    childrenColumnWidth: view?.childrenColumnWidth ?? "normal",
     entry: entry ?? "",
     help: help?.text ?? "",
     handler: handler ?? "",

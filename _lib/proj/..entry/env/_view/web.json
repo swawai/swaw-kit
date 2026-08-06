@@ -1,0 +1,6 @@
+{
+  "schema": "swawkit.command-view/web/v1",
+  "childrenColumn": {
+    "width": "normal"
+  }
+}

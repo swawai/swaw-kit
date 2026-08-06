@@ -275,6 +275,10 @@ async fn serializes_the_complete_catalog_node_contract() {
     fixture.directory("home/_lib/proj");
     fixture.file("home/_lib/proj/.dev/status/run.cmd", "");
     fixture.file(
+        "home/_lib/proj/.dev/_view/web.json",
+        r#"{"schema":"swawkit.command-view/web/v1","childrenColumn":{"width":"wide"}}"#,
+    );
+    fixture.file(
         "home/_lib/proj/.dev/status/_help/zh-CN.txt",
         "Show {{ADDRESS}}\nUse {{INVOCATION}}",
     );
@@ -296,6 +300,11 @@ async fn serializes_the_complete_catalog_node_contract() {
             "adapter": null,
             "handler": null,
             "help": null,
+            "view": {
+                "childrenColumn": {
+                    "width": "wide"
+                }
+            },
             "diagnostic": null
         })
     );
@@ -314,6 +323,7 @@ async fn serializes_the_complete_catalog_node_contract() {
                 "summary": "Show .dev.status",
                 "text": "Show .dev.status\nUse swawkit .dev.status"
             },
+            "view": null,
             "diagnostic": null
         })
     );

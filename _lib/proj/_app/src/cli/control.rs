@@ -165,14 +165,28 @@ fn set_profile(
         return Err(CliError::new(format!("usage: {address} <value>")));
     };
     let value = unicode_argument(value, "profile value")?.to_owned();
-    let variable = address
+    let command_path = address
         .strip_prefix("..entry.env.")
-        .filter(|name| !name.is_empty() && !name.contains('.'))
         .ok_or_else(|| {
             CliError::new(format!(
                 "Catalog invariant failed for '{address}': Entry Profile setter address is invalid"
             ))
         })?;
+    let mut segments = command_path.split('.');
+    let (Some(group), Some(variable), None) =
+        (segments.next(), segments.next(), segments.next())
+    else {
+        return Err(CliError::new(format!(
+            "Catalog invariant failed for '{address}': Entry Profile setter address is invalid"
+        )));
+    };
+    if !EntryProfileRecord::environment_variable_commands()
+        .contains(&(group, variable))
+    {
+        return Err(CliError::new(format!(
+            "Catalog invariant failed for '{address}': Entry Profile variable is in the wrong group"
+        )));
+    }
     let document = profile_store
         .update_environment_variable(variable, value)
         .map_err(|error| CliError::new(error.to_string()))?;

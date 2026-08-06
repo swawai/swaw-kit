@@ -340,6 +340,7 @@ mod tests {
             adapter: None,
             handler: None,
             help,
+            view: None,
             diagnostic: None,
             help_diagnostic: None,
             directory: PathBuf::new(),

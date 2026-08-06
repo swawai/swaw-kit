@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   captureColumnScrollOffsets,
+  childrenColumnWidth,
   commandDisabledDuringSetup,
   controlledColumnId,
   restoreColumnScrollOffsets,
@@ -20,6 +21,11 @@ describe("Explorer control-plane behavior", () => {
       .toBe("finder-column-1");
     expect(controlledColumnId({ handler: "host.start" }, 0))
       .toBe("finder-column-1");
+  });
+
+  test("uses the parent command's declared child column width", () => {
+    expect(childrenColumnWidth({ childrenColumnWidth: "wide" })).toBe("wide");
+    expect(childrenColumnWidth({})).toBe("normal");
   });
 
   test("restores vertical offsets only for columns representing the same parent", () => {

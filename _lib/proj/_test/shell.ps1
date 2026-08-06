@@ -53,22 +53,24 @@ $MachinePathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
 try {
 $SetupOutput = @(
     & $script:ProjShellEntry `
-        '..entry.env.SWAWKIT_PROJ_TARGET_PROJECT_ROOT' `
+        '..entry.env.project.SWAWKIT_PROJ_TARGET_PROJECT_ROOT' `
         '${SWAWKIT_HOME}' `
         2>&1
 )
 Assert-ProjShellTest `
     -Condition ($LASTEXITCODE -eq 0) `
     -Message "Entry Profile setup failed: $SetupOutput"
-foreach ($ModeVariable in @(
-    'SWAWKIT_PROJ_BUN_MODE',
-    'SWAWKIT_PROJ_PWSH_MODE',
-    'SWAWKIT_PROJ_MSVC_MODE',
-    'SWAWKIT_PROJ_RUST_MODE'
-)) {
+$ModeVariables = [ordered]@{
+    bun = 'SWAWKIT_PROJ_BUN_MODE'
+    pwsh = 'SWAWKIT_PROJ_PWSH_MODE'
+    msvc = 'SWAWKIT_PROJ_MSVC_MODE'
+    rust = 'SWAWKIT_PROJ_RUST_MODE'
+}
+foreach ($Group in $ModeVariables.Keys) {
+    $ModeVariable = $ModeVariables[$Group]
     $ModeOutput = @(
         & $script:ProjShellEntry `
-            "..entry.env.$ModeVariable" `
+            "..entry.env.$Group.$ModeVariable" `
             'disabled' `
             2>&1
     )
