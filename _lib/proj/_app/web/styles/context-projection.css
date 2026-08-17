@@ -33,6 +33,34 @@
   font-size: 12px;
 }
 
+.context-projection-heading,
+.context-tray-heading,
+.context-tray-add {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.context-projection-heading > div,
+.context-tray-heading > div,
+.context-tray-add > div {
+  min-width: 0;
+}
+
+.context-projection-heading p {
+  margin: 10px 0 0;
+}
+
+.context-projection-pin {
+  flex: 0 0 auto;
+}
+
+.context-tray-heading .secondary-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .context-projection-list {
   display: grid;
   gap: 7px;
@@ -69,4 +97,79 @@
   border-radius: var(--radius-control);
   background: var(--ui-surface-subtle);
   white-space: pre-wrap;
+}
+
+.context-tray {
+  width: clamp(330px, 30vw, 420px);
+  height: 100%;
+  min-height: 0;
+  flex: 0 0 clamp(330px, 30vw, 420px);
+  box-sizing: border-box;
+  padding: 22px 24px 40px;
+  border-left: 1px solid var(--ui-border);
+  background: var(--ui-surface-muted);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-scrollbar) var(--ui-scrollbar-track);
+}
+
+.context-tray-heading h2 {
+  margin: 2px 0 7px;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 22px;
+}
+
+.context-tray-eyebrow {
+  margin: 0;
+  color: var(--ui-text-subtle);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.context-tray-feedback {
+  min-height: 18px;
+  margin: 12px 0 0;
+  color: var(--ui-text-subtle);
+  font-size: 12px;
+}
+
+.context-tray-feedback[data-state="success"] {
+  color: var(--ui-status-ok);
+}
+
+.context-tray-feedback[data-state="error"] {
+  color: var(--ui-status-error);
+}
+
+.context-tray-add {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--radius-control);
+  background: var(--ui-surface);
+}
+
+.context-tray-add h3 {
+  margin: 0 0 7px;
+  color: var(--ui-text-muted);
+  font-size: 11px;
+}
+
+.context-tray-add code {
+  overflow-wrap: anywhere;
+}
+
+.context-tray button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+@media (max-width: 560px) {
+  .context-tray {
+    width: min(94vw, 420px);
+    flex-basis: min(94vw, 420px);
+  }
 }

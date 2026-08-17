@@ -43,6 +43,8 @@ const RUN_PROJECTION_MODEL_JS: &str = include_str!("../web/run-projection-model.
 const RUN_PROJECTION_JS: &str = include_str!("../web/run-projection.js");
 const CONTEXT_PROJECTION_MODEL_JS: &str = include_str!("../web/context-projection-model.js");
 const CONTEXT_PROJECTION_JS: &str = include_str!("../web/context-projection.js");
+const CONTEXT_TRAY_MODEL_JS: &str = include_str!("../web/context-tray-model.js");
+const CONTEXT_TRAY_JS: &str = include_str!("../web/context-tray.js");
 const MODULE_CHECK_PROJECTION_MODEL_JS: &str =
     include_str!("../web/module-check-projection-model.js");
 const MODULE_CHECK_PROJECTION_JS: &str = include_str!("../web/module-check-projection.js");
@@ -110,6 +112,8 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
             CONTEXT_PROJECTION_MODEL_JS,
         )),
         "context-projection.js" => Some(("text/javascript; charset=utf-8", CONTEXT_PROJECTION_JS)),
+        "context-tray-model.js" => Some(("text/javascript; charset=utf-8", CONTEXT_TRAY_MODEL_JS)),
+        "context-tray.js" => Some(("text/javascript; charset=utf-8", CONTEXT_TRAY_JS)),
         "module-check-projection-model.js" => Some((
             "text/javascript; charset=utf-8",
             MODULE_CHECK_PROJECTION_MODEL_JS,

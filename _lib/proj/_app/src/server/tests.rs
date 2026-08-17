@@ -368,6 +368,11 @@ async fn serves_only_the_declared_local_surface() {
             "text/javascript; charset=utf-8",
         ),
         (
+            "/assets/context-tray-model.js",
+            "text/javascript; charset=utf-8",
+        ),
+        ("/assets/context-tray.js", "text/javascript; charset=utf-8"),
+        (
             "/assets/module-check-projection-model.js",
             "text/javascript; charset=utf-8",
         ),

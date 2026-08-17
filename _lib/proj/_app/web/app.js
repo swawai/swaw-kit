@@ -6,6 +6,7 @@ import {
 } from "./subject-facet.js";
 import { createCommandRunView } from "./command-run.js";
 import { createContextProjectionRenderer } from "./context-projection.js";
+import { createContextTrayView } from "./context-tray.js";
 import { createDetailView } from "./detail.js";
 import { createDocumentProjectionView } from "./document-projection.js";
 import { createExplorerView } from "./explorer.js";
@@ -73,11 +74,30 @@ const elements = {
   contextProjectionCommands: document.querySelector("#context-projection-commands"),
   contextProjectionNotes: document.querySelector("#context-projection-notes"),
   contextProjectionNotesEmpty: document.querySelector("#context-projection-notes-empty"),
+  contextProjectionPin: document.querySelector("#context-projection-pin"),
+  contextProjectionPinLabel: document.querySelector("#context-projection-pin-label"),
+  contextProjectionPinnedLabel: document.querySelector("#context-projection-pinned-label"),
   contextProjectionPrompt: document.querySelector("#context-projection-prompt"),
   contextProjectionPromptEmpty: document.querySelector("#context-projection-prompt-empty"),
   contextProjectionRef: document.querySelector("#context-projection-ref"),
   contextProjectionSummary: document.querySelector("#context-projection-summary"),
   contextProjectionTitle: document.querySelector("#context-projection-title"),
+  contextTray: document.querySelector("#context-tray"),
+  contextTrayAdd: document.querySelector("#context-tray-add"),
+  contextTrayAddLabel: document.querySelector("#context-tray-add-label"),
+  contextTrayCommand: document.querySelector("#context-tray-command"),
+  contextTrayCommandEmpty: document.querySelector("#context-tray-command-empty"),
+  contextTrayCommands: document.querySelector("#context-tray-commands"),
+  contextTrayFeedback: document.querySelector("#context-tray-feedback"),
+  contextTrayNotes: document.querySelector("#context-tray-notes"),
+  contextTrayNotesEmpty: document.querySelector("#context-tray-notes-empty"),
+  contextTrayPresentLabel: document.querySelector("#context-tray-present-label"),
+  contextTrayPrompt: document.querySelector("#context-tray-prompt"),
+  contextTrayPromptEmpty: document.querySelector("#context-tray-prompt-empty"),
+  contextTrayRef: document.querySelector("#context-tray-ref"),
+  contextTraySummary: document.querySelector("#context-tray-summary"),
+  contextTrayTitle: document.querySelector("#context-tray-title"),
+  contextTrayUnpin: document.querySelector("#context-tray-unpin"),
   copyButton: document.querySelector("#copy-button"),
   copyFeedback: document.querySelector("#copy-feedback"),
   copyLabel: document.querySelector("#copy-label"),
@@ -159,12 +179,14 @@ const elements = {
 };
 
 let catalog = null;
+let contextTray = null;
 const detail = createDetailView(elements);
 const commandRun = createCommandRunView(elements, {
-  onCompleted() {
+  onCompleted(snapshot) {
     if (selectedSubject) {
       void refreshSelectedSubjectCollection();
     }
+    contextTray?.operationCompleted(snapshot.address);
   },
 });
 const commandFacet = createSubjectFacetView(elements, {
@@ -172,10 +194,15 @@ const commandFacet = createSubjectFacetView(elements, {
   fallbackRenderer: "overview",
 });
 const subjectFacet = createSubjectFacetView();
+const contextProjection = createContextProjectionRenderer(elements, {
+  onPin(subject, document) {
+    void contextTray?.pin(subject, document);
+  },
+});
 const documentProjection = createDocumentProjectionView(elements, {
   renderers: [
     createModuleCheckProjectionRenderer(elements),
-    createContextProjectionRenderer(elements),
+    contextProjection,
     createRunProjectionRenderer(elements),
   ],
   resolveDocument(subject, facet) {
@@ -206,6 +233,7 @@ const explorer = createExplorerView({
     selectedSubject = null;
     selectedSubjectFacet = null;
     subjectFacet.select(null);
+    contextTray?.selectCommand(command);
     entryProfile.render(command);
     detail.render(catalog, command);
     runtimeControl?.select(command);
@@ -252,6 +280,7 @@ const explorer = createExplorerView({
     const owner = catalog.commandByAddress.get(subject.owner);
     entryProfile.render(null);
     runtimeControl?.select(null);
+    contextTray?.selectCommand(null);
     commandFacet.select(owner, { facet: subject.collectionFacet });
     const selection = subjectFacet.select(subject, { facet: options.facet });
     selectedSubjectFacet = selection.selectedFacet;
@@ -313,6 +342,32 @@ const collectionLoader = createCollectionResolutionLoader({
     }
     return resolveFacet(catalog, command, selectedFacet);
   },
+});
+contextTray = createContextTrayView(elements, {
+  async loadDocument(subject) {
+    const overview = subject.facets.find((facet) => (
+      facet.id === "overview"
+      && facet.kind === "projection"
+      && facet.resolver?.returns === "swawkit.context/v1"
+    ));
+    if (!overview) {
+      throw new Error(t(
+        "固定 Context 不再提供概览能力。",
+        "The pinned Context no longer provides an overview capability.",
+      ));
+    }
+    return resolveFacet(catalog, subject, overview, { via: subject.via });
+  },
+  async loadSubject(record) {
+    const owner = record.via.subject.address;
+    const collection = await loadCollection(owner, record.via.facet);
+    const reference = `::${record.subject.kind}/${record.subject.id}`;
+    return collection?.subjectByRef.get(reference) ?? null;
+  },
+  onPinnedChange(reference) {
+    contextProjection.setPinnedRef(reference);
+  },
+  storage: window.sessionStorage,
 });
 const dataRootClaim = createDataRootClaimView(elements, {
   onClaimRequired() {
@@ -433,6 +488,7 @@ async function loadCatalog() {
     catalog = createCatalog(await response.json());
     const document = await entryProfile.loadProfile();
     await applyCatalogRoute(document);
+    await contextTray.restore();
     setLoadState("ready");
   } catch (error) {
     const message = error instanceof Error
@@ -459,6 +515,7 @@ async function loadApplication() {
     }
     catalog = createCatalog(await response.json());
     await applyCatalogRoute(document);
+    await contextTray.restore();
     setLoadState("ready");
   } catch (error) {
     const message = error instanceof Error

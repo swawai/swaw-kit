@@ -301,10 +301,19 @@
 
                     <article class="context-projection-pane command-facet-pane"
                       id="context-projection-pane" tabindex="-1" hidden>
-                      <header class="detail-heading">
-                        <h2 id="context-projection-title"></h2>
-                        <p><code id="context-projection-ref"></code></p>
-                        <p class="context-projection-summary" id="context-projection-summary"></p>
+                      <header class="detail-heading context-projection-heading">
+                        <div>
+                          <h2 id="context-projection-title"></h2>
+                          <p><code id="context-projection-ref"></code></p>
+                          <p class="context-projection-summary" id="context-projection-summary"></p>
+                        </div>
+                        <button class="secondary-button context-projection-pin" id="context-projection-pin"
+                          type="button">
+                          <span id="context-projection-pin-label" data-i18n-zh="固定"
+                            data-i18n-en="Pin">固定</span>
+                          <span id="context-projection-pinned-label" data-i18n-zh="已固定"
+                            data-i18n-en="Pinned" hidden>已固定</span>
+                        </button>
                       </header>
                       <section class="detail-section" aria-labelledby="context-projection-commands-title">
                         <h3 id="context-projection-commands-title" data-i18n-zh="命令"
@@ -436,6 +445,57 @@
                     </article>
                   </div>
                 </div>
+              </aside>
+
+              <aside class="context-tray" id="context-tray" aria-label="固定 Context"
+                data-i18n-aria-label-zh="固定 Context" data-i18n-aria-label-en="Pinned Context" hidden>
+                <header class="context-tray-heading">
+                  <div>
+                    <p class="context-tray-eyebrow">Context</p>
+                    <h2 id="context-tray-title"></h2>
+                    <code id="context-tray-ref"></code>
+                  </div>
+                  <button class="secondary-button" id="context-tray-unpin" type="button"
+                    data-i18n-zh="取消固定" data-i18n-en="Unpin">取消固定</button>
+                </header>
+                <p class="context-projection-summary" id="context-tray-summary"></p>
+                <p class="context-tray-feedback" id="context-tray-feedback" aria-live="polite"></p>
+
+                <section class="context-tray-add" aria-labelledby="context-tray-add-title">
+                  <div>
+                    <h3 id="context-tray-add-title" data-i18n-zh="当前命令"
+                      data-i18n-en="Current command">当前命令</h3>
+                    <code id="context-tray-command">—</code>
+                  </div>
+                  <button class="secondary-button" id="context-tray-add" type="button" disabled>
+                    <span id="context-tray-add-label" data-i18n-zh="加入 Context"
+                      data-i18n-en="Add to Context">加入 Context</span>
+                    <span id="context-tray-present-label" data-i18n-zh="已在 Context 中"
+                      data-i18n-en="Already added" hidden>已在 Context 中</span>
+                  </button>
+                </section>
+
+                <section class="detail-section" aria-labelledby="context-tray-commands-title">
+                  <h3 id="context-tray-commands-title" data-i18n-zh="命令"
+                    data-i18n-en="Commands">命令</h3>
+                  <ul class="context-projection-list" id="context-tray-commands"></ul>
+                  <p class="context-projection-empty" id="context-tray-command-empty"
+                    data-i18n-zh="尚未添加命令。" data-i18n-en="No commands added yet.">尚未添加命令。</p>
+                </section>
+                <section class="detail-section" aria-labelledby="context-tray-notes-title">
+                  <h3 id="context-tray-notes-title" data-i18n-zh="说明"
+                    data-i18n-en="Notes">说明</h3>
+                  <ul class="context-projection-list context-projection-notes" id="context-tray-notes"></ul>
+                  <p class="context-projection-empty" id="context-tray-notes-empty"
+                    data-i18n-zh="尚未追加说明。" data-i18n-en="No notes appended yet.">尚未追加说明。</p>
+                </section>
+                <section class="detail-section" aria-labelledby="context-tray-prompt-title">
+                  <h3 id="context-tray-prompt-title" data-i18n-zh="最终提示"
+                    data-i18n-en="Final prompt">最终提示</h3>
+                  <pre class="context-projection-prompt" id="context-tray-prompt" hidden></pre>
+                  <p class="context-projection-empty" id="context-tray-prompt-empty"
+                    data-i18n-zh="尚未设置最终提示。" data-i18n-en="No final prompt set yet.">尚未设置最终提示。</p>
+                </section>
               </aside>
             </div>
           </div>
