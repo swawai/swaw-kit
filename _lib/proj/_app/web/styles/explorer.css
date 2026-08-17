@@ -10,6 +10,15 @@
   min-height: 350px;
   display: flex;
   align-items: stretch;
+  overflow: hidden;
+}
+
+.explorer-workspace {
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
