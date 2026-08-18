@@ -91,6 +91,7 @@
 
 .command-item {
   min-width: 0;
+  position: relative;
 }
 
 .finder-choice:hover {
@@ -111,38 +112,6 @@
 .command-row[data-selected="true"] {
   color: var(--ui-selection-text);
   background: var(--ui-selection-bg);
-}
-
-.command-facet-group {
-  margin: 5px 4px 8px 31px;
-}
-
-.command-facet-menu {
-  display: grid;
-  gap: 1px;
-  margin: 0;
-  padding: 2px 0 2px 8px;
-  border-left: 1px solid var(--ui-border-strong);
-  list-style: none;
-}
-
-.command-facet-row {
-  min-height: 31px;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 6px;
-  padding: 3px 6px;
-  color: var(--ui-text-muted);
-  background: transparent;
-}
-
-.command-facet-row:hover {
-  color: var(--ui-text);
-  background: var(--ui-surface-hover);
-}
-
-.command-facet-row[aria-pressed="true"] {
-  color: var(--ui-text);
-  background: var(--ui-surface-pressed);
 }
 
 .command-row[data-selected="true"]:focus-visible {
@@ -181,19 +150,6 @@
 .command-row[data-selected="true"] .row-icon {
   color: var(--ui-selection-bg);
   background: var(--ui-selection-text);
-}
-
-.command-facet-row .facet-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--ui-text);
-  background: transparent;
-  font-size: 10px;
-}
-
-.command-facet-row[aria-pressed="true"] .facet-icon {
-  color: var(--ui-text);
-  background: var(--ui-surface);
 }
 
 .subject-row {

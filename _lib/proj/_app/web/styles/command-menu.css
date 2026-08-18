@@ -1,0 +1,110 @@
+.command-row[data-expandable="true"] {
+  padding-right: 38px;
+}
+
+.command-menu-toggle {
+  width: 28px;
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  right: 4px;
+  bottom: 5px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--ui-border);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  color: var(--ui-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.command-menu-toggle:hover,
+.command-menu-toggle[aria-expanded="true"] {
+  color: var(--ui-text);
+  background: var(--ui-surface-pressed);
+}
+
+.command-menu-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.command-menu-toggle[data-selected="true"] {
+  border-left-color: rgb(255 255 255 / 35%);
+  color: var(--ui-selection-text);
+}
+
+.command-menu-toggle[data-selected="true"]:hover,
+.command-menu-toggle[data-selected="true"][aria-expanded="true"] {
+  background: rgb(255 255 255 / 14%);
+}
+
+.command-menu-toggle-icon {
+  font-size: 18px;
+  line-height: 1;
+  transition: transform 120ms ease;
+}
+
+.command-menu-toggle[aria-expanded="true"] .command-menu-toggle-icon {
+  transform: rotate(90deg);
+}
+
+.command-facet-popover {
+  width: min(190px, calc(100vw - 16px));
+  min-width: 160px;
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--ui-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--ui-text);
+  background: var(--ui-surface);
+  box-shadow: var(--ui-floating-shadow);
+}
+
+.command-facet-popover::backdrop {
+  background: transparent;
+}
+
+.command-facet-menu {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.command-facet-row {
+  min-height: 31px;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 6px;
+  padding: 3px 6px;
+  color: var(--ui-text-muted);
+  background: transparent;
+}
+
+.command-facet-row:hover {
+  color: var(--ui-text);
+  background: var(--ui-surface-hover);
+}
+
+.command-facet-row[aria-checked="true"] {
+  color: var(--ui-text);
+  background: var(--ui-surface-pressed);
+}
+
+.command-facet-row .facet-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--ui-text);
+  background: transparent;
+  font-size: 10px;
+}
+
+.command-facet-row[aria-checked="true"] .facet-icon {
+  color: var(--ui-text);
+  background: var(--ui-surface);
+}

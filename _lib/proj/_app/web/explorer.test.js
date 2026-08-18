@@ -37,12 +37,10 @@ describe("Explorer command-space behavior", () => {
     expect(availableCommand(catalog, false, "missing")).toBeNull();
   });
 
-  test("expands a local view menu only for the terminal selection", () => {
-    const path = [".dev", ".dev/rust", ".dev/rust/cargo"];
-    expect(commandMenuExpanded(path, ".dev", 0)).toBe(false);
-    expect(commandMenuExpanded(path, ".dev/rust", 1)).toBe(false);
-    expect(commandMenuExpanded(path, ".dev/rust/cargo", 2)).toBe(true);
-    expect(commandMenuExpanded(path, ".dev/bun", 2)).toBe(false);
+  test("keeps menu expansion independent from the selected command path", () => {
+    expect(commandMenuExpanded(".dev/rust", ".dev")).toBe(false);
+    expect(commandMenuExpanded(".dev/rust", ".dev/rust")).toBe(true);
+    expect(commandMenuExpanded(null, ".dev/rust")).toBe(false);
   });
 
   test("uses the parent command's declared child column width", () => {

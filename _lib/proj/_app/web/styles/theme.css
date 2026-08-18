@@ -23,6 +23,7 @@
   --ui-focus-ring: #1c1c1f;
   --ui-scrollbar: #8c8c92;
   --ui-scrollbar-track: transparent;
+  --ui-floating-shadow: 0 10px 28px rgb(0 0 0 / 18%);
 
   --ui-status-ok: #087443;
   --ui-status-warning: #7a4b00;

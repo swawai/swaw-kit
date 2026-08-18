@@ -17,8 +17,8 @@ export function commandHasChoices(_catalog, _command, facets) {
   return facets.length > 0;
 }
 
-export function commandMenuExpanded(selectedPath, address, depth) {
-  return selectedPath[depth] === address && depth === selectedPath.length - 1;
+export function commandMenuExpanded(expandedAddress, address) {
+  return expandedAddress === address;
 }
 
 export function selectedCommandFacet(facets) {

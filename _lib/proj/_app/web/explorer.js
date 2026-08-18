@@ -13,6 +13,16 @@ import {
   commandMenuExpanded,
   selectedCommandFacet,
 } from "./explorer-model.js";
+import {
+  commandMenuId,
+} from "./command-menu-position.js";
+import {
+  closeCommandMenu,
+  commandMenuFor,
+  commandMenuToggleFor,
+  setCommandMenuToggleState,
+  showCommandMenu,
+} from "./command-menu.js";
 import { t } from "./i18n.js";
 import { appendSubjectSection } from "./subject-explorer.js";
 
@@ -59,6 +69,7 @@ export function createExplorerView({
   let selectedPath = [];
   let selectedSubjectRef = null;
   let selectedSubjectCollection = null;
+  let expandedCommandMenuAddress = null;
   let setupRequired = false;
   const commandStates = new Map();
   const subjectCollections = new Map();
@@ -78,6 +89,28 @@ export function createExplorerView({
     ));
   }
 
+  function showExpandedCommandMenu({ focusFirst = false } = {}) {
+    if (!expandedCommandMenuAddress) {
+      return;
+    }
+    if (!showCommandMenu(
+      columns,
+      expandedCommandMenuAddress,
+      { focusFirst },
+    )) {
+      expandedCommandMenuAddress = null;
+    }
+  }
+
+  function dismissExpandedCommandMenu(restoreFocus = false) {
+    const address = expandedCommandMenuAddress;
+    if (!address) {
+      return;
+    }
+    expandedCommandMenuAddress = null;
+    closeCommandMenu(columns, address, { restoreFocus });
+  }
+
   function createCommandRow(command, depth) {
     const item = document.createElement("li");
     const button = document.createElement("button");
@@ -89,10 +122,10 @@ export function createExplorerView({
     const facets = facetsFor(command);
     const expandable = commandHasChoices(catalog, command, facets);
     const selected = selectedPath[depth] === command.address;
+    const terminal = selected && depth === selectedPath.length - 1;
     const menuExpanded = commandMenuExpanded(
-      selectedPath,
+      expandedCommandMenuAddress,
       command.address,
-      depth,
     );
     const disabled = commandDisabledDuringSetup(setupRequired, command);
     const state = commandStates.get(command.address);
@@ -105,19 +138,15 @@ export function createExplorerView({
     button.dataset.navigationKey = command.address;
     button.disabled = disabled;
     button.dataset.selected = String(selected);
+    button.dataset.expandable = String(expandable);
     if (state?.tone) {
       button.dataset.stateTone = state.tone;
     }
-    if (menuExpanded) {
+    if (terminal) {
       button.setAttribute("aria-current", "page");
     }
-    if (expandable) {
-      button.setAttribute("aria-expanded", String(selected));
-      if (menuExpanded && facets.length > 0) {
-        button.setAttribute("aria-controls", `command-facet-menu-${depth}`);
-      } else if (selected && group) {
-        button.setAttribute("aria-controls", `finder-column-${depth + 1}`);
-      }
+    if (selected && group) {
+      button.setAttribute("aria-controls", `finder-column-${depth + 1}`);
     }
     button.title = disabled
       ? t("完成首次设置后可用", "Available after initial setup")
@@ -147,12 +176,40 @@ export function createExplorerView({
       selectCommand(command.address, depth, {
         focusDetail: event.detail === 0,
         history: "push",
+        menu: expandable ? "open" : "close",
       });
     });
     item.className = "command-item";
     item.append(button);
-    if (menuExpanded && facets.length > 0) {
-      item.append(createCommandFacetMenu(command, depth, facets));
+    if (expandable) {
+      const toggle = document.createElement("button");
+      const toggleIcon = document.createElement("span");
+      toggle.type = "button";
+      toggle.className = "command-menu-toggle";
+      toggle.dataset.address = command.address;
+      toggle.dataset.selected = String(selected);
+      toggle.disabled = disabled;
+      toggle.setAttribute("aria-haspopup", "menu");
+      toggle.setAttribute("popovertarget", commandMenuId(command.address, depth));
+      toggle.setAttribute("popovertargetaction", "toggle");
+      setCommandMenuToggleState(toggle, command.address, menuExpanded);
+      toggleIcon.className = "command-menu-toggle-icon";
+      toggleIcon.textContent = "›";
+      toggleIcon.setAttribute("aria-hidden", "true");
+      toggle.append(toggleIcon);
+      toggle.addEventListener("click", (event) => {
+        if (terminal) {
+          return;
+        }
+        event.preventDefault();
+        expandedCommandMenuAddress = command.address;
+        selectCommand(command.address, depth, {
+          focusMenuToggle: true,
+          history: "push",
+          menu: "open",
+        });
+      });
+      item.append(toggle, createCommandFacetMenu(command, depth, facets));
     }
     return item;
   }
@@ -169,7 +226,8 @@ export function createExplorerView({
     button.dataset.parentAddress = command.address;
     button.dataset.parentDepth = String(depth);
     button.dataset.navigationKey = `${command.address}#${facet.name}`;
-    button.setAttribute("aria-pressed", String(facet.selected));
+    button.setAttribute("aria-checked", String(facet.selected));
+    button.setAttribute("role", "menuitemradio");
     button.title = facet.summary;
 
     icon.className = "row-icon facet-icon";
@@ -184,6 +242,7 @@ export function createExplorerView({
         focusDetail: facet.kind !== "collection",
         history: "push",
         facet: facet.name,
+        menu: "close",
       });
     });
     item.append(button);
@@ -193,17 +252,32 @@ export function createExplorerView({
   function createCommandFacetMenu(command, depth, facets) {
     const group = document.createElement("div");
     const list = document.createElement("ul");
-    group.className = "command-facet-group";
-    list.className = "command-facet-menu";
-    list.id = `command-facet-menu-${depth}`;
-    list.setAttribute(
+    group.className = "command-facet-popover";
+    group.dataset.address = command.address;
+    group.id = commandMenuId(command.address, depth);
+    group.setAttribute("popover", "auto");
+    group.setAttribute("role", "menu");
+    group.setAttribute(
       "aria-label",
       t(`${command.address} 能力面`, `${command.address} facets`),
     );
+    list.className = "command-facet-menu";
     for (const facet of facets) {
       list.append(createCommandFacetRow(command, depth, facet));
     }
     group.append(list);
+    group.addEventListener("toggle", (event) => {
+      if (event.newState === "open") {
+        expandedCommandMenuAddress = command.address;
+        showExpandedCommandMenu();
+      } else if (expandedCommandMenuAddress === command.address) {
+        expandedCommandMenuAddress = null;
+        const toggle = commandMenuToggleFor(columns, command.address);
+        if (toggle) {
+          setCommandMenuToggleState(toggle, command.address, false);
+        }
+      }
+    });
     return group;
   }
 
@@ -291,7 +365,12 @@ export function createExplorerView({
     return column;
   }
 
-  function renderColumns({ focusKey = null, focusDetail = false } = {}) {
+  function renderColumns({
+    focusKey = null,
+    focusDetail = false,
+    focusMenu = false,
+    focusMenuToggle = false,
+  } = {}) {
     const scrollOffsets = captureColumnScrollOffsets(columns);
     columns.replaceChildren(createRootColumn());
     const models = choiceColumnModels(
@@ -306,11 +385,16 @@ export function createExplorerView({
     restoreColumnScrollOffsets(columns, scrollOffsets);
 
     requestAnimationFrame(() => {
+      showExpandedCommandMenu({ focusFirst: focusMenu });
       const focusTarget = focusKey
         ? [...columns.querySelectorAll(".finder-choice")]
           .find((row) => row.dataset.navigationKey === focusKey)
         : null;
-      if (focusDetail) {
+      if (focusMenu) {
+        // showExpandedCommandMenu moved focus into the floating menu.
+      } else if (focusMenuToggle) {
+        commandMenuToggleFor(columns, focusKey)?.focus({ preventScroll: true });
+      } else if (focusDetail) {
         detailPanel.focus({ preventScroll: true });
         detailPanel.scrollIntoView({ block: "nearest", inline: "nearest" });
       } else {
@@ -331,11 +415,18 @@ export function createExplorerView({
     selectedSubjectRef = null;
     selectedSubjectCollection = null;
     selectedPath = [...selectedPath.slice(0, depth), address];
+    if (options.menu === "open") {
+      expandedCommandMenuAddress = address;
+    } else if (options.menu === "close") {
+      expandedCommandMenuAddress = null;
+    }
     onSelectCommand(command, options);
     const facet = selectedCommandFacet(facetsFor(command));
     renderColumns({
       focusKey: address,
       focusDetail: options.focusDetail === true && !isCollectionFacet(command, facet),
+      focusMenu: options.focusMenu === true,
+      focusMenuToggle: options.focusMenuToggle === true,
     });
     return true;
   }
@@ -360,6 +451,9 @@ export function createExplorerView({
     selectedSubjectRef = null;
     selectedSubjectCollection = null;
     selectedPath = addressPath(address);
+    expandedCommandMenuAddress = facetsFor(command).length > 0
+      ? address
+      : null;
     onSelectCommand(command, options);
     const facet = selectedCommandFacet(facetsFor(command));
     renderColumns({
@@ -382,6 +476,7 @@ export function createExplorerView({
     selectedPath = addressPath(owner.address);
     selectedSubjectRef = current.canonicalRef;
     selectedSubjectCollection = { facet: current.collectionFacet, owner: current.owner };
+    expandedCommandMenuAddress = null;
     onSelectSubject(current, options);
     renderColumns({
       focusKey: current.canonicalRef,
@@ -407,7 +502,9 @@ export function createExplorerView({
     if (!button) {
       return;
     }
-    const rows = [...button.closest(".finder-column")?.querySelectorAll(".finder-choice") ?? []];
+    const rows = [
+      ...button.closest(".finder-column")?.querySelectorAll(".finder-choice") ?? [],
+    ].filter((row) => row.getClientRects().length > 0);
     const index = rows.indexOf(button);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -436,17 +533,10 @@ export function createExplorerView({
         && commandHasChoices(catalog, command, facets)
       ) {
         event.preventDefault();
-        selectCommand(button.dataset.address, depth, { history: "push" });
-        requestAnimationFrame(() => {
-          const selectedFacet = selectedCommandFacet(facetsFor(command));
-          const target = isCollectionFacet(command, selectedFacet)
-            ? columns
-              .querySelector(`[data-depth="${depth + 1}"]`)
-              ?.querySelector(".finder-choice")
-            : columns
-              .querySelector(`#command-facet-menu-${depth}`)
-              ?.querySelector(".finder-choice");
-          target?.focus();
+        selectCommand(button.dataset.address, depth, {
+          focusMenu: true,
+          history: "push",
+          menu: "open",
         });
       }
     } else if (event.key === "ArrowLeft" && depth > 0) {
@@ -457,6 +547,7 @@ export function createExplorerView({
       selectCommand(button.dataset.address, depth, {
         focusDetail: true,
         history: "push",
+        menu: "open",
       });
     }
   }
@@ -564,6 +655,27 @@ export function createExplorerView({
       renderColumns();
     }
   }
+
+  columns.addEventListener("scroll", () => {
+    showExpandedCommandMenu();
+  }, true);
+  document.addEventListener("pointerdown", (event) => {
+    const address = expandedCommandMenuAddress;
+    const menu = address ? commandMenuFor(columns, address) : null;
+    const toggle = address ? commandMenuToggleFor(columns, address) : null;
+    if (menu && !menu.contains(event.target) && !toggle?.contains(event.target)) {
+      dismissExpandedCommandMenu();
+    }
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && expandedCommandMenuAddress) {
+      event.preventDefault();
+      dismissExpandedCommandMenu(true);
+    }
+  }, true);
+  window.addEventListener("resize", () => {
+    showExpandedCommandMenu();
+  });
 
   return {
     handleKeyboard,

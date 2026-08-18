@@ -284,6 +284,7 @@ async fn serves_only_the_declared_local_surface() {
         ("/assets/styles/base.css", "text/css; charset=utf-8"),
         ("/assets/styles/shell.css", "text/css; charset=utf-8"),
         ("/assets/styles/explorer.css", "text/css; charset=utf-8"),
+        ("/assets/styles/command-menu.css", "text/css; charset=utf-8"),
         ("/assets/styles/detail.css", "text/css; charset=utf-8"),
         (
             "/assets/styles/entry-profile.css",
@@ -327,6 +328,11 @@ async fn serves_only_the_declared_local_surface() {
         ("/assets/explorer.js", "text/javascript; charset=utf-8"),
         (
             "/assets/explorer-model.js",
+            "text/javascript; charset=utf-8",
+        ),
+        ("/assets/command-menu.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/command-menu-position.js",
             "text/javascript; charset=utf-8",
         ),
         ("/assets/detail.js", "text/javascript; charset=utf-8"),

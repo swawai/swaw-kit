@@ -11,6 +11,7 @@ const THEME_CSS: &str = include_str!("../web/styles/theme.css");
 const BASE_CSS: &str = include_str!("../web/styles/base.css");
 const SHELL_CSS: &str = include_str!("../web/styles/shell.css");
 const EXPLORER_CSS: &str = include_str!("../web/styles/explorer.css");
+const COMMAND_MENU_CSS: &str = include_str!("../web/styles/command-menu.css");
 const DETAIL_CSS: &str = include_str!("../web/styles/detail.css");
 const ENTRY_PROFILE_CSS: &str = include_str!("../web/styles/entry-profile.css");
 const RUNTIME_CONTROL_CSS: &str = include_str!("../web/styles/runtime-control.css");
@@ -31,6 +32,8 @@ const COMMAND_EVENT_CLIENT_JS: &str = include_str!("../web/command-event-client.
 const NAVIGATION_JS: &str = include_str!("../web/navigation.js");
 const EXPLORER_JS: &str = include_str!("../web/explorer.js");
 const EXPLORER_MODEL_JS: &str = include_str!("../web/explorer-model.js");
+const COMMAND_MENU_JS: &str = include_str!("../web/command-menu.js");
+const COMMAND_MENU_POSITION_JS: &str = include_str!("../web/command-menu-position.js");
 const DETAIL_JS: &str = include_str!("../web/detail.js");
 const DOCUMENT_PROJECTION_JS: &str = include_str!("../web/document-projection.js");
 const ENTRY_PROFILE_JS: &str = include_str!("../web/entry-profile.js");
@@ -66,6 +69,7 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "styles/base.css" => Some(("text/css; charset=utf-8", BASE_CSS)),
         "styles/shell.css" => Some(("text/css; charset=utf-8", SHELL_CSS)),
         "styles/explorer.css" => Some(("text/css; charset=utf-8", EXPLORER_CSS)),
+        "styles/command-menu.css" => Some(("text/css; charset=utf-8", COMMAND_MENU_CSS)),
         "styles/detail.css" => Some(("text/css; charset=utf-8", DETAIL_CSS)),
         "styles/entry-profile.css" => Some(("text/css; charset=utf-8", ENTRY_PROFILE_CSS)),
         "styles/runtime-control.css" => Some(("text/css; charset=utf-8", RUNTIME_CONTROL_CSS)),
@@ -92,6 +96,10 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "navigation.js" => Some(("text/javascript; charset=utf-8", NAVIGATION_JS)),
         "explorer.js" => Some(("text/javascript; charset=utf-8", EXPLORER_JS)),
         "explorer-model.js" => Some(("text/javascript; charset=utf-8", EXPLORER_MODEL_JS)),
+        "command-menu.js" => Some(("text/javascript; charset=utf-8", COMMAND_MENU_JS)),
+        "command-menu-position.js" => {
+            Some(("text/javascript; charset=utf-8", COMMAND_MENU_POSITION_JS))
+        }
         "detail.js" => Some(("text/javascript; charset=utf-8", DETAIL_JS)),
         "document-projection.js" => {
             Some(("text/javascript; charset=utf-8", DOCUMENT_PROJECTION_JS))
