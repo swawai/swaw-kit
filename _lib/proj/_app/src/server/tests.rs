@@ -475,7 +475,7 @@ async fn rescans_the_catalog_on_each_request() {
 
     fixture.file(
         "home/_lib/proj/system/dynamic/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file("home/_lib/proj/system/dynamic/run.ps1", "");
     let after = catalog_document(app).await;
@@ -511,12 +511,12 @@ async fn serializes_the_complete_catalog_node_contract() {
     fixture.directory("home/_lib/proj");
     fixture.file(
         "home/_lib/proj/system/dev/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file("home/_lib/proj/system/dev/status/run.cmd", "");
     fixture.file(
         "home/_lib/proj/system/dev/status/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","requires":[{"provider":".dev/setup","export":"environment","contract":"swawkit.dev/v1"}],"provides":[{"id":"status","contract":"swawkit.status/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","requires":[{"provider":".dev/setup","export":"environment","contract":"swawkit.dev/v1"}],"provides":[{"id":"status","contract":"swawkit.status/v1"}]}"#,
     );
     fixture.file(
         "home/_lib/proj/system/dev/_view/web.json",
@@ -532,12 +532,12 @@ async fn serializes_the_complete_catalog_node_contract() {
     );
     fixture.file(
         "home/_lib/proj/system/help/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file("home/_lib/proj/system/help/run.ps1", "");
     fixture.file(
         "home/_lib/proj/system/broken/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file("home/_lib/proj/system/broken/run.ps1", "");
     fixture.file("home/_lib/proj/system/broken/run.cmd", "");
@@ -558,7 +558,7 @@ async fn serializes_the_complete_catalog_node_contract() {
             "handler": null,
             "product": null,
             "module": {
-                "schema": "swawkit.command-module/v9",
+                "schema": "swawkit.command-module/v10",
                 "requires": [],
                 "provides": []
             },
@@ -601,7 +601,7 @@ async fn serializes_the_complete_catalog_node_contract() {
             "handler": null,
             "product": null,
             "module": {
-                "schema": "swawkit.command-module/v9",
+                "schema": "swawkit.command-module/v10",
                 "requires": [{
                     "provider": ".dev/setup",
                     "export": "environment",

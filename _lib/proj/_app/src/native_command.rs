@@ -1,19 +1,17 @@
 use std::path::{Path, PathBuf};
 
+use swawkit_proj_protocol::{
+    CommandIdentity, ExecutionContract, ExecutionContractCommand, ExecutionSemantics,
+    ModuleProvision as ProtocolProvision, ModuleRequirement as ProtocolRequirement,
+    command_data_root as identity_data_root, native_command_root,
+};
 #[cfg(test)]
 use swawkit_proj_protocol::{
     CommandRelease, command_release_document, command_release_id, revision,
 };
-use swawkit_proj_protocol::{
-    ExecutionContract, ExecutionContractCommand, ExecutionSemantics,
-    ModuleProvision as ProtocolProvision, ModuleRequirement as ProtocolRequirement,
-};
 
-use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandNode, CommandSpace};
-use crate::command::{
-    CommandError, CommandExecutionContext, CommandResult, ResolvedCommand,
-    catalog_command_data_root_from_roots,
-};
+use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandNode};
+use crate::command::{CommandError, CommandExecutionContext, CommandResult, ResolvedCommand};
 
 mod single;
 mod storage;
@@ -46,8 +44,24 @@ pub(crate) fn resolve_command_executable(
         CommandError::new(format!("cannot derive native execution contract: {error}"))
     })?;
     let commands = contract.delegated_commands();
-    let owner_data_root = catalog_command_data_root_from_roots(&context.data_root, owner)?;
-    let native_root = resolve_native_root(&owner_data_root)?;
+    let owner_identity =
+        CommandIdentity::new(owner.space, owner.namespace.as_deref(), owner.path.clone()).map_err(
+            |error| {
+                CommandError::new(format!(
+                    "Catalog invariant failed for native owner '{}': {error}",
+                    owner.address
+                ))
+            },
+        )?;
+    if owner_identity.address() != owner.address {
+        return Err(CommandError::new(format!(
+            "Catalog invariant failed for native owner '{}': noncanonical address",
+            owner.address
+        )));
+    }
+    let owner_data_root = identity_data_root(&context.data_root, &owner_identity);
+    let native_root =
+        checked_native_root(&native_command_root(&context.data_root, &owner_identity))?;
     let executable = single::resolve(&native_root, &owner.address, &contract_revision, &commands)?;
     Ok(NativeCommandResolution {
         executable,
@@ -57,14 +71,14 @@ pub(crate) fn resolve_command_executable(
     })
 }
 
-fn resolve_native_root(module_data_root: &Path) -> CommandResult<PathBuf> {
+fn checked_native_root(native_root: &Path) -> CommandResult<PathBuf> {
     storage::checked_directory(
-        &module_data_root.join("_native"),
-        "native module runtime",
+        native_root,
+        "native command runtime",
     )
     .map_err(|error| {
         CommandError::new(format!(
-            "{error}. the module has not been instantiated; publish its run.exe before execution"
+            "{error}. the native owner has not been instantiated; publish its run.exe before execution"
         ))
     })
 }
@@ -89,8 +103,7 @@ fn execution_contract(
     catalog: &CatalogSnapshot,
     owner: &CommandNode,
 ) -> Result<ExecutionContract, String> {
-    if owner.space != CommandSpace::Module
-        || owner.adapter.as_deref() != Some("native")
+    if owner.adapter.as_deref() != Some("native")
         || owner.native_owner.as_deref() != Some(owner.address.as_str())
     {
         return Err(format!(
@@ -161,7 +174,7 @@ fn execution_contract_command(
 
 #[cfg(test)]
 pub(crate) fn publish_test_executable(
-    module_data_root: &Path,
+    owner_data_root: &Path,
     catalog: &CatalogSnapshot,
     owner: &CommandNode,
     bytes: &[u8],
@@ -181,7 +194,7 @@ pub(crate) fn publish_test_executable(
     .map_err(|error| error.to_string())?;
     let document = command_release_document(&release).map_err(|error| error.to_string())?;
     let release_id = command_release_id(&document);
-    let release_root = module_data_root
+    let release_root = owner_data_root
         .join("_native/export/command/releases")
         .join(&release_id);
     fs::create_dir_all(&release_root).map_err(|error| {
@@ -193,14 +206,14 @@ pub(crate) fn publish_test_executable(
     fs::write(release_root.join("run.exe"), bytes).map_err(|error| error.to_string())?;
     fs::write(release_root.join("swawkit.release.json"), document)
         .map_err(|error| error.to_string())?;
-    let selector = module_data_root.join("_native/export/command/current");
+    let selector = owner_data_root.join("_native/export/command/current");
     fs::write(&selector, format!("{release_id}\n")).map_err(|error| error.to_string())?;
     Ok(release_root.join("run.exe"))
 }
 
 #[cfg(test)]
 fn resolve_test_executable(
-    module_data_root: &Path,
+    owner_data_root: &Path,
     catalog: &CatalogSnapshot,
     owner: &CommandNode,
 ) -> CommandResult<PathBuf> {
@@ -209,7 +222,7 @@ fn resolve_test_executable(
         .revision()
         .map_err(|error| CommandError::new(error.to_string()))?;
     single::resolve(
-        &resolve_native_root(module_data_root)?,
+        &checked_native_root(&owner_data_root.join("_native"))?,
         &owner.address,
         &revision,
         &contract.delegated_commands(),

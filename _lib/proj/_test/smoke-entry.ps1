@@ -129,7 +129,7 @@ try {
         -Condition (
             $Help.ExitCode -eq 0 -and
             $Help.Text.Contains("$EntryName .entry/language") -and
-            $Help.Text.Contains("$EntryName swaw/context")
+            $Help.Text.Contains("$EntryName .context")
         ) `
         -Message "root help did not expose the Entry section: $($Help.Text)"
 

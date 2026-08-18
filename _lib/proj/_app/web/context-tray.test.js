@@ -44,7 +44,7 @@ function subject() {
         renderer: "overview",
         resolver: {
           acceptsTail: false,
-          address: "swaw/context/show",
+          address: ".context/show",
           arguments: ["tray-test", "--json"],
           confirmation: null,
           returns: "swawkit.context/v2",
@@ -57,7 +57,7 @@ function subject() {
         renderer: "run",
         resolver: {
           acceptsTail: true,
-          address: "swaw/context/add",
+          address: ".context/add",
           arguments: ["tray-test"],
           confirmation: null,
           returns: null,
@@ -70,7 +70,7 @@ function subject() {
     summary: "0 个命令 · 0 条说明",
     via: {
       facet: "contexts",
-      subject: { address: "swaw/context", namespace: "swaw", space: "module", type: "command" },
+      subject: { address: ".context", space: "system", type: "command" },
     },
   };
 }
@@ -115,13 +115,13 @@ describe("Context tray", () => {
       subject: { id: "tray-test", kind: "context", type: "instance" },
       via: {
         facet: "contexts",
-        subject: { address: "swaw/context", namespace: "swaw", space: "module", type: "command" },
+        subject: { address: ".context", space: "system", type: "command" },
       },
     });
 
     expect(await tray.addCurrentCommand()).toBe(true);
     expect(calls).toEqual([{
-      address: "swaw/context/add",
+      address: ".context/add",
       arguments: ["tray-test", ".dev/status"],
     }]);
     expect(rendered.at(-1)).toEqual([{ address: ".dev/status", space: "system" }]);
@@ -143,7 +143,7 @@ describe("Context tray", () => {
       subject: { id: "tray-test", kind: "context", type: "instance" },
       via: {
         facet: "contexts",
-        subject: { address: "swaw/context", namespace: "swaw", space: "module", type: "command" },
+        subject: { address: ".context", space: "system", type: "command" },
       },
     }));
     const loaded = [];

@@ -2,12 +2,18 @@ use super::*;
 
 fn delegate_manifest(owner: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
+        r#"{{"schema":"swawkit.command-module/v10","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
     )
 }
 
 fn native_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v9","execution":{"type":"native"}}"#
+    r#"{"schema":"swawkit.command-module/v10","execution":{"type":"native"}}"#
+}
+
+fn system_delegate_manifest(owner: &str) -> String {
+    format!(
+        r#"{{"schema":"swawkit.command-module/v10","execution":{{"type":"delegate","owner":{{"type":"command","space":"system","address":"{owner}"}}}}}}"#
+    )
 }
 
 #[test]
@@ -65,6 +71,39 @@ fn delegated_port_runs_the_selected_owner_executable() {
         .unwrap();
     let exit_code = CommandExecutor::new(&fixture.context(), &catalog)
         .execute(&argv(&["swaw/domain/port"]))
+        .unwrap();
+
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn system_delegated_port_runs_its_selected_system_owner_export() {
+    let fixture = Fixture::new();
+    let owner = command_directory(&fixture.system_root, ".context");
+    let port = command_directory(&fixture.system_root, ".context/add");
+    fs::create_dir_all(&port).unwrap();
+    fs::write(owner.join("swawkit.module.json"), native_manifest()).unwrap();
+    fs::write(
+        port.join("swawkit.module.json"),
+        system_delegate_manifest(".context"),
+    )
+    .unwrap();
+
+    let executable =
+        PathBuf::from(env::var_os("SystemRoot").expect("SystemRoot")).join("System32/whoami.exe");
+    let bytes = fs::read(executable).unwrap();
+    let owner_data_root = fixture.data_root.join("modules/system/context");
+    fs::create_dir_all(&owner_data_root).unwrap();
+    let catalog = fixture.catalog();
+    let owner = catalog
+        .commands
+        .iter()
+        .find(|command| command.address == ".context")
+        .unwrap();
+    crate::native_command::publish_test_executable(&owner_data_root, &catalog, owner, &bytes)
+        .unwrap();
+    let exit_code = CommandExecutor::new(&fixture.context(), &catalog)
+        .execute(&argv(&[".context/add"]))
         .unwrap();
 
     assert_eq!(exit_code, 0);

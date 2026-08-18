@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
+use swawkit_proj_protocol::{CommandIdentity, valid_module_namespace};
 
 use crate::catalog::CommandSpace;
 
@@ -80,18 +81,16 @@ pub(crate) fn validate_subject_ref(reference: &SubjectRef) -> Result<(), String>
             namespace,
             address,
         } => {
-            let valid_identity = match space {
-                CommandSpace::System => {
-                    namespace.is_none() && (address.is_empty() || address.starts_with('.'))
+            let valid_identity = match (space, namespace.as_deref(), address.as_str()) {
+                (CommandSpace::System, None, "") => true,
+                (CommandSpace::Module, Some(namespace), address) if address == namespace => {
+                    valid_module_namespace(namespace)
                 }
-                CommandSpace::Module => namespace.as_deref().is_some_and(|namespace| {
-                    address == namespace
-                        || address
-                            .strip_prefix(namespace)
-                            .is_some_and(|tail| tail.starts_with('/'))
+                _ => CommandIdentity::parse(address).is_ok_and(|identity| {
+                    identity.space() == *space && identity.namespace() == namespace.as_deref()
                 }),
             };
-            if address.contains('\0') || address.len() > 256 || !valid_identity {
+            if !valid_identity {
                 return Err("command Subject ref is invalid".to_owned());
             }
         }
@@ -152,7 +151,7 @@ mod tests {
     fn collection_with(facet_ids: serde_json::Value) -> SubjectCollection {
         serde_json::from_value(json!({
             "protocol": SUBJECT_COLLECTION_PROTOCOL,
-            "owner": {"type": "command", "space": "module", "namespace": "swaw", "address": "swaw/context"},
+            "owner": {"type": "command", "space": "system", "address": ".context"},
             "facet": "contexts",
             "subjects": [{
                 "ref": {"type": "instance", "kind": "context", "id": "release-check"},
@@ -194,6 +193,44 @@ mod tests {
         let collection = collection_with(json!(["overview"]));
 
         collection.validate().expect("valid Subject collection");
+    }
+
+    #[test]
+    fn command_subject_refs_reuse_the_canonical_command_identity() {
+        for reference in [
+            SubjectRef::Command {
+                space: CommandSpace::System,
+                namespace: None,
+                address: ".Context".to_owned(),
+            },
+            SubjectRef::Command {
+                space: CommandSpace::System,
+                namespace: None,
+                address: ".context//show".to_owned(),
+            },
+            SubjectRef::Command {
+                space: CommandSpace::Module,
+                namespace: Some("swaw".to_owned()),
+                address: "swaw/../context".to_owned(),
+            },
+        ] {
+            assert!(validate_subject_ref(&reference).is_err());
+        }
+
+        for reference in [
+            SubjectRef::Command {
+                space: CommandSpace::System,
+                namespace: None,
+                address: String::new(),
+            },
+            SubjectRef::Command {
+                space: CommandSpace::Module,
+                namespace: Some("swaw".to_owned()),
+                address: "swaw".to_owned(),
+            },
+        ] {
+            validate_subject_ref(&reference).expect("canonical command root Subject ref");
+        }
     }
 
     #[test]

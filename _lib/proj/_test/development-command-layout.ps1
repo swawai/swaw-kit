@@ -33,7 +33,7 @@ foreach ($ModuleManifest in $ModuleManifests) {
     $ModuleDocument = Get-Content -LiteralPath $ModuleManifest.FullName -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v9') `
+        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v10') `
         -Message "legacy module contract remains: $($ModuleManifest.FullName)"
 }
 $LegacyModuleManifests = @(
@@ -124,7 +124,7 @@ Assert-ProjDevelopmentCommandLayout `
 $SetupContract = Get-Content -LiteralPath $SetupManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v9' -and
+    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v10' -and
         $SetupContract.execution.type -ceq 'toolchain' -and
         $SetupContract.execution.handler -ceq 'dev.setup') `
     -Message '.dev/setup Toolchain manifest is invalid'
@@ -136,7 +136,7 @@ Assert-ProjDevelopmentCommandLayout `
 $InstantiateContract = Get-Content -LiteralPath $InstantiateManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v9' -and
+    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v10' -and
         $InstantiateContract.execution.type -ceq 'runtime' -and
         $InstantiateContract.execution.product -ceq 'module' -and
         @($InstantiateContract.requires).Count -eq 1 -and
@@ -157,7 +157,7 @@ $StatusRequires = @(if (
     $StatusContract.requires
 })
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($StatusContract.schema -ceq 'swawkit.command-module/v9' -and
+    -Condition ($StatusContract.schema -ceq 'swawkit.command-module/v10' -and
         $StatusContract.execution.type -ceq 'runtime' -and
         $StatusContract.execution.product -ceq 'module' -and
         $StatusRequires.Count -eq 0) `
@@ -189,7 +189,7 @@ foreach ($RuntimeContract in $RuntimeContracts) {
     $RuntimeDocument = Get-Content -LiteralPath $RuntimeManifest -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v9' -and
+        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v10' -and
             $RuntimeDocument.execution.type -ceq 'core' -and
             $RuntimeDocument.execution.handler -ceq $RuntimeContract.Handler) `
         -Message "Runtime System manifest is invalid: $($RuntimeContract.Path)"
@@ -206,7 +206,7 @@ $ContextCommands = @(
     'list',
     'delete'
 )
-$ContextRoot = Join-Path $OfficialModuleRoot 'context'
+$ContextRoot = Join-Path $SystemRoot 'context'
 $ContextNativeManifest = Join-Path $ContextRoot 'swawkit.module.json'
 $ContextNativeDocument = Get-Content -LiteralPath $ContextNativeManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
@@ -215,11 +215,13 @@ Assert-ProjDevelopmentCommandLayout `
         $ContextNativeDocument.execution.type -ceq 'native' -and
         [IO.File]::Exists((Join-Path $ContextRoot 'Cargo.toml')) -and
         [IO.File]::Exists((Join-Path $ContextRoot 'Cargo.lock')) -and
-        [IO.File]::Exists((Join-Path $ContextRoot '_src\main.rs')) -and
-        [IO.File]::Exists((Join-Path $ContextRoot '_lib\src\lib.rs')) -and
+        [IO.File]::Exists((Join-Path $ContextRoot 'src\main.rs')) -and
+        [IO.File]::Exists((Join-Path $ContextRoot 'src\lib.rs')) -and
         -not [IO.File]::Exists((Join-Path $ContextRoot '_native-set')) -and
-        -not [IO.File]::Exists((Join-Path $ContextRoot '_lib\Cargo.toml'))) `
-    -Message 'swaw/context is not one locked native domain engine'
+        -not [IO.Directory]::Exists((Join-Path $ContextRoot '_lib')) -and
+        -not [IO.Directory]::Exists((Join-Path $ContextRoot '_src')) -and
+        -not [IO.Directory]::Exists((Join-Path $OfficialModuleRoot 'context'))) `
+    -Message '.context is not one locked native domain engine'
 foreach ($ContextCommand in $ContextCommands) {
     $ContextCommandRoot = Join-Path $ContextRoot $ContextCommand
     $ContextManifestPath = Join-Path $ContextCommandRoot 'swawkit.module.json'
@@ -227,12 +229,12 @@ foreach ($ContextCommand in $ContextCommands) {
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
         -Condition ([IO.File]::Exists($ContextManifestPath) -and
-            $ContextManifest.schema -ceq 'swawkit.command-module/v9' -and
+            $ContextManifest.schema -ceq 'swawkit.command-module/v10' -and
             $ContextManifest.execution.type -ceq 'delegate' -and
             $ContextManifest.execution.owner.type -ceq 'command' -and
-            $ContextManifest.execution.owner.space -ceq 'module' -and
-            $ContextManifest.execution.owner.namespace -ceq 'swaw' -and
-            $ContextManifest.execution.owner.address -ceq 'swaw/context' -and
+            $ContextManifest.execution.owner.space -ceq 'system' -and
+            $null -eq $ContextManifest.execution.owner.PSObject.Properties['namespace'] -and
+            $ContextManifest.execution.owner.address -ceq '.context' -and
             -not [IO.File]::Exists((Join-Path $ContextCommandRoot 'run.delegate'))) `
         -Message "Context delegated execution declaration is invalid: $ContextManifestPath"
     Assert-ProjDevelopmentCommandLayout `
@@ -247,7 +249,7 @@ foreach ($ContextCommand in $ContextCommands) {
 $ContextModuleManifest = Join-Path $ContextRoot 'swawkit.module.json'
 Assert-ProjDevelopmentCommandLayout `
     -Condition ([IO.File]::Exists($ContextModuleManifest)) `
-    -Message 'swaw/context does not declare its module facets'
+    -Message '.context does not declare its module facets'
 $ContextModule = Get-Content -LiteralPath $ContextModuleManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 $ContextFacet = @($ContextModule.facets)[0]
@@ -256,26 +258,26 @@ $ContextOverviewFacet = @($ContextSubjectKind.facets) |
     Where-Object { $_.id -ceq 'overview' } |
     Select-Object -First 1
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v9' -and
+    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v10' -and
         $ContextModule.execution.type -ceq 'native' -and
         @($ContextModule.facets).Count -eq 1 -and
         $ContextFacet.id -ceq 'contexts' -and
         $ContextFacet.kind -ceq 'collection' -and
         $ContextFacet.subjectKind.kind -ceq 'context' -and
         $ContextFacet.subjectKind.provider.type -ceq 'command' -and
-        $ContextFacet.subjectKind.provider.space -ceq 'module' -and
-        $ContextFacet.subjectKind.provider.namespace -ceq 'swaw' -and
-        $ContextFacet.subjectKind.provider.address -ceq 'swaw/context' -and
+        $ContextFacet.subjectKind.provider.space -ceq 'system' -and
+        $null -eq $ContextFacet.subjectKind.provider.PSObject.Properties['namespace'] -and
+        $ContextFacet.subjectKind.provider.address -ceq '.context' -and
         $ContextFacet.resolver.type -ceq 'command' -and
-        $ContextFacet.resolver.address -ceq 'swaw/context/list' -and
+        $ContextFacet.resolver.address -ceq '.context/list' -and
         @($ContextFacet.resolver.arguments).Count -eq 1 -and
         $ContextFacet.resolver.arguments[0] -ceq '--json' -and
         $ContextFacet.resolver.returns -ceq 'swawkit.subject-collection/v3' -and
         $ContextSubjectKind.kind -ceq 'context' -and
         @($ContextSubjectKind.facets).Count -eq 7 -and
-        $ContextOverviewFacet.resolver.address -ceq 'swaw/context/show' -and
+        $ContextOverviewFacet.resolver.address -ceq '.context/show' -and
         $ContextOverviewFacet.resolver.arguments[0].bind -ceq 'subject.id') `
-    -Message 'swaw/context collection facet declaration is invalid'
+    -Message '.context collection facet declaration is invalid'
 Assert-ProjDevelopmentCommandLayout `
     -Condition (-not (Test-Path -LiteralPath (
         Join-Path $ContextRoot 'resource.core.json'
@@ -297,7 +299,7 @@ $RunOpenFacet = @($RunSubjectKind.facets) |
     Where-Object { $_.id -ceq 'open' } |
     Select-Object -First 1
 $RunsContractChecks = @(
-    ($RunsModule.schema -ceq 'swawkit.command-module/v9')
+    ($RunsModule.schema -ceq 'swawkit.command-module/v10')
     (@($RunsModule.facets).Count -eq 1)
     ($AllRunsFacet.id -ceq 'all')
     ($AllRunsFacet.kind -ceq 'collection')

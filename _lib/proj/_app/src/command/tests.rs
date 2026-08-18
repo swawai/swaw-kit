@@ -101,7 +101,7 @@ impl Fixture {
         fs::create_dir_all(&directory).expect("create command directory");
         fs::write(
             directory.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v9"}"#,
+            r#"{"schema":"swawkit.command-module/v10"}"#,
         )
         .expect("write command manifest");
         fs::write(directory.join("run.ps1"), script).expect("write command entry");
@@ -172,6 +172,7 @@ impl Fixture {
         CommandExecutionContext {
             swawkit_home: self.root.clone(),
             command_root: self.command_root.clone(),
+            system_root: self.system_root.clone(),
             target_project_root: self.target_project_root.clone(),
             module_roots: BTreeMap::from([
                 ("swaw".to_owned(), self.swaw_module_root.clone()),
@@ -275,6 +276,10 @@ fn process_environment_is_declarative() {
         Some(Some(fixture.target_project_root.as_os_str()))
     );
     assert_eq!(
+        run.value("SWAWKIT_PROJ_SYSTEM_ROOT"),
+        Some(Some(fixture.system_root.as_os_str()))
+    );
+    assert_eq!(
         run.value("SWAWKIT_HOME"),
         Some(Some(fixture.root.as_os_str()))
     );
@@ -343,14 +348,14 @@ fn command_data_roots_are_isolated_by_structured_identity() {
     fs::create_dir_all(&control).unwrap();
     fs::write(
         control.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v9","execution":{"type":"core","handler":"entry.profile"}}"#,
+        r#"{"schema":"swawkit.command-module/v10","execution":{"type":"core","handler":"entry.profile"}}"#,
     )
     .unwrap();
     let action = fixture.project_module_root.join("build");
     fs::create_dir_all(&action).unwrap();
     fs::write(
         action.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     )
     .unwrap();
     fs::write(action.join("run.ps1"), "exit 0").unwrap();
@@ -459,7 +464,7 @@ fn cmd_adapter_allows_only_one_standalone_help_selector() {
     fs::create_dir_all(&directory).unwrap();
     fs::write(
         directory.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     )
     .unwrap();
     fs::write(

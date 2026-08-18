@@ -18,8 +18,8 @@ contract。可使用纯只读检查：
 直接运行 _lib\proj\build.ps1，它会准备固定 Bootstrap 工具链并构建 App 与 Launcher
 候选；只写入 data/proj_cache/bootstrap/build，不替换任何发布制品。
 
-System 命令以一个点开头，层级使用斜杠，例如 {{COMMAND}} .entry/language；
-模块命令从显式命名空间开始，例如 {{COMMAND}} swaw/context 或
+System 命令以一个点开头，层级使用斜杠，例如 {{COMMAND}} .entry/language 或
+{{COMMAND}} .context；模块命令从显式命名空间开始，例如
 {{COMMAND}} project/build。CLI 不接受 system/、module/ 或旧式点分隔地址。
 `.entry` 与 `.runtime` 管理 Entry 自身生命周期。
 不带参数启动 {{COMMAND}} 会启动或激活本地 Web 控制台。

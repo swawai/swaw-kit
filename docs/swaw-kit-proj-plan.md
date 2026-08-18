@@ -16,7 +16,7 @@ Proj 的长期设计心智是：**协议集中、领域自治、能力可组合*
 ```text
 Entry Launcher
   -> Rust Core（CLI / Host / Worker）
-  -> Catalog v17
+  -> Catalog v18
   -> CommandId { space, namespace?, path }
   -> Readiness / Journal / Adapter
   -> Core handler、Runtime Component 或 Module run.*
@@ -24,9 +24,9 @@ Entry Launcher
 
 Entry 是薄原生 Launcher。它负责确定自身身份、读取 `_lib/proj/_bin/current`、选择不可变 Core Release Set，并原样传递 argv。若共享 Core 尚不存在，Launcher 才调用 `_lib/proj/bootstrap.ps1`。
 
-冷 Bootstrap 只构建和原子发布四个必备产品制品：`swawkit-proj.exe`、`swawkit-proj-host.exe`、`swawkit-proj-module.exe` 与 `swawkit-proj-toolchain.exe`。其中 Module manager 直接以 `system/module/` 为独立 Cargo 根，只依赖一个很小的共享协议 crate，不静态依赖 Core。Bootstrap 不扫描、编译或链接领域 Module，因此增加或修改 `swaw/context` 等原生领域不会扩大产品 Runtime 的 Rust 编译集合。
+冷 Bootstrap 只构建和原子发布四个必备产品制品：`swawkit-proj.exe`、`swawkit-proj-host.exe`、`swawkit-proj-module.exe` 与 `swawkit-proj-toolchain.exe`。其中 Module manager 直接以 `system/module/` 为独立 Cargo 根，只依赖一个很小的共享协议 crate，不静态依赖 Core。Bootstrap 不扫描、编译或链接领域 Native Command，因此增加或修改 `.context` 等原生领域不会扩大产品 Runtime 的 Rust 编译集合。
 
-这里有两个不能混为一谈的发布平面：产品 Runtime Release Set v2 严格包含上述四件并共用 `_bin/current`；领域 Native Command Release v2 位于各 owner DataRoot，由 `.module/instantiate` 单独发布并拥有自己的 selector。Module manager 属于前者，因为 fresh install 必须先有管理器才能实例化任何领域；`swaw/context` 属于后者，不能再加入产品 Runtime，否则会出现两个 selector 争夺同一事实源。
+这里有两个不能混为一谈的发布平面：产品 Runtime Release Set v2 严格包含上述四件并共用 `_bin/current`；领域 Native Command Release v3 位于各 owner DataRoot，由 `.module/instantiate` 单独发布并拥有自己的 selector。Module manager 属于前者，因为 fresh install 必须先有管理器才能实例化任何领域；`.context` 属于后者，不能再加入产品 Runtime，否则会出现两个 selector 争夺同一事实源。
 
 每个 Core/Host 进程启动时都以自身 EXE 所在 Release 目录为准，只读取小型 Manifest，校验 v2 身份、四制品记录、精确目录成员与长度；它不追随可能已经切换的 `_bin/current`，也不在每次 CLI 启动时哈希四个 EXE。真正准备启动某个兄弟产品时，才流式校验该单个 Host、Module 或 Toolchain 制品的长度与 SHA-256。这样同时保留旧进程安全存活、内容寻址边界和低启动成本。
 
@@ -37,8 +37,8 @@ Runtime v1 → v2 是一次硬切升级：旧 Launcher 只知道三制品 Core �
 内部身份是结构化值，不从字符串前缀反推来源：
 
 ```text
-System: { space: system, path: [entry, language] }
-Module: { space: module, namespace: swaw, path: [context, add] }
+System: { space: system, path: [context, add] }
+Module: { space: module, namespace: project, path: [proj, build, app] }
 ```
 
 规范 CLI 地址：
@@ -47,10 +47,10 @@ Module: { space: module, namespace: swaw, path: [context, add] }
 swawkit .help
 swawkit .entry/language
 swawkit .dev/setup
-swawkit .module/instantiate swaw/context
+swawkit .module/instantiate .context
 
-swawkit swaw/context
-swawkit swaw/context/add my-context project/proj/build/app
+swawkit .context/list --json
+swawkit .context/add my-context project/proj/build/app
 swawkit project/proj/build/app
 swawkit user-custom/something
 ```
@@ -60,19 +60,19 @@ swawkit user-custom/something
 1. System 使用一个前导点，目录层级使用 `/`。
 2. Module 直接从显式 namespace 开始，CLI 不输入 `module/`。
 3. namespace 和路径段只接受可移植的小写短横线语法；`system`、`module` 是保留 namespace。
-4. 不接受 `..entry`、`.dev.setup`、`system/help`、`module/swaw/context`、`.h` 等旧地址或别名。
+4. 不接受 `..entry`、`.dev.setup`、`system/help`、`module/project/build`、`.h` 等旧地址或别名。
 5. `::context/<id>` 是动态 Subject 的显示与寻址身份，不是 CLI 命令地址。
 
 ## 4. 物理目录与挂载
 
 | 身份 | 物理根 | namespace | 示例地址 |
 | --- | --- | --- | --- |
-| System | `_lib/proj/system/` | 无 | `.dev/setup` |
-| 官方 Module | `_lib/proj/modules/` | `swaw` | `swaw/context` |
+| System | `_lib/proj/system/` | 无 | `.context`、`.dev/setup` |
+| 官方 Module | `_lib/proj/modules/` | `swaw` | `swaw/example` |
 | 当前项目 Module | `<targetProjectRoot>/.swaw/` | `project` | `project/proj/build/app` |
 | 外部 Module | Profile `moduleMounts[]` | 显式声明 | `user-custom/something` |
 
-Catalog 扫描这些显式根并生成 `swawkit.command-catalog/v17`。除显式挂载根外，只有拥有规范 `swawkit.module.json` 且目录名满足 lower-kebab-case CommandId 语法的目录才形成命令；没有 Manifest 的目录整棵剪枝。下划线不承担额外发现语义，`_lib`、`_src` 等目录只是自然地不具备 Manifest、也不满足公开地址语法。目录、CLI 地址与 namespace 的映射只有这一处事实源；Web、CLI、Journal、DataRoot 和 Subject 协议都消费同一个结构化身份。
+Catalog 扫描这些显式根并生成 `swawkit.command-catalog/v18`。除显式挂载根外，只有拥有规范 `swawkit.module.json` 且目录名满足 lower-kebab-case CommandId 语法的目录才形成命令；没有 Manifest 的目录整棵剪枝。下划线不承担额外发现语义，普通 `src/` 等实现目录只是自然地不具备 Manifest。目录、CLI 地址与 namespace 的映射只有这一处事实源；Web、CLI、Journal、DataRoot 和 Subject 协议都消费同一个结构化身份。
 
 Profile 中的外部挂载形如：
 
@@ -84,7 +84,7 @@ Profile 中的外部挂载形如：
 }
 ```
 
-挂载必须显式，不能靠扫描任意父目录或环境变量猜测。Core 在每次命令执行时发布 `SWAWKIT_PROJ_MODULE_ROOTS` JSON；`SWAWKIT_PROJ_PROJECT_MODULE_ROOT` 只是 `project` 挂载的便捷投影。
+挂载必须显式，不能靠扫描任意父目录或环境变量猜测。Core 在每次命令执行时发布规范 `SWAWKIT_PROJ_SYSTEM_ROOT` 与 `SWAWKIT_PROJ_MODULE_ROOTS` JSON；`SWAWKIT_PROJ_PROJECT_MODULE_ROOT` 只是 `project` 挂载的便捷投影。
 
 ## 5. 目录命令协议
 
@@ -101,29 +101,30 @@ Profile 中的外部挂载形如：
 | `execution.core` | System | 调用受限、白名单化的进程内 Core handler；不得声明 `requires` |
 | `execution.toolchain` | System | 调用同一 Release Set 的低频 Toolchain handler |
 | `execution.runtime` | System | 按逻辑 product ID 调用同一 Runtime Release Set 中的独立必备制品 |
-| `execution.native` | Module | 目录拥有独立原生项目和内容寻址发布生命周期 |
-| `execution.delegate` | Module | 显式委派到同 namespace 的 `execution.native` 真祖先 owner |
+| `execution.native` | System 或 Module | 目录拥有独立原生项目和内容寻址发布生命周期 |
+| `execution.delegate` | System 或 Module | 显式委派到同一命令空间的 `execution.native` 真祖先 owner；Module 还必须同 namespace |
 
-`swawkit.module.json`、`_help/`、`_view/` 与私有 `_lib/`、`_src/` 就近属于该命令。相关逻辑靠近所属领域，Catalog 只汇总协议事实，不搬走领域实现。
+`swawkit.module.json`、`_help/`、`_view/` 与标准 `src/` 就近属于该命令。相关逻辑靠近所属领域，Catalog 只汇总协议事实，不搬走领域实现。
 
 System 是框架自带的稳定命名空间，不等于 Core。Entry Profile、DataRoot claim、Host 生命周期等需要进程内状态所有权或特权协调的行为才进入 Core；开发工具链操作可以进入 Toolchain；必须先于任意领域实例化而可用、但不需要 Core 内状态的控制面可以成为独立 Runtime Component。普通业务领域不得仅因“官方内置”而进入这三个产品边界。
 
 `.module/instantiate` 与 `.module/status` 由 `product: "module"` 的独立 `swawkit-proj-module.exe` 提供。它随四制品 Runtime Release Set 一起升级、回滚和校验，源码、依赖和测试则直接位于标准 Cargo 根 `system/module/`。Core 只根据 Catalog 中的 product ID 路由到同一已选择 Release 中的兄弟制品，不内置 `.module` 的构建与发布实现。
 
-Core recovery/control 命令可能在 DataRoot 建立前直接 dispatch，因此不消费模块 Export，Manifest v9 明确禁止 `execution.core` 与 `requires` 组合。需要依赖 Export 的 System 命令应使用受统一依赖断言保护的普通 `run.*`、`execution.toolchain` 或 `execution.runtime`，不能在 control dispatch 中另加一条时序不同的特殊门禁。
+Core recovery/control 命令可能在 DataRoot 建立前直接 dispatch，因此不消费模块 Export，Manifest v10 明确禁止 `execution.core` 与 `requires` 组合。需要依赖 Export 的 System 命令应使用受统一依赖断言保护的普通 `run.*`、`execution.toolchain`、`execution.runtime` 或 `execution.native`，不能在 control dispatch 中另加一条时序不同的特殊门禁。
 
 ## 6. 原生 Module 的独立构建与发布
 
 原生 owner 自身就是独立 Rust 项目：
 
 ```text
-_lib/proj/modules/context/
+_lib/proj/system/context/
 ├─ Cargo.toml
 ├─ Cargo.lock
-├─ _src/main.rs
-├─ _lib/src/...
+├─ src/main.rs
+├─ src/lib.rs
+├─ src/...
 ├─ swawkit.module.json                 # execution.native
-└─ add|remove|show|.../swawkit.module.json  # execution.delegate -> swaw/context
+└─ add|remove|show|.../swawkit.module.json  # execution.delegate -> .context
 ```
 
 它不是 `_app` Cargo workspace 成员。`Cargo.toml` 显式生成名为 `run.exe` 的 bin。领域 schema、存储、操作和测试留在领域目录；Core 不通过 Registry 把源码重新静态组合回产品 Runtime 制品。
@@ -132,24 +133,24 @@ _lib/proj/modules/context/
 
 ```text
 swawkit .dev/setup
-swawkit .module/instantiate swaw/context
+swawkit .module/instantiate .context
 ```
 
 `.module/instantiate` 的职责是：
 
-1. 从显式 Module 挂载根读取 Manifest v9，将 delegate 目标归一到 native owner，并生成与 Core 相同的规范执行契约。
+1. 从显式 System 根或 Module 挂载根读取 Manifest v10，将 delegate 目标归一到 native owner，并生成与 Core 相同的规范执行契约。
 2. 使用 `.dev/setup` 已验证并发布的 Rust/MSVC 环境。
 3. 从已验证 `rustc` 同目录选择真实 `cargo.exe`，不回退系统 PATH 或 rustup proxy。
 4. 对 owner 受控树中的源码、`Cargo.toml`、`Cargo.lock`、全部 Manifest、帮助与资源做确定性快照，并把规范化执行契约作为一个合成构建输入；只排除明确生成的 `target/` 和由另一 selector 管理的嵌套 native owner，不读取或要求 Git。
 5. 在 owner DataRoot 的 `_native/work/cargo-target/` 执行 `cargo build --locked --release`。
 6. 在有界输出和超时约束下调用候选 `run.exe --swawkit-describe`，要求它报告的 owner 与命令集合和规范执行契约完全一致；执行前后候选字节也必须保持一致。
-7. 将 `buildInputRevision`、`executionContractRevision`、命令集合以及 EXE 长度与哈希写入不可变 Native Command Release v2，以该文档的 SHA-256 作为 Release ID。
+7. 将 `buildInputRevision`、`executionContractRevision`、命令集合以及 EXE 长度与哈希写入不可变 Native Command Release v3，以该文档的 SHA-256 作为 Release ID。
 8. 发布不可变 Release bundle，最后原子切换唯一 selector；任一步失败都保持旧 selector 不变。
 
 发布结构：
 
 ```text
-DataRoot/modules/<namespace>/<owner-path>/_native/
+DataRoot/modules/<space-or-namespace>/<owner-path>/_native/
 ├─ locks/instantiate.lock
 ├─ work/cargo-target/
 └─ export/command/
@@ -159,24 +160,23 @@ DataRoot/modules/<namespace>/<owner-path>/_native/
       └─ swawkit.release.json
 ```
 
-构建或自描述对账失败不会影响旧 selector；同一 Release bundle 重复实例化是幂等操作。普通调用只验证 selector、Release Manifest、EXE 完整性、被调用端口以及当前 Catalog 的执行契约，不扫描或哈希领域源码。Manifest 中会影响运行语义的 owner、delegate、`requires`、`provides` 或命令集合发生变化时，执行契约不匹配会 fail closed；单纯修改 `_src`、`Cargo.toml` 或资源不会让已发布 EXE 突然不可运行。
+构建或自描述对账失败不会影响旧 selector；同一 Release bundle 重复实例化是幂等操作。普通调用只验证 selector、Release Manifest、EXE 完整性、被调用端口以及当前 Catalog 的执行契约，不扫描或哈希领域源码。Manifest 中会影响运行语义的 owner、delegate、`requires`、`provides` 或命令集合发生变化时，执行契约不匹配会 fail closed；单纯修改 `src/`、`Cargo.toml` 或资源不会让已发布 EXE 突然不可运行。
 
-Core 与 Module manager 复用共享协议 crate 中唯一的 Manifest v9 typed parser/validator；执行声明、依赖、Export、Facet 与 Subject kind 不再各自猜测。命令目录段和 `swawkit.module.json` 文件名也按同一规范大小写发现，因此 manager 能发布的领域必然也是 Catalog 能发现的领域。
+Core 与 Module manager 复用共享协议 crate 中唯一的 Manifest v10 typed parser/validator、结构化 Command identity 与 DataRoot 映射；执行声明、依赖、Export、Facet 与 Subject kind 不再各自猜测。命令目录段和 `swawkit.module.json` 文件名也按同一规范大小写发现，因此 manager 能发布的领域必然也是 Catalog 能发现的领域。
 
 源码新鲜度属于显式管理操作：`.module/status <address>` 只读计算当前 `buildInputRevision`，报告 `unpublished | current | outdated`；`.module/instantiate` 才构建并发布新版本。这样每次 CLI 执行的成本与源码树规模无关，也避免把 Git 变成运行时依赖。当前 Rust builder 的摘要边界是 owner 受控树；若 Cargo build script 或 path dependency 擅自读取 owner 外部文件，manager 不把它冒充为可证明的 hermetic 输入，领域应先把依赖发布或收回 owner 边界。`run.ts`、`run.py` 等当前仍是直接源码入口；若未来需要与 EXE 一样的冻结发布语义，应由相应语言的独立 builder/manager 明确实例化为包或不可变脚本 bundle，而不是让 Core 猜测跨语言构建输入。
 
-委派关系由叶子命令自己的 `swawkit.module.json.execution` 显式给出，不放置零字节 marker，也不向上猜测“最近的可运行祖先”。v9 要求 owner 与叶子位于同一 Module namespace、是叶子的真祖先，并且声明 `execution.native`。中间目录是否可运行、是否也声明委派，都不会改变解析结果。Core 仍以叶子命令身份创建 DataRoot、环境与 Journal，然后一次性启动 owner 的当前 `run.exe`；环境同时带有逻辑命令与 native owner 身份。这样既保留 `swaw/context/add` 的独立命令语义，也避免九个子命令耦合发布九份 EXE。
+委派关系由叶子命令自己的 `swawkit.module.json.execution` 显式给出，不放置零字节 marker，也不向上猜测“最近的可运行祖先”。v10 要求 owner 与叶子位于同一 Command space、是叶子的真祖先，并且声明 `execution.native`；Module 身份还必须同 namespace。中间 native owner 始终形成领域边界，不能被后代穿越。Core 仍以叶子命令身份创建 DataRoot、环境与 Journal，然后一次性启动 owner 的当前 `run.exe`；环境同时带有逻辑命令与 native owner 身份。这样既保留 `.context/add` 的独立命令语义，也避免九个子命令耦合发布九份 EXE。
 
 ```json
 {
-  "schema": "swawkit.command-module/v9",
+  "schema": "swawkit.command-module/v10",
   "execution": {
     "type": "delegate",
     "owner": {
       "type": "command",
-      "space": "module",
-      "namespace": "swaw",
-      "address": "swaw/context"
+      "space": "system",
+      "address": ".context"
     }
   }
 }
@@ -188,7 +188,7 @@ DataRoot 与结构化身份同构：
 
 ```text
 System .dev/setup              -> DataRoot/modules/system/dev/setup/
-Module swaw/context            -> DataRoot/modules/swaw/context/
+System .context                -> DataRoot/modules/system/context/
 Module project/proj/build/app  -> DataRoot/modules/project/proj/build/app/
 ```
 
@@ -197,11 +197,11 @@ Module project/proj/build/app  -> DataRoot/modules/project/proj/build/app/
 1. **能力 Export**：命令地址及其 `run.*` 是模块天然对外能力。用户或顶层 orchestrator 通过 `swawkit <address>` 获得完整命令语义；领域 `run.*` 之间不递归启动 Entry，而是直接消费声明的 Export/artifact。
 2. **产物 Export**：模块把稳定文件、目录或可执行物发布到自身 DataRoot 的 `export/`，候选和中间文件留在 `work/`。Provider State、领域产物 Manifest、长度与哈希共同形成可验证边界。
 
-Manifest v9 使用具名 Export，而不是把一个 Provider 等同于一个模糊的产物：
+Manifest v10 使用具名 Export，而不是把一个 Provider 等同于一个模糊的产物：
 
 ```json
 {
-  "schema": "swawkit.command-module/v9",
+  "schema": "swawkit.command-module/v10",
   "requires": [{
     "provider": ".dev/setup",
     "export": "environment",
@@ -232,19 +232,19 @@ Manifest、解析结果与 Playbook 必须分层：`swawkit.module.json` 是作�
 - `Facet`：Subject 可浏览、投影或执行的能力。
 - `SubjectCollection`：某个 collection Facet 的解析结果。
 
-当前关键协议是 Catalog v17、SubjectCollection v3、Context v2、CommandCheck v1、CommandRunEvent v2、CommandRunJournal 查询文档 v2 与 Web live CommandRun v2；未改变字段的持久 Journal State 与不含事件的 CommandRunHistory 保持 v1。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
+当前关键协议是 Catalog v18、SubjectCollection v3、Context v2、CommandCheck v1、CommandRunEvent v2、CommandRunJournal 查询文档 v2 与 Web live CommandRun v2；未改变字段的持久 Journal State 与不含事件的 CommandRunHistory 保持 v1。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
 
 Web 路由与身份一致：
 
 ```text
 /commands/system/entry/language
-/commands/module/swaw/context
+/commands/system/context
 /commands/module/project/proj/build/app
 ```
 
 Finder 先分 System 与 Module，再按 Module namespace 分组。Web 不自建命令别名，不从物理路径猜能力；它只消费 Catalog、SubjectKind 模板与 Facet resolver。
 
-`swaw/context` 是首个完整垂直样例：一个独立 Cargo owner 提供 Context v2 存储、原子更新、Markdown 与 SubjectCollection 投影；`new/add/remove/note/prompt/show/render/list/delete` 是 delegate 端口。领域记录位于 `DataRoot/modules/swaw/context/state/contexts/`，框架的原生实例位于 `_native/`，二者互不混用。
+`.context` 是首个完整垂直样例：它拥有 System 身份，但执行实现仍是独立 Cargo owner；Context v2 存储、原子更新、Markdown 与 SubjectCollection 投影全部由领域自身提供，`new/add/remove/note/prompt/show/render/list/delete` 是 delegate 端口。领域记录位于 `DataRoot/modules/system/context/state/contexts/`，框架的原生实例位于 `_native/`，二者互不混用。地址空间与执行技术正交：System 不等于 Core，Native 也不等于 Module。
 
 ## 9. 环境、执行与 Journal
 
@@ -256,6 +256,7 @@ SWAWKIT_PROJ_CORE_COMMAND_SPACE
 SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE
 SWAWKIT_PROJ_CORE_COMMAND_ADDRESS
 SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT
+SWAWKIT_PROJ_SYSTEM_ROOT
 SWAWKIT_PROJ_PROJECT_MODULE_ROOT
 SWAWKIT_PROJ_MODULE_ROOTS
 ```
@@ -271,14 +272,14 @@ CLI 与 Web Worker 进入同一执行链，使用同一 Catalog、Profile、cwd�
 已经完成：
 
 1. `CommandSpace::{System, Module}`、显式 namespace 与唯一规范 CLI 地址。
-2. `_lib/proj/system`、官方 `swaw`、项目 `project` 和 Profile 外部挂载扫描。
-3. Catalog v17、Web 路由/分组、结构化 Subject CommandRef 与新 DataRoot 映射。
-4. Manifest v9 的 `execution` 统一 Core、Toolchain、Runtime、Native 与 Delegate；`.module` 是独立 Cargo 项目和第四个必备 Runtime Component，不静态链接 Core。
-5. `.module/instantiate` 与 `.module/status` 管理 Native Command Release v2：显式构建、候选自描述、构建输入状态、不可变内容寻址发布和原子 selector；普通执行不扫描源码。
-6. `swaw/context` 完整领域下沉；Core 中旧 Context 业务实现已移除。
-7. `.dev/setup` 和旧 Context DataRoot 的一次性状态迁移；迁移只处理已知旧布局，不形成长期双写或 fallback。
+2. `_lib/proj/system`、官方 `swaw`、项目 `project` 和 Profile 外部挂载扫描；System/Module 身份与执行 adapter 正交。
+3. Catalog v18、Web 路由/分组、结构化 Subject CommandRef 与共享 DataRoot 映射。
+4. Manifest v10 的 `execution` 统一 Core、Toolchain、Runtime、Native 与 Delegate；`.module` 是独立 Cargo 项目和第四个必备 Runtime Component，不静态链接 Core。
+5. `.module/instantiate` 与 `.module/status` 管理 Native Command Release v3：显式构建、候选自描述、构建输入状态、不可变内容寻址发布和原子 selector；普通执行不扫描源码。
+6. `.context` 以 System identity + Native execution 完整领域下沉；Core 中旧 Context 业务实现已移除。
+7. `.dev/setup` 和 Context 领域数据均采用一次性显式迁移；运行时代码不保留旧地址根的双写或 fallback。
 8. 项目 `.swaw/proj/...` 命令迁到 `project/proj/...` 地址和 DataRoot。
-9. Manifest v9 具名 Export、Provider State v2 发布集合、CommandCheck v1 与执行前递归依赖断言。
+9. Manifest v10 具名 Export、Provider State v2 发布集合、CommandCheck v1 与执行前递归依赖断言。
 10. Rust、Web、Context、TypeScript 与关键 Launcher/CLI/进程树/Journal 黑盒回归。
 
 后续按真实收益推进，而不是为“纯模块化”迁移一切：
@@ -287,7 +288,7 @@ CLI 与 Web Worker 进入同一执行链，使用同一 Catalog、Profile、cwd�
 2. 为受管 Python 建立完整版本、来源、安装元数据和哈希所有权后，再启用 `run.py`。
 3. 出现真实高频跨模块低层调用后，再设计版本化 EXE/DLL/包 Export 注入；用户与顶层 orchestrator 仍走 `swawkit <address>`，领域 `run.*` 只直接消费声明的 Export/artifact。
 4. 出现第二种真实文件 Subject 后，再定义 artifact SubjectKind；不预建万能资产层。
-5. 若确认 `.context` 是稳定且必不可少的框架命名，再把 `swaw/context` 一次性硬切到 System 地址 `.context`；地址升格与执行/发布机制正交，Context 仍保持自己的 Cargo 项目和 DataRoot Command Release，不能并入产品 Runtime Release Set。
+5. 出现第二个 System Native 领域时，优先复用现有结构化 identity、DataRoot 和 Release 协议，不为具体地址增加 Core 特判。
 
 ## 11. 架构护栏
 

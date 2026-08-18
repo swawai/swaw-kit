@@ -57,34 +57,34 @@ impl Drop for Fixture {
 
 fn delegate_manifest(owner: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
+        r#"{{"schema":"swawkit.command-module/v10","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
     )
 }
 
 fn core_manifest(handler: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"core","handler":"{handler}"}}}}"#
+        r#"{{"schema":"swawkit.command-module/v10","execution":{{"type":"core","handler":"{handler}"}}}}"#
     )
 }
 
 fn toolchain_manifest(handler: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"toolchain","handler":"{handler}"}}}}"#
+        r#"{{"schema":"swawkit.command-module/v10","execution":{{"type":"toolchain","handler":"{handler}"}}}}"#
     )
 }
 
 fn runtime_manifest(product: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"runtime","product":"{product}"}}}}"#
+        r#"{{"schema":"swawkit.command-module/v10","execution":{{"type":"runtime","product":"{product}"}}}}"#
     )
 }
 
 fn native_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v9","execution":{"type":"native"}}"#
+    r#"{"schema":"swawkit.command-module/v10","execution":{"type":"native"}}"#
 }
 
 fn module_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v9"}"#
+    r#"{"schema":"swawkit.command-module/v10"}"#
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn discovers_system_and_explicit_module_namespaces() {
 }
 
 #[test]
-fn system_commands_cannot_use_module_native_adapters() {
+fn system_commands_can_own_native_execution() {
     let fixture = Fixture::new();
     fixture.file(
         &fixture.system,
@@ -208,13 +208,9 @@ fn system_commands_cannot_use_module_native_adapters() {
 
     let snapshot = fixture.discover();
     let command = node(&snapshot, ".native");
-    assert!(!command.runnable);
-    assert!(
-        command
-            .diagnostic
-            .as_deref()
-            .is_some_and(|message| message.contains("Module commands"))
-    );
+    assert!(command.runnable, "{:?}", command.diagnostic);
+    assert_eq!(command.adapter.as_deref(), Some("native"));
+    assert_eq!(command.native_owner.as_deref(), Some(".native"));
 }
 
 #[test]
@@ -262,7 +258,7 @@ fn module_runtime_component_is_exact_and_has_no_handler() {
     fixture.file(
         &fixture.system,
         "module/instantiate/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","execution":{"type":"runtime","product":"module"},"requires":[{"provider":".dev/setup","export":"environment","contract":"swawkit.proj.dev-setup/v2"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","execution":{"type":"runtime","product":"module"},"requires":[{"provider":".dev/setup","export":"environment","contract":"swawkit.proj.dev-setup/v2"}]}"#,
     );
     fixture.file(
         &fixture.system,
@@ -398,17 +394,17 @@ fn module_contract_provider_addresses_use_the_new_cli_grammar() {
     fixture.file(
         &fixture.swaw,
         "producer/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","provides":[{"id":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","provides":[{"id":"fixture","contract":"fixture/v1"}]}"#,
     );
     fixture.file(
         &fixture.swaw,
         "consumer/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","requires":[{"provider":"swaw/producer","export":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","requires":[{"provider":"swaw/producer","export":"fixture","contract":"fixture/v1"}]}"#,
     );
     fixture.file(
         &fixture.swaw,
         "legacy/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","requires":[{"provider":".dev.setup","export":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","requires":[{"provider":".dev.setup","export":"fixture","contract":"fixture/v1"}]}"#,
     );
 
     let snapshot = fixture.discover();
@@ -681,3 +677,5 @@ fn node<'a>(snapshot: &'a CatalogSnapshot, address: &str) -> &'a CommandNode {
         .find(|node| node.address == address)
         .unwrap_or_else(|| panic!("missing node {address}"))
 }
+
+mod native_system;

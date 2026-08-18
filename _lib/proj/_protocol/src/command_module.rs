@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{ModuleProvision, ModuleRequirement, ProtocolError, ProtocolResult};
+use crate::{CommandSpace, ModuleProvision, ModuleRequirement, ProtocolError, ProtocolResult};
 
 use super::command_module_validation::validate_command_module;
 
@@ -115,12 +115,7 @@ pub struct CommandModuleLocalizedText {
     pub en: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CommandModuleCommandSpace {
-    System,
-    Module,
-}
+pub type CommandModuleCommandSpace = CommandSpace;
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]

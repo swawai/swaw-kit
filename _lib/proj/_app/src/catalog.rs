@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use swawkit_proj_protocol::CommandIdentity;
 
 mod address;
 mod entry;
@@ -39,7 +40,7 @@ use subject_kind::resolve_subject_kinds;
 use view::read_local_web_view;
 pub use view::{ChildrenColumnView, ColumnWidth, CommandView, RunOperationView, RunView};
 
-pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v17";
+pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v18";
 
 pub const HELP_ADDRESS: &str = ".help";
 pub const HELP_MARKERS: [&str; 3] = [HELP_ADDRESS, "-h", "--help"];
@@ -405,18 +406,6 @@ fn scan_node(
             );
             None
         }
-        Some(entry)
-            if matches!(
-                entry.adapter,
-                CommandAdapter::Native | CommandAdapter::Delegate
-            ) && pending.id.space == CommandSpace::System =>
-        {
-            diagnostics.push(
-                "native owners and delegated execution belong to Module commands, not System commands"
-                    .to_owned(),
-            );
-            None
-        }
         entry if module_valid => entry,
         _ => None,
     };
@@ -523,9 +512,6 @@ fn delegated_native_owner(
     >,
     command: &CommandNode,
 ) -> Result<String, String> {
-    if command.space == CommandSpace::System {
-        return Err("delegated execution is not supported for System commands".to_owned());
-    }
     let Some(ModuleExecution::Delegate { owner }) = command
         .module
         .as_ref()
@@ -544,9 +530,9 @@ fn delegated_native_owner(
     else {
         return Err("delegated execution owner must be a command".to_owned());
     };
-    if *space != CommandSpace::Module || namespace != &command.namespace {
+    if *space != command.space || namespace != &command.namespace {
         return Err(format!(
-            "delegated execution owner '{}' must use the command's Module namespace",
+            "delegated execution owner '{}' must use the command's space and namespace",
             address
         ));
     }
@@ -556,13 +542,22 @@ fn delegated_native_owner(
             address
         ));
     };
-    if *owner_space != CommandSpace::Module || owner_namespace != &command.namespace {
+    if *owner_space != command.space || owner_namespace != &command.namespace {
         return Err(format!(
             "delegated execution owner '{}' has an incompatible command identity",
             address
         ));
     }
-    if owner_path.len() >= command.path.len() || !command.path.starts_with(owner_path) {
+    let owner_identity =
+        CommandIdentity::new(*owner_space, owner_namespace.as_deref(), owner_path.clone())
+            .map_err(|error| format!("invalid delegated execution owner identity: {error}"))?;
+    let command_identity = CommandIdentity::new(
+        command.space,
+        command.namespace.as_deref(),
+        command.path.clone(),
+    )
+    .map_err(|error| format!("invalid delegated command identity: {error}"))?;
+    if !owner_identity.is_true_ancestor_of(&command_identity) {
         return Err(format!(
             "delegated execution owner '{}' must be an ancestor of '{}'",
             address, command.address
@@ -570,12 +565,13 @@ fn delegated_native_owner(
     }
     if let Some((nested_address, _)) = entries.iter().find(|(_, candidate)| {
         let (space, namespace, path, _, declares_native) = candidate;
-        *space == CommandSpace::Module
-            && namespace == &command.namespace
-            && *declares_native
-            && path.len() > owner_path.len()
-            && path.len() < command.path.len()
-            && command.path.starts_with(path)
+        *declares_native
+            && CommandIdentity::new(*space, namespace.as_deref(), path.clone()).is_ok_and(
+                |nested| {
+                    owner_identity.is_true_ancestor_of(&nested)
+                        && nested.is_true_ancestor_of(&command_identity)
+                },
+            )
     }) {
         return Err(format!(
             "delegated command '{}' cannot cross nested native owner '{}' to reach '{}'",

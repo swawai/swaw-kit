@@ -28,18 +28,19 @@ const DESCRIPTION_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<(), String> {
     let [address] = arguments else {
-        return Err(".module/instantiate requires exactly one Module command address".to_owned());
+        return Err(".module/instantiate requires exactly one native command address".to_owned());
     };
     let address = address
         .to_str()
-        .ok_or_else(|| "Module command address must be valid Unicode".to_owned())?;
-    let initial = discover_native_domain(&context.module_roots, address)?;
-    let native_root = prepare_native_root(&context.data_root, &initial.owner_address)?;
-    let locks = ensure_directory(&native_root, ["locks"], "native module locks")?;
+        .ok_or_else(|| "native command address must be valid Unicode".to_owned())?;
+    let initial = discover_native_domain(&context.system_root, &context.module_roots, address)?;
+    let native_root = prepare_native_root(&context.data_root, &initial.owner_identity)?;
+    let locks = ensure_directory(&native_root, ["locks"], "native command locks")?;
     let _lock =
         ExclusiveFileLock::acquire(&locks.join("instantiate.lock"), Duration::from_secs(600))?;
 
-    let before_domain = discover_native_domain(&context.module_roots, address)?;
+    let before_domain =
+        discover_native_domain(&context.system_root, &context.module_roots, address)?;
     if before_domain.owner_address != initial.owner_address {
         return Err(format!(
             "native owner for '{address}' changed while its instantiate lock was being acquired; retry the command"
@@ -54,7 +55,7 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
     let work = ensure_directory(
         &native_root,
         ["work", "cargo-target"],
-        "native module Cargo target",
+        "native command Cargo target",
     )?;
     let cargo = managed_cargo()?;
     let candidate = build_candidate(&before_domain.owner_directory, &work, &cargo)?;
@@ -76,7 +77,8 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
         ));
     }
 
-    let after_domain = discover_native_domain(&context.module_roots, address)?;
+    let after_domain =
+        discover_native_domain(&context.system_root, &context.module_roots, address)?;
     let after_contract = after_domain.execution_contract_revision()?;
     let after = build_input_snapshot(
         &after_domain.owner_directory,
@@ -88,7 +90,7 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
         || after.revision != before.revision
     {
         return Err(format!(
-            "native module '{}' changed while it was being built; no release was published",
+            "native command '{}' changed while it was being built; no release was published",
             before_domain.owner_address
         ));
     }
@@ -107,7 +109,7 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
         "already current"
     };
     println!(
-        "Native module target {}: {action} {}",
+        "Native command target {}: {action} {}",
         before_domain.owner_address, publication.release_id
     );
     Ok(())
@@ -138,16 +140,16 @@ fn managed_cargo() -> Result<PathBuf, String> {
 
 fn build_candidate(owner: &Path, target: &Path, cargo: &Path) -> Result<PathBuf, String> {
     regular_directory(owner, "native owner source directory")?;
-    regular_directory(target, "native module Cargo target")?;
+    regular_directory(target, "native command Cargo target")?;
     let manifest = owner.join("Cargo.toml");
-    read_regular_file(&manifest, "native module Cargo manifest", 1024 * 1024)?;
+    read_regular_file(&manifest, "native command Cargo manifest", 1024 * 1024)?;
     let release_directory = target.join("release");
     match fs::symlink_metadata(&release_directory) {
-        Ok(_) => regular_directory(&release_directory, "native module Cargo release output")?,
+        Ok(_) => regular_directory(&release_directory, "native command Cargo release output")?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
             return Err(format!(
-                "cannot inspect native module Cargo release output '{}': {error}",
+                "cannot inspect native command Cargo release output '{}': {error}",
                 release_directory.display()
             ));
         }
@@ -164,12 +166,12 @@ fn build_candidate(owner: &Path, target: &Path, cargo: &Path) -> Result<PathBuf,
         .map_err(|error| format!("cannot start managed Cargo '{}': {error}", cargo.display()))?;
     if !status.success() {
         return Err(format!(
-            "native module compilation failed with exit code {}",
+            "native command compilation failed with exit code {}",
             status.code().unwrap_or(1)
         ));
     }
-    regular_directory(target, "native module Cargo target after build")?;
-    regular_directory(&release_directory, "native module Cargo release output")?;
+    regular_directory(target, "native command Cargo target after build")?;
+    regular_directory(&release_directory, "native command Cargo release output")?;
     Ok(candidate)
 }
 

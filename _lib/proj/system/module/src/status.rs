@@ -16,7 +16,7 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
         [address, format] if format == "--json" => (unicode(address)?, true),
         _ => {
             return Err(
-                ".module/status requires <Module command address> followed by optional --json"
+                ".module/status requires <native command address> followed by optional --json"
                     .to_owned(),
             );
         }
@@ -43,14 +43,14 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
 }
 
 fn inspect(context: &CommandContext, address: &str) -> Result<StatusDocument, String> {
-    let domain = discover_native_domain(&context.module_roots, address)?;
+    let domain = discover_native_domain(&context.system_root, &context.module_roots, address)?;
     let execution_contract_revision = domain.execution_contract_revision()?;
     let snapshot = build_input_snapshot(
         &domain.owner_directory,
         &execution_contract_revision,
         &domain.nested_owner_directories,
     )?;
-    let selected = read_selected_from_data_root(&context.data_root, &domain.owner_address)?;
+    let selected = read_selected_from_data_root(&context.data_root, &domain.owner_identity)?;
     let (state, selected_build_input_revision, release_id) = match selected {
         None => (StatusState::Unpublished, None, None),
         Some(selected) => {
@@ -81,7 +81,7 @@ fn inspect(context: &CommandContext, address: &str) -> Result<StatusDocument, St
 fn unicode(value: &OsString) -> Result<&str, String> {
     value
         .to_str()
-        .ok_or_else(|| "Module command address must be valid Unicode".to_owned())
+        .ok_or_else(|| "native command address must be valid Unicode".to_owned())
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -128,6 +128,7 @@ mod tests {
 
     struct Fixture {
         root: PathBuf,
+        system: PathBuf,
         modules: PathBuf,
         data: PathBuf,
     }
@@ -135,19 +136,22 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             let root = std::env::temp_dir().join(format!("swawkit-status-{}", unique_token()));
+            let system = root.join("system");
             let modules = root.join("modules");
             let owner = modules.join("context");
             let data = root.join("data");
+            fs::create_dir_all(&system).unwrap();
             fs::create_dir_all(owner.join("_src")).unwrap();
             fs::create_dir(&data).unwrap();
             fs::write(
                 owner.join("swawkit.module.json"),
-                r#"{"schema":"swawkit.command-module/v9","execution":{"type":"native"}}"#,
+                r#"{"schema":"swawkit.command-module/v10","execution":{"type":"native"}}"#,
             )
             .unwrap();
             fs::write(owner.join("_src/main.rs"), "fn main() {}\n").unwrap();
             Self {
                 root,
+                system,
                 modules,
                 data,
             }
@@ -156,6 +160,7 @@ mod tests {
         fn context(&self) -> CommandContext {
             CommandContext {
                 data_root: self.data.clone(),
+                system_root: self.system.clone(),
                 module_roots: BTreeMap::from([("swaw".to_owned(), self.modules.clone())]),
             }
         }
@@ -178,6 +183,25 @@ mod tests {
     }
 
     #[test]
+    fn system_native_command_status_uses_the_same_publication_flow() {
+        let fixture = Fixture::new();
+        let owner = fixture.system.join("context");
+        fs::create_dir_all(owner.join("_src")).unwrap();
+        fs::write(
+            owner.join("swawkit.module.json"),
+            r#"{"schema":"swawkit.command-module/v10","execution":{"type":"native"}}"#,
+        )
+        .unwrap();
+        fs::write(owner.join("_src/main.rs"), "fn main() {}\n").unwrap();
+
+        let document = inspect(&fixture.context(), ".context").unwrap();
+        assert_eq!(document.address, ".context");
+        assert_eq!(document.owner, ".context");
+        assert_eq!(document.state, StatusState::Unpublished);
+        assert!(!fixture.data.join("modules").exists());
+    }
+
+    #[test]
     fn status_rejects_an_unsafe_existing_data_root_ancestor() {
         let fixture = Fixture::new();
         fs::write(fixture.data.join("modules"), "not a directory").unwrap();
@@ -189,7 +213,9 @@ mod tests {
     fn published_status_becomes_outdated_without_invalidating_the_release() {
         let fixture = Fixture::new();
         let context = fixture.context();
-        let domain = discover_native_domain(&context.module_roots, "swaw/context").unwrap();
+        let domain =
+            discover_native_domain(&context.system_root, &context.module_roots, "swaw/context")
+                .unwrap();
         let contract = domain.execution_contract_revision().unwrap();
         let snapshot = build_input_snapshot(
             &domain.owner_directory,
@@ -206,7 +232,7 @@ mod tests {
             executable,
         )
         .unwrap();
-        let native_root = prepare_native_root(&context.data_root, &domain.owner_address).unwrap();
+        let native_root = prepare_native_root(&context.data_root, &domain.owner_identity).unwrap();
         let publication = publish(&native_root, &release, executable).unwrap();
 
         let current = inspect(&context, "swaw/context").unwrap();

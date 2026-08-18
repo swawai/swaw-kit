@@ -16,6 +16,7 @@ pub(crate) struct Invocation {
 
 pub(crate) struct CommandContext {
     pub(crate) data_root: PathBuf,
+    pub(crate) system_root: PathBuf,
     pub(crate) module_roots: BTreeMap<String, PathBuf>,
 }
 
@@ -55,6 +56,10 @@ impl Invocation {
             required(&mut environment, "SWAWKIT_PROJ_DATA_ROOT")?,
             "DataRoot",
         )?;
+        let system_root = absolute(
+            required(&mut environment, "SWAWKIT_PROJ_SYSTEM_ROOT")?,
+            "System command root",
+        )?;
         let roots_text = required(&mut environment, "SWAWKIT_PROJ_MODULE_ROOTS")?;
         let module_roots: BTreeMap<String, PathBuf> = serde_json::from_str(&roots_text)
             .map_err(|error| format!("invalid Module root map: {error}"))?;
@@ -78,6 +83,7 @@ impl Invocation {
             arguments: arguments.collect(),
             context: CommandContext {
                 data_root,
+                system_root,
                 module_roots,
             },
         })
@@ -137,6 +143,7 @@ mod tests {
             "SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL" => Some("2".into()),
             "SWAWKIT_PROJ_CORE_COMMAND_ADDRESS" => Some(".module/status".into()),
             "SWAWKIT_PROJ_DATA_ROOT" => Some(r"C:\data".into()),
+            "SWAWKIT_PROJ_SYSTEM_ROOT" => Some(r"C:\system".into()),
             "SWAWKIT_PROJ_MODULE_ROOTS" => Some(r#"{"swaw":"C:\\modules"}"#.into()),
             "SWAWKIT_PROJ_ENTRY_COMMAND" => Some("fixture".into()),
             _ => None,
@@ -152,6 +159,7 @@ mod tests {
         .unwrap();
         assert_eq!(invocation.address, ".module/status");
         assert_eq!(invocation.arguments, [OsString::from("swaw/context")]);
+        assert_eq!(invocation.context.system_root, PathBuf::from(r"C:\system"));
     }
 
     #[test]

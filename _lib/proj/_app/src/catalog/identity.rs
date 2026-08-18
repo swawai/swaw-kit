@@ -1,12 +1,5 @@
-use serde::{Deserialize, Serialize};
-use swawkit_proj_protocol::{valid_command_segment, valid_module_namespace};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CommandSpace {
-    System,
-    Module,
-}
+pub use swawkit_proj_protocol::CommandSpace;
+use swawkit_proj_protocol::{CommandIdentity, valid_command_segment, valid_module_namespace};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct CommandId {
@@ -33,14 +26,16 @@ impl CommandId {
     }
 
     pub(crate) fn child(&self, segment: &str) -> Option<Self> {
-        valid_segment(segment).then(|| {
-            let mut path = self.path.clone();
-            path.push(segment.to_owned());
-            Self {
-                space: self.space,
-                namespace: self.namespace.clone(),
-                path,
-            }
+        if !valid_segment(segment) {
+            return None;
+        }
+        let mut path = self.path.clone();
+        path.push(segment.to_owned());
+        CommandIdentity::new(self.space, self.namespace.as_deref(), path.clone()).ok()?;
+        Some(Self {
+            space: self.space,
+            namespace: self.namespace.clone(),
+            path,
         })
     }
 
@@ -58,26 +53,12 @@ impl CommandId {
     }
 
     pub(crate) fn address(&self) -> String {
-        match self.space {
-            CommandSpace::System => {
-                if self.path.is_empty() {
-                    String::new()
-                } else {
-                    format!(".{}", self.path.join("/"))
-                }
-            }
-            CommandSpace::Module => {
-                let namespace = self
-                    .namespace
-                    .as_deref()
-                    .expect("Module CommandId must have a namespace");
-                if self.path.is_empty() {
-                    namespace.to_owned()
-                } else {
-                    format!("{namespace}/{}", self.path.join("/"))
-                }
-            }
+        if self.path.is_empty() {
+            return self.namespace.clone().unwrap_or_default();
         }
+        CommandIdentity::new(self.space, self.namespace.as_deref(), self.path.clone())
+            .expect("Catalog command identity must be canonical")
+            .address()
     }
 }
 

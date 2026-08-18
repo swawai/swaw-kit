@@ -118,7 +118,7 @@ describe("Explorer command-space behavior", () => {
   });
 
   test("keeps the collection column visible for a selected Subject", () => {
-    const context = { address: "swaw/context" };
+    const context = { address: ".context" };
     const catalog = {
       commandByAddress: new Map([[context.address, context]]),
       childrenByParent: new Map(),
@@ -134,8 +134,8 @@ describe("Explorer command-space behavior", () => {
   });
 
   test("treats structural, Subject, and projection Facets as mutually exclusive", () => {
-    const context = { address: "swaw/context" };
-    const list = { address: "swaw/context/list" };
+    const context = { address: ".context" };
+    const list = { address: ".context/list" };
     const catalog = {
       commandByAddress: new Map([[context.address, context]]),
       childrenByParent: new Map([[context.address, [list]]]),

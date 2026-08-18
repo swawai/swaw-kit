@@ -18,4 +18,3 @@
 /_lib/proj/_bin/*
 !/_lib/proj/_bin/.gitkeep
 /*.exe
-/_lib/proj/modules/context/target

@@ -19,7 +19,7 @@ function kinds(argumentsTemplate = [{ bind: "subject.id" }]) {
       summary: "Inspect Context",
       resolver: {
         type: "command",
-        address: "swaw/context/show",
+        address: ".context/show",
         arguments: argumentsTemplate,
         returns: "swawkit.context/v2",
       },

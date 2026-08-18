@@ -63,13 +63,13 @@ fn command_check_uses_declared_provider_state_and_returns_a_machine_exit_code() 
     let provider = fixture.command(".provider", "run.exe", "fixture");
     fs::write(
         provider.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v9","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
     )
     .unwrap();
     let consumer = fixture.command(".consumer", "run.exe", "fixture");
     fs::write(
         consumer.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v9","requires":[{"provider":".provider","export":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","requires":[{"provider":".provider","export":"fixture","contract":"swawkit.fixture/v1"}]}"#,
     )
     .unwrap();
     fixture.bind();

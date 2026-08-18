@@ -1,3 +1,4 @@
+mod command_identity;
 mod command_module;
 mod command_module_validation;
 mod digest;
@@ -8,6 +9,10 @@ mod release;
 pub use serde;
 pub use serde_json;
 
+pub use command_identity::{
+    CommandIdentity, CommandSpace, MAX_COMMAND_ADDRESS_BYTES, command_data_root,
+    native_command_root,
+};
 pub use command_module::{
     CommandModuleCommandSpace, CommandModuleExecution, CommandModuleFacet,
     CommandModuleFacetArgument, CommandModuleFacetArgumentBinding, CommandModuleFacetBinding,
@@ -17,7 +22,9 @@ pub use command_module::{
 };
 pub use command_module_validation::validate_command_module;
 pub use digest::{REVISION_PREFIX, RevisionBuilder, is_revision, is_sha256, revision, sha256_hex};
-pub use execution_contract::{ExecutionContract, ExecutionContractCommand, ExecutionSemantics};
+pub use execution_contract::{
+    EXECUTION_CONTRACT_SCHEMA, ExecutionContract, ExecutionContractCommand, ExecutionSemantics,
+};
 pub use module_contract::{
     COMMAND_MODULE_SCHEMA, MAX_MODULE_PROVISIONS, MAX_MODULE_REQUIREMENTS, ModuleProvision,
     ModuleRequirement, valid_command_segment, valid_module_contract, valid_module_namespace,

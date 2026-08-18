@@ -170,12 +170,12 @@ describe("command URL contract", () => {
     };
     updateCommandPath(
       history,
-      { pathname: "/commands/module/swaw/context", search: "" },
+      { pathname: "/commands/system/context", search: "" },
       {
-        space: "module",
-        namespace: "swaw",
+        space: "system",
+        namespace: null,
         path: ["context"],
-        address: "swaw/context",
+        address: ".context",
       },
       {
         defaultSubjectFacet: "overview",
@@ -185,7 +185,7 @@ describe("command URL contract", () => {
       },
     );
     expect(calls).toEqual([
-      "/commands/module/swaw/context?facet=runs&subject=%3A%3Arun%2Frun-01&subject-facet=cancel",
+      "/commands/system/context?facet=runs&subject=%3A%3Arun%2Frun-01&subject-facet=cancel",
     ]);
   });
 
@@ -205,9 +205,9 @@ describe("command URL contract", () => {
           };
         });
       },
-      ownerAddress: "swaw/context",
+      ownerAddress: ".context",
       selectOwner() {
-        events.push(["owner", "swaw/context", "contexts"]);
+        events.push(["owner", ".context", "contexts"]);
         return true;
       },
       selectSubject(owner, facet, subject, options) {
@@ -223,8 +223,8 @@ describe("command URL contract", () => {
     });
 
     expect(events).toEqual([
-      ["owner", "swaw/context", "contexts"],
-      ["load", "swaw/context", "contexts"],
+      ["owner", ".context", "contexts"],
+      ["load", ".context", "contexts"],
     ]);
     finishCollection({
       subjects: [{
@@ -237,7 +237,7 @@ describe("command URL contract", () => {
           renderer: "overview",
           resolver: {
             acceptsTail: false,
-            address: "swaw/context/show",
+            address: ".context/show",
             arguments: ["test"],
             confirmation: null,
             returns: "swawkit.context/v2",
@@ -250,7 +250,7 @@ describe("command URL contract", () => {
     expect(await restored).toBeTrue();
     expect(events[2]).toEqual([
       "subject",
-      "swaw/context",
+      ".context",
       "contexts",
       "::context/test",
       "overview",

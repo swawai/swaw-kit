@@ -91,7 +91,7 @@ fn ready_fixture(fixture: &Fixture) {
     fixture.directory("home/_lib/proj");
     fixture.file(
         "home/_lib/proj/system/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file("home/_lib/proj/system/demo/run.ps1", "");
     fixture
@@ -351,15 +351,15 @@ async fn accepts_only_exact_runnable_non_control_catalog_commands() {
     fixture.directory("home/_lib/proj/system/group");
     fixture.file(
         "home/_lib/proj/system/group/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file(
         "home/_lib/proj/system/entry/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file(
         "home/_lib/proj/system/entry/claim/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","execution":{"type":"core","handler":"entry.claim"}}"#,
+        r#"{"schema":"swawkit.command-module/v10","execution":{"type":"core","handler":"entry.claim"}}"#,
     );
     let runner = Arc::new(FakeRunner::default());
     let (app, runs) = command_app(&fixture, Arc::clone(&runner));
@@ -388,12 +388,12 @@ async fn rejects_unready_dependencies_before_starting_a_run_or_journal() {
     ready_fixture(&fixture);
     fixture.file(
         "home/_lib/proj/system/provider/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
     );
     fixture.file("home/_lib/proj/system/provider/run.ps1", "");
     fixture.file(
         "home/_lib/proj/system/consumer/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","requires":[{"provider":".provider","export":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","requires":[{"provider":".provider","export":"fixture","contract":"swawkit.fixture/v1"}]}"#,
     );
     fixture.file("home/_lib/proj/system/consumer/run.ps1", "");
     let runner = Arc::new(FakeRunner::default());

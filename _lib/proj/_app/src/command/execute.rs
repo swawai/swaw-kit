@@ -305,16 +305,6 @@ fn validate_command_adapter(command: &ResolvedCommand) -> CommandResult<()> {
             command.address
         )));
     }
-    if matches!(
-        command.adapter,
-        CommandAdapter::Native | CommandAdapter::Delegate
-    ) && command.space == CommandSpace::System
-    {
-        return Err(CommandError::new(format!(
-            "native command entries are not supported for System command '{}'",
-            command.address
-        )));
-    }
     Ok(())
 }
 

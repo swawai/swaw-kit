@@ -2,9 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use swawkit_proj_protocol::{
-    COMMAND_EXECUTABLE_NAME, CommandRelease, command_release_document, command_release_id,
-    is_sha256, parse_command_release, validate_command_address, validate_command_artifact,
-    validate_command_release,
+    COMMAND_EXECUTABLE_NAME, CommandIdentity, CommandRelease, command_release_document,
+    command_release_id, is_sha256, native_command_root, parse_command_release,
+    validate_command_artifact, validate_command_release,
 };
 
 use crate::filesystem::{
@@ -26,32 +26,44 @@ pub(crate) struct SelectedRelease {
     pub(crate) manifest: CommandRelease,
 }
 
-pub(crate) fn prepare_native_root(data_root: &Path, owner: &str) -> Result<PathBuf, String> {
+pub(crate) fn prepare_native_root(
+    data_root: &Path,
+    owner: &CommandIdentity,
+) -> Result<PathBuf, String> {
     regular_directory(data_root, "Entry DataRoot")?;
-    let mut segments = vec!["modules"];
-    segments.extend(owner.split('/'));
-    segments.push("_native");
-    ensure_directory(data_root, segments, "native module DataRoot")
+    let segments = native_root_segments(data_root, owner)?;
+    ensure_directory(data_root, segments, "native command DataRoot")
 }
 
 pub(crate) fn read_selected_from_data_root(
     data_root: &Path,
-    expected_owner: &str,
+    expected_owner: &CommandIdentity,
 ) -> Result<Option<SelectedRelease>, String> {
-    validate_command_address(expected_owner).map_err(|error| error.to_string())?;
     regular_directory(data_root, "Entry DataRoot")?;
     let mut current = data_root.to_path_buf();
-    for segment in std::iter::once("modules")
-        .chain(expected_owner.split('/'))
-        .chain(std::iter::once("_native"))
-    {
+    for segment in native_root_segments(data_root, expected_owner)? {
         current.push(segment);
-        if !entry_exists(&current, "native module DataRoot")? {
+        if !entry_exists(&current, "native command DataRoot")? {
             return Ok(None);
         }
-        regular_directory(&current, "native module DataRoot")?;
+        regular_directory(&current, "native command DataRoot")?;
     }
-    read_selected(&current, expected_owner)
+    read_selected(&current, &expected_owner.address())
+}
+
+fn native_root_segments(data_root: &Path, owner: &CommandIdentity) -> Result<Vec<String>, String> {
+    native_command_root(data_root, owner)
+        .strip_prefix(data_root)
+        .map_err(|_| "native command DataRoot escaped Entry DataRoot".to_owned())?
+        .components()
+        .map(|component| {
+            component
+                .as_os_str()
+                .to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| "native command DataRoot is not Unicode".to_owned())
+        })
+        .collect()
 }
 
 pub(crate) fn publish(
@@ -88,10 +100,10 @@ pub(crate) fn read_selected(
     native_root: &Path,
     expected_owner: &str,
 ) -> Result<Option<SelectedRelease>, String> {
-    if !entry_exists(native_root, "native module runtime")? {
+    if !entry_exists(native_root, "native command runtime")? {
         return Ok(None);
     }
-    regular_directory(native_root, "native module runtime")?;
+    regular_directory(native_root, "native command runtime")?;
     let export =
         match checked_directory(native_root, ["export", "command"], "native command export") {
             Ok(path) => path,
@@ -261,7 +273,7 @@ fn read_optional_selector(path: &Path) -> Result<Option<String>, String> {
 mod tests {
     use super::*;
     use crate::filesystem::unique_token;
-    use swawkit_proj_protocol::{CommandRelease, revision};
+    use swawkit_proj_protocol::{CommandIdentity, CommandRelease, revision};
 
     struct Fixture(PathBuf);
 
@@ -316,26 +328,41 @@ mod tests {
     }
 
     #[test]
-    fn selected_v1_release_is_rejected() {
+    fn selected_v2_release_is_rejected() {
         let fixture = Fixture::new();
         let native = ensure_directory(&fixture.0, ["native"], "fixture").unwrap();
         let publication = publish(&native, &release(b"executable"), b"executable").unwrap();
-        let path = native
-            .join("export/command/releases")
-            .join(publication.release_id)
-            .join(RELEASE_FILE);
+        let releases = native.join("export/command/releases");
+        let release_root = releases.join(publication.release_id);
+        let path = release_root.join(RELEASE_FILE);
         let mut value: swawkit_proj_protocol::serde_json::Value =
             swawkit_proj_protocol::serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        value["schema"] = "swawkit.native-command-release/v1".into();
-        fs::write(
-            &path,
-            swawkit_proj_protocol::serde_json::to_vec(&value).unwrap(),
-        )
-        .unwrap();
+        value["schema"] = "swawkit.native-command-release/v2".into();
+        let document = swawkit_proj_protocol::serde_json::to_vec(&value).unwrap();
+        let old_id = command_release_id(&document);
+        fs::write(&path, document).unwrap();
+        fs::rename(release_root, releases.join(&old_id)).unwrap();
+        fs::write(native.join("export/command/current"), format!("{old_id}\n")).unwrap();
         let error = read_selected(&native, "swaw/context").err().unwrap();
         assert!(
-            error.contains("does not match Release ID") || error.contains("unsupported"),
+            error.contains("unsupported command release schema"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn native_data_roots_are_structured_by_command_space() {
+        let fixture = Fixture::new();
+        let system = CommandIdentity::parse(".context").unwrap();
+        let module = CommandIdentity::parse("swaw/context").unwrap();
+
+        assert_eq!(
+            prepare_native_root(&fixture.0, &system).unwrap(),
+            fixture.0.join("modules/system/context/_native")
+        );
+        assert_eq!(
+            prepare_native_root(&fixture.0, &module).unwrap(),
+            fixture.0.join("modules/swaw/context/_native")
         );
     }
 

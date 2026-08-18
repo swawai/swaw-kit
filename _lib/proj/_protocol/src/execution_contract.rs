@@ -1,11 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ModuleProvision, ModuleRequirement, ProtocolError, ProtocolResult, revision,
-    validate_command_address, validate_module_provisions, validate_module_requirements,
+    CommandIdentity, ModuleProvision, ModuleRequirement, ProtocolError, ProtocolResult, revision,
+    validate_module_provisions, validate_module_requirements,
 };
 
-const EXECUTION_CONTRACT_DOMAIN: &str = "swawkit.native-command-execution-contract/v1";
+pub const EXECUTION_CONTRACT_SCHEMA: &str = "swawkit.native-command-execution-contract/v2";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
@@ -51,7 +51,7 @@ impl ExecutionContract {
         }
         commands.sort_by(|left, right| left.address.cmp(&right.address));
         let contract = Self {
-            schema: EXECUTION_CONTRACT_DOMAIN.to_owned(),
+            schema: EXECUTION_CONTRACT_SCHEMA.to_owned(),
             owner,
             commands,
         };
@@ -89,8 +89,8 @@ impl ExecutionContract {
     }
 
     fn validate(&self) -> ProtocolResult<()> {
-        validate_command_address(&self.owner)?;
-        if self.schema != EXECUTION_CONTRACT_DOMAIN
+        let owner_identity = CommandIdentity::parse(&self.owner)?;
+        if self.schema != EXECUTION_CONTRACT_SCHEMA
             || self.commands.is_empty()
             || self
                 .commands
@@ -101,13 +101,15 @@ impl ExecutionContract {
         }
         let mut native_count = 0;
         for command in &self.commands {
-            validate_command_address(&command.address)?;
+            let identity = CommandIdentity::parse(&command.address)?;
             validate_requirements(&command.requires)?;
             validate_provisions(&command.provides)?;
             match &command.execution {
-                ExecutionSemantics::Native if command.address == self.owner => native_count += 1,
-                ExecutionSemantics::Delegate { owner }
-                    if owner == &self.owner && is_true_ancestor(&self.owner, &command.address) => {}
+                ExecutionSemantics::Native if identity == owner_identity => native_count += 1,
+                ExecutionSemantics::Delegate {
+                    owner: declared_owner,
+                } if declared_owner == &self.owner
+                    && owner_identity.is_true_ancestor_of(&identity) => {}
                 _ => {
                     return Err(ProtocolError::new(format!(
                         "execution semantics for '{}' do not belong to owner '{}'",
@@ -123,12 +125,6 @@ impl ExecutionContract {
         }
         Ok(())
     }
-}
-
-fn is_true_ancestor(owner: &str, command: &str) -> bool {
-    command
-        .strip_prefix(owner)
-        .is_some_and(|tail| tail.starts_with('/') && tail.len() > 1)
 }
 
 fn validate_requirements(values: &[ModuleRequirement]) -> ProtocolResult<()> {
@@ -217,6 +213,43 @@ mod tests {
                     "swaw/other/show",
                     ExecutionSemantics::Delegate {
                         owner: "swaw/context".to_owned(),
+                    },
+                ),
+            ],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("do not belong"));
+    }
+
+    #[test]
+    fn system_contract_uses_the_same_execution_semantics() {
+        let contract = ExecutionContract::new(
+            ".context",
+            vec![
+                member(".context", ExecutionSemantics::Native),
+                member(
+                    ".context/add",
+                    ExecutionSemantics::Delegate {
+                        owner: ".context".to_owned(),
+                    },
+                ),
+            ],
+        )
+        .unwrap();
+        assert_eq!(contract.owner(), ".context");
+        assert_eq!(contract.delegated_commands(), [".context/add"]);
+    }
+
+    #[test]
+    fn delegate_cannot_cross_command_spaces() {
+        let error = ExecutionContract::new(
+            ".context",
+            vec![
+                member(".context", ExecutionSemantics::Native),
+                member(
+                    "swaw/context/add",
+                    ExecutionSemantics::Delegate {
+                        owner: ".context".to_owned(),
                     },
                 ),
             ],

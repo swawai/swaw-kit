@@ -8,7 +8,7 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $ProjRoot '_toolchain\bootstrap.ps1')
 
 $Toolchain = Initialize-ProjBootstrapToolchain
-$ContextRoot = Join-Path $ProjRoot 'modules\context'
+$ContextRoot = Join-Path $ProjRoot 'system\context'
 $Manifest = Join-Path $ContextRoot 'Cargo.toml'
 
 & $Toolchain.CargoPath fmt --manifest-path $Manifest -- --check

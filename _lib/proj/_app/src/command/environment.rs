@@ -4,6 +4,10 @@ use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use swawkit_proj_protocol::{
+    CommandIdentity, command_data_root as identity_data_root, valid_module_namespace,
+};
+
 use crate::{
     binding::ProjectBinding,
     catalog::{CommandNode, CommandSpace},
@@ -59,6 +63,7 @@ const DEVELOPMENT_METADATA_PREFIX: &str = "SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_
 pub struct CommandExecutionContext {
     pub swawkit_home: PathBuf,
     pub command_root: PathBuf,
+    pub system_root: PathBuf,
     pub target_project_root: PathBuf,
     pub module_roots: BTreeMap<String, PathBuf>,
     pub data_root: PathBuf,
@@ -101,6 +106,7 @@ impl CommandExecutionContext {
         Self {
             swawkit_home: entry.swawkit_home.clone(),
             command_root: entry.command_root(),
+            system_root: entry.system_root(),
             target_project_root: binding.target_project_root().to_path_buf(),
             module_roots,
             data_root: data_root.into(),
@@ -161,6 +167,7 @@ impl ProcessEnvironment {
             &context.invocation_directory,
         );
         environment.set("SWAWKIT_HOME", &context.swawkit_home);
+        environment.set("SWAWKIT_PROJ_SYSTEM_ROOT", &context.system_root);
         environment.set(
             "SWAWKIT_PROJ_TARGET_PROJECT_ROOT",
             &context.target_project_root,
@@ -398,17 +405,18 @@ fn command_identity_data_root(
     path: &[String],
     address: &str,
 ) -> CommandResult<PathBuf> {
-    let mut root = data_root.join("modules");
-    match space {
-        CommandSpace::System => root.push("system"),
-        CommandSpace::Module => root.push(namespace.ok_or_else(|| {
+    // A mounted Module namespace root is a Catalog mount entry rather than a
+    // protocol command identity, but it can still own a local run.* entry.
+    if space == CommandSpace::Module && path.is_empty() {
+        let namespace = namespace.filter(|value| valid_module_namespace(value)).ok_or_else(|| {
             CommandError::new(format!(
-                "Catalog invariant failed for '{address}': Module command has no namespace"
+                "Catalog invariant failed for '{address}': Module mount has no canonical namespace"
             ))
-        })?),
+        })?;
+        return Ok(data_root.join("modules").join(namespace));
     }
-    for segment in path {
-        root.push(segment);
-    }
-    Ok(root)
+    let identity = CommandIdentity::new(space, namespace, path.to_vec()).map_err(|error| {
+        CommandError::new(format!("Catalog invariant failed for '{address}': {error}"))
+    })?;
+    Ok(identity_data_root(data_root, &identity))
 }

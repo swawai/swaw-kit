@@ -36,7 +36,7 @@ async fn publishes_one_validated_setting_and_enables_actions() {
     fixture.directory("home/_lib/proj");
     fixture.file(
         "home/.swaw/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file("home/.swaw/demo/run.ps1", "");
     let app = fixture.app();

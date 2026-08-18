@@ -125,6 +125,6 @@ fn validate_release_membership(root: &Path) -> CommandResult<()> {
 
 fn uninstantiated(error: CommandError) -> CommandError {
     CommandError::new(format!(
-        "{error}. the module has not been instantiated; publish its run.exe before execution"
+        "{error}. the native owner has not been instantiated; publish its run.exe before execution"
     ))
 }

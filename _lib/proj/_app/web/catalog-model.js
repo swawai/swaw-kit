@@ -6,8 +6,8 @@ import {
   sameCommandIdentity,
 } from "./command-identity.js";
 
-const CATALOG_PROTOCOL = "swawkit.command-catalog/v17";
-const MODULE_PROTOCOL = "swawkit.command-module/v9";
+const CATALOG_PROTOCOL = "swawkit.command-catalog/v18";
+const MODULE_PROTOCOL = "swawkit.command-module/v10";
 
 function contractError(message) {
   return new Error(`${t("Catalog 协议无效", "Invalid Catalog protocol")}: ${message}`);
@@ -91,14 +91,11 @@ function normalizeExecution(value, field) {
     `${field}.execution.owner`,
     contractError,
   );
-  if (identity.space !== "module") {
-    throw contractError(`${field}.execution.owner must be a module command.`);
-  }
   return {
     type: "delegate",
     owner: {
       type: "command",
-      space: "module",
+      space: identity.space,
       namespace: identity.namespace,
       address: identity.address,
     },

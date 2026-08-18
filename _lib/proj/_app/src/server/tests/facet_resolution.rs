@@ -13,15 +13,15 @@ mod query_exit;
 
 fn context_surface(fixture: &Fixture) {
     fixture.file(
-        "home/_lib/proj/modules/context/swawkit.module.json",
-        include_str!("../../../../modules/context/swawkit.module.json"),
+        "home/_lib/proj/system/context/swawkit.module.json",
+        include_str!("../../../../system/context/swawkit.module.json"),
     );
     for name in [
         "add", "delete", "list", "new", "note", "prompt", "remove", "render", "show",
     ] {
         fixture.file(
-            &format!("home/_lib/proj/modules/context/{name}/swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v9","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/context"}}}"#,
+            &format!("home/_lib/proj/system/context/{name}/swawkit.module.json"),
+            r#"{"schema":"swawkit.command-module/v10","execution":{"type":"delegate","owner":{"type":"command","space":"system","address":".context"}}}"#,
         );
     }
 }
@@ -133,7 +133,7 @@ fn context_documents(
         }]
     });
     let mut documents = BTreeMap::from([(
-        vec!["swaw/context/list".to_owned(), "--json".to_owned()],
+        vec![".context/list".to_owned(), "--json".to_owned()],
         serde_json::to_string(&collection).expect("Context collection JSON"),
     )]);
     if include_record {
@@ -145,7 +145,7 @@ fn context_documents(
             "prompt": ""
         });
         documents.insert(
-            vec!["swaw/context/show".to_owned(), id.to_owned()],
+            vec![".context/show".to_owned(), id.to_owned()],
             serde_json::to_string(&record).expect("Context record JSON"),
         );
     }
@@ -153,7 +153,7 @@ fn context_documents(
 }
 
 fn command_ref() -> Value {
-    json!({"type": "command", "space": "module", "namespace": "swaw", "address": "swaw/context"})
+    json!({"type": "command", "space": "system", "address": ".context"})
 }
 
 fn context_ref(id: &str) -> Value {
@@ -266,7 +266,7 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
     runs_surface(&fixture);
     fixture.file(
         "home/_lib/proj/system/tool/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file("home/_lib/proj/system/tool/run.cmd", "");
     fixture
@@ -408,7 +408,7 @@ async fn rejects_unknown_facets_and_the_removed_context_specific_routes() {
                 "via": {
                     "subject": command_ref(),
                     "facet": "contexts",
-                    "resolver": {"type": "command", "address": "swaw/context/list"},
+                    "resolver": {"type": "command", "address": ".context/list"},
                     "arguments": ["--json"]
                 }
             }),
@@ -436,11 +436,11 @@ async fn executes_any_declared_query_command_without_a_domain_handler() {
     let fixture = Fixture::new();
     fixture.file(
         "home/_lib/proj/system/report/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
     );
     fixture.file(
         "home/_lib/proj/system/report/json/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v9"}"#,
+        r#"{"schema":"swawkit.command-module/v10"}"#,
     );
     fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
     fixture
@@ -491,7 +491,7 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
     let duplicate_app = facet_app(
         &fixture,
         BTreeMap::from([(
-            vec!["swaw/context/list".to_owned(), "--json".to_owned()],
+            vec![".context/list".to_owned(), "--json".to_owned()],
             collection_document(json!([summary.clone(), summary])),
         )]),
     );
@@ -512,7 +512,7 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
     let invalid_shape_app = facet_app(
         &fixture,
         BTreeMap::from([(
-            vec!["swaw/context/list".to_owned(), "--json".to_owned()],
+            vec![".context/list".to_owned(), "--json".to_owned()],
             collection_document(json!([{
                 "ref": context_ref("release-check"),
                 "label": "::context/release-check",
@@ -534,7 +534,7 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
     let invalid_target_app = facet_app(
         &fixture,
         BTreeMap::from([(
-            vec!["swaw/context/list".to_owned(), "--json".to_owned()],
+            vec![".context/list".to_owned(), "--json".to_owned()],
             collection_document(json!([{
                 "ref": context_ref("release-check"),
                 "label": "::context/release-check",

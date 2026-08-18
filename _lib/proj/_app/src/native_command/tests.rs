@@ -39,7 +39,7 @@ impl Fixture {
         }
         fs::write(
             owner_root.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v9","execution":{"type":"native"}}"#,
+            r#"{"schema":"swawkit.command-module/v10","execution":{"type":"native"}}"#,
         )
         .expect("write owner manifest");
         Self {
@@ -164,7 +164,7 @@ fn execution_contract_drift_blocks_an_old_selected_release() {
     fs::create_dir_all(&port).unwrap();
     fs::write(
         port.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v9","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/fixture"}}}"#,
+        r#"{"schema":"swawkit.command-module/v10","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/fixture"}}}"#,
     )
     .unwrap();
     let error = fixture.resolve().unwrap_err().to_string();
@@ -182,7 +182,7 @@ fn old_release_protocol_is_rejected_without_fallback() {
     let document_path = release_root.join("swawkit.release.json");
     let mut value: serde_json::Value =
         serde_json::from_slice(&fs::read(&document_path).unwrap()).unwrap();
-    value["schema"] = serde_json::Value::String("swawkit.native-command-release/v1".to_owned());
+    value["schema"] = serde_json::Value::String("swawkit.native-command-release/v2".to_owned());
     let old_document = serde_json::to_vec(&value).unwrap();
     let old_id = command_release_id(&old_document);
     let old_root = release_root.parent().unwrap().join(&old_id);

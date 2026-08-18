@@ -181,7 +181,7 @@ mod tests {
                 label: "Overview".to_owned(),
                 summary: "Inspect this Context".to_owned(),
                 resolver: SubjectFacetResolver::Command {
-                    address: "swaw/context/show".to_owned(),
+                    address: ".context/show".to_owned(),
                     arguments: vec![SubjectFacetArgument::Binding(SubjectFacetArgumentBinding {
                         bind: SubjectFacetBinding::SubjectId,
                     })],

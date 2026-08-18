@@ -47,6 +47,7 @@ impl Fixture {
         let context = CommandExecutionContext {
             swawkit_home: root.clone(),
             command_root: root.join("_lib/proj"),
+            system_root: root.join("_lib/proj/system"),
             target_project_root: root.join("project"),
             module_roots: BTreeMap::from([
                 ("swaw".to_owned(), root.join("_lib/proj/modules")),

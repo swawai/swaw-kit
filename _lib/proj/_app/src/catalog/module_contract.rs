@@ -7,10 +7,9 @@ pub use swawkit_proj_protocol::{
     COMMAND_MODULE_SCHEMA as MODULE_CONTRACT_PROTOCOL, ModuleProvision, ModuleRequirement,
 };
 use swawkit_proj_protocol::{
-    CommandModuleCommandSpace as WireCommandSpace, CommandModuleExecution as WireExecution,
-    CommandModuleFacet as WireFacet, CommandModuleFacetArgument as WireFacetArgument,
-    CommandModuleFacetBinding as WireFacetBinding, CommandModuleFacetKind as WireFacetKind,
-    CommandModuleFacetRenderer as WireFacetRenderer,
+    CommandModuleExecution as WireExecution, CommandModuleFacet as WireFacet,
+    CommandModuleFacetArgument as WireFacetArgument, CommandModuleFacetBinding as WireFacetBinding,
+    CommandModuleFacetKind as WireFacetKind, CommandModuleFacetRenderer as WireFacetRenderer,
     CommandModuleFacetResolver as WireFacetResolver,
     CommandModuleLocalizedText as WireLocalizedText,
     CommandModuleSubjectKindRef as WireSubjectKindRef, CommandModuleSubjectRef as WireSubjectRef,
@@ -24,7 +23,7 @@ use crate::{
     subject_kind::SubjectKindRef,
 };
 
-use super::{CommandSpace, filesystem::directory_files, invalid_data};
+use super::{filesystem::directory_files, invalid_data};
 
 mod declaration;
 
@@ -209,10 +208,7 @@ fn project_subject_ref(reference: WireSubjectRef) -> SubjectRef {
             namespace,
             address,
         } => SubjectRef::Command {
-            space: match space {
-                WireCommandSpace::System => CommandSpace::System,
-                WireCommandSpace::Module => CommandSpace::Module,
-            },
+            space,
             namespace,
             address,
         },

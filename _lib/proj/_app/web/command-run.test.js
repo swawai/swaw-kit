@@ -101,8 +101,8 @@ describe("command run view", () => {
       },
       {
         acceptsTail: false,
-        arguments: ["swaw/context/list", "--json"],
-        key: "swaw/context/list#validate",
+        arguments: [".context/list", "--json"],
+        key: ".context/list#validate",
         useOperations: false,
       },
     );
@@ -111,7 +111,7 @@ describe("command run view", () => {
       ui.commandRunArguments
         .querySelectorAll(".command-run-argument")
         .map((input) => input.value),
-    ).toEqual(["swaw/context/list", "--json"]);
+    ).toEqual([".context/list", "--json"]);
     expect(
       ui.commandRunArguments
         .querySelectorAll(".command-run-argument")
@@ -122,7 +122,7 @@ describe("command run view", () => {
     await view.execute();
     expect(body).toEqual({
       address: ".check",
-      arguments: ["swaw/context/list", "--json"],
+      arguments: [".context/list", "--json"],
     });
   });
 
@@ -135,7 +135,7 @@ describe("command run view", () => {
       async fetchRun(_url, options) {
         body = JSON.parse(options.body);
         return response(201, snapshot({
-          address: "swaw/context/delete",
+          address: ".context/delete",
           state: "exited",
           exitCode: 0,
         }), "/api/v2/command-runs/run-1");
@@ -144,10 +144,10 @@ describe("command run view", () => {
 
     view.select(
       {
-        address: "swaw/context/delete",
-        namespace: "swaw",
+        address: ".context/delete",
+        namespace: null,
         runnable: true,
-        space: "module",
+        space: "system",
       },
       {
         acceptsTail: false,

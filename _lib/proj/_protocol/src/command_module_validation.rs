@@ -1,13 +1,12 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    COMMAND_MODULE_SCHEMA, CommandModuleCommandSpace, CommandModuleExecution, CommandModuleFacet,
+    COMMAND_MODULE_SCHEMA, CommandIdentity, CommandModuleExecution, CommandModuleFacet,
     CommandModuleFacetArgument, CommandModuleFacetBinding, CommandModuleFacetKind,
     CommandModuleFacetRenderer, CommandModuleFacetResolver, CommandModuleLocalizedText,
     CommandModuleManifest, CommandModuleSubjectKind, CommandModuleSubjectKindRef,
     CommandModuleSubjectRef, ProtocolError, ProtocolResult, valid_module_token,
-    valid_provider_address, validate_command_address, validate_module_provisions,
-    validate_module_requirements,
+    valid_provider_address, validate_module_provisions, validate_module_requirements,
 };
 
 const SUBJECT_COLLECTION_PROTOCOL: &str = "swawkit.subject-collection/v3";
@@ -46,23 +45,12 @@ fn validate_execution(manifest: &CommandModuleManifest) -> ProtocolResult<()> {
             validate_text(product, 64, "Runtime Component product")?
         }
         Some(CommandModuleExecution::Delegate { owner }) => {
-            validate_subject_ref(owner)?;
-            let CommandModuleSubjectRef::Command {
-                space: CommandModuleCommandSpace::Module,
-                namespace: Some(namespace),
-                address,
-            } = owner
-            else {
+            if !matches!(owner, CommandModuleSubjectRef::Command { .. }) {
                 return Err(ProtocolError::new(
-                    "execution delegate owner must be a Module command",
-                ));
-            };
-            validate_command_address(address)?;
-            if address.split('/').next() != Some(namespace.as_str()) {
-                return Err(ProtocolError::new(
-                    "execution delegate owner namespace does not match its address",
+                    "execution delegate owner must be a command",
                 ));
             }
+            validate_subject_ref(owner)?;
         }
         Some(CommandModuleExecution::Native) | None => {}
     }
@@ -283,18 +271,9 @@ fn validate_subject_ref(reference: &CommandModuleSubjectRef) -> ProtocolResult<(
             namespace,
             address,
         } => {
-            let valid_identity = match space {
-                CommandModuleCommandSpace::System => {
-                    namespace.is_none() && (address.is_empty() || address.starts_with('.'))
-                }
-                CommandModuleCommandSpace::Module => namespace.as_deref().is_some_and(|value| {
-                    address == value
-                        || address
-                            .strip_prefix(value)
-                            .is_some_and(|tail| tail.starts_with('/'))
-                }),
-            };
-            if address.contains('\0') || address.len() > 256 || !valid_identity {
+            let identity = CommandIdentity::parse(address)
+                .map_err(|_| ProtocolError::new("invalid command Subject reference"))?;
+            if identity.space() != *space || identity.namespace() != namespace.as_deref() {
                 return Err(ProtocolError::new("invalid command Subject reference"));
             }
         }

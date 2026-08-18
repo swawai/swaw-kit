@@ -2,9 +2,9 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ProtocolError, ProtocolResult};
+use crate::{CommandIdentity, ProtocolError, ProtocolResult};
 
-pub const COMMAND_MODULE_SCHEMA: &str = "swawkit.command-module/v9";
+pub const COMMAND_MODULE_SCHEMA: &str = "swawkit.command-module/v10";
 pub const MAX_MODULE_REQUIREMENTS: usize = 64;
 pub const MAX_MODULE_PROVISIONS: usize = 64;
 
@@ -61,23 +61,11 @@ pub fn valid_module_namespace(value: &str) -> bool {
 }
 
 pub fn validate_command_address(value: &str) -> ProtocolResult<()> {
-    let Some((namespace, path)) = value.split_once('/') else {
-        return Err(invalid_address(value));
-    };
-    if !valid_module_namespace(namespace)
-        || path.is_empty()
-        || !path.split('/').all(valid_command_segment)
-    {
-        return Err(invalid_address(value));
-    }
-    Ok(())
+    CommandIdentity::parse(value).map(|_| ())
 }
 
 pub fn valid_provider_address(value: &str) -> bool {
-    if let Some(path) = value.strip_prefix('.') {
-        return !path.is_empty() && path.split('/').all(valid_command_segment);
-    }
-    validate_command_address(value).is_ok()
+    CommandIdentity::parse(value).is_ok()
 }
 
 pub fn valid_module_token(value: &str) -> bool {
@@ -142,22 +130,23 @@ pub fn validate_module_provisions(values: &[ModuleProvision]) -> ProtocolResult<
     Ok(())
 }
 
-fn invalid_address(value: &str) -> ProtocolError {
-    ProtocolError::new(format!(
-        "invalid canonical Module command address '{value}'"
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn command_identity_matches_portable_catalog_names() {
-        for valid in ["swaw/context", "user-custom/build-/app2"] {
+        for valid in [
+            ".context",
+            ".context/add",
+            "swaw/context",
+            "user-custom/build-/app2",
+        ] {
             validate_command_address(valid).unwrap();
         }
         for invalid in [
+            "",
+            ".",
             "swaw",
             "system/help",
             "2swaw/context",

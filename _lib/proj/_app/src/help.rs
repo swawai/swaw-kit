@@ -223,17 +223,18 @@ mod tests {
                 help("Official modules"),
             ),
             node(
-                "swaw/context",
-                CommandSpace::Module,
-                Some("swaw"),
+                ".context",
+                CommandSpace::System,
+                None,
                 &["context"],
-                Some("swaw"),
+                Some(""),
                 help("Contexts"),
             ),
         ]);
 
         let output = render_help(&snapshot, "").unwrap();
         assert!(output.contains("System Commands:"));
+        assert!(output.contains("swawkit .context"));
         assert!(output.contains("swawkit .help"));
         assert!(output.contains("Modules:"));
         assert!(output.contains("swawkit swaw"));

@@ -3,9 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use swawkit_proj_protocol::{
-    CommandModuleCommandSpace, CommandModuleExecution, CommandModuleManifest,
-    CommandModuleSubjectRef, ExecutionContract, ExecutionContractCommand, ExecutionSemantics,
-    parse_command_module, valid_command_segment, validate_command_address,
+    CommandIdentity, CommandModuleExecution, CommandModuleManifest, CommandModuleSubjectRef,
+    CommandSpace, ExecutionContract, ExecutionContractCommand, ExecutionSemantics,
+    parse_command_module, valid_command_segment,
 };
 
 use crate::filesystem::{is_reparse, read_regular_file, regular_directory};
@@ -20,6 +20,7 @@ const MAX_SUBTREE_ENTRIES: usize = 32_768;
 pub(crate) struct NativeDomain {
     pub(crate) requested_address: String,
     pub(crate) owner_address: String,
+    pub(crate) owner_identity: CommandIdentity,
     pub(crate) owner_directory: PathBuf,
     pub(crate) nested_owner_directories: Vec<PathBuf>,
     pub(crate) execution_contract: ExecutionContract,
@@ -38,35 +39,30 @@ impl NativeDomain {
 }
 
 pub(crate) fn discover_native_domain(
+    system_root: &Path,
     module_roots: &BTreeMap<String, PathBuf>,
     requested: &str,
 ) -> Result<NativeDomain, String> {
-    let requested_address = Address::parse(requested)?;
-    let root = module_roots
-        .get(&requested_address.namespace)
-        .ok_or_else(|| {
-            format!(
-                "Module namespace '{}' is not mounted",
-                requested_address.namespace
-            )
-        })?;
-    regular_directory(root, "Module mount root")?;
+    let requested_identity =
+        CommandIdentity::parse(requested).map_err(|error| error.to_string())?;
+    let root = command_source_root(system_root, module_roots, &requested_identity)?;
     let requested_directory = canonical_directory(
         root,
-        requested_address.segments.iter().skip(1),
+        requested_identity.path(),
+        "command source root",
         "command source directory",
     )?;
     let requested_manifest = read_manifest_in(&requested_directory)?;
-    let owner_address = match requested_manifest.execution {
-        Some(CommandModuleExecution::Native) => requested.to_owned(),
+    let owner_identity = match requested_manifest.execution {
+        Some(CommandModuleExecution::Native) => requested_identity.clone(),
         Some(CommandModuleExecution::Delegate { owner }) => {
-            let owner = module_command_address(&owner)?;
-            if owner == requested || !is_true_ancestor(owner, requested) {
+            let owner = command_reference_identity(&owner)?;
+            if !owner.is_true_ancestor_of(&requested_identity) {
                 return Err(format!(
-                    "delegate '{requested}' must name a true ancestor owner"
+                    "delegate '{requested}' must name a true ancestor owner in the same command space"
                 ));
             }
-            owner.to_owned()
+            owner
         }
         _ => {
             return Err(format!(
@@ -74,13 +70,12 @@ pub(crate) fn discover_native_domain(
             ));
         }
     };
-    let owner = Address::parse(&owner_address)?;
-    if owner.namespace != requested_address.namespace {
-        return Err("native owner and delegated command must share one namespace".to_owned());
-    }
+    let owner_address = owner_identity.address();
+    let owner_root = command_source_root(system_root, module_roots, &owner_identity)?;
     let owner_directory = canonical_directory(
-        root,
-        owner.segments.iter().skip(1),
+        owner_root,
+        owner_identity.path(),
+        "command source root",
         "native owner source directory",
     )?;
     let owner_manifest = read_manifest_in(&owner_directory)?;
@@ -100,8 +95,8 @@ pub(crate) fn discover_native_domain(
     )];
     let mut nested_owner_directories = Vec::new();
     collect_delegates(
-        root,
-        &owner,
+        owner_root,
+        &owner_identity,
         &owner_directory,
         &mut commands,
         &mut nested_owner_directories,
@@ -111,6 +106,7 @@ pub(crate) fn discover_native_domain(
     Ok(NativeDomain {
         requested_address: requested.to_owned(),
         owner_address,
+        owner_identity,
         owner_directory,
         nested_owner_directories,
         execution_contract,
@@ -118,8 +114,8 @@ pub(crate) fn discover_native_domain(
 }
 
 fn collect_delegates(
-    module_root: &Path,
-    owner: &Address,
+    command_root: &Path,
+    owner: &CommandIdentity,
     owner_directory: &Path,
     commands: &mut Vec<ExecutionContractCommand>,
     nested_owner_directories: &mut Vec<PathBuf>,
@@ -164,19 +160,20 @@ fn collect_delegates(
                         "native owner subtree exceeds {MAX_MANIFESTS} manifests"
                     ));
                 }
-                let relative = path.strip_prefix(module_root).map_err(|_| {
-                    format!("command directory escaped Module root: {}", path.display())
+                let relative = path.strip_prefix(command_root).map_err(|_| {
+                    format!("command directory escaped command root: {}", path.display())
                 })?;
-                let address = relative_address(&owner.namespace, relative)?;
+                let identity = relative_identity(owner, relative)?;
+                let address = identity.address();
                 let manifest = read_manifest_directory(&path, &manifest_path)?;
                 match &manifest.execution {
                     Some(CommandModuleExecution::Native) => nested_owner_directories.push(path),
                     Some(CommandModuleExecution::Delegate { owner: declared }) => {
-                        if module_command_address(declared)? == owner.text {
+                        if command_reference_identity(declared)? == *owner {
                             commands.push(contract_command(
                                 address,
                                 ExecutionSemantics::Delegate {
-                                    owner: owner.text.clone(),
+                                    owner: owner.address(),
                                 },
                                 manifest,
                             ));
@@ -205,15 +202,15 @@ fn contract_command(
 }
 
 fn read_manifest(path: &Path) -> Result<CommandModuleManifest, String> {
-    let bytes = read_regular_file(path, "Module manifest", MAX_MANIFEST_BYTES)?;
+    let bytes = read_regular_file(path, "command manifest", MAX_MANIFEST_BYTES)?;
     parse_command_module(&bytes)
-        .map_err(|error| format!("invalid Module manifest '{}': {error}", path.display()))
+        .map_err(|error| format!("invalid command manifest '{}': {error}", path.display()))
 }
 
 fn read_manifest_in(directory: &Path) -> Result<CommandModuleManifest, String> {
     let path = canonical_manifest_path(directory)?.ok_or_else(|| {
         format!(
-            "Module manifest '{MODULE_MANIFEST}' is missing below '{}'",
+            "command manifest '{MODULE_MANIFEST}' is missing below '{}'",
             directory.display()
         )
     })?;
@@ -235,9 +232,10 @@ fn read_manifest_directory(directory: &Path, path: &Path) -> Result<CommandModul
 fn canonical_directory<'a>(
     root: &Path,
     segments: impl IntoIterator<Item = &'a String>,
+    root_label: &str,
     label: &str,
 ) -> Result<PathBuf, String> {
-    regular_directory(root, "Module mount root")?;
+    regular_directory(root, root_label)?;
     let mut current = root.to_path_buf();
     for expected in segments {
         let mut matches = Vec::new();
@@ -282,14 +280,14 @@ fn canonical_manifest_path(directory: &Path) -> Result<Option<PathBuf>, String> 
         let name = entry
             .file_name()
             .into_string()
-            .map_err(|_| "Module directory contains a non-Unicode name".to_owned())?;
+            .map_err(|_| "command directory contains a non-Unicode name".to_owned())?;
         if name.eq_ignore_ascii_case(MODULE_MANIFEST) {
             matches.push((name, entry.path()));
         }
     }
     if matches.len() > 1 {
         return Err(format!(
-            "Module manifest file name collision below '{}': {}",
+            "command manifest file name collision below '{}': {}",
             directory.display(),
             matches
                 .iter()
@@ -303,54 +301,62 @@ fn canonical_manifest_path(directory: &Path) -> Result<Option<PathBuf>, String> 
     };
     if name != MODULE_MANIFEST {
         return Err(format!(
-            "non-canonical Module manifest '{name}'; expected '{MODULE_MANIFEST}'"
+            "non-canonical command manifest '{name}'; expected '{MODULE_MANIFEST}'"
         ));
     }
     let metadata = fs::symlink_metadata(&path).map_err(|error| {
         format!(
-            "cannot inspect Module manifest '{}': {error}",
+            "cannot inspect command manifest '{}': {error}",
             path.display()
         )
     })?;
     if !metadata.is_file() || is_reparse(&metadata) {
         return Err(format!(
-            "Module manifest must be a regular file: {}",
+            "command manifest must be a regular file: {}",
             path.display()
         ));
     }
     Ok(Some(path))
 }
 
-fn module_command_address(reference: &CommandModuleSubjectRef) -> Result<&str, String> {
-    match reference {
-        CommandModuleSubjectRef::Command {
-            space: CommandModuleCommandSpace::Module,
-            namespace: Some(_),
-            address,
-        } => Ok(address),
-        _ => Err("validated delegate owner is not a Module command reference".to_owned()),
+fn command_source_root<'a>(
+    system_root: &'a Path,
+    module_roots: &'a BTreeMap<String, PathBuf>,
+    identity: &CommandIdentity,
+) -> Result<&'a Path, String> {
+    match identity.space() {
+        CommandSpace::System => Ok(system_root),
+        CommandSpace::Module => {
+            let namespace = identity
+                .namespace()
+                .expect("Module command identity must have a namespace");
+            module_roots
+                .get(namespace)
+                .map(PathBuf::as_path)
+                .ok_or_else(|| format!("Module namespace '{namespace}' is not mounted"))
+        }
     }
 }
 
-struct Address {
-    text: String,
-    namespace: String,
-    segments: Vec<String>,
-}
-
-impl Address {
-    fn parse(value: &str) -> Result<Self, String> {
-        validate_command_address(value).map_err(|error| error.to_string())?;
-        let segments = value.split('/').map(str::to_owned).collect::<Vec<_>>();
-        Ok(Self {
-            text: value.to_owned(),
-            namespace: segments[0].clone(),
-            segments,
-        })
+fn command_reference_identity(
+    reference: &CommandModuleSubjectRef,
+) -> Result<CommandIdentity, String> {
+    let CommandModuleSubjectRef::Command {
+        space,
+        namespace,
+        address,
+    } = reference
+    else {
+        return Err("validated delegate owner is not a command reference".to_owned());
+    };
+    let identity = CommandIdentity::parse(address).map_err(|error| error.to_string())?;
+    if identity.space() != *space || identity.namespace() != namespace.as_deref() {
+        return Err("delegate owner identity fields are inconsistent".to_owned());
     }
+    Ok(identity)
 }
 
-fn relative_address(namespace: &str, path: &Path) -> Result<String, String> {
+fn relative_identity(owner: &CommandIdentity, path: &Path) -> Result<CommandIdentity, String> {
     let segments = path
         .components()
         .map(|component| {
@@ -361,15 +367,8 @@ fn relative_address(namespace: &str, path: &Path) -> Result<String, String> {
                 .ok_or_else(|| format!("command path is not Unicode: {}", path.display()))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let address = format!("{namespace}/{}", segments.join("/"));
-    validate_command_address(&address).map_err(|error| error.to_string())?;
-    Ok(address)
-}
-
-fn is_true_ancestor(owner: &str, command: &str) -> bool {
-    command
-        .strip_prefix(owner)
-        .is_some_and(|tail| tail.starts_with('/') && tail.len() > 1)
+    CommandIdentity::new(owner.space(), owner.namespace(), segments)
+        .map_err(|error| error.to_string())
 }
 
 fn unicode_name(path: &Path) -> Result<String, String> {

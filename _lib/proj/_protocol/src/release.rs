@@ -1,10 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    ProtocolError, ProtocolResult, is_revision, is_sha256, sha256_hex, validate_command_address,
-};
+use crate::{CommandIdentity, ProtocolError, ProtocolResult, is_revision, is_sha256, sha256_hex};
 
-pub const COMMAND_RELEASE_SCHEMA: &str = "swawkit.native-command-release/v2";
+pub const COMMAND_RELEASE_SCHEMA: &str = "swawkit.native-command-release/v3";
 pub const COMMAND_EXECUTABLE_NAME: &str = "run.exe";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -70,7 +68,7 @@ pub fn validate_command_release(
             release.schema
         )));
     }
-    validate_command_address(expected_owner)?;
+    let owner = CommandIdentity::parse(expected_owner)?;
     if release.owner != expected_owner {
         return Err(ProtocolError::new(format!(
             "command release owner mismatch: selected='{}', expected='{expected_owner}'",
@@ -81,7 +79,8 @@ pub fn validate_command_release(
         || !is_revision(&release.execution_contract_revision)
         || release.commands.windows(2).any(|pair| pair[0] >= pair[1])
         || release.commands.iter().any(|address| {
-            validate_command_address(address).is_err() || !is_true_ancestor(&release.owner, address)
+            CommandIdentity::parse(address)
+                .map_or(true, |command| !owner.is_true_ancestor_of(&command))
         })
         || release.executable.name != COMMAND_EXECUTABLE_NAME
         || release.executable.length == 0
@@ -92,12 +91,6 @@ pub fn validate_command_release(
         ));
     }
     Ok(())
-}
-
-fn is_true_ancestor(owner: &str, command: &str) -> bool {
-    command
-        .strip_prefix(owner)
-        .is_some_and(|tail| tail.starts_with('/') && tail.len() > 1)
 }
 
 pub fn validate_command_artifact(
@@ -152,9 +145,9 @@ mod tests {
     }
 
     #[test]
-    fn old_v1_release_is_rejected_without_fallback() {
+    fn old_v2_release_is_rejected_without_fallback() {
         let mut value = serde_json::to_value(release()).unwrap();
-        value["schema"] = serde_json::Value::String("swawkit.native-command-release/v1".to_owned());
+        value["schema"] = serde_json::Value::String("swawkit.native-command-release/v2".to_owned());
         let parsed = parse_command_release(&serde_json::to_vec(&value).unwrap()).unwrap();
         assert!(validate_command_release(&parsed, "swaw/context").is_err());
     }
@@ -174,6 +167,33 @@ mod tests {
                 revision(b"source"),
                 revision(b"contract"),
                 vec!["swaw/other".to_owned()],
+                b"executable",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn system_release_uses_the_system_owner_identity() {
+        let release = CommandRelease::new(
+            ".context",
+            revision(b"source"),
+            revision(b"contract"),
+            vec![".context/show".to_owned()],
+            b"executable",
+        )
+        .unwrap();
+        validate_command_release(&release, ".context").unwrap();
+    }
+
+    #[test]
+    fn release_commands_cannot_cross_command_spaces() {
+        assert!(
+            CommandRelease::new(
+                ".context",
+                revision(b"source"),
+                revision(b"contract"),
+                vec!["swaw/context/show".to_owned()],
                 b"executable",
             )
             .is_err()

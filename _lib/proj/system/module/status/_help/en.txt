@@ -1,5 +1,5 @@
-Inspect one native module owner or delegated command without building, publishing, repairing, or changing its selected Release.
+Inspect one System or Module native owner or delegated command without building, publishing, repairing, or changing its selected Release.
 
-Usage: {{INVOCATION}} <native-module-or-logical-port-address> [--json]
+Usage: {{INVOCATION}} <native-command-or-logical-port-address> [--json]
 
 The command resolves delegated ports to their explicit native owner. Text and JSON report the same publication state. Inspection does not require the managed development environment. An outdated result only means that source build inputs differ from the selected Release; it does not disable an already-published EXE whose execution contract remains compatible.

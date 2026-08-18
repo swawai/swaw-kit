@@ -15,7 +15,7 @@ function subject() {
       renderer: "run",
       resolver: {
         acceptsTail: true,
-        address: "swaw/context/add",
+        address: ".context/add",
         arguments: ["test"],
         confirmation: null,
         returns: null,
@@ -26,9 +26,8 @@ function subject() {
     via: {
       facet: "contexts",
       subject: {
-        address: "swaw/context",
-        namespace: "swaw",
-        space: "module",
+        address: ".context",
+        space: "system",
         type: "command",
       },
     },
@@ -47,7 +46,7 @@ describe("Context tray model", () => {
     const record = createPinnedContextRecord(subject());
     expect(() => parsePinnedContextRecord(JSON.stringify({
       ...record,
-      resolver: { address: "swaw/context/show" },
+      resolver: { address: ".context/show" },
     }))).toThrow("invalid shape");
     expect(() => createPinnedContextRecord({
       ...subject(),
@@ -62,7 +61,7 @@ describe("Context tray model", () => {
       { commands: [] },
     );
     expect(invocation).toEqual({
-      address: "swaw/context/add",
+      address: ".context/add",
       arguments: ["test", ".dev/status"],
       state: "available",
     });
