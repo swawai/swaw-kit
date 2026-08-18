@@ -1,28 +1,26 @@
 import { t } from "./i18n.js";
+import { sameCommandIdentity } from "./command-identity.js";
 
 const COMMAND_ROUTE_ROOT = "/commands";
-const COMMAND_SOURCES = new Set(["action", "kernel", "control"]);
 const FACET_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const SUBJECT_REF = /^::[a-z][a-z0-9-]{0,31}\/[a-z0-9][a-z0-9-]{0,127}$/;
-const NORMAL_SEGMENT = /^[a-z][a-z0-9-]*$/;
+const NORMAL_SEGMENT = /^[a-z][a-z0-9-]{0,63}$/;
+const RESERVED_NAMESPACES = new Set(["system", "module"]);
 
 function isCommandSegment(segment) {
   return NORMAL_SEGMENT.test(segment);
 }
 
 function addressSegments(command) {
-  if (command.source === "action") {
-    return command.address.split(".");
+  if (command.space === "system") {
+    return command.address === "" ? [] : command.address.slice(1).split("/");
   }
-  if (command.source === "kernel") {
-    return command.address === "" ? [] : command.address.slice(1).split(".");
-  }
-  if (command.source === "control") {
-    return command.address.slice(2).split(".");
+  if (command.space === "module" && isCommandSegment(command.namespace)) {
+    return [command.namespace, ...command.path];
   }
   throw new Error(t(
-    `不支持的命令来源：${command.source}`,
-    `Unsupported command source: ${command.source}`,
+    `不支持的命令身份：${command.address}`,
+    `Unsupported command identity: ${command.address}`,
   ));
 }
 
@@ -31,7 +29,7 @@ export function commandPath(command) {
   const suffix = segments.length === 0
     ? ""
     : `/${segments.map(encodeURIComponent).join("/")}`;
-  return `${COMMAND_ROUTE_ROOT}/${command.source}${suffix}`;
+  return `${COMMAND_ROUTE_ROOT}/${command.space}${suffix}`;
 }
 
 export function parseCommandPath(pathname) {
@@ -42,11 +40,11 @@ export function parseCommandPath(pathname) {
   if (parts.length < 3 || parts[0] !== "" || parts[1] !== "commands") {
     throw new Error(t("当前 URL 不是有效的命令地址。", "The current URL is not a valid command address."));
   }
-  const source = parts[2];
-  if (!COMMAND_SOURCES.has(source)) {
+  const space = parts[2];
+  if (space !== "system" && space !== "module") {
     throw new Error(t(
-      `URL 包含未知的命令来源：${source || "<empty>"}。`,
-      `The URL contains an unknown command source: ${source || "<empty>"}.`,
+      `URL 包含未知的命令空间：${space || "<empty>"}。`,
+      `The URL contains an unknown command space: ${space || "<empty>"}.`,
     ));
   }
   let segments;
@@ -58,20 +56,27 @@ export function parseCommandPath(pathname) {
   if (segments.some((segment) => !isCommandSegment(segment))) {
     throw new Error(t("URL 包含无效的命令路径段。", "The URL contains an invalid command path segment."));
   }
-  if (source !== "kernel" && segments.length === 0) {
+  if (space === "module" && segments.length === 0) {
     throw new Error(t(
-      `URL 缺少 ${source} 命令地址。`,
-      `The URL is missing a ${source} command address.`,
+      "URL 缺少模块 namespace。",
+      "The URL is missing a module namespace.",
     ));
   }
-  const joined = segments.join(".");
+  if (space === "system") {
+    return {
+      address: segments.length === 0 ? "" : `.${segments.join("/")}`,
+      namespace: null,
+      space,
+    };
+  }
+  const [namespace, ...path] = segments;
+  if (RESERVED_NAMESPACES.has(namespace)) {
+    throw new Error(t("URL 包含保留的模块 namespace。", "The URL contains a reserved module namespace."));
+  }
   return {
-    source,
-    address: source === "action"
-      ? joined
-      : source === "kernel"
-        ? segments.length === 0 ? "" : `.${joined}`
-        : `..${joined}`,
+    address: path.length === 0 ? namespace : `${namespace}/${path.join("/")}`,
+    namespace,
+    space,
   };
 }
 
@@ -85,7 +90,7 @@ export function commandAtPath(
     return null;
   }
   const command = catalog.commandByAddress.get(route.address);
-  if (!command || command.source !== route.source) {
+  if (!command || !sameCommandIdentity(command, route)) {
     if (allowMissing) {
       return null;
     }

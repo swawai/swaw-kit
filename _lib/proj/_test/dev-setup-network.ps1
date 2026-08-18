@@ -73,7 +73,7 @@ function Invoke-ProjNetworkSetup {
         if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
             $Process.Kill()
             [void]$Process.WaitForExit(5000)
-            throw ".dev.setup exceeded its $TimeoutSeconds second test boundary"
+            throw ".dev/setup exceeded its $TimeoutSeconds second test boundary"
         }
         return [pscustomobject][ordered]@{
             ExitCode = [int]$Process.ExitCode
@@ -104,6 +104,10 @@ try {
     [void][IO.Directory]::CreateDirectory(
         (Join-Path $FixtureHome 'data\proj_cache')
     )
+    $SwawModuleRoot = Join-Path $FixtureHome '_lib\proj\modules'
+    $ProjectModuleRoot = Join-Path $FixtureHome '.swaw'
+    [void][IO.Directory]::CreateDirectory($SwawModuleRoot)
+    [void][IO.Directory]::CreateDirectory($ProjectModuleRoot)
     $ProfilePath = Join-Path $DataRoot '_profile.json'
     [IO.File]::WriteAllText(
         $ProfilePath,
@@ -116,9 +120,13 @@ try {
     $Environment = @{
         SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
         SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.setup'
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $FixtureHome
+        SWAWKIT_PROJ_MODULE_ROOTS = (@{
+            swaw = $SwawModuleRoot
+            project = $ProjectModuleRoot
+        } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_ENTRY_COMMAND = 'network-fixture'
         SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = (
             'sha256-' + ('b' * 64)
@@ -145,11 +153,15 @@ try {
         -Environment $Environment `
         -TimeoutSeconds 45
     Write-Verbose $Failed.Output
-    $SetupRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
     $SelectionPath = Join-Path $SetupRoot (
         'export\bun\.swawkit-dev-selection.json'
     )
-    $Provider = Get-Content -LiteralPath (Join-Path $SetupRoot '_state.json') `
+    $ProviderStatePath = Join-Path $SetupRoot '_state.json'
+    Assert-ProjSetupNetwork `
+        -Condition ([IO.File]::Exists($ProviderStatePath)) `
+        -Message "setup published no provider state: $($Failed.Output)"
+    $Provider = Get-Content -LiteralPath $ProviderStatePath `
         -Raw | ConvertFrom-Json
     Assert-ProjSetupNetwork `
         -Condition (
@@ -167,7 +179,7 @@ try {
         )
 
     if (-not $PublicNetwork) {
-        Write-Host '[PASS] Proj .dev.setup deterministic network failure' `
+        Write-Host '[PASS] Proj .dev/setup deterministic network failure' `
             -ForegroundColor Green
         $global:LASTEXITCODE = 0
         return
@@ -241,7 +253,7 @@ try {
         )
 
     Write-Host (
-        '[PASS] Proj .dev.setup public cold download and offline cache reuse ' +
+        '[PASS] Proj .dev/setup public cold download and offline cache reuse ' +
         "(Bun $($Selection.version))"
     ) -ForegroundColor Green
 } finally {

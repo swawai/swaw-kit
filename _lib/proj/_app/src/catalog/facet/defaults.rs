@@ -6,7 +6,7 @@ use crate::{
     subject_kind::SubjectKindRef,
 };
 
-use super::{CHECK_ADDRESS, CommandNode, CommandSource, HELP_ADDRESS, RUNS_ADDRESS};
+use super::{CHECK_ADDRESS, CommandNode, HELP_ADDRESS, RUNS_ADDRESS};
 
 pub(super) fn children_facet(language: EntryLanguage) -> Facet {
     Facet {
@@ -68,7 +68,7 @@ pub(super) fn default_facets(
         ));
     }
     if check_available
-        && command.source != CommandSource::Control
+        && !command.is_control()
         && !command.address.is_empty()
         && command.alias_of.is_none()
         && (command.entry.is_some() || command.module.is_some() || command.diagnostic.is_some())
@@ -96,7 +96,7 @@ pub(super) fn default_facets(
         });
     }
     if runs_available
-        && command.source != CommandSource::Control
+        && !command.is_control()
         && !command.address.is_empty()
         && command.runnable
         && command.alias_of.is_none()
@@ -117,10 +117,7 @@ pub(super) fn default_facets(
                 subject_kind: Some(subject_kind.clone()),
                 resolver: Some(FacetResolver::Command {
                     address: RUNS_ADDRESS.to_owned(),
-                    arguments: vec![
-                        "--json".to_owned(),
-                        command_locator(command.source, &command.address),
-                    ],
+                    arguments: vec!["--json".to_owned(), command.address.clone()],
                     accepts_tail: false,
                     confirmation: None,
                     returns: Some(SUBJECT_COLLECTION_PROTOCOL.to_owned()),
@@ -128,7 +125,7 @@ pub(super) fn default_facets(
             });
         }
     }
-    if command.source != CommandSource::Control
+    if !command.is_control()
         && !command.address.is_empty()
         && command.runnable
         && command.alias_of.is_none()
@@ -147,15 +144,6 @@ pub(super) fn default_facets(
         ));
     }
     facets
-}
-
-fn command_locator(source: CommandSource, address: &str) -> String {
-    let source = match source {
-        CommandSource::Control => "control",
-        CommandSource::Kernel => "kernel",
-        CommandSource::Action => "action",
-    };
-    format!("{source}/{address}")
 }
 
 fn operation_facet(

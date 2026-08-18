@@ -6,5 +6,6 @@ pub mod provider;
 pub(crate) mod storage;
 
 pub const PRODUCER_CONTRACT: &str = "swawkit.proj.dev-setup/v2";
+pub const PRODUCER_EXPORT: &str = "environment";
 pub const PUBLICATION_TOKEN_VARIABLE: &str =
-    "SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_PUBLICATION_TOKEN";
+    "SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_PUBLICATION_TOKEN";

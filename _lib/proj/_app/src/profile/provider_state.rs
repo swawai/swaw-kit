@@ -15,11 +15,11 @@ use super::ProfileError;
 use crate::atomic_file;
 use crate::data_root::DataRootLock;
 
-const PROVIDER_DIRECTORY_COMPONENTS: [&str; 4] = ["modules", "kernel", ".dev", "setup"];
+const PROVIDER_DIRECTORY_COMPONENTS: [&str; 4] = ["modules", "system", "dev", "setup"];
 const LOCKS_DIRECTORY_NAME: &str = "locks";
 const STATE_LOCK_FILE_NAME: &str = "state.lock";
 const STATE_FILE_NAME: &str = "_state.json";
-const STATE_SCHEMA: &str = "swawkit.command-provider-state/v1";
+const STATE_SCHEMA: &str = "swawkit.command-provider-state/v2";
 const LOCK_ATTEMPTS: usize = 100;
 const LOCK_RETRY_DELAY: Duration = Duration::from_millis(50);
 

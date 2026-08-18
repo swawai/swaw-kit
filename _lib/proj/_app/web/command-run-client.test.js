@@ -12,7 +12,7 @@ function snapshot(overrides = {}) {
   return {
     protocol: "swawkit.command-run/v1",
     id: "run-17",
-    address: ".dev.status",
+    address: ".dev/status",
     state: "running",
     exitCode: null,
     error: null,
@@ -126,7 +126,7 @@ describe("command run protocol client", () => {
     let request;
     const created = snapshot();
     const result = await startCommandRun(
-      ".dev.pwsh",
+      ".dev/pwsh",
       ["-Command", "Write-Host 'A B'", ""],
       async (url, options) => {
         request = { url, options };
@@ -137,16 +137,16 @@ describe("command run protocol client", () => {
     expect(request.url).toBe("/api/v2/command-runs");
     expect(request.options.method).toBe("POST");
     expect(JSON.parse(request.options.body)).toEqual({
-      address: ".dev.pwsh",
+      address: ".dev/pwsh",
       arguments: ["-Command", "Write-Host 'A B'", ""],
     });
     expect(result).toEqual(created);
 
-    await expect(startCommandRun(".dev.status", [], async () => (
+    await expect(startCommandRun(".dev/status", [], async () => (
       response(201, created)
     ))).rejects.toThrow("缺少 Location");
 
-    await expect(startCommandRun(".dev.status", [], async () => (
+    await expect(startCommandRun(".dev/status", [], async () => (
       response(201, created, "/api/v2/command-runs/run-other")
     ))).rejects.toThrow("Location 与 run id 不一致");
   });

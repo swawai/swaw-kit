@@ -27,7 +27,7 @@ fn first_latest(
 fn selection_path(fixture: &Fixture, tool: &ArchiveToolContract) -> PathBuf {
     fixture
         .data_root
-        .join("modules/kernel/.dev/setup/export")
+        .join("modules/system/dev/setup/export")
         .join(tool.name)
         .join(".swawkit-dev-selection.json")
 }

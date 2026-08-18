@@ -2,14 +2,14 @@ use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::os::windows::fs::MetadataExt;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 use crate::{
     binding::ProjectBinding,
-    catalog::{CommandNode, CommandSource},
+    catalog::{CommandNode, CommandSpace},
     command_event::{COMMAND_EVENT_FRAME_PROTOCOL, COMMAND_EVENT_PROTOCOL_ENV},
     context::EntryContext,
     development::setup::environment::EnvironmentPlan,
@@ -23,6 +23,11 @@ const TRANSIENT_ENVIRONMENT: [&str; 3] = [
     ENTRY_FILE_ENV,
     LAUNCH_MODE_ENV,
     "SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE",
+];
+const COMMAND_OWNER_ENVIRONMENT: [&str; 3] = [
+    "SWAWKIT_PROJ_CORE_COMMAND_OWNER_ADDRESS",
+    "SWAWKIT_PROJ_CORE_COMMAND_OWNER_DIR",
+    "SWAWKIT_PROJ_CORE_COMMAND_OWNER_DATA_ROOT",
 ];
 const DEVELOPMENT_ENVIRONMENT_VARIABLES: &[&str] = &[
     "CARGO_BUILD_RUSTC",
@@ -50,14 +55,14 @@ const DEVELOPMENT_ENVIRONMENT_VARIABLES: &[&str] = &[
     "WindowsSdkBinPath",
     "WindowsSdkVerBinPath",
 ];
-const DEVELOPMENT_METADATA_PREFIX: &str = "SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_";
+const DEVELOPMENT_METADATA_PREFIX: &str = "SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandExecutionContext {
     pub swawkit_home: PathBuf,
-    pub kernel_root: PathBuf,
+    pub command_root: PathBuf,
     pub target_project_root: PathBuf,
-    pub action_root: PathBuf,
+    pub module_roots: BTreeMap<String, PathBuf>,
     pub data_root: PathBuf,
     pub entry_name: String,
     pub entry_file: PathBuf,
@@ -84,11 +89,21 @@ impl CommandExecutionContext {
         process_mode: CommandProcessMode,
     ) -> Self {
         let binding = profile.binding();
+        let mut module_roots = BTreeMap::from([
+            ("swaw".to_owned(), entry.swaw_module_root()),
+            ("project".to_owned(), binding.project_module_root()),
+        ]);
+        module_roots.extend(
+            binding
+                .external_module_mounts()
+                .iter()
+                .map(|mount| (mount.namespace().to_owned(), mount.root().to_owned())),
+        );
         Self {
             swawkit_home: entry.swawkit_home.clone(),
-            kernel_root: entry.kernel_root(),
+            command_root: entry.command_root(),
             target_project_root: binding.target_project_root().to_path_buf(),
-            action_root: binding.action_root(),
+            module_roots,
             data_root: data_root.into(),
             entry_name: entry.entry_name.clone(),
             entry_file: entry.entry_file.clone(),
@@ -123,6 +138,9 @@ impl ProcessEnvironment {
         for name in TRANSIENT_ENVIRONMENT {
             environment.remove(name);
         }
+        for name in COMMAND_OWNER_ENVIRONMENT {
+            environment.remove(name);
+        }
         environment.set("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL", "1");
         environment.set(COMMAND_EVENT_PROTOCOL_ENV, COMMAND_EVENT_FRAME_PROTOCOL);
         environment.set(
@@ -135,6 +153,17 @@ impl ProcessEnvironment {
         environment.set(
             "SWAWKIT_PROJ_CORE_COMMAND_ADDRESS",
             &protocol_command.address,
+        );
+        environment.set(
+            "SWAWKIT_PROJ_CORE_COMMAND_SPACE",
+            match protocol_command.space {
+                CommandSpace::System => "system",
+                CommandSpace::Module => "module",
+            },
+        );
+        environment.set_optional(
+            "SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE",
+            protocol_command.namespace.as_deref().unwrap_or_default(),
         );
         environment.set("SWAWKIT_PROJ_CORE_COMMAND_DIR", &protocol_command.directory);
         environment.set(
@@ -153,7 +182,13 @@ impl ProcessEnvironment {
             "SWAWKIT_PROJ_TARGET_PROJECT_ROOT",
             &context.target_project_root,
         );
-        environment.set("SWAWKIT_PROJ_ACTION_ROOT", &context.action_root);
+        if let Some(project_root) = context.module_roots.get("project") {
+            environment.set("SWAWKIT_PROJ_PROJECT_MODULE_ROOT", project_root);
+        }
+        let module_roots = serde_json::to_string(&context.module_roots).map_err(|error| {
+            CommandError::new(format!("cannot serialize Module mount roots: {error}"))
+        })?;
+        environment.set("SWAWKIT_PROJ_MODULE_ROOTS", module_roots);
         environment.set("SWAWKIT_PROJ_DATA_ROOT", &context.data_root);
         environment.set("SWAWKIT_PROJ_ENTRY_COMMAND", &context.entry_name);
         environment.set("SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE", &context.entry_file);
@@ -172,6 +207,12 @@ impl ProcessEnvironment {
         );
         environment.apply_profile(&context.profile);
         Ok(environment)
+    }
+
+    pub(crate) fn apply_native_owner(&mut self, address: &str, directory: &Path, data_root: &Path) {
+        self.set("SWAWKIT_PROJ_CORE_COMMAND_OWNER_ADDRESS", address);
+        self.set("SWAWKIT_PROJ_CORE_COMMAND_OWNER_DIR", directory);
+        self.set("SWAWKIT_PROJ_CORE_COMMAND_OWNER_DATA_ROOT", data_root);
     }
 
     fn apply_profile(&mut self, profile: &EntryProfileRecord) {
@@ -309,68 +350,61 @@ pub(crate) fn command_data_root(
     context: &CommandExecutionContext,
     command: &ResolvedCommand,
 ) -> CommandResult<PathBuf> {
-    let (source_name, source_root) = match command.source {
-        CommandSource::Control => ("control", &context.kernel_root),
-        CommandSource::Kernel => ("kernel", &context.kernel_root),
-        CommandSource::Action => ("action", &context.action_root),
-    };
-    module_data_root(
+    command_identity_data_root(
         &context.data_root,
-        source_name,
-        source_root,
-        &command.directory,
+        command.space,
+        command.namespace.as_deref(),
+        &command.path,
         &command.address,
     )
 }
 
 pub fn catalog_command_data_root(
-    context: &EntryContext,
+    _context: &EntryContext,
     data_root: &Path,
-    binding: Option<&ProjectBinding>,
+    _binding: Option<&ProjectBinding>,
     command: &CommandNode,
 ) -> CommandResult<PathBuf> {
-    let kernel_root = context.kernel_root();
-    let action_root = binding.map(ProjectBinding::action_root);
-    let (source_name, source_root) = match command.source {
-        CommandSource::Control => ("control", kernel_root.as_path()),
-        CommandSource::Kernel => ("kernel", kernel_root.as_path()),
-        CommandSource::Action => (
-            "action",
-            action_root.as_deref().ok_or_else(|| {
-                CommandError::new("a ready Entry Profile is required to locate Action command data")
-            })?,
-        ),
-    };
-    module_data_root(
+    command_identity_data_root(
         data_root,
-        source_name,
-        source_root,
-        &command.directory,
+        command.space,
+        command.namespace.as_deref(),
+        &command.path,
         &command.address,
     )
 }
 
-fn module_data_root(
+pub fn catalog_command_data_root_from_roots(
     data_root: &Path,
-    source_name: &str,
-    source_root: &Path,
-    command_directory: &Path,
+    command: &CommandNode,
+) -> CommandResult<PathBuf> {
+    command_identity_data_root(
+        data_root,
+        command.space,
+        command.namespace.as_deref(),
+        &command.path,
+        &command.address,
+    )
+}
+
+fn command_identity_data_root(
+    data_root: &Path,
+    space: CommandSpace,
+    namespace: Option<&str>,
+    path: &[String],
     address: &str,
 ) -> CommandResult<PathBuf> {
-    let relative = command_directory.strip_prefix(source_root).map_err(|_| {
-        CommandError::new(format!(
-            "Catalog invariant failed for '{}': command directory is outside its source root",
-            address
-        ))
-    })?;
-    if relative
-        .components()
-        .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        return Err(CommandError::new(format!(
-            "Catalog invariant failed for '{}': command directory has an unsafe relative path",
-            address
-        )));
+    let mut root = data_root.join("modules");
+    match space {
+        CommandSpace::System => root.push("system"),
+        CommandSpace::Module => root.push(namespace.ok_or_else(|| {
+            CommandError::new(format!(
+                "Catalog invariant failed for '{address}': Module command has no namespace"
+            ))
+        })?),
     }
-    Ok(data_root.join("modules").join(source_name).join(relative))
+    for segment in path {
+        root.push(segment);
+    }
+    Ok(root)
 }

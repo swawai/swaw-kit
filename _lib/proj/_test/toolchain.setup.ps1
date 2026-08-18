@@ -72,9 +72,13 @@ try {
     $Environment = @{
         SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
         SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.setup'
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $RepoRoot
+        SWAWKIT_PROJ_MODULE_ROOTS = (@{
+            swaw = Join-Path $RepoRoot '_lib\proj\modules'
+            project = Join-Path $RepoRoot '.swaw'
+        } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_ENTRY_COMMAND = 'fixture'
         SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = (
             'sha256-' + ('b' * 64)
@@ -89,7 +93,7 @@ try {
         SWAWKIT_PROJ_UV_MODE = 'disabled'
     }
     $Legacy = Join-Path $DataRoot (
-        'modules\kernel\.dev\setup\export\_state.json'
+        'modules\system\dev\setup\export\_state.json'
     )
     [void][IO.Directory]::CreateDirectory((Split-Path $Legacy -Parent))
     [IO.File]::WriteAllText($Legacy, '{"legacy":true}')
@@ -97,8 +101,12 @@ try {
     $Ready = Invoke-ProjNativeSetup `
         -Executable $Executable `
         -Environment $Environment
-    $SetupRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
-    $State = Get-Content -LiteralPath (Join-Path $SetupRoot '_state.json') `
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
+    $StatePath = Join-Path $SetupRoot '_state.json'
+    Assert-ProjNativeSetup `
+        -Condition ($Ready.ExitCode -eq 0 -and [IO.File]::Exists($StatePath)) `
+        -Message "the native handler published no provider state: $($Ready.Output)"
+    $State = Get-Content -LiteralPath $StatePath `
         -Raw | ConvertFrom-Json
     Assert-ProjNativeSetup `
         -Condition ($Ready.ExitCode -eq 0 -and
@@ -106,7 +114,10 @@ try {
                 '[OK] The base development environment is ready.'
             ) -and
             $State.status -ceq 'ready' -and
-            $State.producerContract -ceq 'swawkit.proj.dev-setup/v2' -and
+            @($State.exports).Count -eq 1 -and
+            [string]$State.exports[0].id -ceq 'environment' -and
+            [string]$State.exports[0].contract -ceq
+                'swawkit.proj.dev-setup/v2' -and
             [IO.File]::Exists((Join-Path $SetupRoot 'export\env.cmd')) -and
             [IO.File]::Exists((Join-Path $SetupRoot 'export\env.ps1')) -and
             -not [IO.File]::Exists($Legacy)) `
@@ -127,7 +138,7 @@ try {
     Assert-ProjNativeSetup `
         -Condition ($Rejected.ExitCode -ne 0 -and
             $Rejected.Output.Contains(
-                '.dev.setup does not accept dynamic arguments'
+                '.dev/setup does not accept dynamic arguments'
             ) -and $Before -ceq $After) `
         -Message 'argument rejection changed the published environment'
 } finally {
@@ -136,5 +147,5 @@ try {
     }
 }
 
-Write-Host '[PASS] Proj native .dev.setup handler' -ForegroundColor Green
+Write-Host '[PASS] Proj native .dev/setup handler' -ForegroundColor Green
 $global:LASTEXITCODE = 0

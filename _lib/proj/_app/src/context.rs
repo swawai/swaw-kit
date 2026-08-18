@@ -36,8 +36,16 @@ impl EntryContext {
         Self::from_sources(request, &executable, executable_name)
     }
 
-    pub fn kernel_root(&self) -> PathBuf {
+    pub fn command_root(&self) -> PathBuf {
         self.swawkit_home.join("_lib").join("proj")
+    }
+
+    pub fn system_root(&self) -> PathBuf {
+        self.command_root().join("system")
+    }
+
+    pub fn swaw_module_root(&self) -> PathBuf {
+        self.command_root().join("modules")
     }
 
     pub fn sibling_product_executable(&self, name: &str) -> PathBuf {

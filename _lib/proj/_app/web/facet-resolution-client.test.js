@@ -12,13 +12,13 @@ function response(document) {
 describe("Facet resolution client", () => {
   test("posts a command Subject and selected Facet", async () => {
     let request = null;
-    const command = { address: ".check", source: "kernel" };
+    const command = { address: ".check", space: "system" };
     const facet = {
       id: "status",
       kind: "projection",
-      resolver: { returns: "swawkit.module-check/v1", type: "command" },
+      resolver: { returns: "swawkit.module-check/v3", type: "command" },
     };
-    const document = { protocol: "swawkit.module-check/v1" };
+    const document = { protocol: "swawkit.module-check/v3" };
     const result = await resolveFacet({}, command, facet, {
       fetchImpl: async (url, options) => {
         request = { options, url };
@@ -31,7 +31,7 @@ describe("Facet resolution client", () => {
     expect(request.options.method).toBe("POST");
     expect(JSON.parse(request.options.body)).toEqual({
       facet: "status",
-      subject: { address: ".check", source: "kernel", type: "command" },
+      subject: { address: ".check", space: "system", type: "command" },
     });
   });
 
@@ -45,7 +45,7 @@ describe("Facet resolution client", () => {
     };
     const via = {
       facet: "runs",
-      subject: { address: ".runs", source: "kernel", type: "command" },
+      subject: { address: ".runs", space: "system", type: "command" },
     };
     await resolveFacet({}, subject, facet, {
       fetchImpl: async (_url, options) => {
@@ -66,7 +66,7 @@ describe("Facet resolution client", () => {
       fetchImpl: async () => { throw new Error("must not fetch"); },
       via: {
         facet: "runs",
-        subject: { address: ".runs", source: "kernel", type: "command" },
+        subject: { address: ".runs", space: "system", type: "command" },
       },
     })).rejects.toThrow("recursive provenance");
   });

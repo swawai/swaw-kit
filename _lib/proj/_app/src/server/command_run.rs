@@ -12,7 +12,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    catalog::{CatalogSnapshot, CommandSource},
+    catalog::{CatalogSnapshot, CommandSpace},
     command::{CommandExecutionContext, CommandProcessMode, ResolvedCommand, command_data_root},
     data_root::DataRootSessionState,
     entry_runner::EntryRunSpec,
@@ -255,15 +255,24 @@ pub(super) async fn prepare_run(
         }
         let command = ResolvedCommand::from_catalog(&catalog, &address)
             .map_err(|error| api_error(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()))?;
-        if !matches!(
-            command.source,
-            CommandSource::Kernel | CommandSource::Action
-        ) {
+        if command.space == CommandSpace::System
+            && command
+                .path
+                .first()
+                .is_some_and(|segment| matches!(segment.as_str(), "entry" | "runtime"))
+        {
             return Err(api_error(
                 StatusCode::UNPROCESSABLE_ENTITY,
-                "only Kernel and Action commands can run through the Web command worker",
+                "in-process System lifecycle commands cannot run through the Web command worker",
             ));
         }
+        crate::module_check::preflight_dependencies(
+            &data_root_path,
+            &context.entry_name,
+            &catalog,
+            &command.address,
+        )
+        .map_err(|error| api_error(StatusCode::CONFLICT, error))?;
         let execution_context = CommandExecutionContext::new(
             &context,
             profile,

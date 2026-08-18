@@ -17,35 +17,90 @@ function Assert-ProjDevelopmentCommandLayout {
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..'))
+$SystemRoot = Join-Path $ProjRoot 'system'
+$OfficialModuleRoot = Join-Path $ProjRoot 'modules'
+$ProjectModuleRoot = Join-Path $RepoRoot '.swaw'
 Assert-ProjDevelopmentCommandLayout `
     -Condition (-not [IO.Directory]::Exists((Join-Path $ProjRoot '_global'))) `
     -Message 'the removed no-op global guard directory still exists'
 
 $ModuleManifests = @(
-    Get-ChildItem -LiteralPath $ProjRoot -Recurse -File -Filter '_module.json'
-    Get-ChildItem -LiteralPath (Join-Path $RepoRoot '.swaw') `
-        -Recurse -File -Filter '_module.json'
+    Get-ChildItem -LiteralPath $ProjRoot -Recurse -File -Filter 'swawkit.module.json'
+    Get-ChildItem -LiteralPath $ProjectModuleRoot `
+        -Recurse -File -Filter 'swawkit.module.json'
 )
 foreach ($ModuleManifest in $ModuleManifests) {
     $ModuleDocument = Get-Content -LiteralPath $ModuleManifest.FullName -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v4') `
+        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v8') `
         -Message "legacy module contract remains: $($ModuleManifest.FullName)"
 }
+$LegacyModuleManifests = @(
+    Get-ChildItem -LiteralPath $ProjRoot -Recurse -File -Filter '_module.json'
+    Get-ChildItem -LiteralPath $ProjectModuleRoot `
+        -Recurse -File -Filter '_module.json'
+)
+Assert-ProjDevelopmentCommandLayout `
+    -Condition ($LegacyModuleManifests.Count -eq 0) `
+    -Message 'the removed generic _module.json marker remains in a command root'
+
+foreach ($ManifestRoot in @($SystemRoot, $OfficialModuleRoot, $ProjectModuleRoot)) {
+    $CanonicalRoot = [IO.Path]::GetFullPath($ManifestRoot).TrimEnd('\')
+    $RootManifests = Get-ChildItem -LiteralPath $CanonicalRoot `
+        -Recurse -File -Filter 'swawkit.module.json'
+    foreach ($RootManifest in $RootManifests) {
+        $RelativeDirectory = $RootManifest.Directory.FullName.Substring(
+            $CanonicalRoot.Length
+        ).TrimStart('\')
+        foreach ($Segment in $RelativeDirectory.Split('\')) {
+            Assert-ProjDevelopmentCommandLayout `
+                -Condition ($Segment.Length -le 64 -and
+                    $Segment -cmatch '^[a-z][a-z0-9-]*$' -and
+                    $Segment -notin @(
+                        'con', 'prn', 'aux', 'nul',
+                        'com1', 'com2', 'com3', 'com4', 'com5',
+                        'com6', 'com7', 'com8', 'com9',
+                        'lpt1', 'lpt2', 'lpt3', 'lpt4', 'lpt5',
+                        'lpt6', 'lpt7', 'lpt8', 'lpt9'
+                    )) `
+                -Message "invalid command directory segment: $Segment"
+        }
+        $Ancestor = $RootManifest.Directory.Parent
+        while ($null -ne $Ancestor -and
+            $Ancestor.FullName -cne $CanonicalRoot) {
+            Assert-ProjDevelopmentCommandLayout `
+                -Condition ([IO.File]::Exists((
+                    Join-Path $Ancestor.FullName 'swawkit.module.json'
+                ))) `
+                -Message "module parent has no Manifest: $($Ancestor.FullName)"
+            $Ancestor = $Ancestor.Parent
+        }
+    }
+}
+$ObsoleteExecutionEntries = Get-ChildItem -LiteralPath $ProjRoot -Recurse -File |
+    Where-Object { $_.Name -in @(
+        'run.core.json',
+        'run.toolchain.json',
+        'run.native',
+        'run.delegate'
+    ) }
+Assert-ProjDevelopmentCommandLayout `
+    -Condition (@($ObsoleteExecutionEntries).Count -eq 0) `
+    -Message 'an obsolete framework-interpreted run entry remains'
 
 $CommandEntries = [ordered]@{
-    bun = '.dev\bun\run.ps1'
-    cargo = '.dev\rust\cargo\run.ps1'
-    cl = '.dev\msvc\cl\run.ps1'
-    rustc = '.dev\rust\rustc\run.ps1'
-    cmd = '.dev\cmd\run.ps1'
-    exec = '.dev\exec\run.ps1'
-    pwsh = '.dev\pwsh\run.ps1'
+    bun = 'dev\bun\run.ps1'
+    cargo = 'dev\rust\cargo\run.ps1'
+    cl = 'dev\msvc\cl\run.ps1'
+    rustc = 'dev\rust\rustc\run.ps1'
+    cmd = 'dev\cmd\run.ps1'
+    exec = 'dev\exec\run.ps1'
+    pwsh = 'dev\pwsh\run.ps1'
 }
 foreach ($Name in $CommandEntries.Keys) {
     $LegacyPath = Join-Path $ProjRoot ".$Name"
-    $EntryPath = Join-Path $ProjRoot $CommandEntries[$Name]
+    $EntryPath = Join-Path $SystemRoot $CommandEntries[$Name]
 
     Assert-ProjDevelopmentCommandLayout `
         -Condition (-not (Test-Path -LiteralPath $LegacyPath)) `
@@ -56,76 +111,113 @@ foreach ($Name in $CommandEntries.Keys) {
 }
 foreach ($OldAddress in @('cargo', 'cl', 'rustc')) {
     Assert-ProjDevelopmentCommandLayout `
-        -Condition (-not (Test-Path -LiteralPath (Join-Path $ProjRoot ".dev\$OldAddress"))) `
+        -Condition (-not (Test-Path -LiteralPath (Join-Path $SystemRoot "dev\$OldAddress"))) `
         -Message "old flat .dev.$OldAddress command still exists"
 }
 
-$SetupRoot = Join-Path $ProjRoot '.dev\setup'
-$SetupManifest = Join-Path $SetupRoot 'run.toolchain.json'
+$SetupRoot = Join-Path $SystemRoot 'dev\setup'
+$SetupManifest = Join-Path $SetupRoot 'swawkit.module.json'
 Assert-ProjDevelopmentCommandLayout `
     -Condition ([IO.File]::Exists($SetupManifest) -and
         -not [IO.File]::Exists((Join-Path $SetupRoot 'run.ps1'))) `
-    -Message '.dev.setup did not converge to one native Toolchain entry'
+    -Message '.dev/setup did not converge to one native Toolchain entry'
 $SetupContract = Get-Content -LiteralPath $SetupManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($SetupContract.schema -ceq 'swawkit.toolchain-command/v1' -and
-        $SetupContract.handler -ceq 'dev.setup') `
-    -Message '.dev.setup Toolchain manifest is invalid'
+    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v8' -and
+        $SetupContract.execution.type -ceq 'toolchain' -and
+        $SetupContract.execution.handler -ceq 'dev.setup') `
+    -Message '.dev/setup Toolchain manifest is invalid'
+
+$InstantiateManifest = Join-Path $SystemRoot 'module\instantiate\swawkit.module.json'
+Assert-ProjDevelopmentCommandLayout `
+    -Condition ([IO.File]::Exists($InstantiateManifest)) `
+    -Message '.module/instantiate Toolchain manifest is missing'
+$InstantiateContract = Get-Content -LiteralPath $InstantiateManifest -Raw -Encoding UTF8 |
+    ConvertFrom-Json
+Assert-ProjDevelopmentCommandLayout `
+    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v8' -and
+        $InstantiateContract.execution.type -ceq 'toolchain' -and
+        $InstantiateContract.execution.handler -ceq 'module.instantiate') `
+    -Message '.module/instantiate Toolchain manifest is invalid'
 
 Assert-ProjDevelopmentCommandLayout `
     -Condition (-not (Test-Path -LiteralPath (Join-Path $ProjRoot '.runtime'))) `
-    -Message 'the removed .runtime Kernel command still exists'
+    -Message 'the removed legacy .runtime command directory still exists outside system/'
 
 $RuntimeContracts = @(
-    @{ Path = '..runtime\run.core.json'; Handler = 'runtime.status' },
-    @{ Path = '..runtime\host\exit\run.core.json'; Handler = 'host.exit' },
-    @{ Path = '..runtime\host\restart\run.core.json'; Handler = 'host.restart' },
-    @{ Path = '..runtime\cleanup\run.core.json'; Handler = 'runtime.cleanup' }
+    @{ Path = 'runtime\swawkit.module.json'; Handler = 'runtime.status' },
+    @{ Path = 'runtime\host\exit\swawkit.module.json'; Handler = 'host.exit' },
+    @{ Path = 'runtime\host\restart\swawkit.module.json'; Handler = 'host.restart' },
+    @{ Path = 'runtime\cleanup\swawkit.module.json'; Handler = 'runtime.cleanup' }
 )
 foreach ($RuntimeContract in $RuntimeContracts) {
-    $RuntimeManifest = Join-Path $ProjRoot $RuntimeContract.Path
+    $RuntimeManifest = Join-Path $SystemRoot $RuntimeContract.Path
     Assert-ProjDevelopmentCommandLayout `
         -Condition ([IO.File]::Exists($RuntimeManifest)) `
-        -Message "Runtime Control manifest is missing: $($RuntimeContract.Path)"
+        -Message "Runtime System manifest is missing: $($RuntimeContract.Path)"
     $RuntimeDocument = Get-Content -LiteralPath $RuntimeManifest -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($RuntimeDocument.schema -ceq 'swawkit.core-command/v1' -and
-            $RuntimeDocument.handler -ceq $RuntimeContract.Handler) `
-        -Message "Runtime Control manifest is invalid: $($RuntimeContract.Path)"
+        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v8' -and
+            $RuntimeDocument.execution.type -ceq 'core' -and
+            $RuntimeDocument.execution.handler -ceq $RuntimeContract.Handler) `
+        -Message "Runtime System manifest is invalid: $($RuntimeContract.Path)"
 }
 
-$ContextContracts = @(
-    @{ Name = 'new'; Handler = 'context.new' },
-    @{ Name = 'add'; Handler = 'context.add' },
-    @{ Name = 'remove'; Handler = 'context.remove' },
-    @{ Name = 'note'; Handler = 'context.note' },
-    @{ Name = 'prompt'; Handler = 'context.prompt' },
-    @{ Name = 'render'; Handler = 'context.render' },
-    @{ Name = 'show'; Handler = 'context.show' },
-    @{ Name = 'list'; Handler = 'context.list' },
-    @{ Name = 'delete'; Handler = 'context.delete' }
+$ContextCommands = @(
+    'new',
+    'add',
+    'remove',
+    'note',
+    'prompt',
+    'render',
+    'show',
+    'list',
+    'delete'
 )
-foreach ($ContextContract in $ContextContracts) {
-    $ContextManifest = Join-Path $ProjRoot (
-        ".context\$($ContextContract.Name)\run.core.json"
-    )
-    Assert-ProjDevelopmentCommandLayout `
-        -Condition ([IO.File]::Exists($ContextManifest)) `
-        -Message "Context manifest is missing: $ContextManifest"
-    $ContextDocument = Get-Content -LiteralPath $ContextManifest -Raw -Encoding UTF8 |
+$ContextRoot = Join-Path $OfficialModuleRoot 'context'
+$ContextNativeManifest = Join-Path $ContextRoot 'swawkit.module.json'
+$ContextNativeDocument = Get-Content -LiteralPath $ContextNativeManifest -Raw -Encoding UTF8 |
+    ConvertFrom-Json
+Assert-ProjDevelopmentCommandLayout `
+    -Condition ([IO.File]::Exists($ContextNativeManifest) -and
+        $ContextNativeDocument.execution.type -ceq 'native' -and
+        [IO.File]::Exists((Join-Path $ContextRoot 'Cargo.toml')) -and
+        [IO.File]::Exists((Join-Path $ContextRoot 'Cargo.lock')) -and
+        [IO.File]::Exists((Join-Path $ContextRoot '_src\main.rs')) -and
+        [IO.File]::Exists((Join-Path $ContextRoot '_lib\src\lib.rs')) -and
+        -not [IO.File]::Exists((Join-Path $ContextRoot '_native-set')) -and
+        -not [IO.File]::Exists((Join-Path $ContextRoot '_lib\Cargo.toml'))) `
+    -Message 'swaw/context is not one locked native domain engine'
+foreach ($ContextCommand in $ContextCommands) {
+    $ContextCommandRoot = Join-Path $ContextRoot $ContextCommand
+    $ContextManifestPath = Join-Path $ContextCommandRoot 'swawkit.module.json'
+    $ContextManifest = Get-Content -LiteralPath $ContextManifestPath -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($ContextDocument.schema -ceq 'swawkit.core-command/v1' -and
-            $ContextDocument.handler -ceq $ContextContract.Handler) `
-        -Message "Context manifest is invalid: $ContextManifest"
+        -Condition ([IO.File]::Exists($ContextManifestPath) -and
+            $ContextManifest.schema -ceq 'swawkit.command-module/v8' -and
+            $ContextManifest.execution.type -ceq 'delegate' -and
+            $ContextManifest.execution.owner.type -ceq 'command' -and
+            $ContextManifest.execution.owner.space -ceq 'module' -and
+            $ContextManifest.execution.owner.namespace -ceq 'swaw' -and
+            $ContextManifest.execution.owner.address -ceq 'swaw/context' -and
+            -not [IO.File]::Exists((Join-Path $ContextCommandRoot 'run.delegate'))) `
+        -Message "Context delegated execution declaration is invalid: $ContextManifestPath"
+    Assert-ProjDevelopmentCommandLayout `
+        -Condition (-not [IO.File]::Exists((Join-Path $ContextCommandRoot 'Cargo.toml')) -and
+            -not [IO.File]::Exists((Join-Path $ContextCommandRoot 'Cargo.lock')) -and
+            -not [IO.File]::Exists((Join-Path $ContextCommandRoot 'run.native')) -and
+            -not [IO.File]::Exists((Join-Path $ContextCommandRoot 'run.core.json')) -and
+            -not [IO.File]::Exists((Join-Path $ContextCommandRoot 'run.toolchain.json'))) `
+        -Message "Context port incorrectly owns an independent implementation: $ContextCommandRoot"
 }
 
-$ContextModuleManifest = Join-Path $ProjRoot '.context\_module.json'
+$ContextModuleManifest = Join-Path $ContextRoot 'swawkit.module.json'
 Assert-ProjDevelopmentCommandLayout `
     -Condition ([IO.File]::Exists($ContextModuleManifest)) `
-    -Message '.context does not declare its module facets'
+    -Message 'swaw/context does not declare its module facets'
 $ContextModule = Get-Content -LiteralPath $ContextModuleManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 $ContextFacet = @($ContextModule.facets)[0]
@@ -134,31 +226,33 @@ $ContextOverviewFacet = @($ContextSubjectKind.facets) |
     Where-Object { $_.id -ceq 'overview' } |
     Select-Object -First 1
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v4' -and
+    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v8' -and
+        $ContextModule.execution.type -ceq 'native' -and
         @($ContextModule.facets).Count -eq 1 -and
         $ContextFacet.id -ceq 'contexts' -and
         $ContextFacet.kind -ceq 'collection' -and
         $ContextFacet.subjectKind.kind -ceq 'context' -and
         $ContextFacet.subjectKind.provider.type -ceq 'command' -and
-        $ContextFacet.subjectKind.provider.source -ceq 'kernel' -and
-        $ContextFacet.subjectKind.provider.address -ceq '.context' -and
+        $ContextFacet.subjectKind.provider.space -ceq 'module' -and
+        $ContextFacet.subjectKind.provider.namespace -ceq 'swaw' -and
+        $ContextFacet.subjectKind.provider.address -ceq 'swaw/context' -and
         $ContextFacet.resolver.type -ceq 'command' -and
-        $ContextFacet.resolver.address -ceq '.context.list' -and
+        $ContextFacet.resolver.address -ceq 'swaw/context/list' -and
         @($ContextFacet.resolver.arguments).Count -eq 1 -and
         $ContextFacet.resolver.arguments[0] -ceq '--json' -and
-        $ContextFacet.resolver.returns -ceq 'swawkit.subject-collection/v2' -and
+        $ContextFacet.resolver.returns -ceq 'swawkit.subject-collection/v3' -and
         $ContextSubjectKind.kind -ceq 'context' -and
         @($ContextSubjectKind.facets).Count -eq 7 -and
-        $ContextOverviewFacet.resolver.address -ceq '.context.show' -and
+        $ContextOverviewFacet.resolver.address -ceq 'swaw/context/show' -and
         $ContextOverviewFacet.resolver.arguments[0].bind -ceq 'subject.id') `
-    -Message '.context collection facet declaration is invalid'
+    -Message 'swaw/context collection facet declaration is invalid'
 Assert-ProjDevelopmentCommandLayout `
     -Condition (-not (Test-Path -LiteralPath (
-        Join-Path $ProjRoot '.context\resource.core.json'
+        Join-Path $ContextRoot 'resource.core.json'
     ))) `
     -Message 'the removed Context resource provider manifest still exists'
 
-$RunsModuleManifest = Join-Path $ProjRoot '.runs\_module.json'
+$RunsModuleManifest = Join-Path $SystemRoot 'runs\swawkit.module.json'
 Assert-ProjDevelopmentCommandLayout `
     -Condition ([IO.File]::Exists($RunsModuleManifest)) `
     -Message '.runs does not declare its Run Subject facets'
@@ -173,7 +267,7 @@ $RunOpenFacet = @($RunSubjectKind.facets) |
     Where-Object { $_.id -ceq 'open' } |
     Select-Object -First 1
 $RunsContractChecks = @(
-    ($RunsModule.schema -ceq 'swawkit.command-module/v4')
+    ($RunsModule.schema -ceq 'swawkit.command-module/v8')
     (@($RunsModule.facets).Count -eq 1)
     ($AllRunsFacet.id -ceq 'all')
     ($AllRunsFacet.kind -ceq 'collection')
@@ -181,12 +275,12 @@ $RunsContractChecks = @(
     ($AllRunsFacet.label.en -ceq 'All Runs')
     ($AllRunsFacet.subjectKind.kind -ceq 'run')
     ($AllRunsFacet.subjectKind.provider.type -ceq 'command')
-    ($AllRunsFacet.subjectKind.provider.source -ceq 'kernel')
+    ($AllRunsFacet.subjectKind.provider.space -ceq 'system')
     ($AllRunsFacet.subjectKind.provider.address -ceq '.runs')
     ($AllRunsFacet.resolver.address -ceq '.runs')
     (@($AllRunsFacet.resolver.arguments).Count -eq 1)
     ($AllRunsFacet.resolver.arguments[0] -ceq '--json')
-    ($AllRunsFacet.resolver.returns -ceq 'swawkit.subject-collection/v2')
+    ($AllRunsFacet.resolver.returns -ceq 'swawkit.subject-collection/v3')
     ($RunSubjectKind.kind -ceq 'run')
     (@($RunSubjectKind.facets).Count -eq 2)
     ($RunOverviewFacet.resolver.address -ceq '.runs')
@@ -203,46 +297,46 @@ Assert-ProjDevelopmentCommandLayout `
 
 $DependencyContracts = @(
     @{
-        Name = '.dev.bun toolchain root'
-        Script = '.dev\bun\_lib\runtime.ps1'
-        Relative = '..\..\..\_toolchain'
+        Name = '.dev/bun toolchain root'
+        Script = 'dev\bun\_lib\runtime.ps1'
+        Relative = '..\..\..\..\_toolchain'
         PathType = 'Container'
     },
     @{
-        Name = '.dev.rust.cargo runtime'
-        Script = '.dev\rust\cargo\run.ps1'
-        Relative = '..\..\..\_toolchain\_modules\rust\runtime.ps1'
+        Name = '.dev/rust/cargo runtime'
+        Script = 'dev\rust\cargo\run.ps1'
+        Relative = '..\..\..\..\_toolchain\_modules\rust\runtime.ps1'
         PathType = 'Leaf'
     },
     @{
-        Name = '.dev.msvc.cl runtime'
-        Script = '.dev\msvc\cl\run.ps1'
-        Relative = '..\..\..\_toolchain\_modules\msvc\runtime.ps1'
+        Name = '.dev/msvc/cl runtime'
+        Script = 'dev\msvc\cl\run.ps1'
+        Relative = '..\..\..\..\_toolchain\_modules\msvc\runtime.ps1'
         PathType = 'Leaf'
     },
     @{
-        Name = '.dev.rust.rustc runtime'
-        Script = '.dev\rust\rustc\run.ps1'
-        Relative = '..\..\..\_toolchain\_modules\rust\runtime.ps1'
+        Name = '.dev/rust/rustc runtime'
+        Script = 'dev\rust\rustc\run.ps1'
+        Relative = '..\..\..\..\_toolchain\_modules\rust\runtime.ps1'
         PathType = 'Leaf'
     },
     @{
-        Name = '.dev.cmd shell runtime'
-        Script = '.dev\cmd\run.ps1'
-        Relative = '..\..\_shell\runtime.ps1'
+        Name = '.dev/cmd shell runtime'
+        Script = 'dev\cmd\run.ps1'
+        Relative = '..\..\..\_shell\runtime.ps1'
         SourceMarker = '_shell\runtime.ps1'
         PathType = 'Leaf'
     },
     @{
-        Name = '.dev.exec development environment runtime'
-        Script = '.dev\exec\run.ps1'
-        Relative = '..\..\_toolchain\runtime.ps1'
+        Name = '.dev/exec development environment runtime'
+        Script = 'dev\exec\run.ps1'
+        Relative = '..\..\..\_toolchain\runtime.ps1'
         SourceMarker = '_toolchain\runtime.ps1'
         PathType = 'Leaf'
     }
 )
 foreach ($Contract in $DependencyContracts) {
-    $ScriptPath = Join-Path $ProjRoot $Contract.Script
+    $ScriptPath = Join-Path $SystemRoot $Contract.Script
     $Source = [IO.File]::ReadAllText($ScriptPath)
     $TargetPath = [IO.Path]::GetFullPath((Join-Path `
         (Split-Path -Parent $ScriptPath) `
@@ -264,13 +358,13 @@ foreach ($Contract in $DependencyContracts) {
         -Message "$($Contract.Name) resolves to a missing target"
 }
 
-$PwshEntry = Join-Path $ProjRoot '.dev\pwsh\run.ps1'
+$PwshEntry = Join-Path $SystemRoot 'dev\pwsh\run.ps1'
 $PwshSource = [IO.File]::ReadAllText($PwshEntry)
 Assert-ProjDevelopmentCommandLayout `
     -Condition ($PwshSource.Contains('PSEdition') -and
         $PwshSource.Contains('PSVersionTable') -and
-        -not [IO.File]::Exists((Join-Path $ProjRoot '.dev\ps\run.ps1'))) `
-    -Message '.dev.pwsh does not own the PowerShell 7-only shell contract'
+        -not [IO.File]::Exists((Join-Path $SystemRoot 'dev\ps\run.ps1'))) `
+    -Message '.dev/pwsh does not own the PowerShell 7-only shell contract'
 
 Write-Host '[PASS] Proj development command layout test' `
     -ForegroundColor Green

@@ -1,6 +1,6 @@
 import { createContextProjection } from "./context-projection-model.js";
 
-export const CONTEXT_PROTOCOL = "swawkit.context/v1";
+export const CONTEXT_PROTOCOL = "swawkit.context/v2";
 
 function renderList(list, empty, values, renderValue) {
   list.replaceChildren(...values.map((value) => {
@@ -19,9 +19,11 @@ export function renderContextFields(elements, document_) {
     (item, command) => {
       const address = document.createElement("code");
       address.textContent = command.address;
-      const source = document.createElement("span");
-      source.textContent = command.source;
-      item.append(address, source);
+      const identity = document.createElement("span");
+      identity.textContent = command.namespace
+        ? `${command.space}:${command.namespace}`
+        : command.space;
+      item.append(address, identity);
     },
   );
   renderList(

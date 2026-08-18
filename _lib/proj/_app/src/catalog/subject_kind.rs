@@ -6,7 +6,7 @@ use crate::subject_kind::{
 };
 
 use super::{
-    CommandNode, CommandSource,
+    CommandNode,
     module_contract::{
         ModuleFacet, ModuleFacetArgument, ModuleFacetBinding, ModuleFacetResolver,
         ModuleSubjectKind,
@@ -15,14 +15,14 @@ use super::{
 
 #[derive(Clone, Copy)]
 struct ResolverCapability {
-    source: CommandSource,
     runnable: bool,
     canonical: bool,
+    control: bool,
 }
 
 impl ResolverCapability {
     fn web_runnable(self) -> bool {
-        self.runnable && self.canonical && self.source != CommandSource::Control
+        self.runnable && self.canonical && !self.control
     }
 }
 
@@ -33,9 +33,9 @@ pub(super) fn resolve_subject_kinds(commands: &mut [CommandNode]) {
             (
                 command.address.clone(),
                 ResolverCapability {
-                    source: command.source,
                     runnable: command.runnable,
                     canonical: command.alias_of.is_none(),
+                    control: command.is_control(),
                 },
             )
         })
@@ -124,7 +124,7 @@ fn resolve_subject_facet(
     };
     if !capability.web_runnable() {
         return Err(format!(
-            "subject facet '{}' command '{}' is not an exact runnable Kernel or Action command",
+            "subject facet '{}' command '{}' is not an exact Web-runnable command",
             declaration.id, address
         ));
     }

@@ -49,6 +49,8 @@ impl Fixture {
             std::env::temp_dir().join(format!("swawkit-server-{}-{sequence}", std::process::id()));
         let runtime_root = root.join("home/_lib/proj/_bin");
         fs::create_dir_all(runtime_root.join("releases")).expect("create fixture root");
+        fs::create_dir_all(root.join("home/_lib/proj/system")).expect("create System root");
+        fs::create_dir_all(root.join("home/_lib/proj/modules")).expect("create swaw Module root");
         fs::write(
             runtime_root.join("current"),
             format!("{}\n", "1".repeat(64)),
@@ -262,10 +264,10 @@ async fn serves_only_the_declared_local_surface() {
 
     for path in [
         "/commands",
-        "/commands/action/proj/build/launcher",
-        "/commands/kernel/dev/setup",
-        "/commands/control/entry/language",
-        "/commands/kernel/dev/rust/mode",
+        "/commands/module/project/proj/build/launcher",
+        "/commands/system/dev/setup",
+        "/commands/system/entry/language",
+        "/commands/system/dev/rust/mode",
     ] {
         let response = send(app.clone(), Method::GET, path, Some(AUTHORITY)).await;
         assert_eq!(response.status(), StatusCode::OK, "{path}");
@@ -307,6 +309,10 @@ async fn serves_only_the_declared_local_surface() {
         ),
         ("/assets/app.js", "text/javascript; charset=utf-8"),
         ("/assets/i18n.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/command-identity.js",
+            "text/javascript; charset=utf-8",
+        ),
         ("/assets/catalog-model.js", "text/javascript; charset=utf-8"),
         ("/assets/facet-model.js", "text/javascript; charset=utf-8"),
         (
@@ -414,7 +420,8 @@ async fn serves_only_the_declared_local_surface() {
     assert_eq!(document["protocol"], crate::catalog::CATALOG_PROTOCOL);
     assert_eq!(document["entryName"], "swawkit");
     assert_eq!(document["language"], "zh-CN");
-    assert_eq!(document["commands"].as_array().map(Vec::len), Some(1));
+    assert_eq!(document["commands"].as_array().map(Vec::len), Some(2));
+    assert!(command(&document, "swaw").is_some());
     assert_eq!(
         send(app.clone(), Method::GET, "/healthz", Some(AUTHORITY))
             .await
@@ -460,7 +467,11 @@ async fn rescans_the_catalog_on_each_request() {
     let before = catalog_document(app.clone()).await;
     assert!(command(&before, ".dynamic").is_none());
 
-    fixture.file("home/_lib/proj/.dynamic/run.ps1", "");
+    fixture.file(
+        "home/_lib/proj/system/dynamic/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file("home/_lib/proj/system/dynamic/run.ps1", "");
     let after = catalog_document(app).await;
     assert_eq!(
         command(&after, ".dynamic").and_then(|node| node["runnable"].as_bool()),
@@ -471,7 +482,7 @@ async fn rescans_the_catalog_on_each_request() {
 #[tokio::test]
 async fn returns_a_safe_error_when_catalog_discovery_fails() {
     let fixture = Fixture::new();
-    fs::remove_dir_all(fixture.context().kernel_root()).expect("remove fixture command root");
+    fs::remove_dir_all(fixture.context().command_root()).expect("remove fixture command root");
     let response = send(
         fixture.app(),
         Method::GET,
@@ -492,41 +503,58 @@ async fn returns_a_safe_error_when_catalog_discovery_fails() {
 async fn serializes_the_complete_catalog_node_contract() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
-    fixture.file("home/_lib/proj/.dev/status/run.cmd", "");
     fixture.file(
-        "home/_lib/proj/.dev/status/_module.json",
-        r#"{"schema":"swawkit.command-module/v4","requires":[{"provider":".dev.setup","contract":"swawkit.dev/v1"}],"provides":[{"contract":"swawkit.status/v1"}]}"#,
+        "home/_lib/proj/system/dev/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file("home/_lib/proj/system/dev/status/run.cmd", "");
+    fixture.file(
+        "home/_lib/proj/system/dev/status/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8","requires":[{"provider":".dev/setup","export":"environment","contract":"swawkit.dev/v1"}],"provides":[{"id":"status","contract":"swawkit.status/v1"}]}"#,
     );
     fixture.file(
-        "home/_lib/proj/.dev/_view/web.json",
+        "home/_lib/proj/system/dev/_view/web.json",
         r#"{"schema":"swawkit.command-view/web/v4","childrenColumn":{"width":"wide"}}"#,
     );
     fixture.file(
-        "home/_lib/proj/.dev/status/_view/web.json",
+        "home/_lib/proj/system/dev/status/_view/web.json",
         r#"{"schema":"swawkit.command-view/web/v4","run":{"operations":[{"id":"preview","label":"Preview","arguments":[]},{"id":"apply","label":"Apply","arguments":["--apply"],"confirmation":"Confirm cleanup."}]}}"#,
     );
     fixture.file(
-        "home/_lib/proj/.dev/status/_help/zh-CN.txt",
+        "home/_lib/proj/system/dev/status/_help/zh-CN.txt",
         "Show {{ADDRESS}}\nUse {{INVOCATION}}",
     );
-    fixture.file("home/_lib/proj/.help/run.ps1", "");
-    fixture.file("home/_lib/proj/.h/run.ps1", "");
-    fixture.file("home/_lib/proj/.broken/run.ps1", "");
-    fixture.file("home/_lib/proj/.broken/run.cmd", "");
+    fixture.file(
+        "home/_lib/proj/system/help/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file("home/_lib/proj/system/help/run.ps1", "");
+    fixture.file(
+        "home/_lib/proj/system/broken/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file("home/_lib/proj/system/broken/run.ps1", "");
+    fixture.file("home/_lib/proj/system/broken/run.cmd", "");
 
     let document = catalog_document(fixture.app()).await;
     assert_eq!(
         command(&document, ".dev").expect("group node"),
         &json!({
             "address": ".dev",
-            "source": "kernel",
+            "space": "system",
+            "namespace": null,
+            "path": ["dev"],
             "parent": "",
             "aliasOf": null,
             "runnable": false,
             "entry": null,
             "adapter": null,
             "handler": null,
-            "module": null,
+            "module": {
+                "schema": "swawkit.command-module/v8",
+                "requires": [],
+                "provides": []
+            },
             "help": null,
             "subjectKinds": [],
             "facets": [
@@ -552,10 +580,12 @@ async fn serializes_the_complete_catalog_node_contract() {
         })
     );
     assert_eq!(
-        command(&document, ".dev.status").expect("runnable node"),
+        command(&document, ".dev/status").expect("runnable node"),
         &json!({
-            "address": ".dev.status",
-            "source": "kernel",
+            "address": ".dev/status",
+            "space": "system",
+            "namespace": null,
+            "path": ["dev", "status"],
             "parent": ".dev",
             "aliasOf": null,
             "runnable": true,
@@ -563,18 +593,20 @@ async fn serializes_the_complete_catalog_node_contract() {
             "adapter": "cmd",
             "handler": null,
             "module": {
-                "schema": "swawkit.command-module/v4",
+                "schema": "swawkit.command-module/v8",
                 "requires": [{
-                    "provider": ".dev.setup",
+                    "provider": ".dev/setup",
+                    "export": "environment",
                     "contract": "swawkit.dev/v1"
                 }],
                 "provides": [{
+                    "id": "status",
                     "contract": "swawkit.status/v1"
                 }]
             },
             "help": {
-                "summary": "Show .dev.status",
-                "text": "Show .dev.status\nUse swawkit .dev.status"
+                "summary": "Show .dev/status",
+                "text": "Show .dev/status\nUse swawkit .dev/status"
             },
             "subjectKinds": [],
             "facets": [
@@ -587,7 +619,7 @@ async fn serializes_the_complete_catalog_node_contract() {
                     "summary": "设置参数并启动命令",
                     "resolver": {
                         "type": "command",
-                        "address": ".dev.status",
+                        "address": ".dev/status",
                         "arguments": [],
                         "acceptsTail": true
                     }
@@ -613,10 +645,7 @@ async fn serializes_the_complete_catalog_node_contract() {
             "diagnostic": null
         })
     );
-    assert_eq!(
-        command(&document, ".h").and_then(|node| node["aliasOf"].as_str()),
-        Some(".help")
-    );
+    assert!(command(&document, ".h").is_none());
     assert!(
         command(&document, ".broken")
             .and_then(|node| node["diagnostic"].as_str())

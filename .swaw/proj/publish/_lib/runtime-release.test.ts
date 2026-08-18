@@ -106,7 +106,7 @@ async function runtimeFixture() {
   temporaryRoots.push(root);
   const home = join(root, "home");
   const dataRoot = join(root, "data");
-  const commandRoot = join(dataRoot, "modules", "action", "proj", "build", "app");
+  const commandRoot = join(dataRoot, "modules", "project", "proj", "build", "app");
   const cacheRoot = join(home, "data", "proj_cache");
   const runtimeRoot = join(home, "_lib", "proj", "_bin");
   await mkdir(join(home, "_lib", "proj"), { recursive: true });

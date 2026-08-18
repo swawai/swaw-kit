@@ -42,7 +42,7 @@ describe("Run projection renderer", () => {
     }, {
       protocol: RUN_JOURNAL_PROTOCOL,
       id,
-      address: ".dev.status",
+      address: ".dev/status",
       source: "web",
       state: "exited",
       startedAtUnixMs: 1,

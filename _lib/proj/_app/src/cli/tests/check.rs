@@ -11,23 +11,23 @@ fn module_check_uses_declared_provider_state_and_returns_a_machine_exit_code() {
     fixture.core_command(".check", "meta.check");
     let provider = fixture.command(".provider", "run.exe", "fixture");
     fs::write(
-        provider.join("_module.json"),
-        r#"{"schema":"swawkit.command-module/v4","provides":[{"contract":"swawkit.fixture/v1"}]}"#,
+        provider.join("swawkit.module.json"),
+        r#"{"schema":"swawkit.command-module/v8","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
     )
     .unwrap();
     let consumer = fixture.command(".consumer", "run.exe", "fixture");
     fs::write(
-        consumer.join("_module.json"),
-        r#"{"schema":"swawkit.command-module/v4","requires":[{"provider":".provider","contract":"swawkit.fixture/v1"}]}"#,
+        consumer.join("swawkit.module.json"),
+        r#"{"schema":"swawkit.command-module/v8","requires":[{"provider":".provider","export":"fixture","contract":"swawkit.fixture/v1"}]}"#,
     )
     .unwrap();
     fixture.bind();
-    let provider_data = fixture.data_root().join("modules/kernel/.provider");
+    let provider_data = fixture.data_root().join("modules/system/provider");
     fs::create_dir_all(provider_data.join("export")).unwrap();
     fs::write(provider_data.join("export/sentinel.txt"), "ready").unwrap();
     fs::write(
         provider_data.join("_state.json"),
-        r#"{"schema":"swawkit.command-provider-state/v1","status":"ready","inputRevision":"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","producerContract":"swawkit.fixture/v1"}"#,
+        r#"{"schema":"swawkit.command-provider-state/v2","status":"ready","inputRevision":"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","exports":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
     )
     .unwrap();
     let mut unexpected =

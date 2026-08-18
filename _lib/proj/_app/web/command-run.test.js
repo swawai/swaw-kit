@@ -35,9 +35,9 @@ describe("command run view", () => {
       },
     });
     view.select({
-      address: ".cache.prune",
+      address: ".cache/prune",
       runnable: true,
-      source: "kernel",
+      space: "system",
       runOperations: [
         { id: "preview", label: "预览", arguments: [], confirmation: null },
         {
@@ -94,15 +94,15 @@ describe("command run view", () => {
       {
         address: ".check",
         runnable: true,
-        source: "kernel",
+        space: "system",
         runOperations: [
           { id: "other", label: "Other", arguments: [], confirmation: null },
         ],
       },
       {
         acceptsTail: false,
-        arguments: [".context.list", "--json"],
-        key: ".context.list#validate",
+        arguments: ["swaw/context/list", "--json"],
+        key: "swaw/context/list#validate",
         useOperations: false,
       },
     );
@@ -111,7 +111,7 @@ describe("command run view", () => {
       ui.commandRunArguments
         .querySelectorAll(".command-run-argument")
         .map((input) => input.value),
-    ).toEqual([".context.list", "--json"]);
+    ).toEqual(["swaw/context/list", "--json"]);
     expect(
       ui.commandRunArguments
         .querySelectorAll(".command-run-argument")
@@ -122,7 +122,7 @@ describe("command run view", () => {
     await view.execute();
     expect(body).toEqual({
       address: ".check",
-      arguments: [".context.list", "--json"],
+      arguments: ["swaw/context/list", "--json"],
     });
   });
 
@@ -135,7 +135,7 @@ describe("command run view", () => {
       async fetchRun(_url, options) {
         body = JSON.parse(options.body);
         return response(201, snapshot({
-          address: ".context.delete",
+          address: "swaw/context/delete",
           state: "exited",
           exitCode: 0,
         }), "/api/v2/command-runs/run-1");
@@ -143,7 +143,12 @@ describe("command run view", () => {
     });
 
     view.select(
-      { address: ".context.delete", runnable: true, source: "kernel" },
+      {
+        address: "swaw/context/delete",
+        namespace: "swaw",
+        runnable: true,
+        space: "module",
+      },
       {
         acceptsTail: false,
         arguments: ["mycontext01"],
@@ -190,7 +195,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/pwsh", runnable: true, space: "system" });
     ui.commandRunAdd.dispatch("click");
     ui.commandRunAdd.dispatch("click");
     const inputs = ui.commandRunArguments.querySelectorAll(".command-run-argument");
@@ -232,7 +237,7 @@ describe("command run view", () => {
         return response(200, snapshot({ id: "run-9" }));
       },
     });
-    view.select({ address: ".dev.status", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/status", runnable: true, space: "system" });
     await view.restore();
 
     expect(request.url).toBe("/api/v2/command-runs/run-9?after=0");
@@ -258,7 +263,7 @@ describe("command run view", () => {
     });
 
     const restoring = view.restore();
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/pwsh", runnable: true, space: "system" });
     expect(ui.commandRunSubmit.disabled).toBe(true);
     expect(ui.commandRunAdd.disabled).toBe(true);
     await view.execute();
@@ -295,7 +300,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/pwsh", runnable: true, space: "system" });
     await view.restore();
     await view.execute();
 
@@ -330,7 +335,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/pwsh", runnable: true, space: "system" });
     await view.restore();
     await view.execute();
 
@@ -358,7 +363,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/pwsh", runnable: true, space: "system" });
     await view.execute();
     timers.take().callback();
     await settle();
@@ -383,11 +388,11 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/pwsh", runnable: true, space: "system" });
     ui.commandRunAdd.dispatch("click");
     ui.commandRunArguments.querySelectorAll(".command-run-argument")[0].value = "old";
     await view.execute();
-    view.select({ address: ".dev.status", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/status", runnable: true, space: "system" });
     timers.take().callback();
     await settle();
 
@@ -412,7 +417,7 @@ describe("command run view", () => {
           : response(204);
       },
     });
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/pwsh", runnable: true, space: "system" });
     await view.execute();
     await view.cancel();
 
@@ -448,7 +453,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    view.select({ address: ".dev/pwsh", runnable: true, space: "system" });
     await view.execute();
     timers.take().callback();
     await view.cancel();

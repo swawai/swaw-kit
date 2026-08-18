@@ -34,7 +34,7 @@ export function createModuleCheckProjectionRenderer(elements, options = {}) {
     heading.className = "module-check-item-heading";
     marker.className = "module-check-marker";
     marker.textContent = item.ready ? "✓" : "!";
-    name.textContent = `${item.provider} · ${item.contract}`;
+    name.textContent = `${item.provider}#${item.export} · ${item.contract}`;
     heading.append(marker, name);
     row.append(heading);
     detail(row, item.message);
@@ -93,7 +93,10 @@ export function createModuleCheckProjectionRenderer(elements, options = {}) {
     const document_ = createModuleCheckProjection(payload, subject);
     const command = document_.command;
     elements.moduleCheckTitle.textContent = command.address;
-    elements.moduleCheckMeta.textContent = [command.source, command.adapter ?? "none"]
+    elements.moduleCheckMeta.textContent = [
+      command.namespace ? `${command.space}:${command.namespace}` : command.space,
+      command.adapter ?? "none",
+    ]
       .join(" · ");
     elements.moduleCheckState.textContent = document_.ok
       ? t("已就绪", "Ready")

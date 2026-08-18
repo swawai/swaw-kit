@@ -226,7 +226,7 @@ fn null_terminated(value: &OsStr) -> Vec<u16> {
 }
 
 fn selection_components<'a>(tool: &'a str) -> [&'a str; 6] {
-    ["modules", "kernel", ".dev", "setup", "export", tool]
+    ["modules", "system", "dev", "setup", "export", tool]
 }
 
 fn valid_selection(store: &ArchiveToolStore<'_>, selection: &Selection) -> bool {

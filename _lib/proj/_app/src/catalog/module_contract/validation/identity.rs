@@ -53,12 +53,16 @@ pub(super) fn validate_contract(contract: &str, path: &Path) -> io::Result<()> {
 }
 
 pub(super) fn valid_provider_address(address: &str) -> bool {
-    let value = match address.strip_prefix('.') {
-        Some(value) if !value.starts_with('.') => value,
-        Some(_) => return false,
-        None => address,
+    if let Some(path) = address.strip_prefix('.') {
+        return !path.is_empty() && path.split('/').all(valid_segment);
+    }
+    let Some((namespace, path)) = address.split_once('/') else {
+        return false;
     };
-    !value.is_empty() && value.split('.').all(valid_segment)
+    valid_segment(namespace)
+        && !matches!(namespace, "system" | "module")
+        && !path.is_empty()
+        && path.split('/').all(valid_segment)
 }
 
 fn valid_segment(segment: &str) -> bool {
@@ -73,10 +77,10 @@ mod tests {
 
     #[test]
     fn provider_addresses_are_intentionally_narrow() {
-        for valid in [".dev.setup", ".dev.rust.setup", "proj.build.app"] {
+        for valid in [".dev/setup", ".dev/rust/setup", "project/build/app"] {
             assert!(valid_provider_address(valid), "{valid}");
         }
-        for invalid in ["", ".", "..entry", "Dev.setup", ".dev..setup"] {
+        for invalid in ["", ".", "..entry", "Dev/setup", ".dev//setup", "build"] {
             assert!(!valid_provider_address(invalid), "{invalid}");
         }
     }

@@ -42,7 +42,7 @@ pub fn resolve_system() -> Result<SystemPwsh, String> {
         return Err("system PowerShell 7 is unavailable because PATH is not defined".to_owned());
     }
     Err(format!(
-        "system PowerShell 7 (pwsh.exe) was not found on PATH. Install PowerShell 7, restart the Entry Host, and run .dev.setup again"
+        "system PowerShell 7 (pwsh.exe) was not found on PATH. Install PowerShell 7, restart the Entry Host, and run .dev/setup again"
     ))
 }
 

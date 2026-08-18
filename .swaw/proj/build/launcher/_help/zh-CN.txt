@@ -12,14 +12,14 @@
   export/manifest.json
   _state.json
 
-日常 Action 只使用 Core 从 Entry Profile 与 `.dev.setup` Ready Export 解析并完整复验的
+日常 Module 命令只使用 Core 从 Entry Profile 与 `.dev/setup` Ready Export 解析并完整复验的
 MSVC/Windows SDK，不依赖系统 PATH 中碰巧存在的编译器。没有可用 Core 时，源码树入口
 `_lib/proj/build.ps1` 仍使用 Bootstrap 固定工具链恢复构建；两条路径共用同一份
-`_lib/proj/_launcher/build.json` 编译契约，但 Action 的 work/export 不写入共享缓存。
+`_lib/proj/_launcher/build.json` 编译契约，但 Module 的 work/export 不写入共享缓存。
 它绝不修改 Favorites/template.proj1.exe 或根 swawkit.exe。
 
 Favorites/template.proj1.exe 只是待复制模板；复制并改名后的 Entry 必须直接放在
 SWAWKIT_HOME 根目录。无参数启动 Host、托盘和本地 Web 控制台；带参数时同步执行
 Rust CLI，保留原生参数边界并返回真实退出码。放入子目录后会拒绝启动。
 
-该 Action 不接受动态参数。Launcher 编译和候选原子落盘只有这一条组件主路径。
+该 Module 命令不接受动态参数。Launcher 编译和候选原子落盘只有这一条组件主路径。

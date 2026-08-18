@@ -1,9 +1,9 @@
-演示 Action 直接消费 Core 已验证并注入的受管 MSVC 环境。
+演示 Module 命令直接消费 Core 已验证并注入的受管 MSVC 环境。
 
 用法：
   {{INVOCATION}}
 
-该 Action 要求 SWAWKIT_PROJ_MSVC_MODE=managed，并使用 .dev.setup 发布的
+该 Module 命令要求 SWAWKIT_PROJ_MSVC_MODE=managed，并使用 .dev/setup 发布的
 VCToolsInstallDir、WindowsSdkDir 和 PATH。run.ps1 不再自行读取 Provider Export、
 重复解析安装元数据或回退到系统 cl.exe；环境所有权只由 Core 负责。
 

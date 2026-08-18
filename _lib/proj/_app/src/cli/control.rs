@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use swawkit_proj::{
-    catalog::{CatalogSnapshot, CommandNode, CommandSource, is_help_marker},
+    catalog::{CatalogSnapshot, CommandNode, is_help_marker},
     context::EntryContext,
     help::render_help,
     profile::{EntryProfileDocument, EntryProfileRecord, EntryProfileStore},
@@ -21,6 +21,15 @@ pub(super) enum PreDataRootControl {
     Complete(i32),
 }
 
+fn is_pre_data_root_control(address: &str) -> bool {
+    [".entry", ".runtime"].iter().any(|root| {
+        address == *root
+            || address
+                .strip_prefix(root)
+                .is_some_and(|suffix| suffix.starts_with('/'))
+    })
+}
+
 pub(super) fn dispatch_before_data_root(
     context: &EntryContext,
     argv: &[OsString],
@@ -31,7 +40,7 @@ pub(super) fn dispatch_before_data_root(
     let address = address
         .to_str()
         .ok_or_else(|| CliError::new("command address is not valid Unicode"))?;
-    if !address.starts_with("..") {
+    if !is_pre_data_root_control(address) {
         return Ok(None);
     }
 
@@ -90,8 +99,7 @@ pub(super) fn dispatch(
     let Some(command) = snapshot.commands.iter().find(|command| {
         command.address == address
             && command.adapter.as_deref() == Some("core")
-            && (command.source == CommandSource::Control
-                || command.handler.as_deref() == Some("entry.profile.set"))
+            && (command.is_control() || command.handler.as_deref() == Some("entry.profile.set"))
     }) else {
         return Ok(None);
     };
@@ -139,7 +147,7 @@ pub(super) fn resolve_control<'a>(
     }
     if command.adapter.as_deref() != Some("core") {
         return Err(CliError::new(format!(
-            "Catalog invariant failed for '{address}': Control command is not a Core command"
+            "Catalog invariant failed for '{address}': in-process System command is not a Core command"
         )));
     }
     Ok(command)
@@ -152,7 +160,7 @@ fn control_node<'a>(
     snapshot
         .commands
         .iter()
-        .find(|node| node.source == CommandSource::Control && node.address == address)
+        .find(|node| node.is_control() && node.address == address)
         .ok_or_else(|| CliError::new(format!("command not found: {address}")))
 }
 
@@ -167,7 +175,7 @@ fn show_runtime_status(arguments: &[OsString], context: &EntryContext) -> Result
             write_output(&output)
                 .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
         }
-        _ => return Err(CliError::new("usage: ..runtime [--json]")),
+        _ => return Err(CliError::new("usage: .runtime [--json]")),
     }
     Ok(0)
 }
@@ -211,7 +219,7 @@ fn show_profile(
         [] => write_profile_summary(&document)?,
         [format] if format == "--json" => write_json(&document)?,
         _ => {
-            return Err(CliError::new("usage: ..entry [--json]"));
+            return Err(CliError::new("usage: .entry [--json]"));
         }
     }
     Ok(0)
@@ -244,10 +252,10 @@ fn apply_profile(
     profile_store: &EntryProfileStore,
 ) -> Result<i32, CliError> {
     let [option, path] = arguments else {
-        return Err(CliError::new("usage: ..entry.apply --file <profile.json>"));
+        return Err(CliError::new("usage: .entry/apply --file <profile.json>"));
     };
     if option != "--file" {
-        return Err(CliError::new("usage: ..entry.apply --file <profile.json>"));
+        return Err(CliError::new("usage: .entry/apply --file <profile.json>"));
     }
     let path = resolve_input_path(path, &context.invocation_directory);
     let content = fs::read_to_string(&path).map_err(|error| {

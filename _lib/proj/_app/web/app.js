@@ -348,7 +348,7 @@ contextTray = createContextTrayView(elements, {
     const overview = subject.facets.find((facet) => (
       facet.id === "overview"
       && facet.kind === "projection"
-      && facet.resolver?.returns === "swawkit.context/v1"
+      && facet.resolver?.returns === "swawkit.context/v2"
     ));
     if (!overview) {
       throw new Error(t(
@@ -377,7 +377,7 @@ const dataRootClaim = createDataRootClaimView(elements, {
 });
 runtimeControl = createRuntimeControlView(elements, {
   onRuntimeState(state) {
-    explorer.setCommandState("..runtime", state);
+    explorer.setCommandState(".runtime", state);
   },
 });
 

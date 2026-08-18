@@ -14,7 +14,7 @@ fn writer_and_formal_reader_share_one_metadata_contract() {
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));
     let data_root = root.join("data");
-    let install = data_root.join("modules/kernel/.dev/setup/export/msvc/installs/17");
+    let install = data_root.join("modules/system/dev/setup/export/msvc/installs/17");
     fs::create_dir_all(&install).unwrap();
     let definition = MsvcDefinition::new("17").unwrap();
     let versions = AssemblyVersions {

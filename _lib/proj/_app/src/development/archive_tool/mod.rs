@@ -78,8 +78,8 @@ impl<'a> ArchiveToolStore<'a> {
     pub fn require_export(&self) -> Result<(), ArchiveToolError> {
         let components = [
             "modules",
-            "kernel",
-            ".dev",
+            "system",
+            "dev",
             "setup",
             "export",
             self.tool.name,
@@ -131,8 +131,8 @@ impl<'a> ArchiveToolStore<'a> {
         self.require_tool(&resolved.tool_name)?;
         let components = [
             "modules",
-            "kernel",
-            ".dev",
+            "system",
+            "dev",
             "setup",
             "export",
             self.tool.name,

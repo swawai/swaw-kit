@@ -6,7 +6,7 @@ import { ensureControlledDirectory } from "../_lib/release-set.ts";
 import { acquireExclusiveFileLock, moveFileReplace } from "../_lib/windows-filesystem.ts";
 import { publishBuildArtifact } from "./_lib/artifact.ts";
 
-if (Bun.argv.length !== 2) throw new Error("proj.build.launcher does not accept dynamic arguments.");
+if (Bun.argv.length !== 2) throw new Error("project/proj/build/launcher does not accept dynamic arguments.");
 
 const commandRoot = requiredAbsolute("SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT");
 const projHome = requiredAbsolute("SWAWKIT_HOME");
@@ -52,7 +52,7 @@ try {
 await rm(candidateStage, { force: true });
 const published = await publishBuildArtifact(commandRoot);
 console.log(`[BUILT] ${candidate} (${published.length} bytes)`);
-console.log(`[READY] proj.build.launcher (sha256-${published.sha256})`);
+console.log(`[READY] project/proj/build/launcher (sha256-${published.sha256})`);
 
 async function run(executable: string, arguments_: string[]): Promise<void> {
   const child = Bun.spawn([executable, ...arguments_], {

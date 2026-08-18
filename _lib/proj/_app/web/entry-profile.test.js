@@ -14,7 +14,7 @@ function profileDocument(revision, settings) {
     status: "ready",
     requiredComplete: true,
     settings,
-    profile: { language: settings["..entry.language"] },
+    profile: { language: settings[".entry/language"] },
   };
 }
 
@@ -37,11 +37,11 @@ test("setting updates use the typed command address and loaded revision", async 
   const document = {
     protocol: "swawkit.entry-profile-state/v5",
     revision: "sha256-next",
-    settings: { "..entry.language": "en" },
+    settings: { ".entry/language": "en" },
     profile: { language: "en" },
   };
   const result = await putEntryProfileSetting(
-    "..entry.language",
+    ".entry/language",
     "en",
     "sha256-loaded",
     async (url, options) => {
@@ -58,7 +58,7 @@ test("setting updates use the typed command address and loaded revision", async 
 
   assert.equal(
     request.url,
-    "/api/v2/profile/settings/..entry.language",
+    "/api/v2/profile/settings/.entry%2Flanguage",
   );
   assert.equal(request.options.headers["If-Match"], '"sha256-loaded"');
   assert.deepEqual(JSON.parse(request.options.body), { value: "en" });
@@ -67,7 +67,7 @@ test("setting updates use the typed command address and loaded revision", async 
 
 test("profile conflicts are distinguishable from validation failures", async () => {
   await assert.rejects(
-    putEntryProfileSetting("..entry.language", "en", "stale", async () => ({
+    putEntryProfileSetting(".entry/language", "en", "stale", async () => ({
       ok: false,
       status: 409,
       async json() {
@@ -79,17 +79,17 @@ test("profile conflicts are distinguishable from validation failures", async () 
 });
 
 test("a completed save does not overwrite a newer Profile command selection", async () => {
-  const firstAddress = "..entry.git.name";
-  const secondAddress = "..entry.git.email";
+  const firstAddress = ".entry/git/name";
+  const secondAddress = ".entry/git/email";
   const initial = profileDocument("sha256-loaded", {
     [firstAddress]: "Old Name",
     [secondAddress]: "mail@example.test",
-    "..entry.language": "zh-CN",
+    ".entry/language": "zh-CN",
   });
   const updated = profileDocument("sha256-next", {
     [firstAddress]: "New Name",
     [secondAddress]: "mail@example.test",
-    "..entry.language": "zh-CN",
+    ".entry/language": "zh-CN",
   });
   let resolveUpdate;
   const changed = [];

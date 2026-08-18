@@ -11,6 +11,7 @@ function Get-ProjDevGeneratedEnvironmentPublication {
         -ProviderAddress ([string]$Context.EnvironmentProviderAddress) `
         -EntryCommand ([string]$Context.EntryCommand) `
         -InputRevision ([string]$Context.EnvironmentInputRevision) `
+        -ExportId (Get-ProjDevSetupExportId) `
         -ProducerContract (Get-ProjDevSetupProducerContract)
     if (-not [IO.File]::Exists([string]$Context.EnvCmdPath) -or
         -not [IO.File]::Exists([string]$Context.EnvPs1Path)) {

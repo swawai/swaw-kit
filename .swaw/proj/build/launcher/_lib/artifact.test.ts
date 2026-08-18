@@ -21,15 +21,18 @@ test("publishes and reads one coherent Launcher Provider snapshot", async () => 
   expect(await readFile(resolved.path, "utf8")).toBe("launcher-fixture");
   const state = JSON.parse(await readFile(join(fixture.commandRoot, "_state.json"), "utf8"));
   expect(state).toMatchObject({
-    schema: "swawkit.command-provider-state/v1",
+    schema: "swawkit.command-provider-state/v2",
     status: "ready",
     inputRevision: `sha256-${published.sha256}`,
-    producerContract: "swawkit.proj-build-launcher/v1",
+    exports: [{
+      id: "launcher",
+      contract: "swawkit.proj-build-launcher/v1",
+    }],
   });
 
   await writeFile(resolved.path, "tampered-fixture");
   await expect(readReadyBuildArtifact(fixture.dataRoot, "fixture")).rejects.toThrow(
-    "run 'fixture proj.build.launcher'",
+    "run 'fixture project/proj/build/launcher'",
   );
 });
 
@@ -64,7 +67,7 @@ async function makeFixture() {
   const root = await mkdtemp(join(tmpdir(), "swawkit-launcher-artifact-"));
   roots.push(root);
   const dataRoot = join(root, "data");
-  const commandRoot = join(dataRoot, "modules", "action", "proj", "build", "launcher");
+  const commandRoot = join(dataRoot, "modules", "project", "proj", "build", "launcher");
   await mkdir(commandRoot, { recursive: true });
   return {
     dataRoot,

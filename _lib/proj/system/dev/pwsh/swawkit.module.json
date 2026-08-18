@@ -1,0 +1,10 @@
+{
+  "schema": "swawkit.command-module/v8",
+  "requires": [
+    {
+      "provider": ".dev/setup",
+      "export": "environment",
+      "contract": "swawkit.proj.dev-setup/v2"
+    }
+  ]
+}

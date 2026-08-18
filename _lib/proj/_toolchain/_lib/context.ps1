@@ -45,8 +45,8 @@ function New-ProjDevContext {
         $Candidate
     }
 
-    $EnvironmentProviderAddress = '.dev.setup'
-    $SetupCommandRoot = Get-ProjKernelCommandDataRoot `
+    $EnvironmentProviderAddress = '.dev/setup'
+    $SetupCommandRoot = Get-ProjSystemCommandDataRoot `
         -DataRoot $ResolvedDataRoot `
         -Address $EnvironmentProviderAddress
     $EnvironmentRoot = Resolve-ProjCommandExportPath `

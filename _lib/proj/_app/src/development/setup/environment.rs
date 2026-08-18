@@ -127,7 +127,7 @@ impl EnvironmentScripts {
     pub fn publish(&self, data_root: &Path) -> Result<bool, String> {
         let export = ensure_directory_chain(
             data_root,
-            &["modules", "kernel", ".dev", "setup", "export"],
+            &["modules", "system", "dev", "setup", "export"],
             "development environment export",
         )
         .map_err(|error| error.to_string())?;
@@ -250,7 +250,7 @@ mod tests {
 
         assert!(scripts.publish(&data_root).unwrap());
         assert!(!scripts.publish(&data_root).unwrap());
-        let export = data_root.join("modules/kernel/.dev/setup/export");
+        let export = data_root.join("modules/system/dev/setup/export");
         assert_eq!(
             fs::read(export.join("env.cmd")).unwrap(),
             scripts.cmd().as_bytes()

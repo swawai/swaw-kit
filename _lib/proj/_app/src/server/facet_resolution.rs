@@ -10,7 +10,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    catalog::{CatalogSnapshot, CommandNode, CommandSource},
+    catalog::{CatalogSnapshot, CommandNode, CommandSpace},
     context::EntryContext,
     data_root::DataRootSessionState,
     entry_runner::EntryRunSpec,
@@ -124,14 +124,25 @@ fn resolve_request(
     request: FacetResolutionRequest,
 ) -> ApiResult<FacetResolutionDocument> {
     let facet = match &request.subject {
-        SubjectRef::Command { source, address } => {
+        SubjectRef::Command {
+            space,
+            namespace,
+            address,
+        } => {
             if request.via.is_some() {
                 return Err(api_error(
                     StatusCode::UNPROCESSABLE_ENTITY,
                     "a command Subject facet cannot declare a via collection",
                 ));
             }
-            command_facet(&context.catalog, *source, address, &request.facet)?.clone()
+            command_facet(
+                &context.catalog,
+                *space,
+                namespace.as_deref(),
+                address,
+                &request.facet,
+            )?
+            .clone()
         }
         SubjectRef::Instance { .. } => {
             let via = request.via.as_ref().ok_or_else(|| {
@@ -161,7 +172,8 @@ fn resolve_request(
 
 fn command_facet<'a>(
     catalog: &'a CatalogSnapshot,
-    source: CommandSource,
+    space: CommandSpace,
+    namespace: Option<&str>,
     address: &str,
     facet_id: &str,
 ) -> ApiResult<&'a Facet> {
@@ -169,7 +181,10 @@ fn command_facet<'a>(
         .commands
         .iter()
         .find(|command| {
-            command.source == source && command.address == address && command.alias_of.is_none()
+            command.space == space
+                && command.namespace.as_deref() == namespace
+                && command.address == address
+                && command.alias_of.is_none()
         })
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Subject not found"))?;
     command
@@ -191,13 +206,24 @@ fn instance_facet(
             "via facet id is invalid",
         ));
     }
-    let SubjectRef::Command { source, address } = &via.subject else {
+    let SubjectRef::Command {
+        space,
+        namespace,
+        address,
+    } = &via.subject
+    else {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             "a via collection must belong to a command Subject",
         ));
     };
-    let collection_facet = command_facet(&context.catalog, *source, address, &via.facet)?;
+    let collection_facet = command_facet(
+        &context.catalog,
+        *space,
+        namespace.as_deref(),
+        address,
+        &via.facet,
+    )?;
     if collection_facet.kind != FacetKind::Collection {
         return Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -366,7 +392,7 @@ fn exact_runnable_command<'a>(
 ) -> ApiResult<&'a CommandNode> {
     let mut matches = catalog.commands.iter().filter(|command| {
         command.address == address
-            && command.source != CommandSource::Control
+            && !command.is_control()
             && command.runnable
             && command.alias_of.is_none()
     });

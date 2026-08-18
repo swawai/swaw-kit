@@ -22,7 +22,7 @@ use crate::development::{ArchiveToolContract, BUN, PWSH};
 use super::PUBLICATION_TOKEN_VARIABLE;
 use super::declaration::DeclarationSnapshot;
 use super::environment::EnvironmentPlan;
-use super::provider::SetupProvider;
+use super::provider::{SetupProvider, migrate_legacy_layout};
 use super::storage::{ExclusiveFileLock, ensure_directory_chain};
 
 pub struct NativeSetupContext {
@@ -192,9 +192,10 @@ pub fn run_native(
     declarations: &DeclarationSnapshot,
     progress: &mut dyn FnMut(&str, u64, Option<u64>),
 ) -> Result<NativeSetupResult, String> {
+    migrate_legacy_layout(&context.data_root)?;
     let locks = ensure_directory_chain(
         &context.data_root,
-        &["modules", "kernel", ".dev", "setup", "locks"],
+        &["modules", "system", "dev", "setup", "locks"],
         "development setup locks",
     )
     .map_err(|error| error.to_string())?;

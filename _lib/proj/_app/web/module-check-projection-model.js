@@ -1,6 +1,10 @@
-export const MODULE_CHECK_PROTOCOL = "swawkit.module-check/v1";
+import {
+  normalizeCommandIdentity,
+  sameCommandIdentity,
+} from "./command-identity.js";
 
-const COMMAND_SOURCES = new Set(["kernel", "action"]);
+export const MODULE_CHECK_PROTOCOL = "swawkit.module-check/v3";
+
 const MAX_ITEMS = 512;
 
 function invalid(message) {
@@ -54,6 +58,7 @@ function publication(value, field, budget) {
   });
   return {
     contract: string(item.contract, `${field}.contract`),
+    export: string(item.export, `${field}.export`),
     exportRoot: nullableString(item.exportRoot, `${field}.exportRoot`),
     exports,
     exportsTruncated: boolean(item.exportsTruncated, `${field}.exportsTruncated`),
@@ -80,6 +85,7 @@ function dependency(value, field, budget, depth = 0) {
       dependency(child, `${field}.dependencies[${index}]`, budget, depth + 1)
     )),
     message: nullableString(item.message, `${field}.message`),
+    export: string(item.export, `${field}.export`),
     provider: string(item.provider, `${field}.provider`),
     publication: item.publication === null
       ? null
@@ -95,19 +101,17 @@ export function createModuleCheckProjection(value, subject) {
     throw invalid(`protocol 必须是 ${MODULE_CHECK_PROTOCOL}。`);
   }
   const command = object(document_.command, "command");
-  const address = string(command.address, "command.address");
-  if (address !== subject.address) {
-    throw invalid("command.address 与选中的命令不一致。");
-  }
-  if (!COMMAND_SOURCES.has(command.source) || command.source !== subject.source) {
-    throw invalid("command.source 与选中的 Kernel 或 Action 命令不一致。");
+  const identity = normalizeCommandIdentity(command, "command", invalid);
+  if (!sameCommandIdentity(identity, subject)) {
+    throw invalid("command identity 与选中的命令不一致。");
   }
   const normalizedCommand = {
     adapter: nullableString(command.adapter, "command.adapter"),
-    address,
+    address: identity.address,
     diagnostic: nullableString(command.diagnostic, "command.diagnostic"),
+    namespace: identity.namespace,
     runnable: boolean(command.runnable, "command.runnable"),
-    source: command.source,
+    space: identity.space,
   };
   const budget = { count: 0 };
   const guards = array(document_.guards, "guards").map((guard, index) => {

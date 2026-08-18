@@ -12,7 +12,6 @@ use swawkit_proj::profile::{EntryProfileRecord, EntryProfileStore};
 use super::*;
 
 mod check;
-mod context_commands;
 mod control;
 mod runs;
 
@@ -34,14 +33,17 @@ impl Fixture {
         let root = workspace_root
             .join("data/proj_cache/tests")
             .join(format!("swawkit-cli-{}-{sequence}", std::process::id()));
-        let kernel_root = root.join("_lib/proj");
+        let command_root = root.join("_lib/proj");
+        let system_root = command_root.join("system");
+        let swaw_module_root = command_root.join("modules");
         let project_root = root.join("project");
-        let action_root = project_root.join(".swaw");
+        let project_module_root = project_root.join(".swaw");
         let entry_file = root.join("launchers/fixture.exe");
         for directory in [
-            &kernel_root,
+            &system_root,
+            &swaw_module_root,
             &project_root,
-            &action_root,
+            &project_module_root,
             entry_file.parent().unwrap(),
         ] {
             fs::create_dir_all(directory).expect("create fixture directory");
@@ -105,12 +107,16 @@ impl Fixture {
     }
 
     fn command(&self, address: &str, entry_name: &str, body: &str) -> PathBuf {
-        let mut directory = self.context.kernel_root();
+        let mut directory = self.context.system_root();
         if !address.is_empty() {
-            let mut segments = address.trim_start_matches('.').split('.');
-            directory.push(format!(".{}", segments.next().unwrap()));
-            for segment in segments {
+            for segment in address.trim_start_matches('.').split('/') {
                 directory.push(segment);
+                fs::create_dir_all(&directory).expect("create command directory");
+                let manifest = directory.join("swawkit.module.json");
+                if !manifest.exists() {
+                    fs::write(manifest, r#"{"schema":"swawkit.command-module/v8"}"#)
+                        .expect("write command manifest");
+                }
             }
         }
         fs::create_dir_all(&directory).expect("create command directory");
@@ -119,31 +125,13 @@ impl Fixture {
     }
 
     fn core_command(&self, address: &str, handler: &str) -> PathBuf {
-        if address.starts_with('.') && !address.starts_with("..") {
-            return self.command(
-                address,
-                "run.core.json",
-                &format!("{{\"schema\":\"swawkit.core-command/v1\",\"handler\":\"{handler}\"}}"),
-            );
-        }
-        let suffix = address
-            .strip_prefix("..")
-            .expect("Control address must begin with '..'");
-        let mut segments = suffix.split('.');
-        let mut directory = self
-            .context
-            .kernel_root()
-            .join(format!("..{}", segments.next().unwrap()));
-        for segment in segments {
-            directory.push(segment);
-        }
-        fs::create_dir_all(&directory).expect("create Core command directory");
-        fs::write(
-            directory.join("run.core.json"),
-            format!("{{\"schema\":\"swawkit.core-command/v1\",\"handler\":\"{handler}\"}}"),
+        self.command(
+            address,
+            "swawkit.module.json",
+            &format!(
+                "{{\"schema\":\"swawkit.command-module/v8\",\"execution\":{{\"type\":\"core\",\"handler\":\"{handler}\"}}}}"
+            ),
         )
-        .expect("write Core command manifest");
-        directory
     }
 }
 
@@ -157,9 +145,9 @@ impl Drop for Fixture {
 fn protocol_help_initializes_the_entry_without_requiring_an_entry_profile() {
     let fixture = Fixture::new();
     fixture.command("", "run.ps1", "exit 0");
-    fs::create_dir_all(fixture.context.kernel_root().join("_help")).unwrap();
+    fs::create_dir_all(fixture.context.system_root().join("_help")).unwrap();
     fs::write(
-        fixture.context.kernel_root().join("_help/zh-CN.txt"),
+        fixture.context.system_root().join("_help/zh-CN.txt"),
         "Root help",
     )
     .unwrap();
@@ -269,7 +257,11 @@ fn invalid_or_unsupported_commands_fail_before_process_execution() {
     assert!(missing.to_string().contains("command not found"));
     let product_owned_script =
         run_with_approver(&fixture.context, &argv(&[".future"]), &mut unexpected).unwrap_err();
-    assert!(product_owned_script.to_string().contains("product-owned"));
+    assert!(
+        product_owned_script
+            .to_string()
+            .contains("run.ts is restricted to Module commands")
+    );
     assert!(
         read_entry_record(&fixture.data_root())
             .valid_record()
@@ -317,8 +309,8 @@ fn ordinary_cli_rejects_a_claim_immediately_with_dedicated_commands() {
         .expect_err("ordinary command must not claim DataRoot");
     let message = error.to_string();
     assert!(message.contains("Status: claimRequired"));
-    assert!(message.contains("Review: fixture ..entry.claim"));
-    assert!(message.contains("Apply: fixture ..entry.claim --yes"));
+    assert!(message.contains("Review: fixture .entry/claim"));
+    assert!(message.contains("Apply: fixture .entry/claim --yes"));
     assert!(
         read_entry_record(&fixture.data_root())
             .valid_record()
@@ -329,14 +321,14 @@ fn ordinary_cli_rejects_a_claim_immediately_with_dedicated_commands() {
 #[test]
 fn dedicated_claim_preview_is_read_only_and_yes_applies_it() {
     let fixture = Fixture::new();
-    fixture.core_command("..entry.claim", "entry.claim");
+    fixture.core_command(".entry/claim", "entry.claim");
     fs::create_dir_all(fixture.data_root()).unwrap();
     let record_path = fixture.data_root().join("_entry.json");
     let mut unexpected =
         |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim callback was not expected"));
 
     assert_eq!(
-        run_with_approver(&fixture.context, &argv(&["..entry.claim"]), &mut unexpected,).unwrap(),
+        run_with_approver(&fixture.context, &argv(&[".entry/claim"]), &mut unexpected,).unwrap(),
         0
     );
     assert!(!record_path.exists());
@@ -345,7 +337,7 @@ fn dedicated_claim_preview_is_read_only_and_yes_applies_it() {
     assert_eq!(
         run_with_approver(
             &fixture.context,
-            &argv(&["..entry.claim", "--yes"]),
+            &argv(&[".entry/claim", "--yes"]),
             &mut unexpected,
         )
         .unwrap(),

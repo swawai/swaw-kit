@@ -37,7 +37,7 @@ impl Fixture {
         let sdk_version = "10.0.26100.0";
         let root = self
             .data_root
-            .join("modules/kernel/.dev/setup/export/msvc/installs/17");
+            .join("modules/system/dev/setup/export/msvc/installs/17");
         fs::create_dir_all(&root).unwrap();
         let files = required_paths(tool_version, sdk_version)
             .into_iter()
@@ -170,7 +170,7 @@ fn metadata_must_belong_to_the_requested_definition() {
     let other = MsvcDefinition::new("18").unwrap();
     let other_root = fixture
         .data_root
-        .join("modules/kernel/.dev/setup/export/msvc/installs/18");
+        .join("modules/system/dev/setup/export/msvc/installs/18");
     fs::create_dir_all(other_root.parent().unwrap()).unwrap();
     fs::rename(root, &other_root).unwrap();
 

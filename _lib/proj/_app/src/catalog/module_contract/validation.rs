@@ -4,7 +4,7 @@ use std::path::Path;
 
 use crate::{
     facet::{FacetKind, FacetRenderer},
-    subject::SUBJECT_COLLECTION_PROTOCOL,
+    subject::{SUBJECT_COLLECTION_PROTOCOL, SubjectRef, validate_subject_ref},
 };
 
 use super::{
@@ -24,6 +24,8 @@ use identity::{
 
 const MAX_FACETS: usize = 16;
 const MAX_SUBJECT_KINDS: usize = 8;
+const MAX_REQUIREMENTS: usize = 64;
+const MAX_PROVISIONS: usize = 64;
 const MAX_ARGUMENTS: usize = 32;
 const MAX_ARGUMENT_LENGTH: usize = 4096;
 
@@ -35,16 +37,7 @@ pub(super) fn validate_manifest(manifest: &ModuleManifest, path: &Path) -> io::R
             path.display()
         ));
     }
-    if manifest.requires.is_empty()
-        && manifest.provides.is_empty()
-        && manifest.facets.is_empty()
-        && manifest.subject_kinds.is_empty()
-    {
-        return invalid_data(format!(
-            "module contract manifest must declare requires, provides, facets, or subjectKinds: {}",
-            path.display()
-        ));
-    }
+    validate_execution(manifest, path)?;
     validate_requirements(manifest, path)?;
     validate_provisions(manifest, path)?;
     validate_subject_kinds(manifest, path)?;
@@ -53,7 +46,48 @@ pub(super) fn validate_manifest(manifest: &ModuleManifest, path: &Path) -> io::R
     Ok(())
 }
 
+fn validate_execution(manifest: &ModuleManifest, path: &Path) -> io::Result<()> {
+    match &manifest.execution {
+        Some(
+            super::declaration::ModuleExecution::Core { handler }
+            | super::declaration::ModuleExecution::Toolchain { handler },
+        ) => validate_text(handler, 128, "module execution handler", path)?,
+        Some(super::declaration::ModuleExecution::Delegate { owner }) => {
+            validate_subject_ref(owner).map_err(|error| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!(
+                        "invalid module execution owner in '{}': {error}",
+                        path.display()
+                    ),
+                )
+            })?;
+            if !matches!(
+                owner,
+                SubjectRef::Command {
+                    space: crate::catalog::CommandSpace::Module,
+                    namespace: Some(_),
+                    ..
+                }
+            ) {
+                return invalid_data(format!(
+                    "module execution owner in '{}' must be a Module command",
+                    path.display()
+                ));
+            }
+        }
+        Some(super::declaration::ModuleExecution::Native) | None => {}
+    }
+    Ok(())
+}
+
 fn validate_requirements(manifest: &ModuleManifest, path: &Path) -> io::Result<()> {
+    if manifest.requires.len() > MAX_REQUIREMENTS {
+        return invalid_data(format!(
+            "module requirements in '{}' cannot contain more than {MAX_REQUIREMENTS} items",
+            path.display()
+        ));
+    }
     let mut seen = BTreeSet::new();
     for requirement in &manifest.requires {
         if !valid_provider_address(&requirement.provider) {
@@ -63,12 +97,19 @@ fn validate_requirements(manifest: &ModuleManifest, path: &Path) -> io::Result<(
                 path.display()
             ));
         }
+        if !valid_token(&requirement.export) {
+            return invalid_data(format!(
+                "invalid module export id '{}' in '{}'",
+                requirement.export,
+                path.display()
+            ));
+        }
         validate_contract(&requirement.contract, path)?;
-        if !seen.insert((&requirement.provider, &requirement.contract)) {
+        if !seen.insert((&requirement.provider, &requirement.export)) {
             return invalid_data(format!(
                 "duplicate module requirement '{} -> {}' in '{}'",
                 requirement.provider,
-                requirement.contract,
+                requirement.export,
                 path.display()
             ));
         }
@@ -77,19 +118,35 @@ fn validate_requirements(manifest: &ModuleManifest, path: &Path) -> io::Result<(
 }
 
 fn validate_provisions(manifest: &ModuleManifest, path: &Path) -> io::Result<()> {
+    if manifest.provides.len() > MAX_PROVISIONS {
+        return invalid_data(format!(
+            "module provisions in '{}' cannot contain more than {MAX_PROVISIONS} items",
+            path.display()
+        ));
+    }
     let mut seen = BTreeSet::new();
     for provision in &manifest.provides {
-        validate_contract(&provision.contract, path)?;
-        if !seen.insert(&provision.contract) {
+        if !valid_token(&provision.id) {
             return invalid_data(format!(
-                "duplicate module provision '{}' in '{}'",
-                provision.contract,
+                "invalid module export id '{}' in '{}'",
+                provision.id,
+                path.display()
+            ));
+        }
+        validate_contract(&provision.contract, path)?;
+        if !seen.insert(&provision.id) {
+            return invalid_data(format!(
+                "duplicate module export id '{}' in '{}'",
+                provision.id,
                 path.display()
             ));
         }
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
 
 fn validate_subject_kinds(manifest: &ModuleManifest, path: &Path) -> io::Result<()> {
     if manifest.subject_kinds.len() > MAX_SUBJECT_KINDS {

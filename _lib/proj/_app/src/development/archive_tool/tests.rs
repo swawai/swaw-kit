@@ -92,7 +92,7 @@ impl Fixture {
     }
 
     fn tool_root(&self) -> PathBuf {
-        self.data_root.join("modules/kernel/.dev/setup/export/bun")
+        self.data_root.join("modules/system/dev/setup/export/bun")
     }
 }
 
@@ -134,7 +134,7 @@ fn latest_missing_is_none_but_invalid_or_extended_selection_is_an_error() {
 #[test]
 fn selection_storage_rejects_a_reparse_tool_directory() {
     let fixture = Fixture::new();
-    let export = fixture.data_root.join("modules/kernel/.dev/setup/export");
+    let export = fixture.data_root.join("modules/system/dev/setup/export");
     let external = fixture.root.join("external-bun");
     fs::create_dir_all(&export).unwrap();
     fs::create_dir(&external).unwrap();

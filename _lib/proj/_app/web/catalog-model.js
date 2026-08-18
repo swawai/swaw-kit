@@ -1,9 +1,13 @@
 import { t } from "./i18n.js";
 import { normalizeFacets as normalizeFacetDocuments } from "./facet-model.js";
 import { normalizeSubjectKinds } from "./subject-kind-model.js";
+import {
+  normalizeCommandIdentity,
+  sameCommandIdentity,
+} from "./command-identity.js";
 
-const CATALOG_PROTOCOL = "swawkit.command-catalog/v13";
-const MODULE_PROTOCOL = "swawkit.command-module/v4";
+const CATALOG_PROTOCOL = "swawkit.command-catalog/v16";
+const MODULE_PROTOCOL = "swawkit.command-module/v8";
 
 function contractError(message) {
   return new Error(`${t("Catalog 协议无效", "Invalid Catalog protocol")}: ${message}`);
@@ -45,6 +49,52 @@ function normalizeHelp(value, index) {
   };
 }
 
+function normalizeExecution(value, field) {
+  if (value === undefined) {
+    return null;
+  }
+  const execution = requireObject(value, `${field}.execution`);
+  if (execution.type === "core" || execution.type === "toolchain") {
+    return {
+      type: execution.type,
+      handler: requireString(
+        execution.handler,
+        `${field}.execution.handler`,
+        { allowEmpty: false },
+      ),
+    };
+  }
+  if (execution.type === "native") {
+    return { type: "native" };
+  }
+  if (execution.type !== "delegate") {
+    throw contractError(
+      `${field}.execution.type must be core, toolchain, native, or delegate.`,
+    );
+  }
+  const owner = requireObject(execution.owner, `${field}.execution.owner`);
+  if (owner.type !== "command") {
+    throw contractError(`${field}.execution.owner.type must be command.`);
+  }
+  const identity = normalizeCommandIdentity(
+    owner,
+    `${field}.execution.owner`,
+    contractError,
+  );
+  if (identity.space !== "module") {
+    throw contractError(`${field}.execution.owner must be a module command.`);
+  }
+  return {
+    type: "delegate",
+    owner: {
+      type: "command",
+      space: "module",
+      namespace: identity.namespace,
+      address: identity.address,
+    },
+  };
+}
+
 function normalizeModule(value, index) {
   if (value === null) {
     return null;
@@ -57,11 +107,15 @@ function normalizeModule(value, index) {
   if (!Array.isArray(module.requires) || !Array.isArray(module.provides)) {
     throw contractError(`${field} 必须包含 requires 和 provides 数组。`);
   }
+  const execution = normalizeExecution(module.execution, field);
   const requires = module.requires.map((raw, requirementIndex) => {
     const requirementField = `${field}.requires[${requirementIndex}]`;
     const requirement = requireObject(raw, requirementField);
     return {
       contract: requireString(requirement.contract, `${requirementField}.contract`, {
+        allowEmpty: false,
+      }),
+      export: requireString(requirement.export, `${requirementField}.export`, {
         allowEmpty: false,
       }),
       provider: requireString(requirement.provider, `${requirementField}.provider`, {
@@ -76,9 +130,10 @@ function normalizeModule(value, index) {
       contract: requireString(provision.contract, `${provisionField}.contract`, {
         allowEmpty: false,
       }),
+      id: requireString(provision.id, `${provisionField}.id`, { allowEmpty: false }),
     };
   });
-  return { provides, requires, schema: MODULE_PROTOCOL };
+  return { execution, provides, requires, schema: MODULE_PROTOCOL };
 }
 
 function normalizeView(value, index) {
@@ -168,13 +223,13 @@ function normalizeView(value, index) {
 function normalizeCommand(value, index) {
   const command = requireObject(value, `commands[${index}]`);
   const field = (name) => `commands[${index}].${name}`;
-  const address = requireString(command.address, field("address"));
-  const source = requireString(command.source, field("source"), {
-    allowEmpty: false,
-  });
-  if (!new Set(["control", "kernel", "action"]).has(source)) {
-    throw contractError(`${field("source")} 只能是 control、kernel 或 action。`);
-  }
+  const identity = normalizeCommandIdentity(
+    command,
+    `commands[${index}]`,
+    contractError,
+    { requirePath: true },
+  );
+  const { address, namespace, path, space } = identity;
   if (typeof command.runnable !== "boolean") {
     throw contractError(`${field("runnable")} 必须是布尔值。`);
   }
@@ -182,6 +237,7 @@ function normalizeCommand(value, index) {
   const entry = nullableString(command.entry, field("entry"));
   const adapter = nullableString(command.adapter, field("adapter"));
   const handler = nullableString(command.handler, field("handler"));
+  const issue = nullableString(command.diagnostic, field("diagnostic"));
   if (command.runnable !== (entry !== null)) {
     throw contractError(`${field("runnable")} 必须与 entry 是否存在一致。`);
   }
@@ -197,6 +253,26 @@ function normalizeCommand(value, index) {
 
   const help = normalizeHelp(command.help, index);
   const module = normalizeModule(command.module, index);
+  const declaredAdapter = module?.execution?.type ?? null;
+  const routedAdapters = new Set(["core", "toolchain", "native", "delegate"]);
+  const executionMismatch = routedAdapters.has(adapter)
+    ? declaredAdapter !== adapter
+    : adapter !== null
+      ? declaredAdapter !== null
+      : declaredAdapter !== null && issue === null;
+  if (executionMismatch) {
+    throw contractError(
+      `${field("adapter")} must match the command's module execution declaration.`,
+    );
+  }
+  if (
+    (adapter === "core" || adapter === "toolchain")
+    && module.execution.handler !== handler
+  ) {
+    throw contractError(
+      `${field("handler")} must match the module execution declaration.`,
+    );
+  }
   const view = normalizeView(command.view, index);
   const facets = normalizeFacetDocuments(
     command.facets,
@@ -217,15 +293,17 @@ function normalizeCommand(value, index) {
     entry: entry ?? "",
     help: help?.text ?? "",
     handler: handler ?? "",
-    issue: nullableString(command.diagnostic, field("diagnostic")) ?? "",
+    issue: issue ?? "",
     module,
+    namespace,
     parent: nullableString(command.parent, field("parent"), {
       allowEmpty: true,
     }),
+    path,
     runOperations: view?.runOperations ?? [],
     runnable: command.runnable,
-    setupAvailable: source === "control",
-    source,
+    setupAvailable: space === "system" && ["entry", "runtime"].includes(path[0]),
+    space,
     subjectKinds,
     summary: help?.summary ?? "",
   };
@@ -276,10 +354,10 @@ export function createCatalog(document) {
         facet.subjectKind !== null
         && (
           !subjectKindByKind.has(facet.subjectKind.kind)
-          || subjectKindByKind.get(facet.subjectKind.kind).command.address
-            !== facet.subjectKind.provider.address
-          || subjectKindByKind.get(facet.subjectKind.kind).command.source
-            !== facet.subjectKind.provider.source
+          || !sameCommandIdentity(
+            subjectKindByKind.get(facet.subjectKind.kind).command,
+            facet.subjectKind.provider,
+          )
         )
       ) {
         throw contractError(
@@ -296,9 +374,13 @@ export function createCatalog(document) {
         );
       }
       const controlEdit = facet.renderer === "edit"
-        && target.source === "control"
+        && target.space === "system"
         && target.handler === "entry.profile.set";
-      if (!target.runnable || (target.source === "control" && !controlEdit) || target.aliasOf) {
+      if (
+        !target.runnable
+        || (target.space === "system" && target.path[0] === "entry" && !controlEdit)
+        || target.aliasOf
+      ) {
         throw contractError(
           `${command.address}.facets.${facet.id} 不是可由 Web 执行的精确命令。`,
         );
@@ -307,7 +389,12 @@ export function createCatalog(document) {
     for (const subjectKind of command.subjectKinds) {
       for (const facet of subjectKind.facets) {
         const target = commandByAddress.get(facet.resolver.address);
-        if (!target || !target.runnable || target.source === "control" || target.aliasOf) {
+        if (
+          !target
+          || !target.runnable
+          || (target.space === "system" && ["entry", "runtime"].includes(target.path[0]))
+          || target.aliasOf
+        ) {
           throw contractError(
             `${command.address}.subjectKinds.${subjectKind.kind}.${facet.id} has an invalid resolver target.`,
           );

@@ -1,4 +1,5 @@
 import { createSubjectCollection } from "./subject-collection-model.js";
+import { commandRef } from "./command-identity.js";
 
 async function responseJson(response) {
   if (!response.ok) {
@@ -14,14 +15,6 @@ async function responseJson(response) {
     throw new Error(`Cannot resolve Subject Facet: ${message}`);
   }
   return response.json();
-}
-
-function commandSubject(command) {
-  return {
-    address: command.address,
-    source: command.source,
-    type: "command",
-  };
 }
 
 export function createCollectionResolutionLoader({
@@ -65,7 +58,7 @@ export async function resolveFacet(
   if (!subject || !facet) {
     throw new Error("A Subject and one of its Facets are required.");
   }
-  const subjectRef = subject.ref ?? commandSubject(subject);
+  const subjectRef = subject.ref ?? commandRef(subject);
   if (subjectRef.type === "instance" && facet.kind === "collection") {
     throw new Error("Nested Subject collections require recursive provenance and are not supported by v1.");
   }

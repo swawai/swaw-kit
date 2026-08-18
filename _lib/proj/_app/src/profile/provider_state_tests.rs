@@ -94,7 +94,7 @@ fn profile_transactions_invalidate_the_dev_setup_provider_only_when_inputs_chang
     let state_path = provider_state::state_path(&fixture.data_root);
     let first_state_bytes = fs::read(&state_path).expect("read initial provider state");
     let first_state: Value = serde_json::from_slice(&first_state_bytes).unwrap();
-    assert_eq!(first_state["schema"], "swawkit.command-provider-state/v1");
+    assert_eq!(first_state["schema"], "swawkit.command-provider-state/v2");
     assert_eq!(first_state["status"], "unavailable");
     assert_eq!(
         first_state["inputRevision"],
@@ -122,7 +122,7 @@ fn profile_transactions_invalidate_the_dev_setup_provider_only_when_inputs_chang
 
     fixture
         .store
-        .update_setting("..entry.git.name", "Fixture User".to_owned())
+        .update_setting(".entry/git/name", "Fixture User".to_owned())
         .expect("update a non-provider variable");
     assert_eq!(fs::read(&state_path).unwrap(), first_state_bytes);
 
@@ -131,7 +131,7 @@ fn profile_transactions_invalidate_the_dev_setup_provider_only_when_inputs_chang
     fixture
         .store
         .update_setting(
-            "..entry.project.root",
+            ".entry/project/root",
             other_target.to_string_lossy().into_owned(),
         )
         .expect("update the target project without changing setup inputs");
@@ -139,7 +139,7 @@ fn profile_transactions_invalidate_the_dev_setup_provider_only_when_inputs_chang
 
     fixture
         .store
-        .update_setting(".dev.bun.version", "1.2.16".to_owned())
+        .update_setting(".dev/bun/version", "1.2.16".to_owned())
         .expect("update one provider input");
     let changed_state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
     assert_ne!(changed_state["inputRevision"], first_state["inputRevision"]);
@@ -203,7 +203,7 @@ fn profile_publication_failure_restores_the_previous_provider_state() {
 
     let error = fixture
         .store
-        .update_setting(".dev.bun.version", "1.2.16".to_owned())
+        .update_setting(".dev/bun/version", "1.2.16".to_owned())
         .expect_err("locked profile publication must fail");
 
     assert!(error.to_string().contains("cannot publish entry profile"));
@@ -230,7 +230,7 @@ fn profile_publication_failure_removes_a_new_provider_state() {
 
     let error = fixture
         .store
-        .update_setting(".dev.bun.version", "1.2.16".to_owned())
+        .update_setting(".dev/bun/version", "1.2.16".to_owned())
         .expect_err("locked profile publication must fail");
 
     assert!(error.to_string().contains("cannot publish entry profile"));
@@ -256,7 +256,7 @@ fn non_provider_profile_updates_do_not_wait_for_the_provider_state_lock() {
 
     let document = fixture
         .store
-        .update_setting("..entry.git.name", "Fixture User".to_owned())
+        .update_setting(".entry/git/name", "Fixture User".to_owned())
         .expect("non-provider update must not acquire the provider state lock");
 
     assert_eq!(document.profile.git.name, "Fixture User");

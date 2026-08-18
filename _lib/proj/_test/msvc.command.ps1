@@ -45,7 +45,7 @@ function Import-ProjDevMsvcCommandEnvironment {
     return [pscustomobject]@{
         Context = [pscustomobject]@{
             InvocationDirectory = $InvocationDirectory
-            EnvironmentRepairInvocation = 'fixture .dev.setup'
+            EnvironmentRepairInvocation = 'fixture .dev/setup'
         }
         Definition = [pscustomobject]@{ Channel = '17' }
     }
@@ -114,7 +114,7 @@ try {
             -Arguments @())
     } catch {
         $MissingRejected = $_.Exception.Message -like (
-            "*managed MSVC cl.exe is unavailable*Run 'fixture .dev.setup'*"
+            "*managed MSVC cl.exe is unavailable*Run 'fixture .dev/setup'*"
         )
     }
     Assert-ProjMsvcCommandTest `

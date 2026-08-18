@@ -3,44 +3,31 @@ use std::io;
 use std::sync::Arc;
 
 use super::*;
-use crate::context_store::{ContextCommand, ContextStore, project_context_collection};
 use crate::entry_runner::{
     EntryOutputStream, EntryRunControl, EntryRunObserver, EntryRunOutcome, EntryRunSpec,
     EntryRunner,
 };
-use crate::profile::EntryLanguage;
 use crate::server::command_run::CommandRuns;
 
 fn context_surface(fixture: &Fixture) {
     fixture.file(
-        "home/_lib/proj/.context/_module.json",
-        include_str!("../../../../.context/_module.json"),
+        "home/_lib/proj/modules/context/swawkit.module.json",
+        include_str!("../../../../modules/context/swawkit.module.json"),
     );
-    for (name, handler) in [
-        ("add", "context.add"),
-        ("delete", "context.delete"),
-        ("list", "context.list"),
-        ("note", "context.note"),
-        ("prompt", "context.prompt"),
-        ("remove", "context.remove"),
-        ("render", "context.render"),
-        ("show", "context.show"),
+    for name in [
+        "add", "delete", "list", "new", "note", "prompt", "remove", "render", "show",
     ] {
         fixture.file(
-            &format!("home/_lib/proj/.context/{name}/run.core.json"),
-            &format!(r#"{{"schema":"swawkit.core-command/v1","handler":"{handler}"}}"#),
+            &format!("home/_lib/proj/modules/context/{name}/swawkit.module.json"),
+            r#"{"schema":"swawkit.command-module/v8","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/context"}}}"#,
         );
     }
 }
 
 fn runs_surface(fixture: &Fixture) {
     fixture.file(
-        "home/_lib/proj/.runs/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"meta.runs"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.runs/_module.json",
-        include_str!("../../../../.runs/_module.json"),
+        "home/_lib/proj/system/runs/swawkit.module.json",
+        include_str!("../../../../system/runs/swawkit.module.json"),
     );
 }
 
@@ -112,32 +99,46 @@ fn facet_app(fixture: &Fixture, documents: BTreeMap<Vec<String>, String>) -> Rou
 }
 
 fn context_documents(
-    fixture: &Fixture,
-    store: &ContextStore,
-    include_id: Option<&str>,
+    id: &str,
+    commands: Value,
+    notes: Value,
+    include_record: bool,
 ) -> BTreeMap<Vec<String>, String> {
-    let profile_state = fixture.profile_store().read();
-    let catalog =
-        crate::catalog::CatalogSnapshot::discover(&fixture.context(), profile_state.ready())
-            .expect("Context Catalog");
-    let collection = project_context_collection(&catalog, EntryLanguage::ZhCn, store)
-        .expect("Context collection");
+    let command_count = commands.as_array().map_or(0, Vec::len);
+    let note_count = notes.as_array().map_or(0, Vec::len);
+    let collection = json!({
+        "protocol": "swawkit.subject-collection/v3",
+        "owner": command_ref(),
+        "facet": "contexts",
+        "subjects": [{
+            "ref": context_ref(id),
+            "label": format!("::context/{id}"),
+            "summary": format!("{command_count} 个命令 · {note_count} 条说明"),
+            "facetIds": ["overview", "render", "add", "remove", "note", "prompt", "delete"]
+        }]
+    });
     let mut documents = BTreeMap::from([(
-        vec![".context.list".to_owned(), "--json".to_owned()],
+        vec!["swaw/context/list".to_owned(), "--json".to_owned()],
         serde_json::to_string(&collection).expect("Context collection JSON"),
     )]);
-    if let Some(id) = include_id {
+    if include_record {
+        let record = json!({
+            "schema": "swawkit.context/v2",
+            "id": id,
+            "commands": commands,
+            "notes": notes,
+            "prompt": ""
+        });
         documents.insert(
-            vec![".context.show".to_owned(), id.to_owned()],
-            serde_json::to_string(&store.read(id).expect("Context record"))
-                .expect("Context record JSON"),
+            vec!["swaw/context/show".to_owned(), id.to_owned()],
+            serde_json::to_string(&record).expect("Context record JSON"),
         );
     }
     documents
 }
 
 fn command_ref() -> Value {
-    json!({"type": "command", "source": "kernel", "address": ".context"})
+    json!({"type": "command", "space": "module", "namespace": "swaw", "address": "swaw/context"})
 }
 
 fn context_ref(id: &str) -> Value {
@@ -146,7 +147,7 @@ fn context_ref(id: &str) -> Value {
 
 fn collection_document(subjects: Value) -> String {
     serde_json::to_string(&json!({
-        "protocol": "swawkit.subject-collection/v2",
+        "protocol": "swawkit.subject-collection/v3",
         "owner": command_ref(),
         "facet": "contexts",
         "subjects": subjects,
@@ -162,26 +163,12 @@ async fn resolves_a_declared_collection_and_projects_subject_facets() {
         .profile_store()
         .save(crate::profile::EntryProfileRecord::default())
         .expect("ready profile");
-    let data_root = fixture.root.join("home/data/proj.swawkit");
-    let store = ContextStore::new(
-        &data_root,
-        data_root.join("modules/kernel/.context"),
-        Default::default(),
+    let documents = context_documents(
+        "mycontext01",
+        json!([{"space": "system", "address": ".dev/status"}]),
+        json!(["Inspect the environment"]),
+        false,
     );
-    store.create("mycontext01").expect("create Context");
-    store
-        .add_commands(
-            "mycontext01",
-            vec![ContextCommand {
-                source: crate::catalog::CommandSource::Kernel,
-                address: ".dev.status".to_owned(),
-            }],
-        )
-        .expect("add command");
-    store
-        .append_note("mycontext01", "Inspect the environment".to_owned())
-        .expect("append note");
-    let documents = context_documents(&fixture, &store, None);
 
     let response = resolve(
         facet_app(&fixture, documents),
@@ -193,7 +180,7 @@ async fn resolves_a_declared_collection_and_projects_subject_facets() {
         .await
         .expect("Context collection body");
     let document: Value = serde_json::from_slice(&body).expect("Context collection JSON");
-    assert_eq!(document["protocol"], "swawkit.subject-collection/v2");
+    assert_eq!(document["protocol"], "swawkit.subject-collection/v3");
     assert_eq!(document["owner"], command_ref());
     assert_eq!(document["facet"], "contexts");
     assert_eq!(document["subjects"][0]["ref"], context_ref("mycontext01"));
@@ -214,14 +201,7 @@ async fn resolves_an_instance_projection_only_through_its_declared_via_collectio
         .profile_store()
         .save(crate::profile::EntryProfileRecord::default())
         .expect("ready profile");
-    let data_root = fixture.root.join("home/data/proj.swawkit");
-    let store = ContextStore::new(
-        &data_root,
-        data_root.join("modules/kernel/.context"),
-        Default::default(),
-    );
-    store.create("release-check").expect("create Context");
-    let documents = context_documents(&fixture, &store, Some("release-check"));
+    let documents = context_documents("release-check", json!([]), json!([]), true);
     let app = facet_app(&fixture, documents);
 
     let response = resolve(
@@ -238,7 +218,7 @@ async fn resolves_an_instance_projection_only_through_its_declared_via_collectio
         .await
         .expect("Context body");
     let document: Value = serde_json::from_slice(&body).expect("Context JSON");
-    assert_eq!(document["schema"], "swawkit.context/v1");
+    assert_eq!(document["schema"], "swawkit.context/v2");
     assert_eq!(document["id"], "release-check");
 
     assert_eq!(
@@ -269,21 +249,25 @@ async fn resolves_an_instance_projection_only_through_its_declared_via_collectio
 async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provider() {
     let fixture = Fixture::new();
     runs_surface(&fixture);
-    fixture.file("home/_lib/proj/.tool/run.cmd", "");
+    fixture.file(
+        "home/_lib/proj/system/tool/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file("home/_lib/proj/system/tool/run.cmd", "");
     fixture
         .profile_store()
         .save(crate::profile::EntryProfileRecord::default())
         .expect("ready profile");
-    let tool_ref = json!({"type": "command", "source": "kernel", "address": ".tool"});
+    let tool_ref = json!({"type": "command", "space": "system", "address": ".tool"});
     let run_ref = json!({"type": "instance", "kind": "run", "id": "run-01"});
     let collection = json!({
-        "protocol": "swawkit.subject-collection/v2",
+        "protocol": "swawkit.subject-collection/v3",
         "owner": tool_ref,
         "facet": "runs",
         "subjects": [{
             "ref": run_ref,
             "label": "2026-08-16 00:00:00.000Z",
-            "summary": "kernel/.tool · exited · CLI · 1 events",
+            "summary": ".tool · exited · CLI · 1 events",
             "facetIds": ["overview", "open"]
         }]
     });
@@ -295,11 +279,7 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
         &fixture,
         BTreeMap::from([
             (
-                vec![
-                    ".runs".to_owned(),
-                    "--json".to_owned(),
-                    "kernel/.tool".to_owned(),
-                ],
+                vec![".runs".to_owned(), "--json".to_owned(), ".tool".to_owned()],
                 serde_json::to_string(&collection).expect("Run collection JSON"),
             ),
             (
@@ -344,16 +324,16 @@ async fn resolves_the_runs_commands_all_collection_as_a_distinct_global_scope() 
         .profile_store()
         .save(crate::profile::EntryProfileRecord::default())
         .expect("ready profile");
-    let owner = json!({"type": "command", "source": "kernel", "address": ".runs"});
+    let owner = json!({"type": "command", "space": "system", "address": ".runs"});
     let run_ref = json!({"type": "instance", "kind": "run", "id": "run-01"});
     let collection = json!({
-        "protocol": "swawkit.subject-collection/v2",
+        "protocol": "swawkit.subject-collection/v3",
         "owner": owner,
         "facet": "all",
         "subjects": [{
             "ref": run_ref,
             "label": "2026-08-16 00:00:00.000Z",
-            "summary": "kernel/.tool · exited · CLI · 1 events",
+            "summary": ".tool · exited · CLI · 1 events",
             "facetIds": ["overview", "open"]
         }]
     });
@@ -413,7 +393,7 @@ async fn rejects_unknown_facets_and_the_removed_context_specific_routes() {
                 "via": {
                     "subject": command_ref(),
                     "facet": "contexts",
-                    "resolver": {"type": "command", "address": ".context.list"},
+                    "resolver": {"type": "command", "address": "swaw/context/list"},
                     "arguments": ["--json"]
                 }
             }),
@@ -440,10 +420,14 @@ async fn rejects_unknown_facets_and_the_removed_context_specific_routes() {
 async fn executes_any_declared_query_command_without_a_domain_handler() {
     let fixture = Fixture::new();
     fixture.file(
-        "home/_lib/proj/.report/_module.json",
-        r#"{"schema":"swawkit.command-module/v4","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report.json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
+        "home/_lib/proj/system/report/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
     );
-    fixture.file("home/_lib/proj/.report/json/run.cmd", "");
+    fixture.file(
+        "home/_lib/proj/system/report/json/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
     fixture
         .profile_store()
         .save(crate::profile::EntryProfileRecord::default())
@@ -451,7 +435,7 @@ async fn executes_any_declared_query_command_without_a_domain_handler() {
     let app = facet_app(
         &fixture,
         BTreeMap::from([(
-            vec![".report.json".to_owned()],
+            vec![".report/json".to_owned()],
             r#"{"protocol":"fixture.report/v1","value":42}"#.to_owned(),
         )]),
     );
@@ -459,7 +443,7 @@ async fn executes_any_declared_query_command_without_a_domain_handler() {
     let response = resolve(
         app,
         json!({
-            "subject": {"type":"command", "source":"kernel", "address":".report"},
+            "subject": {"type":"command", "space":"system", "address":".report"},
             "facet": "status"
         }),
     )
@@ -492,7 +476,7 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
     let duplicate_app = facet_app(
         &fixture,
         BTreeMap::from([(
-            vec![".context.list".to_owned(), "--json".to_owned()],
+            vec!["swaw/context/list".to_owned(), "--json".to_owned()],
             collection_document(json!([summary.clone(), summary])),
         )]),
     );
@@ -513,7 +497,7 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
     let invalid_shape_app = facet_app(
         &fixture,
         BTreeMap::from([(
-            vec![".context.list".to_owned(), "--json".to_owned()],
+            vec!["swaw/context/list".to_owned(), "--json".to_owned()],
             collection_document(json!([{
                 "ref": context_ref("release-check"),
                 "label": "::context/release-check",
@@ -535,7 +519,7 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
     let invalid_target_app = facet_app(
         &fixture,
         BTreeMap::from([(
-            vec![".context.list".to_owned(), "--json".to_owned()],
+            vec!["swaw/context/list".to_owned(), "--json".to_owned()],
             collection_document(json!([{
                 "ref": context_ref("release-check"),
                 "label": "::context/release-check",

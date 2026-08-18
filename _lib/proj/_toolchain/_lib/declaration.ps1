@@ -179,7 +179,7 @@ function Assert-ProjDevelopmentSetupDeclarationsSupported {
     )
     if ($PendingModules.Count -gt 0) {
         throw (
-            '.dev.setup does not yet handle these enabled declarations: ' +
+            '.dev/setup does not yet handle these enabled declarations: ' +
             "$([string]::Join(', ', $PendingModules))."
         )
     }

@@ -1,7 +1,8 @@
 use std::ffi::OsString;
 use std::path::Path;
 
-use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSource};
+use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSpace};
+use crate::native_command;
 use crate::run_journal::{RunJournal, RunJournalPhase, RunJournalSource, StartRunJournal};
 
 use super::{
@@ -22,18 +23,19 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub fn preflight(
-        kernel_root: &Path,
+        command_root: &Path,
         catalog: &CatalogSnapshot,
         argv: &[OsString],
     ) -> CommandResult<()> {
         let invocation = Invocation::resolve(catalog, argv)?;
         validate_command_adapter(&invocation.command)?;
-        GuardPlan::discover(kernel_root, &invocation.command)?;
+        GuardPlan::discover(command_root, &invocation.command)?;
         Ok(())
     }
 
     pub fn execute(&self, argv: &[OsString]) -> CommandResult<i32> {
         let invocation = Invocation::resolve(self.catalog, argv)?;
+        self.preflight_dependencies(&invocation)?;
         self.execute_invocation(&invocation, None)
     }
 
@@ -55,6 +57,11 @@ impl<'a> CommandExecutor<'a> {
         cancellation: Option<&ConsoleCancellation>,
     ) -> CommandResult<i32> {
         let invocation = Invocation::resolve(self.catalog, argv)?;
+        self.preflight_dependencies(&invocation)?;
+        if invocation.command.handler.as_deref() == Some("dev.setup") {
+            crate::development::setup::provider::migrate_legacy_layout(&self.context.data_root)
+                .map_err(CommandError::new)?;
+        }
         let journal = RunJournal::start(StartRunJournal {
             module_data_root: command_data_root(self.context, &invocation.command)?,
             address: invocation.command.address.clone(),
@@ -90,13 +97,23 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    fn preflight_dependencies(&self, invocation: &Invocation) -> CommandResult<()> {
+        crate::module_check::preflight_dependencies(
+            &self.context.data_root,
+            &self.context.entry_name,
+            self.catalog,
+            &invocation.command.address,
+        )
+        .map_err(CommandError::new)
+    }
+
     fn execute_invocation(
         &self,
         invocation: &Invocation,
         journal: Option<&RunJournal>,
     ) -> CommandResult<i32> {
         validate_command_adapter(&invocation.command)?;
-        let guard_plan = GuardPlan::discover(&self.context.kernel_root, &invocation.command)?;
+        let guard_plan = GuardPlan::discover(&self.context.command_root, &invocation.command)?;
 
         for guard in guard_plan.guards {
             let environment = ProcessEnvironment::for_command(
@@ -127,13 +144,14 @@ impl<'a> CommandExecutor<'a> {
         // Guards can repair or invalidate the managed runtime. Resolve mutable adapter
         // resources only after every guard has completed, immediately before launch.
         let mut development_environment = None;
+        let mut native_resolution = None;
         let adapter_launch = match invocation.command.adapter {
             CommandAdapter::Bun => {
                 let resolved = resolve_entry_development(self.context)?;
                 development_environment = Some(resolved.environment);
                 AdapterLaunch::Bun(resolved.bun_executable.ok_or_else(|| {
                     CommandError::new(format!(
-                        "Bun is disabled for this Entry. Run '{} .dev.bun.mode managed', then '{} .dev.setup'",
+                        "Bun is disabled for this Entry. Run '{} .dev/bun/mode managed', then '{} .dev/setup'",
                         self.context.entry_name, self.context.entry_name
                     ))
                 })?)
@@ -143,17 +161,41 @@ impl<'a> CommandExecutor<'a> {
                 development_environment = Some(resolved.environment);
                 AdapterLaunch::Pwsh(resolved.pwsh_executable.ok_or_else(|| {
                     CommandError::new(format!(
-                        "PowerShell 7 is disabled for this Entry. Run '{} .dev.pwsh.mode managed', then '{} .dev.setup'",
+                        "PowerShell 7 is disabled for this Entry. Run '{} .dev/pwsh/mode managed', then '{} .dev/setup'",
                         self.context.entry_name, self.context.entry_name
                     ))
                 })?)
             }
-            CommandAdapter::Toolchain => AdapterLaunch::Toolchain {
-                executable: self.context.toolchain_executable.clone(),
-                handler: invocation.command.handler.clone().ok_or_else(|| {
+            CommandAdapter::Toolchain => {
+                let handler = invocation.command.handler.clone().ok_or_else(|| {
                     CommandError::new("Catalog invariant failed: Toolchain command has no handler")
-                })?,
-            },
+                })?;
+                if handler == "module.instantiate" {
+                    development_environment =
+                        Some(resolve_entry_development(self.context)?.environment);
+                }
+                AdapterLaunch::Toolchain {
+                    executable: self.context.toolchain_executable.clone(),
+                    handler,
+                }
+            }
+            CommandAdapter::Native | CommandAdapter::Delegate => {
+                let instantiate_target = native_command::instantiation_target(&invocation.command)?;
+                let resolution = native_command::resolve_command_executable(
+                    self.context,
+                    self.catalog,
+                    &invocation.command,
+                )
+                .map_err(|error| {
+                    CommandError::new(format!(
+                        "{error}; run '{} .module/instantiate {}'",
+                        self.context.entry_name, instantiate_target
+                    ))
+                })?;
+                let executable = resolution.executable.clone();
+                native_resolution = Some(resolution);
+                AdapterLaunch::Native(executable)
+            }
             _ => AdapterLaunch::Direct,
         };
         let mut environment = ProcessEnvironment::for_command(
@@ -167,8 +209,15 @@ impl<'a> CommandExecutor<'a> {
                 &self
                     .context
                     .data_root
-                    .join("modules/kernel/.dev/setup/export"),
+                    .join("modules/system/dev/setup/export"),
             )?;
+        }
+        if let Some(resolution) = &native_resolution {
+            environment.apply_native_owner(
+                &resolution.owner_address,
+                &resolution.owner_directory,
+                &resolution.owner_data_root,
+            );
         }
         run(
             invocation.command.adapter,
@@ -227,22 +276,25 @@ fn validate_command_adapter(command: &ResolvedCommand) -> CommandResult<()> {
             "Catalog invariant failed: Toolchain command has no handler",
         ));
     }
-    if command.adapter == CommandAdapter::Bun && command.source != CommandSource::Action {
+    if command.adapter == CommandAdapter::Bun && command.space != CommandSpace::Module {
         return Err(CommandError::new(format!(
-            "the run.ts adapter is only supported for Action commands; '{}' is product-owned \
-             and must use a Rust-native entry",
+            "the run.ts adapter is only supported for Module commands; '{}' is a System command",
             command.address
         )));
     }
-    if command.adapter == CommandAdapter::Pwsh && command.source == CommandSource::Control {
+    if command.adapter == CommandAdapter::Toolchain && command.space != CommandSpace::System {
         return Err(CommandError::new(format!(
-            "the run.ps1 adapter is not supported for Entry command '{}'",
+            "toolchain execution is only supported for System commands; '{}' has an invalid owner",
             command.address
         )));
     }
-    if command.adapter == CommandAdapter::Toolchain && command.source != CommandSource::Kernel {
+    if matches!(
+        command.adapter,
+        CommandAdapter::Native | CommandAdapter::Delegate
+    ) && command.space == CommandSpace::System
+    {
         return Err(CommandError::new(format!(
-            "the run.toolchain.json adapter is only supported for Kernel commands; '{}' has an invalid owner",
+            "native command entries are not supported for System command '{}'",
             command.address
         )));
     }

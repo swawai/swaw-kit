@@ -115,7 +115,7 @@ Assert-ProjBootstrapContractTest `
     -Condition (-not [IO.Directory]::Exists((Join-Path $RepoRoot (
         '.swaw\proj\build\app\bootstrap'
     )))) `
-    -Message 'the internal Bootstrap build is still exposed as an Action'
+    -Message 'the internal Bootstrap build is still exposed as a project Module command'
 
 Write-Host '[PASS] Proj Bootstrap contract' -ForegroundColor Green
 $global:LASTEXITCODE = 0

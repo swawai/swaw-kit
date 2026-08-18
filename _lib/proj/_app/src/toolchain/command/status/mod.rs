@@ -10,11 +10,11 @@ mod rust;
 
 pub(super) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<(), String> {
     if !arguments.is_empty() {
-        return Err(".dev.status does not accept dynamic arguments".to_owned());
+        return Err(".dev/status does not accept dynamic arguments".to_owned());
     }
 
     match provider::publication_token(context) {
-        Ok(token) => println!("[READY] .dev.setup publication {}", &token[..8]),
+        Ok(token) => println!("[READY] .dev/setup publication {}", &token[..8]),
         Err(error) => println!("[OUTDATED] {error}"),
     }
     let bun = archive_tool::inspect(context, &swawkit_proj::development::BUN)?;

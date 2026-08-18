@@ -10,7 +10,8 @@ function document(overrides = {}) {
     protocol: MODULE_CHECK_PROTOCOL,
     command: {
       address: ".tool",
-      source: "kernel",
+      space: "system",
+      namespace: null,
       runnable: true,
       adapter: "pwsh",
       diagnostic: null,
@@ -27,21 +28,22 @@ describe("Module check projection model", () => {
   test("normalizes the check document for the selected exact command", () => {
     expect(createModuleCheckProjection(document(), {
       address: ".tool",
-      source: "kernel",
+      space: "system",
     })).toEqual(document());
   });
 
   test("rejects a document belonging to another command namespace", () => {
     expect(() => createModuleCheckProjection(document(), {
-      address: "tool",
-      source: "action",
-    })).toThrow("command.address");
+      address: "project/tool",
+      namespace: "project",
+      space: "module",
+    })).toThrow("command identity");
   });
 
   test("rejects an inconsistent aggregate readiness state", () => {
     expect(() => createModuleCheckProjection(document({ ok: false }), {
       address: ".tool",
-      source: "kernel",
+      space: "system",
     })).toThrow("ok");
   });
 });

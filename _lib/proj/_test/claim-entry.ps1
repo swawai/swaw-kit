@@ -69,7 +69,7 @@ try {
     $Setup = Invoke-ProjClaimEntry `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.project.root',
+            '.entry/project/root',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjClaimEntry `
@@ -87,8 +87,8 @@ try {
         -Condition (
             $Rejected.ExitCode -eq 1 -and
             $Stopwatch.Elapsed.TotalSeconds -lt 5 -and
-            $Rejected.Text.Contains("$EntryName ..entry.claim") -and
-            $Rejected.Text.Contains("$EntryName ..entry.claim --yes")
+            $Rejected.Text.Contains("$EntryName .entry/claim") -and
+            $Rejected.Text.Contains("$EntryName .entry/claim --yes")
         ) `
         -Message "ordinary CLI did not reject immediately with claim guidance: $($Rejected.Text)"
     Assert-ProjClaimEntry `
@@ -100,7 +100,7 @@ try {
 
     $Preview = Invoke-ProjClaimEntry `
         -EntryPath $EntryPath `
-        -Arguments @('..entry.claim', '--json')
+        -Arguments @('.entry/claim', '--json')
     Assert-ProjClaimEntry `
         -Condition ($Preview.ExitCode -eq 0) `
         -Message "claim preview failed: $($Preview.Text)"
@@ -120,17 +120,17 @@ try {
 
     $ClaimHelp = Invoke-ProjClaimEntry `
         -EntryPath $EntryPath `
-        -Arguments @('..entry.claim', '--help')
+        -Arguments @('.entry/claim', '--help')
     Assert-ProjClaimEntry `
         -Condition (
             $ClaimHelp.ExitCode -eq 0 -and
-            $ClaimHelp.Text.Contains('..entry.claim --yes')
+            $ClaimHelp.Text.Contains('.entry/claim --yes')
         ) `
         -Message "claim help was unavailable before ownership: $($ClaimHelp.Text)"
 
     $Applied = Invoke-ProjClaimEntry `
         -EntryPath $EntryPath `
-        -Arguments @('..entry.claim', '--yes')
+        -Arguments @('.entry/claim', '--yes')
     Assert-ProjClaimEntry `
         -Condition ($Applied.ExitCode -eq 0 -and $Applied.Text.Contains('Status: claimed')) `
         -Message "explicit claim failed: $($Applied.Text)"
@@ -143,7 +143,10 @@ try {
 
     $Help = Invoke-ProjClaimEntry -EntryPath $EntryPath -Arguments @('--help')
     Assert-ProjClaimEntry `
-        -Condition ($Help.ExitCode -eq 0 -and $Help.Text.Contains("${EntryName}:")) `
+        -Condition (
+            $Help.ExitCode -eq 0 -and
+            $Help.Text.Contains("$EntryName .entry/language")
+        ) `
         -Message "claimed Entry did not resume normal CLI operation: $($Help.Text)"
 } finally {
     Remove-ProjCandidateRuntimeFixture -Path $TemporaryRoot

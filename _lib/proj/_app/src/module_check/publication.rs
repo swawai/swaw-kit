@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::os::windows::fs::MetadataExt;
 use std::path::Path;
@@ -6,15 +7,16 @@ use serde_json::Value;
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 use crate::catalog::{CommandNode, ModuleProvision};
-use crate::command::catalog_command_data_root;
+use crate::command::{catalog_command_data_root, catalog_command_data_root_from_roots};
 use crate::context::EntryContext;
 use crate::profile::EntryProfile;
 
 use super::{ExportItem, PublicationCheck};
 
-const PROVIDER_STATE_SCHEMA: &str = "swawkit.command-provider-state/v1";
+const PROVIDER_STATE_SCHEMA: &str = "swawkit.command-provider-state/v2";
 const MAX_PROVIDER_STATE_BYTES: u64 = 64 * 1024;
 const MAX_EXPORT_ITEMS: usize = 64;
+const MAX_DECLARED_EXPORTS: usize = 64;
 const REVISION_PREFIX: &str = "sha256-";
 
 pub(super) fn inspect_publication(
@@ -40,6 +42,35 @@ pub(super) fn inspect_publication(
             );
         }
     };
+    inspect_publication_root(&module_root, &context.entry_name, provider, provision)
+}
+
+pub(super) fn inspect_runtime_publication(
+    data_root: &Path,
+    entry_name: &str,
+    provider: &CommandNode,
+    provision: &ModuleProvision,
+) -> PublicationCheck {
+    let module_root = match catalog_command_data_root_from_roots(data_root, provider) {
+        Ok(path) => path,
+        Err(error) => {
+            return publication_failure(
+                provider,
+                provision,
+                "data-root-unavailable",
+                error.to_string(),
+            );
+        }
+    };
+    inspect_publication_root(&module_root, entry_name, provider, provision)
+}
+
+fn inspect_publication_root(
+    module_root: &Path,
+    entry_name: &str,
+    provider: &CommandNode,
+    provision: &ModuleProvision,
+) -> PublicationCheck {
     let state_path = module_root.join("_state.json");
     let export_root = module_root.join("export");
     let (exports, exports_truncated) = match list_exports(&export_root) {
@@ -47,6 +78,7 @@ pub(super) fn inspect_publication(
         Err(error) => {
             return PublicationCheck {
                 provider: provider.address.clone(),
+                export: provision.id.clone(),
                 contract: provision.contract.clone(),
                 ready: false,
                 status: "export-invalid".to_owned(),
@@ -63,6 +95,7 @@ pub(super) fn inspect_publication(
         Err(error) => {
             return PublicationCheck {
                 provider: provider.address.clone(),
+                export: provision.id.clone(),
                 contract: provision.contract.clone(),
                 ready: false,
                 status: "state-invalid".to_owned(),
@@ -77,10 +110,11 @@ pub(super) fn inspect_publication(
     let Some(state) = state else {
         return PublicationCheck {
             provider: provider.address.clone(),
+            export: provision.id.clone(),
             contract: provision.contract.clone(),
             ready: false,
             status: "state-missing".to_owned(),
-            message: Some(format!("run '{} {}'", context.entry_name, provider.address)),
+            message: Some(format!("run '{entry_name} {}'", provider.address)),
             state_path: Some(display_path(&state_path)),
             export_root: Some(display_path(&export_root)),
             exports,
@@ -91,16 +125,16 @@ pub(super) fn inspect_publication(
         .get("status")
         .and_then(Value::as_str)
         .unwrap_or("invalid");
-    let contract = state.get("producerContract").and_then(Value::as_str);
+    let exports_match = state_exports(&state) == manifest_exports(provider);
     let export_ready = regular_directory(&export_root);
-    let ready = status == "ready" && contract == Some(provision.contract.as_str()) && export_ready;
+    let ready = status == "ready" && exports_match && export_ready;
     let message = if status != "ready" {
         Some(format!(
             "provider state is {status}; run '{} {}'",
-            context.entry_name, provider.address
+            entry_name, provider.address
         ))
-    } else if contract != Some(provision.contract.as_str()) {
-        Some("provider state contract does not match the declaration".to_owned())
+    } else if !exports_match {
+        Some("provider state export set does not match the module manifest".to_owned())
     } else if !export_ready {
         Some("provider export directory is missing or unsafe".to_owned())
     } else {
@@ -108,6 +142,7 @@ pub(super) fn inspect_publication(
     };
     PublicationCheck {
         provider: provider.address.clone(),
+        export: provision.id.clone(),
         contract: provision.contract.clone(),
         ready,
         status: if ready { "ready" } else { "not-ready" }.to_owned(),
@@ -119,6 +154,31 @@ pub(super) fn inspect_publication(
     }
 }
 
+fn state_exports(state: &Value) -> BTreeSet<(String, String)> {
+    state
+        .get("exports")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| {
+            Some((
+                item.get("id")?.as_str()?.to_owned(),
+                item.get("contract")?.as_str()?.to_owned(),
+            ))
+        })
+        .collect()
+}
+
+fn manifest_exports(provider: &CommandNode) -> BTreeSet<(String, String)> {
+    provider
+        .module
+        .as_ref()
+        .into_iter()
+        .flat_map(|module| &module.provides)
+        .map(|provision| (provision.id.clone(), provision.contract.clone()))
+        .collect()
+}
+
 fn publication_failure(
     provider: &CommandNode,
     provision: &ModuleProvision,
@@ -127,6 +187,7 @@ fn publication_failure(
 ) -> PublicationCheck {
     PublicationCheck {
         provider: provider.address.clone(),
+        export: provision.id.clone(),
         contract: provision.contract.clone(),
         ready: false,
         status: status.to_owned(),
@@ -177,18 +238,13 @@ fn validate_provider_state(value: &Value) -> Result<(), String> {
         .ok_or_else(|| "status is invalid".to_owned())?;
     let expected: &[&str] = match status {
         "unavailable" => &["schema", "status", "inputRevision", "token"],
-        "ready" => &[
-            "schema",
-            "status",
-            "inputRevision",
-            "token",
-            "producerContract",
-        ],
+        "ready" => &["schema", "status", "inputRevision", "token", "exports"],
         _ => return Err("status is invalid".to_owned()),
     };
     if object.len() != expected.len()
         || expected
             .iter()
+            .filter(|name| **name != "exports")
             .any(|name| !object.get(*name).is_some_and(Value::is_string))
     {
         return Err("shape is invalid".to_owned());
@@ -202,14 +258,46 @@ fn validate_provider_state(value: &Value) -> Result<(), String> {
     if !is_lower_hex(object["token"].as_str().unwrap_or_default(), 32) {
         return Err("publication token is invalid".to_owned());
     }
-    if status == "ready"
-        && !object["producerContract"]
-            .as_str()
-            .is_some_and(valid_contract)
-    {
-        return Err("producer contract is invalid".to_owned());
+    if status == "ready" {
+        validate_declared_exports(object.get("exports"))?;
     }
     Ok(())
+}
+
+fn validate_declared_exports(value: Option<&Value>) -> Result<(), String> {
+    let exports = value
+        .and_then(Value::as_array)
+        .filter(|exports| !exports.is_empty() && exports.len() <= MAX_DECLARED_EXPORTS)
+        .ok_or_else(|| "exports are invalid".to_owned())?;
+    let mut ids = std::collections::BTreeSet::new();
+    for export in exports {
+        let object = export
+            .as_object()
+            .filter(|object| object.len() == 2)
+            .ok_or_else(|| "export declaration is invalid".to_owned())?;
+        let id = object
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| valid_export_id(id))
+            .ok_or_else(|| "export id is invalid".to_owned())?;
+        object
+            .get("contract")
+            .and_then(Value::as_str)
+            .filter(|contract| valid_contract(contract))
+            .ok_or_else(|| "export contract is invalid".to_owned())?;
+        if !ids.insert(id) {
+            return Err("export ids must be unique".to_owned());
+        }
+    }
+    Ok(())
+}
+
+fn valid_export_id(value: &str) -> bool {
+    (1..=32).contains(&value.len())
+        && value.as_bytes()[0].is_ascii_lowercase()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
 fn valid_revision(value: &str) -> bool {
@@ -294,17 +382,20 @@ mod tests {
     #[test]
     fn accepts_exact_unavailable_and_ready_states() {
         let unavailable = json!({
-            "schema": "swawkit.command-provider-state/v1",
+            "schema": "swawkit.command-provider-state/v2",
             "status": "unavailable",
             "inputRevision": revision(),
             "token": "1".repeat(32),
         });
         let ready = json!({
-            "schema": "swawkit.command-provider-state/v1",
+            "schema": "swawkit.command-provider-state/v2",
             "status": "ready",
             "inputRevision": revision(),
             "token": "2".repeat(32),
-            "producerContract": "swawkit.dev-environment/v1",
+            "exports": [{
+                "id": "environment",
+                "contract": "swawkit.dev-environment/v1"
+            }],
         });
 
         assert_eq!(validate_provider_state(&unavailable), Ok(()));
@@ -314,13 +405,16 @@ mod tests {
     #[test]
     fn rejects_incomplete_or_extended_provider_states() {
         let missing_token = json!({
-            "schema": "swawkit.command-provider-state/v1",
+            "schema": "swawkit.command-provider-state/v2",
             "status": "ready",
             "inputRevision": revision(),
-            "producerContract": "swawkit.dev-environment/v1",
+            "exports": [{
+                "id": "environment",
+                "contract": "swawkit.dev-environment/v1"
+            }],
         });
         let extended = json!({
-            "schema": "swawkit.command-provider-state/v1",
+            "schema": "swawkit.command-provider-state/v2",
             "status": "unavailable",
             "inputRevision": revision(),
             "token": "3".repeat(32),
@@ -338,34 +432,44 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_revision_token_status_and_contract() {
+    fn rejects_invalid_revision_token_status_and_exports() {
         let invalid = [
             json!({
-                "schema": "swawkit.command-provider-state/v1",
+                "schema": "swawkit.command-provider-state/v2",
                 "status": "ready",
                 "inputRevision": format!("sha256-{}", "A".repeat(64)),
                 "token": "4".repeat(32),
-                "producerContract": "swawkit.dev-environment/v1",
+                "exports": [{"id": "environment", "contract": "swawkit.dev-environment/v1"}],
             }),
             json!({
-                "schema": "swawkit.command-provider-state/v1",
+                "schema": "swawkit.command-provider-state/v2",
                 "status": "ready",
                 "inputRevision": revision(),
                 "token": "g".repeat(32),
-                "producerContract": "swawkit.dev-environment/v1",
+                "exports": [{"id": "environment", "contract": "swawkit.dev-environment/v1"}],
             }),
             json!({
-                "schema": "swawkit.command-provider-state/v1",
+                "schema": "swawkit.command-provider-state/v2",
                 "status": "stale",
                 "inputRevision": revision(),
                 "token": "5".repeat(32),
             }),
             json!({
-                "schema": "swawkit.command-provider-state/v1",
+                "schema": "swawkit.command-provider-state/v2",
                 "status": "ready",
                 "inputRevision": revision(),
                 "token": "6".repeat(32),
-                "producerContract": "Invalid Contract",
+                "exports": [{"id": "environment", "contract": "Invalid Contract"}],
+            }),
+            json!({
+                "schema": "swawkit.command-provider-state/v2",
+                "status": "ready",
+                "inputRevision": revision(),
+                "token": "7".repeat(32),
+                "exports": [
+                    {"id": "environment", "contract": "swawkit.dev-environment/v1"},
+                    {"id": "environment", "contract": "swawkit.other/v1"}
+                ],
             }),
         ];
 

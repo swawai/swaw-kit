@@ -1,8 +1,10 @@
 use crate::{
     context::EntryContext,
     profile::{EntryLanguage, EntryProfile},
+    subject::SubjectRef,
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::fs;
 use std::io;
@@ -12,30 +14,36 @@ mod address;
 mod entry;
 mod facet;
 mod filesystem;
+mod identity;
 mod module_contract;
 mod subject_kind;
 mod view;
 
 pub use crate::facet::{Facet, FacetKind, FacetRenderer, FacetResolver};
-use address::{child_address, parent_address};
-pub(crate) use entry::{CommandAdapter, resolve_entry};
+use address::child_address;
+pub(crate) use entry::{CommandAdapter, ResolvedEntry, resolve_entry};
 use facet::resolve_command_facets;
 use filesystem::{
     FileCandidate, absolute_path, assert_command_root, child_directories, directory_files,
 };
 pub(crate) use filesystem::{NamedDirectory, named_directories};
+use identity::CommandId;
+pub use identity::CommandSpace;
+pub(crate) use identity::valid_namespace;
+pub(crate) use module_contract::MODULE_CONTRACT_FILE;
 use module_contract::read_local_module_contract;
 pub use module_contract::{
-    CommandModuleContract, MODULE_CONTRACT_PROTOCOL, ModuleProvision, ModuleRequirement,
+    CommandModuleContract, MODULE_CONTRACT_PROTOCOL, ModuleExecution, ModuleProvision,
+    ModuleRequirement,
 };
 use subject_kind::resolve_subject_kinds;
 use view::read_local_web_view;
 pub use view::{ChildrenColumnView, ColumnWidth, CommandView, RunOperationView, RunView};
 
-pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v13";
+pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v16";
 
 pub const HELP_ADDRESS: &str = ".help";
-pub const HELP_MARKERS: [&str; 4] = [HELP_ADDRESS, ".h", "-h", "--help"];
+pub const HELP_MARKERS: [&str; 3] = [HELP_ADDRESS, "-h", "--help"];
 
 pub fn is_help_marker(value: &str) -> bool {
     HELP_MARKERS.contains(&value)
@@ -52,7 +60,20 @@ pub struct CatalogSnapshot {
 
 impl CatalogSnapshot {
     pub fn discover(context: &EntryContext, profile: Option<&EntryProfile>) -> io::Result<Self> {
-        let action_root = profile.map(|profile| profile.binding().action_root());
+        let mut module_roots = vec![ModuleRoot::new("swaw", context.swaw_module_root())];
+        if let Some(profile) = profile {
+            module_roots.push(ModuleRoot::new(
+                "project",
+                profile.binding().project_module_root(),
+            ));
+            module_roots.extend(
+                profile
+                    .binding()
+                    .external_module_mounts()
+                    .iter()
+                    .map(|mount| ModuleRoot::new(mount.namespace(), mount.root().to_owned())),
+            );
+        }
         let pwsh = match profile {
             Some(profile) if profile.record().development.pwsh.mode == "disabled" => {
                 PwshAvailability::Disabled
@@ -62,8 +83,8 @@ impl CatalogSnapshot {
         };
         let language = profile.map(EntryProfile::language).unwrap_or_default();
         Self::discover_optional_roots(
-            &context.kernel_root(),
-            action_root.as_deref(),
+            &context.system_root(),
+            &module_roots,
             &context.entry_name,
             pwsh,
             language,
@@ -71,13 +92,36 @@ impl CatalogSnapshot {
     }
 
     pub fn discover_roots(
-        kernel_root: &Path,
-        action_root: &Path,
+        system_root: &Path,
+        swaw_module_root: &Path,
+        project_module_root: &Path,
         entry_name: &str,
     ) -> io::Result<Self> {
+        let module_roots = [
+            ModuleRoot::new("swaw", swaw_module_root.to_owned()),
+            ModuleRoot::new("project", project_module_root.to_owned()),
+        ];
         Self::discover_optional_roots(
-            kernel_root,
-            Some(action_root),
+            system_root,
+            &module_roots,
+            entry_name,
+            PwshAvailability::Enabled,
+            EntryLanguage::default(),
+        )
+    }
+
+    pub fn discover_mounted_roots(
+        system_root: &Path,
+        module_roots: &BTreeMap<String, PathBuf>,
+        entry_name: &str,
+    ) -> io::Result<Self> {
+        let module_roots = module_roots
+            .iter()
+            .map(|(namespace, path)| ModuleRoot::new(namespace, path.to_owned()))
+            .collect::<Vec<_>>();
+        Self::discover_optional_roots(
+            system_root,
+            &module_roots,
             entry_name,
             PwshAvailability::Enabled,
             EntryLanguage::default(),
@@ -86,14 +130,19 @@ impl CatalogSnapshot {
 
     #[cfg(test)]
     fn discover_roots_in_language(
-        kernel_root: &Path,
-        action_root: &Path,
+        system_root: &Path,
+        swaw_module_root: &Path,
+        project_module_root: &Path,
         entry_name: &str,
         language: EntryLanguage,
     ) -> io::Result<Self> {
+        let module_roots = [
+            ModuleRoot::new("swaw", swaw_module_root.to_owned()),
+            ModuleRoot::new("project", project_module_root.to_owned()),
+        ];
         Self::discover_optional_roots(
-            kernel_root,
-            Some(action_root),
+            system_root,
+            &module_roots,
             entry_name,
             PwshAvailability::Enabled,
             language,
@@ -101,55 +150,57 @@ impl CatalogSnapshot {
     }
 
     fn discover_optional_roots(
-        kernel_root: &Path,
-        action_root: Option<&Path>,
+        system_root: &Path,
+        module_roots: &[ModuleRoot],
         entry_name: &str,
         pwsh: PwshAvailability,
         language: EntryLanguage,
     ) -> io::Result<Self> {
-        assert_command_root(kernel_root)?;
+        assert_command_root(system_root)?;
 
+        let system_path = absolute_path(system_root)?;
         let mut pending = VecDeque::from([PendingDirectory {
-            path: absolute_path(kernel_root)?,
-            address: String::new(),
-            source: CommandSource::Kernel,
-            is_root: true,
+            module: read_pending_module(&system_path, language),
+            path: system_path,
+            id: CommandId::system(Vec::new()),
         }]);
 
-        if let Some(action_root) = action_root.filter(|path| path.is_dir()) {
-            assert_command_root(action_root)?;
+        for module_root in module_roots.iter().filter(|root| root.path.is_dir()) {
+            assert_command_root(&module_root.path)?;
+            let path = absolute_path(&module_root.path)?;
             pending.push_back(PendingDirectory {
-                path: absolute_path(action_root)?,
-                address: String::new(),
-                source: CommandSource::Action,
-                is_root: true,
+                module: read_pending_module(&path, language),
+                path,
+                id: CommandId::module(&module_root.namespace, Vec::new()),
             });
         }
 
         let mut commands = Vec::new();
         while let Some(current) = pending.pop_front() {
-            if current.source == CommandSource::Kernel || !current.is_root {
-                commands.push(scan_node(&current, entry_name, pwsh, language));
-            }
+            commands.push(scan_node(&current, entry_name, pwsh, language));
 
             for child in child_directories(&current.path)? {
                 let Some(child_command) = child_address(&current, &child.name) else {
                     continue;
                 };
+                let module = read_pending_module(&child.path, language);
+                if matches!(module, PendingModule::Absent) {
+                    continue;
+                }
                 pending.push_back(PendingDirectory {
                     path: child.path,
-                    address: child_command.address,
-                    source: child_command.source,
-                    is_root: false,
+                    id: child_command.id,
+                    module,
                 });
             }
         }
 
         commands.sort_by(|left, right| {
-            left.source
-                .cmp(&right.source)
+            left.space
+                .cmp(&right.space)
                 .then_with(|| left.address.cmp(&right.address))
         });
+        resolve_native_owners(&mut commands);
         resolve_subject_kinds(&mut commands);
         resolve_command_facets(&mut commands, language);
 
@@ -162,11 +213,28 @@ impl CatalogSnapshot {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ModuleRoot {
+    namespace: String,
+    path: PathBuf,
+}
+
+impl ModuleRoot {
+    fn new(namespace: impl Into<String>, path: PathBuf) -> Self {
+        Self {
+            namespace: namespace.into(),
+            path,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandNode {
     pub address: String,
-    pub source: CommandSource,
+    pub space: CommandSpace,
+    pub namespace: Option<String>,
+    pub path: Vec<String>,
     pub parent: Option<String>,
     pub alias_of: Option<String>,
     pub runnable: bool,
@@ -184,14 +252,18 @@ pub struct CommandNode {
     pub help_diagnostic: Option<String>,
     #[serde(skip)]
     pub directory: PathBuf,
+    #[serde(skip)]
+    pub(crate) native_owner: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CommandSource {
-    Control,
-    Kernel,
-    Action,
+impl CommandNode {
+    pub fn is_control(&self) -> bool {
+        self.space == CommandSpace::System
+            && self
+                .path
+                .first()
+                .is_some_and(|segment| matches!(segment.as_str(), "entry" | "runtime"))
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -203,15 +275,28 @@ pub struct HelpDocument {
 #[derive(Debug)]
 struct PendingDirectory {
     path: PathBuf,
-    address: String,
-    source: CommandSource,
-    is_root: bool,
+    id: CommandId,
+    module: PendingModule,
+}
+
+#[derive(Debug)]
+enum PendingModule {
+    Absent,
+    Valid(CommandModuleContract),
+    Invalid(String),
+}
+
+fn read_pending_module(path: &Path, language: EntryLanguage) -> PendingModule {
+    match read_local_module_contract(path, language) {
+        Ok(Some(module)) => PendingModule::Valid(module),
+        Ok(None) => PendingModule::Absent,
+        Err(error) => PendingModule::Invalid(error.to_string()),
+    }
 }
 
 #[derive(Debug)]
 struct ChildCommand {
-    address: String,
-    source: CommandSource,
+    id: CommandId,
 }
 
 #[derive(Clone, Copy)]
@@ -227,54 +312,82 @@ fn scan_node(
     pwsh: PwshAvailability,
     language: EntryLanguage,
 ) -> CommandNode {
+    let address = pending.id.address();
     let mut diagnostics = Vec::new();
-    let (module, module_valid) = match read_local_module_contract(&pending.path, language) {
-        Ok(module) => (module, true),
-        Err(error) => {
-            diagnostics.push(error.to_string());
+    let (module, module_valid) = match &pending.module {
+        PendingModule::Absent => (None, true),
+        PendingModule::Valid(module) => (Some(module.clone()), true),
+        PendingModule::Invalid(error) => {
+            diagnostics.push(error.clone());
             (None, false)
         }
     };
-    let entry = match resolve_entry(&pending.path) {
+    let local_entry = match resolve_entry(&pending.path) {
         Ok(entry) => entry,
         Err(error) => {
             diagnostics.push(error.to_string());
             None
         }
     };
+    let declared_execution = module
+        .as_ref()
+        .and_then(|contract| contract.execution.as_ref());
+    let entry = match (local_entry, declared_execution) {
+        (Some(_), Some(_)) => {
+            diagnostics.push(format!(
+                "command declares both a local run.* entry and {MODULE_CONTRACT_FILE} execution"
+            ));
+            None
+        }
+        (None, Some(ModuleExecution::Core { handler })) => Some(ResolvedEntry::declared(
+            pending.path.join(MODULE_CONTRACT_FILE),
+            CommandAdapter::Core,
+            Some(handler.clone()),
+        )),
+        (None, Some(ModuleExecution::Toolchain { handler })) => Some(ResolvedEntry::declared(
+            pending.path.join(MODULE_CONTRACT_FILE),
+            CommandAdapter::Toolchain,
+            Some(handler.clone()),
+        )),
+        (None, Some(ModuleExecution::Native)) => Some(ResolvedEntry::declared(
+            pending.path.join(MODULE_CONTRACT_FILE),
+            CommandAdapter::Native,
+            None,
+        )),
+        (None, Some(ModuleExecution::Delegate { .. })) => Some(ResolvedEntry::declared(
+            pending.path.join(MODULE_CONTRACT_FILE),
+            CommandAdapter::Delegate,
+            None,
+        )),
+        (entry, None) => entry,
+    };
     let entry = match entry {
         Some(entry)
             if entry.adapter == CommandAdapter::Core
-                && !entry.has_valid_core_owner(pending.source, &pending.address) =>
+                && !entry.has_valid_core_owner(pending.id.space, &address) =>
         {
-            diagnostics.push(
-                "run.core.json is restricted to Entry commands, exact built-in Kernel commands, and declared .dev Profile settings"
-                    .to_owned(),
-            );
+            diagnostics
+                .push("core execution is restricted to its exact System command owner".to_owned());
             None
         }
         Some(entry)
             if entry.adapter == CommandAdapter::Toolchain
-                && pending.source != CommandSource::Kernel =>
+                && !entry.has_valid_toolchain_owner(pending.id.space, &address) =>
         {
             diagnostics.push(
-                "run.toolchain.json is restricted to Kernel commands (addresses beginning with '.')"
-                    .to_owned(),
+                "toolchain execution is restricted to its exact System command owner".to_owned(),
             );
             None
         }
         Some(entry)
-            if entry.adapter == CommandAdapter::Bun && pending.source != CommandSource::Action =>
+            if entry.adapter == CommandAdapter::Bun && pending.id.space != CommandSpace::Module =>
         {
-            diagnostics.push(
-                "run.ts is restricted to project Action commands; product-owned commands must use a Rust-native entry"
-                    .to_owned(),
-            );
+            diagnostics.push("run.ts is restricted to Module commands".to_owned());
             None
         }
         Some(entry) if entry.adapter == CommandAdapter::Python => {
             diagnostics.push(
-                "run.py is not runnable until managed Python is owned and verified by .dev.setup"
+                "run.py is not runnable until managed Python is owned and verified by .dev/setup"
                     .to_owned(),
             );
             None
@@ -284,7 +397,7 @@ fn scan_node(
                 && matches!(pwsh, PwshAvailability::Disabled) =>
         {
             diagnostics.push(
-                "run.ps1 is disabled by the current Entry Profile; run '.dev.pwsh.mode managed' or '.dev.pwsh.mode system', then run .dev.setup"
+                "run.ps1 is disabled by the current Entry Profile; run '.dev/pwsh/mode managed' or '.dev/pwsh/mode system', then run .dev/setup"
                     .to_owned(),
             );
             None
@@ -299,17 +412,22 @@ fn scan_node(
             None
         }
         Some(entry)
-            if !matches!(entry.adapter, CommandAdapter::Core)
-                && pending.source == CommandSource::Control =>
+            if matches!(
+                entry.adapter,
+                CommandAdapter::Native | CommandAdapter::Delegate
+            ) && pending.id.space == CommandSpace::System =>
         {
-            diagnostics.push("Entry commands must use a run.core.json entry".to_owned());
+            diagnostics.push(
+                "native owners and delegated execution belong to Module commands, not System commands"
+                    .to_owned(),
+            );
             None
         }
         entry if module_valid => entry,
         _ => None,
     };
     let (help, help_diagnostic) =
-        match read_local_help(&pending.path, entry_name, &pending.address, language) {
+        match read_local_help(&pending.path, entry_name, &address, language) {
             Ok(help) => (help, None),
             Err(error) => {
                 let diagnostic = error.to_string();
@@ -326,10 +444,12 @@ fn scan_node(
     };
 
     CommandNode {
-        address: pending.address.clone(),
-        source: pending.source,
-        parent: parent_address(pending.source, &pending.address),
-        alias_of: command_alias(pending.source, &pending.address).map(str::to_owned),
+        address,
+        space: pending.id.space,
+        namespace: pending.id.namespace.clone(),
+        path: pending.id.path.clone(),
+        parent: pending.id.parent().map(|parent| parent.address()),
+        alias_of: None,
         runnable: entry.is_some(),
         entry: entry.as_ref().map(|entry| entry.name.to_owned()),
         adapter: entry
@@ -344,17 +464,118 @@ fn scan_node(
         diagnostic: (!diagnostics.is_empty()).then(|| diagnostics.join("; ")),
         help_diagnostic,
         directory: pending.path.clone(),
+        native_owner: None,
     }
 }
 
-fn command_alias(source: CommandSource, address: &str) -> Option<&'static str> {
-    if source != CommandSource::Kernel {
-        return None;
-    }
-    HELP_MARKERS
+fn resolve_native_owners(commands: &mut [CommandNode]) {
+    let entries = commands
         .iter()
-        .skip(1)
-        .find_map(|alias| (*alias == address).then_some(HELP_ADDRESS))
+        .map(|command| {
+            (
+                command.address.clone(),
+                (
+                    command.space,
+                    command.namespace.clone(),
+                    command.path.clone(),
+                    command.runnable,
+                    command.adapter.clone(),
+                ),
+            )
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    for command in commands {
+        match command.adapter.as_deref() {
+            Some("native") if command.runnable => {
+                command.native_owner = Some(command.address.clone());
+            }
+            Some("delegate") if command.runnable => {
+                match delegated_native_owner(&entries, command) {
+                    Ok(owner) => command.native_owner = Some(owner),
+                    Err(diagnostic) => {
+                        command.runnable = false;
+                        command.entry = None;
+                        command.adapter = None;
+                        command.handler = None;
+                        command.diagnostic = Some(match command.diagnostic.take() {
+                            Some(existing) => format!("{existing}; {diagnostic}"),
+                            None => diagnostic,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn delegated_native_owner(
+    entries: &std::collections::BTreeMap<
+        String,
+        (
+            CommandSpace,
+            Option<String>,
+            Vec<String>,
+            bool,
+            Option<String>,
+        ),
+    >,
+    command: &CommandNode,
+) -> Result<String, String> {
+    if command.space == CommandSpace::System {
+        return Err("delegated execution is not supported for System commands".to_owned());
+    }
+    let Some(ModuleExecution::Delegate { owner }) = command
+        .module
+        .as_ref()
+        .and_then(|module| module.execution.as_ref())
+    else {
+        return Err(format!(
+            "delegated command '{}' has no execution owner declaration",
+            command.address
+        ));
+    };
+    let SubjectRef::Command {
+        space,
+        namespace,
+        address,
+    } = owner
+    else {
+        return Err("delegated execution owner must be a command".to_owned());
+    };
+    if *space != CommandSpace::Module || namespace != &command.namespace {
+        return Err(format!(
+            "delegated execution owner '{}' must use the command's Module namespace",
+            address
+        ));
+    }
+    let Some((owner_space, owner_namespace, owner_path, runnable, adapter)) = entries.get(address)
+    else {
+        return Err(format!(
+            "delegated execution owner '{}' is missing from the Catalog",
+            address
+        ));
+    };
+    if *owner_space != CommandSpace::Module || owner_namespace != &command.namespace {
+        return Err(format!(
+            "delegated execution owner '{}' has an incompatible command identity",
+            address
+        ));
+    }
+    if owner_path.len() >= command.path.len() || !command.path.starts_with(owner_path) {
+        return Err(format!(
+            "delegated execution owner '{}' must be an ancestor of '{}'",
+            address, command.address
+        ));
+    }
+    if !*runnable || adapter.as_deref() != Some("native") {
+        return Err(format!(
+            "delegated execution owner '{}' must declare native execution",
+            address
+        ));
+    }
+    Ok(address.clone())
 }
 
 fn read_local_help(

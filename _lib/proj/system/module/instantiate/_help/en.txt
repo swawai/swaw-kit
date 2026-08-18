@@ -1,0 +1,5 @@
+Build a domain module declaring execution.native as an independent run.exe and publish a content-addressed Release. A logical port declaring execution.delegate automatically targets its explicit native owner.
+
+Usage: {{INVOCATION}} <native-module-or-logical-port-address>
+
+Normal command execution never compiles source. Run this command again after a source change; a failed build does not replace the current Release.

@@ -159,7 +159,7 @@ impl DeclarationSnapshot {
             Ok(())
         } else {
             Err(DeclarationError(format!(
-                ".dev.setup does not yet handle these enabled declarations: {}.",
+                ".dev/setup does not yet handle these enabled declarations: {}.",
                 pending.join(", ")
             )))
         }
@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(snapshot.pending_modules(), ["go"]);
         assert_eq!(
             snapshot.require_supported().unwrap_err().to_string(),
-            ".dev.setup does not yet handle these enabled declarations: go."
+            ".dev/setup does not yet handle these enabled declarations: go."
         );
     }
 

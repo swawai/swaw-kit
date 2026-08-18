@@ -1,6 +1,11 @@
 import { instantiateSubjectFacets } from "./subject-kind-model.js";
+import {
+  commandIdentityKey,
+  normalizeCommandIdentity,
+  sameCommandIdentity,
+} from "./command-identity.js";
 
-const COLLECTION_PROTOCOL = "swawkit.subject-collection/v2";
+const COLLECTION_PROTOCOL = "swawkit.subject-collection/v3";
 const TOKEN = /^[a-z][a-z0-9-]{0,31}$/;
 const INSTANCE_ID = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
@@ -30,18 +35,15 @@ function text(value, field, maximum) {
 function normalizeSubjectRef(value, field) {
   const reference = object(value, field);
   if (reference.type === "command") {
-    if (
-      !new Set(["control", "kernel", "action"]).has(reference.source)
-      || typeof reference.address !== "string"
-      || (reference.address.length === 0 && reference.source !== "kernel")
-    ) {
-      throw invalid(`${field} must identify a command Subject.`);
-    }
-    return {
-      address: reference.address,
-      source: reference.source,
-      type: "command",
-    };
+    const identity = normalizeCommandIdentity(reference, field, invalid);
+    return identity.space === "system"
+      ? { address: identity.address, space: identity.space, type: "command" }
+      : {
+          address: identity.address,
+          namespace: identity.namespace,
+          space: identity.space,
+          type: "command",
+        };
   }
   if (reference.type === "instance") {
     if (
@@ -58,7 +60,7 @@ function normalizeSubjectRef(value, field) {
 
 function subjectRefKey(reference) {
   return reference.type === "command"
-    ? `${reference.source}:${reference.address}`
+    ? commandIdentityKey(reference)
     : `::${reference.kind}/${reference.id}`;
 }
 
@@ -94,8 +96,7 @@ export function createSubjectCollection(document, catalog, expectedSubject, coll
   const provider = catalog.subjectKindByKind.get(collectionFacet.subjectKind.kind);
   if (
     !provider
-    || provider.command.address !== collectionFacet.subjectKind.provider.address
-    || provider.command.source !== collectionFacet.subjectKind.provider.source
+    || !sameCommandIdentity(provider.command, collectionFacet.subjectKind.provider)
   ) {
     throw invalid("collection Subject kind provider is unavailable.");
   }
@@ -121,7 +122,7 @@ export function createSubjectCollection(document, catalog, expectedSubject, coll
       throw invalid(`${field}.ref kind does not match the collection Subject kind.`);
     }
     if (subject.facets !== undefined) {
-      throw invalid(`${field}.facets is not part of SubjectCollection v2.`);
+      throw invalid(`${field}.facets is not part of SubjectCollection v3.`);
     }
     if (
       !Array.isArray(subject.facetIds)

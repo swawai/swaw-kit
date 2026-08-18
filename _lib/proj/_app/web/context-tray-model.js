@@ -1,3 +1,8 @@
+import {
+  normalizeCommandIdentity,
+  sameCommandIdentity,
+} from "./command-identity.js";
+
 export const PINNED_CONTEXT_SCHEMA = "swawkit.web-pinned-context/v1";
 
 function object(value, field) {
@@ -16,16 +21,28 @@ function exactKeys(value, expected, field) {
 
 function commandRef(value, field) {
   const reference = object(value, field);
-  exactKeys(reference, ["address", "source", "type"], field);
-  if (
-    reference.type !== "command"
-    || !new Set(["control", "kernel", "action"]).has(reference.source)
-    || typeof reference.address !== "string"
-    || reference.address.length === 0
-  ) {
+  if (reference.type !== "command") {
     throw new Error(`${field} must identify a non-root command Subject.`);
   }
-  return { address: reference.address, source: reference.source, type: "command" };
+  exactKeys(
+    reference,
+    reference.space === "module"
+      ? ["address", "namespace", "space", "type"]
+      : ["address", "space", "type"],
+    field,
+  );
+  const identity = normalizeCommandIdentity(reference, field, (message) => new Error(message));
+  if (identity.address.length === 0) {
+    throw new Error(`${field} must identify a non-root command Subject.`);
+  }
+  return identity.space === "system"
+    ? { address: identity.address, space: identity.space, type: "command" }
+    : {
+        address: identity.address,
+        namespace: identity.namespace,
+        space: identity.space,
+        type: "command",
+      };
 }
 
 function contextRef(value, field) {
@@ -79,7 +96,7 @@ export function contextAddInvocation(subject, command, document_) {
     return null;
   }
   if (document_?.commands?.some((candidate) => (
-    candidate.source === command.source && candidate.address === command.address
+    sameCommandIdentity(candidate, command)
   ))) {
     return { state: "present" };
   }

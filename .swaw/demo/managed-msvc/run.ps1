@@ -10,7 +10,7 @@ if ([string]$env:SWAWKIT_PROJ_MSVC_MODE -cne 'managed') {
     throw (
         'demo.managed-msvc requires the project-managed MSVC environment. ' +
         "Enable it and run " +
-        "'$($env:SWAWKIT_PROJ_ENTRY_COMMAND) .dev.setup'."
+        "'$($env:SWAWKIT_PROJ_ENTRY_COMMAND) .dev/setup'."
     )
 }
 

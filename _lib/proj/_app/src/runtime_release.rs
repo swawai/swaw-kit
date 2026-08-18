@@ -56,9 +56,9 @@ impl RuntimeReleaseStore {
         regular_directory(swawkit_home, "Swaw Kit Home")?;
         let library_root = swawkit_home.join("_lib");
         regular_directory(&library_root, "Swaw Kit library root")?;
-        let kernel_root = library_root.join("proj");
-        regular_directory(&kernel_root, "Proj kernel root")?;
-        let runtime_root = kernel_root.join("_bin");
+        let proj_root = library_root.join("proj");
+        regular_directory(&proj_root, "Proj root")?;
+        let runtime_root = proj_root.join("_bin");
         regular_directory(&runtime_root, "Runtime root")?;
         let releases_root = runtime_root.join("releases");
         regular_directory(&releases_root, "Runtime releases directory")?;

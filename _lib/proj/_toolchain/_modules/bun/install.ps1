@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-# Bun installation recipe used only by .dev.setup.
+# Bun installation recipe used only by .dev/setup.
 function Invoke-ProjDevBunVersionProbe {
     param(
         [Parameter(Mandatory = $true)][string]$Executable,

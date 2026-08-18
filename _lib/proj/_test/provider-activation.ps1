@@ -109,6 +109,7 @@ try {
             -State (New-ProjCommandProviderReadyState `
                 -InputRevision $InputRevision `
                 -Token $ReplacementToken `
+                -ExportId (Get-ProjDevSetupExportId) `
                 -ProducerContract (Get-ProjDevSetupProducerContract))
         $HeldStateReader = [IO.StreamReader]::new(
             $HeldStateStream,
@@ -141,6 +142,7 @@ try {
         -State (New-ProjCommandProviderReadyState `
             -InputRevision $InputRevision `
             -Token ([string]$Attempt.Token) `
+            -ExportId (Get-ProjDevSetupExportId) `
             -ProducerContract (Get-ProjDevSetupProducerContract))
 
     $NewProfileText = '{"revision":2}'
@@ -208,7 +210,7 @@ try {
     Assert-ProjProviderActivationTest `
         -Condition (
             $PendingMessage -ceq (
-                '.dev.setup does not yet handle these enabled ' +
+                '.dev/setup does not yet handle these enabled ' +
                 'declarations: go.'
             ) -and
             $null -eq [Environment]::GetEnvironmentVariable(

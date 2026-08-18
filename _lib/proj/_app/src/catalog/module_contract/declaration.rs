@@ -1,7 +1,8 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     facet::{FacetKind, FacetRenderer},
+    subject::SubjectRef,
     subject_kind::SubjectKindRef,
 };
 
@@ -36,6 +37,15 @@ pub(crate) enum ModuleFacetResolver {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
+pub enum ModuleExecution {
+    Core { handler: String },
+    Toolchain { handler: String },
+    Native,
+    Delegate { owner: SubjectRef },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub(crate) enum ModuleFacetArgument {
@@ -61,6 +71,8 @@ pub(crate) enum ModuleFacetBinding {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ModuleManifest {
     pub(super) schema: String,
+    #[serde(default)]
+    pub(super) execution: Option<ModuleExecution>,
     #[serde(default)]
     pub(super) requires: Vec<ModuleRequirement>,
     #[serde(default)]

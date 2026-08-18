@@ -9,7 +9,7 @@ import {
 import { acquireExclusiveFileLock } from "../_lib/windows-filesystem.ts";
 
 if (Bun.argv.length !== 2) {
-  throw new Error("proj.build.app does not accept dynamic arguments.");
+  throw new Error("project/proj/build/app does not accept dynamic arguments.");
 }
 
 const commandDataRoot = requiredAbsolute("SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT");
@@ -62,7 +62,7 @@ for (const [name, path] of Object.entries(candidates)) {
   console.log(`[BUILT] ${path} (${metadata.size} bytes)`);
 }
 const id = await publishBuildReleaseSet(commandDataRoot, candidates);
-console.log(`[READY] proj.build.app release ${id}`);
+console.log(`[READY] project/proj/build/app release ${id}`);
 
 function requiredAbsolute(name: string): string {
   const value = process.env[name];

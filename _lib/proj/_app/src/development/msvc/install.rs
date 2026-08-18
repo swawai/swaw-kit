@@ -75,7 +75,7 @@ pub fn ensure_installed(
     let installs = ensure_directory_chain(
         context.data_root,
         &[
-            "modules", "kernel", ".dev", "setup", "export", "msvc", "installs",
+            "modules", "system", "dev", "setup", "export", "msvc", "installs",
         ],
         "MSVC installation parent",
     )?;
@@ -116,7 +116,7 @@ pub fn ensure_installed(
         let logs = ensure_directory_chain(
             context.data_root,
             &[
-                "modules", "kernel", ".dev", "setup", "export", "msvc", "_logs",
+                "modules", "system", "dev", "setup", "export", "msvc", "_logs",
             ],
             "MSVC installation logs",
         )?;

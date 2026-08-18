@@ -259,7 +259,7 @@ function Write-ProjDevPwshTrustWarning {
     if ($null -eq $Trust.Metadata) {
         Write-Warning (
             "PowerShell $($Definition.Version) is not pinned by " +
-            'SWAWKIT_PROJ_PWSH_SHA256; .dev.setup will use the GitHub Release ' +
+            'SWAWKIT_PROJ_PWSH_SHA256; .dev/setup will use the GitHub Release ' +
             'digest when available.'
         )
         return

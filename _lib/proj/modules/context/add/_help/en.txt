@@ -1,0 +1,5 @@
+Add one or more command references to a Context.
+
+Usage: {{INVOCATION}} <context-id> <command-address>...
+
+The address namespace determines its source. A reference may be unavailable when stored; repeated additions do not create duplicates.

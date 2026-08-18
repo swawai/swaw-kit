@@ -49,7 +49,7 @@ fn decoder_flushes_an_incomplete_sequence_at_eof() {
 }
 
 // These two tests double as the copied libtest executable's worker commands.
-// Their names intentionally use valid Action-address syntax so the first argv
+// Their names intentionally use valid Module-address syntax so the first argv
 // value is also an exact libtest filter.
 #[test]
 fn webnativeworkerfixture() {

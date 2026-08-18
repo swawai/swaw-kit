@@ -1,18 +1,23 @@
 Set-StrictMode -Version 2.0
 
 $script:ProjCommandProviderStateSchema =
-    'swawkit.command-provider-state/v1'
+    'swawkit.command-provider-state/v2'
 $script:ProjDevSetupProducerContract =
     'swawkit.proj.dev-setup/v2'
+$script:ProjDevSetupExportId = 'environment'
 $script:ProjDevCommandEnvironmentInputRevisionVariable =
     'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION'
 $script:ProjDevCommandProfileRevisionVariable =
     'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION'
 $script:ProjDevSetupPublicationTokenVariable =
-    'SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_PUBLICATION_TOKEN'
+    'SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_PUBLICATION_TOKEN'
 
 function Get-ProjDevSetupProducerContract {
     return $script:ProjDevSetupProducerContract
+}
+
+function Get-ProjDevSetupExportId {
+    return $script:ProjDevSetupExportId
 }
 
 function Get-ProjDevSetupPublicationTokenVariable {
@@ -155,9 +160,13 @@ function New-ProjCommandProviderReadyState {
     param(
         [Parameter(Mandatory = $true)][string]$InputRevision,
         [Parameter(Mandatory = $true)][string]$Token,
+        [Parameter(Mandatory = $true)][string]$ExportId,
         [Parameter(Mandatory = $true)][string]$ProducerContract
     )
 
+    if ($ExportId -cnotmatch '^[a-z][a-z0-9-]{0,31}$') {
+        throw "Invalid command provider export id: '$ExportId'"
+    }
     if ($ProducerContract -cnotmatch '^[a-z0-9][a-z0-9._/-]{0,127}$') {
         throw "Invalid command provider contract: '$ProducerContract'"
     }
@@ -167,7 +176,12 @@ function New-ProjCommandProviderReadyState {
         inputRevision = Assert-ProjCommandProviderInputRevision `
             -InputRevision $InputRevision
         token = Assert-ProjCommandProviderToken -Token $Token
-        producerContract = $ProducerContract
+        exports = @(
+            [ordered]@{
+                id = $ExportId
+                contract = $ProducerContract
+            }
+        )
     }
 }
 
@@ -200,7 +214,7 @@ function Read-ProjCommandProviderState {
             'status',
             'inputRevision',
             'token',
-            'producerContract'
+            'exports'
         )
     } else {
         throw "The command provider state is invalid: $StatePath"
@@ -213,7 +227,7 @@ function Read-ProjCommandProviderState {
         if ($ActualNames -cnotcontains $Name) {
             throw "The command provider state is invalid: $StatePath"
         }
-        if ($State.$Name -isnot [string]) {
+        if ($Name -cne 'exports' -and $State.$Name -isnot [string]) {
             throw "The command provider state is invalid: $StatePath"
         }
     }
@@ -236,15 +250,33 @@ function Read-ProjCommandProviderState {
         Token = $Token
     }
     if ($Status -ceq 'ready') {
-        $ProducerContract = [string]$State.producerContract
-        try {
-            if ($ProducerContract -cnotmatch '^[a-z0-9][a-z0-9._/-]{0,127}$') {
-                throw 'invalid contract'
-            }
-        } catch {
+        $Exports = @($State.exports)
+        if ($Exports.Count -lt 1 -or $Exports.Count -gt 64) {
             throw "The command provider state is invalid: $StatePath"
         }
-        $Result.Add('ProducerContract', $ProducerContract)
+        $Seen = [Collections.Generic.HashSet[string]]::new(
+            [StringComparer]::Ordinal
+        )
+        $NormalizedExports = foreach ($Export in $Exports) {
+            $Names = [string[]]@($Export.PSObject.Properties.Name)
+            $ExportId = [string]$Export.id
+            $Contract = [string]$Export.contract
+            if ($Names.Count -ne 2 -or
+                $Names -cnotcontains 'id' -or
+                $Names -cnotcontains 'contract' -or
+                $Export.id -isnot [string] -or
+                $Export.contract -isnot [string] -or
+                $ExportId -cnotmatch '^[a-z][a-z0-9-]{0,31}$' -or
+                $Contract -cnotmatch '^[a-z0-9][a-z0-9._/-]{0,127}$' -or
+                -not $Seen.Add($ExportId)) {
+                throw "The command provider state is invalid: $StatePath"
+            }
+            [pscustomobject][ordered]@{
+                Id = $ExportId
+                Contract = $Contract
+            }
+        }
+        $Result.Add('Exports', @($NormalizedExports))
     }
     return [pscustomobject]$Result
 }
@@ -309,7 +341,7 @@ function Complete-ProjDevSetupProviderPublication {
             [string]$Current.InputRevision -cne [string]$Attempt.InputRevision -or
             [string]$Current.Token -cne [string]$Attempt.Token) {
             throw (
-                'The project development inputs changed while .dev.setup ' +
+                'The project development inputs changed while .dev/setup ' +
                 'was running. The stale build was not published; run ' +
                 "'$($Context.EntryCommand) $($Context.EnvironmentProviderAddress)' again."
             )
@@ -317,6 +349,7 @@ function Complete-ProjDevSetupProviderPublication {
         $Ready = New-ProjCommandProviderReadyState `
             -InputRevision ([string]$Attempt.InputRevision) `
             -Token ([string]$Attempt.Token) `
+            -ExportId $script:ProjDevSetupExportId `
             -ProducerContract $script:ProjDevSetupProducerContract
         Write-ProjCommandProviderState -Context $Context -State $Ready
     } finally {

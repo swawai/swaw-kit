@@ -1,20 +1,17 @@
 Set-StrictMode -Version 2.0
 
-function Get-ProjKernelCommandDataRoot {
+function Get-ProjSystemCommandDataRoot {
     param(
         [Parameter(Mandatory = $true)][string]$DataRoot,
         [Parameter(Mandatory = $true)][string]$Address
     )
 
-    if ($Address -cnotmatch '^\.[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$') {
-        throw "Invalid Kernel command provider address: '$Address'"
+    if ($Address -cnotmatch '^\.[a-z][a-z0-9-]*(?:/[a-z][a-z0-9-]*)*$') {
+        throw "Invalid System command provider address: '$Address'"
     }
-    $Segments = $Address.Substring(1).Split('.')
-    $Path = Join-Path (Join-Path $DataRoot 'modules\kernel') (
-        ".$($Segments[0])"
-    )
-    for ($Index = 1; $Index -lt $Segments.Length; $Index++) {
-        $Path = Join-Path $Path $Segments[$Index]
+    $Path = Join-Path $DataRoot 'modules\system'
+    foreach ($Segment in $Address.Substring(1).Split('/')) {
+        $Path = Join-Path $Path $Segment
     }
     return Assert-ProjDevPathInsideDataRoot `
         -Path $Path `
@@ -22,17 +19,18 @@ function Get-ProjKernelCommandDataRoot {
         -Activity "resolving command data for '$Address'"
 }
 
-function Get-ProjActionCommandDataRoot {
+function Get-ProjModuleCommandDataRoot {
     param(
         [Parameter(Mandatory = $true)][string]$DataRoot,
         [Parameter(Mandatory = $true)][string]$Address
     )
 
-    if ($Address -cnotmatch '^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)*$') {
-        throw "Invalid Action command provider address: '$Address'"
+    if ($Address -cnotmatch '^[a-z][a-z0-9-]*(?:/[a-z][a-z0-9-]*)*$' -or
+        $Address.Split('/')[0] -cin @('system', 'module')) {
+        throw "Invalid Module command provider address: '$Address'"
     }
-    $Path = Join-Path $DataRoot 'modules\action'
-    foreach ($Segment in $Address.Split('.')) {
+    $Path = Join-Path $DataRoot 'modules'
+    foreach ($Segment in $Address.Split('/')) {
         $Path = Join-Path $Path $Segment
     }
     return Assert-ProjDevPathInsideDataRoot `
@@ -45,16 +43,16 @@ function Get-ProjCommandProviderDataRoot {
     param(
         [Parameter(Mandatory = $true)][string]$DataRoot,
         [Parameter(Mandatory = $true)][string]$ProviderAddress,
-        [ValidateSet('kernel', 'action')]
-        [string]$ProviderSource = 'kernel'
+        [ValidateSet('system', 'module')]
+        [string]$ProviderSpace = 'system'
     )
 
-    if ($ProviderSource -ceq 'action') {
-        return Get-ProjActionCommandDataRoot `
+    if ($ProviderSpace -ceq 'module') {
+        return Get-ProjModuleCommandDataRoot `
             -DataRoot $DataRoot `
             -Address $ProviderAddress
     }
-    return Get-ProjKernelCommandDataRoot `
+    return Get-ProjSystemCommandDataRoot `
         -DataRoot $DataRoot `
         -Address $ProviderAddress
 }
@@ -63,14 +61,14 @@ function Resolve-ProjCommandExportPath {
     param(
         [Parameter(Mandatory = $true)][string]$DataRoot,
         [Parameter(Mandatory = $true)][string]$ProviderAddress,
-        [ValidateSet('kernel', 'action')]
-        [string]$ProviderSource = 'kernel'
+        [ValidateSet('system', 'module')]
+        [string]$ProviderSpace = 'system'
     )
 
     $CommandRoot = Get-ProjCommandProviderDataRoot `
         -DataRoot $DataRoot `
         -ProviderAddress $ProviderAddress `
-        -ProviderSource $ProviderSource
+        -ProviderSpace $ProviderSpace
     return Assert-ProjDevPathInsideDataRoot `
         -Path (Join-Path $CommandRoot 'export') `
         -DataRoot $DataRoot `
@@ -82,22 +80,26 @@ function Get-ProjReadyCommandExport {
         [Parameter(Mandatory = $true)][string]$DataRoot,
         [Parameter(Mandatory = $true)][string]$ProviderAddress,
         [Parameter(Mandatory = $true)][string]$EntryCommand,
+        [Parameter(Mandatory = $true)][string]$ExportId,
         [Parameter(Mandatory = $true)][string]$ProducerContract,
-        [ValidateSet('kernel', 'action')]
-        [string]$ProviderSource = 'kernel'
+        [ValidateSet('system', 'module')]
+        [string]$ProviderSpace = 'system'
     )
 
+    if ($ExportId -cnotmatch '^[a-z][a-z0-9-]{0,31}$') {
+        throw "Invalid command provider export id: '$ExportId'"
+    }
     if ($ProducerContract -cnotmatch '^[a-z0-9][a-z0-9._/-]{0,127}$') {
         throw "Invalid command provider contract: '$ProducerContract'"
     }
     $CommandRoot = Get-ProjCommandProviderDataRoot `
         -DataRoot $DataRoot `
         -ProviderAddress $ProviderAddress `
-        -ProviderSource $ProviderSource
+        -ProviderSpace $ProviderSpace
     $ExportRoot = Resolve-ProjCommandExportPath `
         -DataRoot $DataRoot `
         -ProviderAddress $ProviderAddress `
-        -ProviderSource $ProviderSource
+        -ProviderSpace $ProviderSpace
     $StatePath = Assert-ProjDevPathInsideDataRoot `
         -Path (Join-Path $CommandRoot '_state.json') `
         -DataRoot $DataRoot `
@@ -109,9 +111,18 @@ function Get-ProjReadyCommandExport {
     } catch {
         $State = $null
     }
+    $MatchingExport = if ($null -eq $State -or
+        [string]$State.Status -cne 'ready') {
+        $null
+    } else {
+        @($State.Exports | Where-Object {
+            [string]$_.Id -ceq $ExportId -and
+            [string]$_.Contract -ceq $ProducerContract
+        })
+    }
     if ($null -eq $State -or
         [string]$State.Status -cne 'ready' -or
-        [string]$State.ProducerContract -cne $ProducerContract -or
+        @($MatchingExport).Count -ne 1 -or
         -not [IO.Directory]::Exists($ExportRoot)) {
         throw (
             "Required export from '$ProviderAddress' is unavailable or " +
@@ -120,13 +131,14 @@ function Get-ProjReadyCommandExport {
     }
     return [pscustomobject][ordered]@{
         ProviderAddress = $ProviderAddress
-        ProviderSource = $ProviderSource
+        ProviderSpace = $ProviderSpace
+        ExportId = $ExportId
         CommandRoot = $CommandRoot
         ExportRoot = $ExportRoot
         StatePath = $StatePath
         InputRevision = [string]$State.InputRevision
         Token = [string]$State.Token
-        ProducerContract = [string]$State.ProducerContract
+        ProducerContract = $ProducerContract
     }
 }
 
@@ -136,9 +148,10 @@ function Get-ProjRequiredCommandExport {
         [Parameter(Mandatory = $true)][string]$ProviderAddress,
         [Parameter(Mandatory = $true)][string]$EntryCommand,
         [Parameter(Mandatory = $true)][string]$InputRevision,
+        [Parameter(Mandatory = $true)][string]$ExportId,
         [Parameter(Mandatory = $true)][string]$ProducerContract,
-        [ValidateSet('kernel', 'action')]
-        [string]$ProviderSource = 'kernel'
+        [ValidateSet('system', 'module')]
+        [string]$ProviderSpace = 'system'
     )
 
     [void](Assert-ProjCommandProviderInputRevision `
@@ -147,8 +160,9 @@ function Get-ProjRequiredCommandExport {
         -DataRoot $DataRoot `
         -ProviderAddress $ProviderAddress `
         -EntryCommand $EntryCommand `
+        -ExportId $ExportId `
         -ProducerContract $ProducerContract `
-        -ProviderSource $ProviderSource
+        -ProviderSpace $ProviderSpace
     if ([string]$Publication.InputRevision -cne $InputRevision) {
         throw (
             "Required export from '$ProviderAddress' is unavailable or " +
@@ -172,11 +186,20 @@ function Assert-ProjCommandProviderPublicationCurrent {
     } catch {
         $State = $null
     }
+    $MatchingExport = if ($null -eq $State -or
+        [string]$State.Status -cne 'ready') {
+        $null
+    } else {
+        @($State.Exports | Where-Object {
+            [string]$_.Id -ceq [string]$Publication.ExportId -and
+            [string]$_.Contract -ceq [string]$Publication.ProducerContract
+        })
+    }
     if ($null -eq $State -or
         [string]$State.Status -cne 'ready' -or
         [string]$State.InputRevision -cne [string]$Publication.InputRevision -or
         [string]$State.Token -cne [string]$Publication.Token -or
-        [string]$State.ProducerContract -cne [string]$Publication.ProducerContract) {
+        @($MatchingExport).Count -ne 1) {
         $Repair = Get-ProjEnvironmentRepairInvocation -Context $Context
         throw (
             'The development environment publication changed while it was ' +

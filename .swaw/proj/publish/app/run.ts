@@ -5,7 +5,7 @@ import { acquireExclusiveFileLock } from "../../build/_lib/windows-filesystem.ts
 import { publishRuntimeReleaseSet } from "../_lib/runtime-release.ts";
 
 if (Bun.argv.length !== 2) {
-  throw new Error("proj.publish.app does not accept dynamic arguments.");
+  throw new Error("project/proj/publish/app does not accept dynamic arguments.");
 }
 
 const projHome = requiredAbsolute("SWAWKIT_HOME");
@@ -15,8 +15,8 @@ if (!entryCommand) throw new Error("required environment variable is missing: SW
 
 const locks = await requireControlledDirectory(
   dataRoot,
-  ["modules", "action", "proj", "build", "app", "locks"],
-  "proj.build.app locks",
+  ["modules", "project", "proj", "build", "app", "locks"],
+  "project/proj/build/app locks",
 );
 using providerLock = await acquireExclusiveFileLock(join(locks, "build.lock"), 120_000);
 const release = await readReadyBuildReleaseSet(dataRoot, entryCommand);

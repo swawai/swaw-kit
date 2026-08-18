@@ -37,7 +37,7 @@ try {
         -DataRoot $DataRoot `
         -CacheDataRoot $CacheRoot `
         -EntryCommand 'fixture'
-    $ExpectedCommandRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
+    $ExpectedCommandRoot = Join-Path $DataRoot 'modules\system\dev\setup'
     $ExpectedExport = Join-Path $ExpectedCommandRoot 'export'
     Assert-ProjCommandExportTest `
         -Condition (
@@ -59,27 +59,33 @@ try {
         -Condition (-not [IO.Directory]::Exists($ExpectedCommandRoot)) `
         -Message 'resolving provider paths created directories'
 
-    $ExpectedActionRoot = Join-Path $DataRoot 'modules\action\proj\build\app'
-    $ActionRoot = Get-ProjActionCommandDataRoot `
+    $ExpectedModuleRoot = Join-Path $DataRoot 'modules\project\build\app'
+    $ModuleRoot = Get-ProjModuleCommandDataRoot `
         -DataRoot $DataRoot `
-        -Address 'proj.build.app'
-    $ActionExport = Resolve-ProjCommandExportPath `
+        -Address 'project/build/app'
+    $ModuleExport = Resolve-ProjCommandExportPath `
         -DataRoot $DataRoot `
-        -ProviderAddress 'proj.build.app' `
-        -ProviderSource action
+        -ProviderAddress 'project/build/app' `
+        -ProviderSpace module
     Assert-ProjCommandExportTest `
         -Condition (
-            (Get-ProjDevCanonicalPath -Path $ActionRoot) -ceq
-            (Get-ProjDevCanonicalPath -Path $ExpectedActionRoot) -and
-            (Get-ProjDevCanonicalPath -Path $ActionExport) -ceq
+            (Get-ProjDevCanonicalPath -Path $ModuleRoot) -ceq
+            (Get-ProjDevCanonicalPath -Path $ExpectedModuleRoot) -and
+            (Get-ProjDevCanonicalPath -Path $ModuleExport) -ceq
             (Get-ProjDevCanonicalPath -Path (
-                Join-Path $ExpectedActionRoot 'export'
+                Join-Path $ExpectedModuleRoot 'export'
             ))
         ) `
-        -Message 'Action provider paths do not follow the command-data layout'
+        -Message 'Module provider paths do not follow the command-data layout'
+
+    Assert-ProjCommandExportTest `
+        -Condition ((Get-ProjModuleCommandDataRoot `
+            -DataRoot $DataRoot `
+            -Address 'vendor') -ceq (Join-Path $DataRoot 'modules\vendor')) `
+        -Message 'an executable namespace-root module cannot own command data'
 
     foreach ($Address in @(
-        '', '.Dev.setup', '.dev..setup', '.dev/setup', '.dev\setup',
+        '', '.Dev/setup', '.dev..setup', '.dev.setup', '.dev\setup',
         '..entry', 'build'
     )) {
         $Rejected = $false
@@ -96,21 +102,21 @@ try {
     }
 
     foreach ($Address in @(
-        '', 'Proj.build', 'proj..build', '.dev.setup', 'proj/build',
-        'proj\build', '..entry'
+        '', 'Project/build', 'project..build', '.dev/setup',
+        'project\build', '..entry', 'system/help', 'module/tool'
     )) {
         $Rejected = $false
         try {
             [void](Resolve-ProjCommandExportPath `
                 -DataRoot $DataRoot `
                 -ProviderAddress $Address `
-                -ProviderSource action)
+                -ProviderSpace module)
         } catch {
             $Rejected = $true
         }
         Assert-ProjCommandExportTest `
             -Condition $Rejected `
-            -Message "unsafe Action provider address was accepted: '$Address'"
+            -Message "unsafe Module provider address was accepted: '$Address'"
     }
 
     $ExternalRoot = Join-Path $TemporaryRoot 'external'
@@ -129,7 +135,7 @@ try {
         try {
             [void](Resolve-ProjCommandExportPath `
                 -DataRoot $ReparseDataRoot `
-                -ProviderAddress '.dev.setup')
+                -ProviderAddress '.dev/setup')
         } catch {
             $ReparseRejected = $_.Exception.Message -like '*reparse point*'
         }

@@ -46,6 +46,22 @@ function Copy-ProjFixtureHardLinkTree {
     }
 }
 
+function Add-ProjFixtureCommandManifest {
+    param([Parameter(Mandatory = $true)][string]$CommandRoot)
+
+    [void][IO.Directory]::CreateDirectory($CommandRoot)
+    $Manifest = [ordered]@{
+        schema = 'swawkit.command-module/v8'
+        requires = @()
+        provides = @()
+    }
+    [IO.File]::WriteAllText(
+        (Join-Path $CommandRoot 'swawkit.module.json'),
+        (($Manifest | ConvertTo-Json -Depth 4) + "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
+}
+
 function Resolve-ProjCandidateRuntimeArtifacts {
     param(
         [string]$LauncherPath = '',
@@ -146,13 +162,7 @@ function New-ProjCandidateRuntimeFixture {
     )
 
     foreach ($RelativeDirectory in @(
-        '..entry',
-        '..runtime',
-        '.check',
-        '.dev',
-        '.help',
-        '.runs',
-        '_help',
+        'system',
         '_shell',
         '_toolchain'
     )) {
@@ -164,6 +174,8 @@ function New-ProjCandidateRuntimeFixture {
             -Recurse `
             -Force
     }
+    [void][IO.Directory]::CreateDirectory((Join-Path $KernelRoot 'modules'))
+    [void][IO.Directory]::CreateDirectory((Join-Path $RuntimeHome '.swaw'))
 
     return [pscustomobject][ordered]@{
         Home = $RuntimeHome

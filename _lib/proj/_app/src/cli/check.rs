@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use swawkit_proj::{
-    catalog::{CatalogSnapshot, CommandSource},
+    catalog::{CatalogSnapshot, CommandSpace},
     context::EntryContext,
     module_check::{DependencyCheck, ModuleCheckDocument, PublicationCheck, inspect},
     profile::EntryProfileState,
@@ -46,7 +46,7 @@ pub(super) fn dispatch(
 
 fn require_check_command(snapshot: &CatalogSnapshot) -> Result<(), CliError> {
     if snapshot.commands.iter().any(|command| {
-        command.source == CommandSource::Kernel
+        command.space == CommandSpace::System
             && command.address == CHECK_ADDRESS
             && command.adapter.as_deref() == Some("core")
             && command.handler.as_deref() == Some("meta.check")
@@ -113,9 +113,10 @@ fn render_text(document: &ModuleCheckDocument) -> String {
 fn append_dependency(lines: &mut Vec<String>, dependency: &DependencyCheck, depth: usize) {
     let indent = "  ".repeat(depth);
     lines.push(format!(
-        "{indent}{} {} [{}]",
+        "{indent}{} {}#{} [{}]",
         marker(dependency.ready),
         dependency.provider,
+        dependency.export,
         dependency.contract
     ));
     if let Some(message) = &dependency.message {
@@ -134,9 +135,10 @@ fn append_dependency(lines: &mut Vec<String>, dependency: &DependencyCheck, dept
 fn append_publication(lines: &mut Vec<String>, publication: &PublicationCheck, depth: usize) {
     let indent = "  ".repeat(depth);
     lines.push(format!(
-        "{indent}{} {} [{}]",
+        "{indent}{} {}#{} [{}]",
         marker(publication.ready),
         publication.provider,
+        publication.export,
         publication.contract
     ));
     if let Some(message) = &publication.message {
@@ -182,7 +184,8 @@ mod tests {
             protocol: MODULE_CHECK_PROTOCOL,
             command: CheckedCommand {
                 address: ".tool".to_owned(),
-                source: CommandSource::Kernel,
+                space: CommandSpace::System,
+                namespace: None,
                 runnable: true,
                 adapter: Some("exe".to_owned()),
                 diagnostic: None,

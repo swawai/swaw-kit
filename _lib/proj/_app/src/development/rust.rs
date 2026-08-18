@@ -152,8 +152,8 @@ impl<'a> RustStore<'a> {
             self.data_root,
             &[
                 "modules",
-                "kernel",
-                ".dev",
+                "system",
+                "dev",
                 "setup",
                 "export",
                 "rust",

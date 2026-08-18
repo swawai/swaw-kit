@@ -165,7 +165,7 @@ fn is_false(value: &bool) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::{catalog::CommandSource, subject::SubjectRef};
+    use crate::{catalog::CommandSpace, subject::SubjectRef};
 
     use super::*;
 
@@ -181,13 +181,13 @@ mod tests {
                 label: "Overview".to_owned(),
                 summary: "Inspect this Context".to_owned(),
                 resolver: SubjectFacetResolver::Command {
-                    address: ".context.show".to_owned(),
+                    address: "swaw/context/show".to_owned(),
                     arguments: vec![SubjectFacetArgument::Binding(SubjectFacetArgumentBinding {
                         bind: SubjectFacetBinding::SubjectId,
                     })],
                     accepts_tail: false,
                     confirmation: None,
-                    returns: Some("swawkit.context/v1".to_owned()),
+                    returns: Some("swawkit.context/v2".to_owned()),
                 },
             }],
         };
@@ -208,7 +208,8 @@ mod tests {
         SubjectKindRef {
             kind: "run".to_owned(),
             provider: SubjectRef::Command {
-                source: CommandSource::Kernel,
+                space: CommandSpace::System,
+                namespace: None,
                 address: ".runs".to_owned(),
             },
         }

@@ -1,0 +1,1 @@
+Manage the explicit build and publication lifecycle of domain command modules. Normal execution only consumes published capabilities; it never compiles or repairs a module.

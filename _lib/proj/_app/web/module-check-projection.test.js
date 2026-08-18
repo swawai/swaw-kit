@@ -31,6 +31,7 @@ function elements() {
 function publication(overrides = {}) {
   return {
     provider: ".provider",
+    export: "fixture",
     contract: "fixture/v1",
     ready: false,
     status: "missing",
@@ -50,11 +51,12 @@ describe("Module check projection renderer", () => {
       document: { createElement: () => element() },
     });
 
-    renderer.render({ address: ".tool", source: "kernel" }, {
+    renderer.render({ address: ".tool", space: "system" }, {
       protocol: MODULE_CHECK_PROTOCOL,
       command: {
         address: ".tool",
-        source: "kernel",
+        space: "system",
+        namespace: null,
         runnable: true,
         adapter: "pwsh",
         diagnostic: null,
@@ -62,6 +64,7 @@ describe("Module check projection renderer", () => {
       guards: [{ scope: "module", entry: "guard.ps1" }],
       dependencies: [{
         provider: ".provider",
+        export: "fixture",
         contract: "fixture/v1",
         ready: false,
         status: "missing",

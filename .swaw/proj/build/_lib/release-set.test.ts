@@ -30,10 +30,13 @@ test("publishes the PowerShell-compatible immutable Release Set identity", async
   expect((await readFile(join(commandDataRoot, "export", "current"), "utf8")).trim()).toBe(id);
   const state = JSON.parse(await readFile(join(commandDataRoot, "_state.json"), "utf8"));
   expect(state).toMatchObject({
-    schema: "swawkit.command-provider-state/v1",
+    schema: "swawkit.command-provider-state/v2",
     status: "ready",
     inputRevision: `sha256-${id}`,
-    producerContract: "swawkit.proj-build-app/v3",
+    exports: [{
+      id: "runtime-release",
+      contract: "swawkit.proj-build-app/v3",
+    }],
   });
   expect(await publishBuildReleaseSet(commandDataRoot, candidates)).toBe(id);
 });
@@ -41,7 +44,7 @@ test("publishes the PowerShell-compatible immutable Release Set identity", async
 test("reads one coherent Ready Provider snapshot and rejects tampering", async () => {
   const root = await temporaryRoot();
   const dataRoot = join(root, "data");
-  const commandDataRoot = join(dataRoot, "modules", "action", "proj", "build", "app");
+  const commandDataRoot = join(dataRoot, "modules", "project", "proj", "build", "app");
   const work = join(commandDataRoot, "work");
   await mkdir(work, { recursive: true });
   const candidates = {
@@ -63,7 +66,7 @@ test("reads one coherent Ready Provider snapshot and rejects tampering", async (
 
   await writeFile(join(release.root, "swawkit-proj-host.exe"), "evil");
   expect(readReadyBuildReleaseSet(dataRoot, "fixture")).rejects.toThrow(
-    "run 'fixture proj.build.app'",
+    "run 'fixture project/proj/build/app'",
   );
 });
 

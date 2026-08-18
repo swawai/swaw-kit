@@ -150,7 +150,7 @@ export function snapshot(overrides = {}) {
   return {
     protocol: "swawkit.command-run/v1",
     id: "run-1",
-    address: ".dev.pwsh",
+    address: ".dev/pwsh",
     state: "running",
     exitCode: null,
     error: null,

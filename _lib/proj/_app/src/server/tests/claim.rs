@@ -149,7 +149,7 @@ async fn stale_claim_revision_cannot_overwrite_a_changed_binding_record() {
 #[tokio::test]
 async fn ready_probe_keeps_module_data_opaque() {
     let fixture = Fixture::new();
-    let export = fixture.directory("home/data/proj.swawkit/modules/kernel/.dev/setup/export");
+    let export = fixture.directory("home/data/proj.swawkit/modules/system/dev/setup/export");
     fs::write(export.join("sentinel.bin"), b"opaque").expect("opaque module publication");
     let app = fixture.app();
 
@@ -170,7 +170,7 @@ async fn ready_probe_keeps_module_data_opaque() {
 async fn claim_result_and_retry_keep_module_data_opaque() {
     let fixture = Fixture::new();
     fixture.replace_entry(b"copied entry");
-    let export = fixture.directory("home/data/proj.swawkit/modules/kernel/.dev/setup/export");
+    let export = fixture.directory("home/data/proj.swawkit/modules/system/dev/setup/export");
     fs::write(export.join("sentinel.bin"), b"opaque").expect("opaque module publication");
     let app = fixture.app();
     let pending = send(

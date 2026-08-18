@@ -1,4 +1,5 @@
 mod context;
+mod instantiate;
 mod setup;
 mod status;
 
@@ -11,6 +12,7 @@ pub(crate) fn run(handler: &str, arguments: &[OsString]) -> Result<(), String> {
     match handler {
         "dev.setup" => setup::run(&context, arguments),
         "dev.status" => status::run(&context, arguments),
+        "module.instantiate" => instantiate::run(&context, arguments),
         _ => Err(format!("unsupported Toolchain command handler '{handler}'")),
     }
 }

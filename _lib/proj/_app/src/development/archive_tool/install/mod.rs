@@ -211,7 +211,7 @@ where
 {
     let locks = ensure_directory_chain(
         request.data_root,
-        &["modules", "kernel", ".dev", "setup", "locks"],
+        &["modules", "system", "dev", "setup", "locks"],
         "archive tool installation lock",
     )?;
     // Recovery owns every interrupted work directory under this tool's
@@ -223,8 +223,8 @@ where
         request.data_root,
         &[
             "modules",
-            "kernel",
-            ".dev",
+            "system",
+            "dev",
             "setup",
             "export",
             request.tool.name,
@@ -509,7 +509,7 @@ where
     ) -> Result<Self, ArchiveToolError> {
         let locks = ensure_directory_chain(
             data_root,
-            &["modules", "kernel", ".dev", "setup", "locks"],
+            &["modules", "system", "dev", "setup", "locks"],
             "installation lock",
         )?;
         let identity = format!("{:x}", Sha256::digest(tool_name.as_bytes()));

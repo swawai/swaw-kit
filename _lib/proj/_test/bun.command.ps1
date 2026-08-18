@@ -14,7 +14,7 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
     'SWAWKIT_HOME',
     'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_ACTION_ROOT',
+    'SWAWKIT_PROJ_PROJECT_MODULE_ROOT',
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
@@ -81,21 +81,21 @@ try {
         SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
         SWAWKIT_HOME = $ControlHome
         SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ConsumerContext.ProjectRoot
-        SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
+        SWAWKIT_PROJ_PROJECT_MODULE_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $ConsumerContext.DataRoot
         SWAWKIT_PROJ_ENTRY_COMMAND = $ConsumerContext.EntryCommand
         SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $ConsumerContext.InvocationDirectory
         SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.bun'
-        SWAWKIT_PROJ_CORE_COMMAND_DIR = (Join-Path $ProjRoot '.dev\bun')
-        SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT = (Join-Path $ConsumerDataRoot 'modules\kernel\.dev\bun')
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/bun'
+        SWAWKIT_PROJ_CORE_COMMAND_DIR = (Join-Path $ProjRoot 'system\dev\bun')
+        SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT = (Join-Path $ConsumerDataRoot 'modules\system\dev\bun')
         SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = $InputRevision
         SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $ProfileRevision
         SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE = $ResolvedToolchainPath
         SWAWKIT_PROJ_BUN_MODE = 'managed'
         SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
     }
-    $BunEntry = Join-Path $ProjRoot '.dev\bun\run.ps1'
+    $BunEntry = Join-Path $ProjRoot 'system\dev\bun\run.ps1'
     $MissingResult = Invoke-ProjBunEntryFixture `
         -PowerShell $SystemPowerShell `
         -EntryPath $BunEntry `
@@ -103,9 +103,9 @@ try {
     Assert-ProjBunTest `
         -Condition ($MissingResult.ExitCode -eq 1 -and
             -not [IO.Directory]::Exists(
-                (Join-Path $ConsumerDataRoot 'modules\kernel\.dev\setup\export')
+                (Join-Path $ConsumerDataRoot 'modules\system\dev\setup\export')
             )) `
-        -Message '.dev.bun implicitly created development state before setup'
+        -Message '.dev/bun implicitly created development state before setup'
 
     $env:SWAWKIT_PROJ_BUN_MODE = 'disabled'
     $DisabledResult = Invoke-ProjBunEntryFixture `
@@ -115,9 +115,9 @@ try {
     Assert-ProjBunTest `
         -Condition ($DisabledResult.ExitCode -eq 1 -and
             -not [IO.Directory]::Exists(
-                (Join-Path $ConsumerDataRoot 'modules\kernel\.dev\setup\export')
+                (Join-Path $ConsumerDataRoot 'modules\system\dev\setup\export')
             )) `
-        -Message 'disabled .dev.bun wrote development state'
+        -Message 'disabled .dev/bun wrote development state'
     $env:SWAWKIT_PROJ_BUN_MODE = 'managed'
 
     $Definition = Get-ProjDevBunDefinition
@@ -146,10 +146,10 @@ try {
         -Arguments @('--version')
     Assert-ProjBunTest `
         -Condition ($MissingEnvironmentResult.ExitCode -eq 1 -and
-            $MissingEnvironmentResult.Output -like "*'.dev.setup'*" -and
+            $MissingEnvironmentResult.Output -like "*'.dev/setup'*" -and
             -not [IO.File]::Exists($ConsumerContext.EnvCmdPath) -and
             -not [IO.File]::Exists($ConsumerContext.EnvPs1Path)) `
-        -Message '.dev.bun did not require the generated project environment'
+        -Message '.dev/bun did not require the generated project environment'
 
     $Plan = New-ProjDevEnvironmentPlan
     Add-ProjDevBunEnvironment `
@@ -193,7 +193,7 @@ try {
         -Arguments @('assert-no-export-metadata')
     Assert-ProjBunTest `
         -Condition ($MetadataIsolation.ExitCode -eq 0) `
-        -Message '.dev.setup export metadata leaked into the Bun process'
+        -Message '.dev/setup export metadata leaked into the Bun process'
 
     $CapturePath = Join-Path $TemporaryRoot 'bun-capture.txt'
     $env:SWAWKIT_PROJ_TEST_BUN_CAPTURE = $CapturePath
@@ -208,12 +208,12 @@ try {
             -Condition ($BunHelp.ExitCode -eq 0 -and
                 $BunHelpCapture.Count -eq 5 -and
                 $BunHelpCapture[4] -ceq '--help' -and
-                $BunHelpCapture[2] -ceq '.dev.bun' -and
+                $BunHelpCapture[2] -ceq '.dev/bun' -and
                 (Get-ProjDevCanonicalPath -Path $BunHelpCapture[3]) -ceq
                 (Get-ProjDevCanonicalPath -Path (
-                    Join-Path $ProjRoot '.dev\bun'
+                    Join-Path $ProjRoot 'system\dev\bun'
                 ))) `
-            -Message '.dev.bun --help was intercepted instead of reaching Bun'
+            -Message '.dev/bun --help was intercepted instead of reaching Bun'
 
         [string[]]$ExpectedArguments = @(
             'hello world',
@@ -235,13 +235,13 @@ try {
                     "`n",
                     $Captured[4..($Captured.Count - 1)]
                 ) -ceq [string]::Join("`n", $ExpectedArguments)) `
-            -Message '.dev.bun did not preserve public dynamic argv and exit code'
+            -Message '.dev/bun did not preserve public dynamic argv and exit code'
         Assert-ProjBunTest `
             -Condition (
                 (Get-ProjDevCanonicalPath -Path $Captured[1]) -ceq
                 (Get-ProjDevCanonicalPath -Path $InvocationRoot)
             ) `
-            -Message '.dev.bun lost the public invocation directory'
+            -Message '.dev/bun lost the public invocation directory'
 
         $Separator = Invoke-ProjBunEntryFixture `
             -PowerShell $SystemPowerShell `
@@ -252,7 +252,7 @@ try {
             -Condition ($Separator.ExitCode -eq 0 -and
                 $SeparatorCapture[4] -ceq '--' -and
                 $SeparatorCapture[5] -ceq '--help') `
-            -Message '.dev.bun changed the explicit option separator'
+            -Message '.dev/bun changed the explicit option separator'
 
         $BunExecutable = Join-Path $InstallRoot 'bun.exe'
         $MissingBunBackup = Join-Path $InstallRoot 'bun.exe.missing'
@@ -268,9 +268,9 @@ try {
         Assert-ProjBunTest `
             -Condition (
                 $MissingBun.ExitCode -eq 1 -and
-                $MissingBun.Output -like "*Run '*.dev.setup'*"
+                $MissingBun.Output -like "*Run '*.dev/setup'*"
             ) `
-            -Message 'a missing Bun executable did not request .dev.setup'
+            -Message 'a missing Bun executable did not request .dev/setup'
     } finally {
         Pop-Location
     }
@@ -285,7 +285,7 @@ try {
         -InstallRoot $InstallRoot
     $WorkingDirectoryResult = Invoke-ProjBunEntryFixture `
         -PowerShell $SystemPowerShell `
-        -EntryPath (Join-Path $ProjRoot '.dev\bun\run.ps1') `
+        -EntryPath (Join-Path $ProjRoot 'system\dev\bun\run.ps1') `
         -Arguments @('/d', '/c', 'cd')
     Assert-ProjBunTest `
         -Condition ($WorkingDirectoryResult.ExitCode -eq 0 -and
@@ -293,7 +293,7 @@ try {
                 $WorkingDirectoryResult.Output.Trim()
             )) -ceq
             (Get-ProjDevCanonicalPath -Path $InvocationRoot)) `
-        -Message '.dev.bun native process did not use the caller directory'
+        -Message '.dev/bun native process did not use the caller directory'
 
     Assert-ProjBunTest `
         -Condition (

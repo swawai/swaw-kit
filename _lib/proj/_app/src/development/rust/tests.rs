@@ -35,7 +35,7 @@ impl Fixture {
     fn publish(&self) -> PathBuf {
         let install = self
             .data_root
-            .join("modules/kernel/.dev/setup/export/rust/installs/stable");
+            .join("modules/system/dev/setup/export/rust/installs/stable");
         let mut records = Vec::new();
         for (index, relative) in self.definition.required_paths().into_iter().enumerate() {
             let content = if relative == "cargo\\bin\\rustup.exe" {

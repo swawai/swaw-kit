@@ -11,40 +11,38 @@ import {
   restoreColumnScrollOffsets,
 } from "./explorer.js";
 
-describe("Explorer control-plane behavior", () => {
-  test("keeps Control commands available during first setup", () => {
-    expect(commandDisabledDuringSetup(true, { source: "control" })).toBe(false);
-    expect(commandDisabledDuringSetup(true, { source: "kernel" })).toBe(true);
+describe("Explorer command-space behavior", () => {
+  test("keeps only explicitly available commands enabled during first setup", () => {
+    expect(commandDisabledDuringSetup(true, { setupAvailable: true })).toBe(false);
+    expect(commandDisabledDuringSetup(true, {})).toBe(true);
     expect(commandDisabledDuringSetup(true, {
-      source: "kernel",
       setupAvailable: true,
     })).toBe(false);
-    expect(commandDisabledDuringSetup(true, { source: "action" })).toBe(true);
-    expect(commandDisabledDuringSetup(false, { source: "action" })).toBe(false);
+    expect(commandDisabledDuringSetup(false, {})).toBe(false);
   });
 
   test("falls back instead of selecting a disabled routed command", () => {
-    const control = { address: "..entry", source: "control" };
-    const action = { address: "proj", source: "action" };
+    const system = { address: ".entry", setupAvailable: true, space: "system" };
+    const module = { address: "project", namespace: "project", space: "module" };
     const catalog = {
       commandByAddress: new Map([
-        [control.address, control],
-        [action.address, action],
+        [system.address, system],
+        [module.address, module],
       ]),
     };
 
-    expect(availableCommand(catalog, true, action.address)).toBeNull();
-    expect(availableCommand(catalog, true, control.address)).toBe(control);
-    expect(availableCommand(catalog, false, action.address)).toBe(action);
+    expect(availableCommand(catalog, true, module.address)).toBeNull();
+    expect(availableCommand(catalog, true, system.address)).toBe(system);
+    expect(availableCommand(catalog, false, module.address)).toBe(module);
     expect(availableCommand(catalog, false, "missing")).toBeNull();
   });
 
   test("expands a local view menu only for the terminal selection", () => {
-    const path = [".dev", ".dev.rust", ".dev.rust.cargo"];
+    const path = [".dev", ".dev/rust", ".dev/rust/cargo"];
     expect(commandMenuExpanded(path, ".dev", 0)).toBe(false);
-    expect(commandMenuExpanded(path, ".dev.rust", 1)).toBe(false);
-    expect(commandMenuExpanded(path, ".dev.rust.cargo", 2)).toBe(true);
-    expect(commandMenuExpanded(path, ".dev.bun", 2)).toBe(false);
+    expect(commandMenuExpanded(path, ".dev/rust", 1)).toBe(false);
+    expect(commandMenuExpanded(path, ".dev/rust/cargo", 2)).toBe(true);
+    expect(commandMenuExpanded(path, ".dev/bun", 2)).toBe(false);
   });
 
   test("uses the parent command's declared child column width", () => {
@@ -54,7 +52,7 @@ describe("Explorer control-plane behavior", () => {
 
   test("reveals choices only through declared Facets", () => {
     const parent = { address: "proj" };
-    const leaf = { address: "proj.build" };
+    const leaf = { address: "project/build" };
     const catalog = {
       childrenByParent: new Map([[parent.address, [leaf]]]),
     };
@@ -66,8 +64,8 @@ describe("Explorer control-plane behavior", () => {
 
   test("keeps ancestor child columns but obeys the terminal command view", () => {
     const entry = { address: ".dev" };
-    const env = { address: ".dev.rust" };
-    const bun = { address: ".dev.rust.cargo" };
+    const env = { address: ".dev/rust" };
+    const bun = { address: ".dev/rust/cargo" };
     const catalog = {
       commandByAddress: new Map([
         [entry.address, entry],
@@ -102,7 +100,7 @@ describe("Explorer control-plane behavior", () => {
     ]);
 
     catalog.childrenByParent.set(bun.address, [{
-      address: `${bun.address}.mode`,
+      address: `${bun.address}/mode`,
     }]);
     const childrenModels = choiceColumnModels(
       catalog,
@@ -122,7 +120,7 @@ describe("Explorer control-plane behavior", () => {
   });
 
   test("keeps the collection column visible for a selected Subject", () => {
-    const context = { address: ".context" };
+    const context = { address: "swaw/context" };
     const catalog = {
       commandByAddress: new Map([[context.address, context]]),
       childrenByParent: new Map(),
@@ -138,8 +136,8 @@ describe("Explorer control-plane behavior", () => {
   });
 
   test("treats structural, Subject, and projection Facets as mutually exclusive", () => {
-    const context = { address: ".context" };
-    const list = { address: ".context.list" };
+    const context = { address: "swaw/context" };
+    const list = { address: "swaw/context/list" };
     const catalog = {
       commandByAddress: new Map([[context.address, context]]),
       childrenByParent: new Map([[context.address, [list]]]),
@@ -167,7 +165,7 @@ describe("Explorer control-plane behavior", () => {
   test("restores vertical offsets only for columns representing the same parent", () => {
     let rendered = [
       { dataset: { scrollKey: "root" }, scrollTop: 17 },
-      { dataset: { scrollKey: "children:.dev.rust" }, scrollTop: 559 },
+      { dataset: { scrollKey: "children:.dev/rust" }, scrollTop: 559 },
     ];
     const columns = {
       querySelectorAll() {
@@ -178,7 +176,7 @@ describe("Explorer control-plane behavior", () => {
 
     rendered = [
       { dataset: { scrollKey: "root" }, scrollTop: 0 },
-      { dataset: { scrollKey: "children:.dev.rust" }, scrollTop: 0 },
+      { dataset: { scrollKey: "children:.dev/rust" }, scrollTop: 0 },
       { dataset: { scrollKey: "children:proj" }, scrollTop: 0 },
     ];
     restoreColumnScrollOffsets(columns, offsets);

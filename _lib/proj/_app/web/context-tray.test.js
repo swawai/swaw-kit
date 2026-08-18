@@ -44,10 +44,10 @@ function subject() {
         renderer: "overview",
         resolver: {
           acceptsTail: false,
-          address: ".context.show",
+          address: "swaw/context/show",
           arguments: ["tray-test", "--json"],
           confirmation: null,
-          returns: "swawkit.context/v1",
+          returns: "swawkit.context/v2",
           type: "command",
         },
       },
@@ -57,7 +57,7 @@ function subject() {
         renderer: "run",
         resolver: {
           acceptsTail: true,
-          address: ".context.add",
+          address: "swaw/context/add",
           arguments: ["tray-test"],
           confirmation: null,
           returns: null,
@@ -70,7 +70,7 @@ function subject() {
     summary: "0 个命令 · 0 条说明",
     via: {
       facet: "contexts",
-      subject: { address: ".context", source: "kernel", type: "command" },
+      subject: { address: "swaw/context", namespace: "swaw", space: "module", type: "command" },
     },
   };
 }
@@ -81,7 +81,7 @@ function document_(commands = []) {
     id: "tray-test",
     notes: [],
     prompt: "",
-    schema: "swawkit.context/v1",
+    schema: "swawkit.context/v2",
   };
 }
 
@@ -97,7 +97,7 @@ describe("Context tray", () => {
     const tray = createContextTrayView(dom, {
       async executeOperation(address, arguments_) {
         calls.push({ address, arguments: arguments_ });
-        latest = document_([{ address: ".dev.status", source: "kernel" }]);
+        latest = document_([{ address: ".dev/status", space: "system" }]);
       },
       async loadDocument() { return latest; },
       async loadSubject() { return instance; },
@@ -107,7 +107,7 @@ describe("Context tray", () => {
     });
 
     await tray.pin(instance, latest);
-    tray.selectCommand({ address: ".dev.status", source: "kernel" });
+    tray.selectCommand({ address: ".dev/status", space: "system" });
     expect(dom.contextTray.hidden).toBe(false);
     expect(dom.contextTrayAdd.disabled).toBe(false);
     expect(JSON.parse(session.getItem(STORAGE_KEY))).toEqual({
@@ -115,16 +115,16 @@ describe("Context tray", () => {
       subject: { id: "tray-test", kind: "context", type: "instance" },
       via: {
         facet: "contexts",
-        subject: { address: ".context", source: "kernel", type: "command" },
+        subject: { address: "swaw/context", namespace: "swaw", space: "module", type: "command" },
       },
     });
 
     expect(await tray.addCurrentCommand()).toBe(true);
     expect(calls).toEqual([{
-      address: ".context.add",
-      arguments: ["tray-test", ".dev.status"],
+      address: "swaw/context/add",
+      arguments: ["tray-test", ".dev/status"],
     }]);
-    expect(rendered.at(-1)).toEqual([{ address: ".dev.status", source: "kernel" }]);
+    expect(rendered.at(-1)).toEqual([{ address: ".dev/status", space: "system" }]);
     expect(dom.contextTrayPresentLabel.hidden).toBe(false);
     expect(pinned.at(-1)).toBe("::context/tray-test");
 
@@ -143,7 +143,7 @@ describe("Context tray", () => {
       subject: { id: "tray-test", kind: "context", type: "instance" },
       via: {
         facet: "contexts",
-        subject: { address: ".context", source: "kernel", type: "command" },
+        subject: { address: "swaw/context", namespace: "swaw", space: "module", type: "command" },
       },
     }));
     const loaded = [];
@@ -189,7 +189,7 @@ describe("Context tray", () => {
     });
 
     await tray.pin(first, document_());
-    tray.selectCommand({ address: ".dev.status", source: "kernel" });
+    tray.selectCommand({ address: ".dev/status", space: "system" });
     const adding = tray.addCurrentCommand();
     await tray.pin(second, { ...document_(), id: "other" });
     finish();

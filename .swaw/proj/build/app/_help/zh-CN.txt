@@ -17,7 +17,7 @@ swawkit-proj.exe 是高频 CLI/Worker Core；swawkit-proj-host.exe 独立承载 
 不可变候选 Release Set，不切换正式运行版本。
 
 发布候选:
-  {{ENTRY}} proj.publish.app
+  {{ENTRY}} project/proj/publish/app
 
-固定 Bootstrap 工具链属于源码树维护入口，不作为项目 Action 暴露：
+固定 Bootstrap 工具链属于源码树维护入口，不作为项目 Module 命令暴露：
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File _lib\proj\build.ps1

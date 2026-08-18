@@ -89,7 +89,11 @@ impl EntryRunControl for FakeRun {
 
 fn ready_fixture(fixture: &Fixture) {
     fixture.directory("home/_lib/proj");
-    fixture.file("home/_lib/proj/.demo/run.ps1", "");
+    fixture.file(
+        "home/_lib/proj/system/demo/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file("home/_lib/proj/system/demo/run.ps1", "");
     fixture
         .profile_store()
         .save(EntryProfileRecord::default())
@@ -344,10 +348,18 @@ async fn rejects_unrepresentable_or_oversized_arguments_before_starting() {
 async fn accepts_only_exact_runnable_non_control_catalog_commands() {
     let fixture = Fixture::new();
     ready_fixture(&fixture);
-    fixture.directory("home/_lib/proj/.group");
+    fixture.directory("home/_lib/proj/system/group");
     fixture.file(
-        "home/_lib/proj/..entry/claim/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"entry.claim"}"#,
+        "home/_lib/proj/system/group/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file(
+        "home/_lib/proj/system/entry/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    );
+    fixture.file(
+        "home/_lib/proj/system/entry/claim/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8","execution":{"type":"core","handler":"entry.claim"}}"#,
     );
     let runner = Arc::new(FakeRunner::default());
     let (app, runs) = command_app(&fixture, Arc::clone(&runner));
@@ -356,7 +368,7 @@ async fn accepts_only_exact_runnable_non_control_catalog_commands() {
         ("", StatusCode::UNPROCESSABLE_ENTITY),
         (".missing", StatusCode::NOT_FOUND),
         (".group", StatusCode::UNPROCESSABLE_ENTITY),
-        ("..entry.claim", StatusCode::UNPROCESSABLE_ENTITY),
+        (".entry/claim", StatusCode::UNPROCESSABLE_ENTITY),
     ] {
         assert_eq!(
             post_run(app.clone(), json!({"address": address}))
@@ -367,6 +379,36 @@ async fn accepts_only_exact_runnable_non_control_catalog_commands() {
         );
     }
     assert!(runner.specs().is_empty());
+    runs.shutdown().expect("shutdown command runs");
+}
+
+#[tokio::test]
+async fn rejects_unready_dependencies_before_starting_a_run_or_journal() {
+    let fixture = Fixture::new();
+    ready_fixture(&fixture);
+    fixture.file(
+        "home/_lib/proj/system/provider/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+    );
+    fixture.file("home/_lib/proj/system/provider/run.ps1", "");
+    fixture.file(
+        "home/_lib/proj/system/consumer/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8","requires":[{"provider":".provider","export":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+    );
+    fixture.file("home/_lib/proj/system/consumer/run.ps1", "");
+    let runner = Arc::new(FakeRunner::default());
+    let (app, runs) = command_app(&fixture, Arc::clone(&runner));
+
+    let response = post_run(app, json!({"address": ".consumer"})).await;
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert!(runner.specs().is_empty());
+    assert!(
+        !fixture
+            .root
+            .join("home/data/proj.swawkit/modules/system/consumer/_runs")
+            .exists()
+    );
     runs.shutdown().expect("shutdown command runs");
 }
 

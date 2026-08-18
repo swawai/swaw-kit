@@ -33,7 +33,7 @@ fn a_ready_installation_is_returned_without_resolving_microsoft_sources() {
     fs::create_dir_all(&data_root).unwrap();
     fs::create_dir_all(&cache_root).unwrap();
     let definition = MsvcDefinition::new("17").unwrap();
-    let target = data_root.join("modules/kernel/.dev/setup/export/msvc/installs/17");
+    let target = data_root.join("modules/system/dev/setup/export/msvc/installs/17");
     fs::create_dir_all(&target).unwrap();
     let tool = "14.44.35228";
     let sdk = "10.0.26100.0";

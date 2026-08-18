@@ -36,7 +36,7 @@ describe("document projection view", () => {
   test("resolves a static Command projection and renders unknown protocols as JSON", async () => {
     const nodes = elements();
     const calls = [];
-    const command = { address: ".report", source: "kernel" };
+    const command = { address: ".report", space: "system" };
     const facet = projection();
     const view = createDocumentProjectionView(nodes, {
       async resolveDocument(subject, selectedFacet) {
@@ -94,15 +94,15 @@ describe("document projection view", () => {
     });
     const facet = projection();
 
-    view.select({ address: ".first", source: "kernel" }, facet);
-    view.select({ address: ".second", source: "kernel" }, facet);
+    view.select({ address: ".first", space: "system" }, facet);
+    view.select({ address: ".second", space: "system" }, facet);
     pending.get(".second")({ value: "new" });
     await flush();
     pending.get(".first")({ value: "old" });
     await flush();
 
     expect(JSON.parse(nodes.documentProjectionJson.textContent)).toEqual({ value: "new" });
-    expect(nodes.documentProjectionRef.textContent).toBe("kernel:.second");
+    expect(nodes.documentProjectionRef.textContent).toBe("system:.second");
   });
 
   test("shows registered renderer failures in the generic error pane", async () => {
@@ -116,7 +116,7 @@ describe("document projection view", () => {
       async resolveDocument() { return {}; },
     });
 
-    view.select({ address: ".report", source: "kernel" }, projection(CONTEXT_PROTOCOL));
+    view.select({ address: ".report", space: "system" }, projection(CONTEXT_PROTOCOL));
     await flush();
 
     expect(nodes.documentProjectionPane.hidden).toBeFalse();
@@ -131,7 +131,7 @@ describe("document projection view", () => {
       resolveDocument() { called = true; },
     });
 
-    expect(view.select({ address: ".report", source: "kernel" }, null)).toBeFalse();
+    expect(view.select({ address: ".report", space: "system" }, null)).toBeFalse();
     expect(called).toBeFalse();
     expect(nodes.documentProjectionPane.hidden).toBeTrue();
   });

@@ -60,12 +60,12 @@ describe("Subject Facets", () => {
           address: ".runs",
           arguments: [],
           confirmation: null,
-          returns: "swawkit.subject-collection/v2",
+          returns: "swawkit.subject-collection/v3",
           type: "command",
         }),
         facet("overview"),
       ],
-      address: "proj.build",
+      address: "project/build",
     };
     expect(subjectFacetItems(subject).map(({ name }) => name)).toEqual([
       "children",
@@ -79,7 +79,7 @@ describe("Subject Facets", () => {
   test("opens the stateful Runtime root on overview", () => {
     const subject = {
       facets: [facet("overview")],
-      address: "..runtime",
+      address: ".runtime",
       handler: "runtime.status",
     };
     expect(defaultSubjectFacet(subject)).toBe("overview");
@@ -93,7 +93,7 @@ describe("Subject Facets", () => {
         address: ".runs",
         arguments: [],
         confirmation: null,
-        returns: "swawkit.subject-collection/v2",
+        returns: "swawkit.subject-collection/v3",
         type: "command",
       })],
       address: ".fixture",
@@ -184,7 +184,7 @@ describe("Subject Facets", () => {
           address: ".runs",
           arguments: [],
           confirmation: null,
-          returns: "swawkit.subject-collection/v2",
+          returns: "swawkit.subject-collection/v3",
           type: "command",
         }),
         facet("overview"),

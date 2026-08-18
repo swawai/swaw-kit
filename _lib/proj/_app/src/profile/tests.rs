@@ -64,7 +64,10 @@ fn distinguishes_missing_invalid_and_ready_profiles() {
         panic!("expected ready profile");
     };
     assert_eq!(profile.binding().target_project_root(), fixture.home);
-    assert_eq!(profile.binding().action_root(), fixture.home.join(".swaw"));
+    assert_eq!(
+        profile.binding().project_module_root(),
+        fixture.home.join(".swaw")
+    );
 }
 
 #[test]
@@ -75,6 +78,34 @@ fn rejects_a_profile_document_without_an_explicit_schema() {
     let error = serde_json::from_value::<EntryProfileRecord>(document).unwrap_err();
 
     assert!(error.to_string().contains("missing field `schema`"));
+}
+
+#[test]
+fn module_mount_namespaces_share_the_command_identity_grammar() {
+    for namespace in [
+        "con",
+        "nul",
+        "com1",
+        "System",
+        "user_custom",
+        "swaw",
+        "project",
+    ] {
+        let mut profile = EntryProfileRecord::default();
+        profile.module_mounts.push(ModuleMountProfile {
+            namespace: namespace.to_owned(),
+            root: "D:/modules".to_owned(),
+        });
+
+        assert!(profile.validate().is_err(), "{namespace}");
+    }
+
+    let mut profile = EntryProfileRecord::default();
+    profile.module_mounts.push(ModuleMountProfile {
+        namespace: "user-custom".to_owned(),
+        root: "D:/modules".to_owned(),
+    });
+    assert!(profile.validate().is_ok());
 }
 
 #[test]
@@ -130,7 +161,7 @@ fn profile_document_and_variable_updates_share_the_atomic_store() {
 
     let ready = fixture
         .store
-        .update_setting("..entry.git.email", "dev@example.com".to_owned())
+        .update_setting(".entry/git/email", "dev@example.com".to_owned())
         .expect("update known setting");
     assert_eq!(ready.status, "ready");
     assert!(ready.revision.starts_with("sha256-"));
@@ -140,7 +171,7 @@ fn profile_document_and_variable_updates_share_the_atomic_store() {
     assert!(
         fixture
             .store
-            .update_setting("..entry.unknown", "value".to_owned())
+            .update_setting(".entry/unknown", "value".to_owned())
             .unwrap_err()
             .to_string()
             .contains("unknown Entry Profile setting")
@@ -152,7 +183,7 @@ fn profile_document_and_variable_updates_share_the_atomic_store() {
     assert!(
         fixture
             .store
-            .update_setting("..entry.git.name", "User".to_owned())
+            .update_setting(".entry/git/name", "User".to_owned())
             .unwrap_err()
             .to_string()
             .contains("current profile is unreadable")
@@ -171,14 +202,14 @@ fn revision_is_stable_for_the_same_file_and_detects_stale_replacements() {
 
     let second = fixture
         .store
-        .update_setting("..entry.git.name", "CLI Writer".to_owned())
+        .update_setting(".entry/git/name", "CLI Writer".to_owned())
         .expect("update profile");
     assert_ne!(second.revision, first.revision);
 
     assert!(matches!(
         fixture.store.update_setting_if_revision(
             &first.revision,
-            "..entry.git.email",
+            ".entry/git/email",
             "stale@example.com".to_owned(),
         ),
         Err(ProfileUpdateError::Conflict { current_revision })
@@ -196,7 +227,7 @@ fn variable_updates_wait_for_the_cross_process_data_lock() {
     let store = fixture.store.clone();
     let (finished, result) = mpsc::channel();
     let worker = thread::spawn(move || {
-        let update = store.update_setting("..entry.git.name", "Serialized Writer".to_owned());
+        let update = store.update_setting(".entry/git/name", "Serialized Writer".to_owned());
         finished.send(update).unwrap();
     });
 

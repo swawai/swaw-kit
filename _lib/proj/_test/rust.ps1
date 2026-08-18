@@ -369,7 +369,7 @@ try {
                 -Context $Context `
                 -Definition $Definition
         } `
-        -Pattern "*stale RUSTUP_TOOLCHAIN*Run 'swawkit .dev.setup'*"
+        -Pattern "*stale RUSTUP_TOOLCHAIN*Run 'swawkit .dev/setup'*"
     $env:RUSTUP_TOOLCHAIN = $ExpectedToolchain
     Assert-ProjRustTest `
         -Condition ([string]$env:RUSTUP_TOOLCHAIN -ceq

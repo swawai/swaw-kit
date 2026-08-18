@@ -13,8 +13,8 @@ pub use document::{EntryProfileDocument, PROFILE_DOCUMENT_PROTOCOL};
 pub use error::{ProfileError, ProfileUpdateError};
 pub use language::{DEFAULT_LANGUAGE, EntryLanguage};
 pub use model::{
-    ChannelTool, DevelopmentProfile, EntryProfileRecord, GitProfile, ModeTool, RustTool,
-    VersionedTool,
+    ChannelTool, DevelopmentProfile, EntryProfileRecord, GitProfile, ModeTool, ModuleMountProfile,
+    RustTool, VersionedTool,
 };
 use storage::{read_record, revision, validate_data_root, validate_publication_target};
 
@@ -290,8 +290,12 @@ impl EntryProfileStore {
         profile_revision: String,
     ) -> Result<EntryProfile, ProfileError> {
         record.validate()?;
-        let binding = ProjectBinding::resolve(&self.swawkit_home, &record.target_project_root)
-            .map_err(|error| ProfileError::new(error.to_string()))?;
+        let binding = ProjectBinding::resolve(
+            &self.swawkit_home,
+            &record.target_project_root,
+            &record.module_mounts,
+        )
+        .map_err(|error| ProfileError::new(error.to_string()))?;
         let environment_input_revision = environment_input_revision(&record);
         Ok(EntryProfile {
             record,
@@ -347,7 +351,7 @@ fn record_for_setting_update(state: EntryProfileState) -> Result<EntryProfileRec
             error,
             ..
         } => Err(ProfileError::new(format!(
-            "cannot update one setting because the current profile is unreadable: {error}. Replace it with '..entry.apply --file <path>'"
+            "cannot update one setting because the current profile is unreadable: {error}. Replace it with '.entry/apply --file <path>'"
         ))),
         EntryProfileState::Ready(profile) => Ok(profile.record().clone()),
     }

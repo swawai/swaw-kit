@@ -107,13 +107,15 @@ try {
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
     $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
-    $CancellationAction = Join-Path $Runtime.Home '.swaw\cancel-tree\run.exe'
+    $CancellationRoot = Join-Path $Runtime.Home '.swaw\cancel-tree'
+    Add-ProjFixtureCommandManifest -CommandRoot $CancellationRoot
+    $CancellationAction = Join-Path $CancellationRoot 'run.exe'
     New-ProjCancellationAction -OutputAssembly $CancellationAction
 
     $Bound = Invoke-ProjSetupEntry `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.project.root',
+            '.entry/project/root',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjSetupInterruption `
@@ -122,13 +124,13 @@ try {
     foreach ($Tool in @('bun', 'pwsh', 'msvc', 'rust')) {
         $Disabled = Invoke-ProjSetupEntry `
             -EntryPath $EntryPath `
-            -Arguments @(".dev.$Tool.mode", 'disabled')
+            -Arguments @(".dev/$Tool/mode", 'disabled')
         Assert-ProjSetupInterruption `
             -Condition ($Disabled.ExitCode -eq 0) `
             -Message "cannot disable ${Tool}: $($Disabled.Text)"
     }
 
-    $SetupRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
     $ProviderStatePath = Join-Path $SetupRoot '_state.json'
     $ProviderStateBefore = if ([IO.File]::Exists($ProviderStatePath)) {
         (Get-FileHash -LiteralPath $ProviderStatePath -Algorithm SHA256).Hash
@@ -209,7 +211,7 @@ try {
 
     $Retry = Invoke-ProjSetupEntry `
         -EntryPath $EntryPath `
-        -Arguments @('.dev.setup')
+        -Arguments @('.dev/setup')
     $Provider = Get-Content -LiteralPath $ProviderStatePath `
         -Raw | ConvertFrom-Json
     Assert-ProjSetupInterruption `
@@ -224,14 +226,14 @@ try {
         -Message "setup did not recover after console cancellation: $($Retry.Text)"
 
     $TreeResultPath = Join-Path $TemporaryRoot 'console-cancel-tree.json'
-    & $DriverPath $EntryPath $Runtime.Home $TreeResultPath 'cancel-tree' '4'
+    & $DriverPath $EntryPath $Runtime.Home $TreeResultPath 'project/cancel-tree' '4'
     $TreeDriverExitCode = $LASTEXITCODE
     Assert-ProjSetupInterruption `
         -Condition ([IO.File]::Exists($TreeResultPath)) `
         -Message "process-tree cancel driver produced no result (exit $TreeDriverExitCode)"
     $TreeResult = Get-Content -LiteralPath $TreeResultPath -Raw |
         ConvertFrom-Json
-    $ActionDataRoot = Join-Path $DataRoot 'modules\action\cancel-tree'
+    $ActionDataRoot = Join-Path $DataRoot 'modules\project\cancel-tree'
     $ActionStates = @(
         Get-ChildItem -LiteralPath (Join-Path $ActionDataRoot '_runs') `
             -Filter '_state.json' -File -Recurse |
@@ -248,7 +250,7 @@ try {
             $null -eq $TreeResult.error
         ) `
         -Message (
-            'Core did not terminate the canceled Action process tree: ' +
+            'Core did not terminate the canceled Module process tree: ' +
             (Get-Content -LiteralPath $TreeResultPath -Raw)
         )
     Assert-ProjSetupInterruption `
@@ -258,7 +260,7 @@ try {
             $ActionStates[0].status -ceq 'canceled' -and
             $null -ne $ActionStates[0].finishedAtUnixMs
         ) `
-        -Message 'the canceled Action process tree left a non-terminal journal'
+        -Message 'the canceled Module process tree left a non-terminal journal'
 } finally {
     if ($null -ne $Lock) {
         $Lock.Dispose()

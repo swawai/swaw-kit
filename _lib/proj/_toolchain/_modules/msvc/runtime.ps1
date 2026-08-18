@@ -17,7 +17,7 @@ function Get-ProjDevMsvcCommandRequirement {
     if ($null -eq $Definition) {
         throw (
             'This command requires project-managed MSVC. Run ' +
-            "'$($Context.EntryCommand) .dev.msvc.mode managed', then " +
+            "'$($Context.EntryCommand) .dev/msvc/mode managed', then " +
             "'$Repair'."
         )
     }

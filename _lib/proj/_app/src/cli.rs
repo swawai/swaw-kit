@@ -1,6 +1,5 @@
 mod check;
 mod claim;
-mod context_commands;
 mod control;
 mod runs;
 
@@ -104,20 +103,16 @@ fn run_with_dependencies(
     {
         return Ok(exit_code);
     }
-    if let Some(exit_code) = context_commands::dispatch(&snapshot, argv, context, resolved.path())?
-    {
-        return Ok(exit_code);
-    }
     if let Some(exit_code) = control::dispatch(&snapshot, argv, context, &profile_store)? {
         return Ok(exit_code);
     }
-    CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
+    CommandExecutor::preflight(&context.command_root(), &snapshot, argv)
         .map_err(|error| CliError::new(error.to_string()))?;
     let profile = match profile_state {
         EntryProfileState::Ready(profile) => profile,
         EntryProfileState::Missing { path } => {
             return Err(CliError::new(format!(
-                "this entry has no profile: {}. Run '{} ..entry' or launch '{}' without arguments to complete initial setup",
+                "this entry has no profile: {}. Run '{} .entry' or launch '{}' without arguments to complete initial setup",
                 path.display(),
                 context.entry_name,
                 context.entry_name,

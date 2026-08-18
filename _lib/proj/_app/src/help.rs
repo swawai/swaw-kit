@@ -1,11 +1,11 @@
 use std::error::Error;
 use std::fmt;
 
-use crate::catalog::{CatalogSnapshot, CommandNode, CommandSource};
+use crate::catalog::{CatalogSnapshot, CommandNode, CommandSpace};
 
 /// Renders the catalog-backed help shown by the CLI.
 ///
-/// An empty `target_address` selects the kernel root. Non-root addresses must
+/// An empty `target_address` selects the System root. Non-root addresses must
 /// identify exactly one catalog node.
 pub fn render_help(
     snapshot: &CatalogSnapshot,
@@ -33,32 +33,22 @@ pub fn render_help(
     }
 
     if target_address.is_empty() {
-        let entry_section = format!("{}:", snapshot.entry_name);
         append_section(
             &mut sections,
-            &entry_section,
+            labels.system_commands,
             children
                 .iter()
                 .copied()
-                .filter(|node| node.source == CommandSource::Control),
+                .filter(|node| node.space == CommandSpace::System),
             snapshot,
         );
         append_section(
             &mut sections,
-            labels.kernel_commands,
-            children
+            labels.modules,
+            snapshot
+                .commands
                 .iter()
-                .copied()
-                .filter(|node| node.source == CommandSource::Kernel),
-            snapshot,
-        );
-        append_section(
-            &mut sections,
-            labels.project_actions,
-            children
-                .iter()
-                .copied()
-                .filter(|node| node.source == CommandSource::Action),
+                .filter(|node| node.space == CommandSpace::Module && node.path.is_empty()),
             snapshot,
         );
     } else {
@@ -103,10 +93,10 @@ fn find_target<'a>(
     snapshot: &'a CatalogSnapshot,
     target_address: &str,
 ) -> Result<&'a CommandNode, HelpRenderError> {
-    let mut matches = snapshot.commands.iter().filter(|node| {
-        node.address == target_address
-            && (!target_address.is_empty() || node.source == CommandSource::Kernel)
-    });
+    let mut matches = snapshot
+        .commands
+        .iter()
+        .filter(|node| node.address == target_address);
     let Some(target) = matches.next() else {
         return Err(HelpRenderError::NotFound(target_address.to_owned()));
     };
@@ -120,14 +110,11 @@ fn direct_children<'a>(
     snapshot: &'a CatalogSnapshot,
     target: &CommandNode,
 ) -> Vec<&'a CommandNode> {
-    let include_all_sources = target.address.is_empty();
     let mut children: Vec<&CommandNode> = snapshot
         .commands
         .iter()
         .filter(|node| {
-            node.alias_of.is_none()
-                && node.parent.as_deref() == Some(target.address.as_str())
-                && (include_all_sources || node.source == target.source)
+            node.alias_of.is_none() && node.parent.as_deref() == Some(target.address.as_str())
         })
         .collect();
     children.sort_by(|left, right| left.address.cmp(&right.address));
@@ -152,32 +139,8 @@ fn render_row(snapshot: &CatalogSnapshot, node: &CommandNode) -> String {
     format!("  {invocation:<34} {}", summary(snapshot, node))
 }
 
-fn display_address(snapshot: &CatalogSnapshot, node: &CommandNode) -> String {
-    let mut aliases: Vec<&str> = snapshot
-        .commands
-        .iter()
-        .filter(|candidate| {
-            candidate.source == node.source
-                && candidate.alias_of.as_deref() == Some(node.address.as_str())
-        })
-        .map(|candidate| candidate.address.as_str())
-        .collect();
-    aliases.sort_by(|left, right| {
-        alias_kind(left)
-            .cmp(&alias_kind(right))
-            .then_with(|| left.len().cmp(&right.len()))
-            .then_with(|| left.cmp(right))
-    });
-
-    if aliases.is_empty() {
-        node.address.clone()
-    } else {
-        format!("{} ({})", node.address, aliases.join(", "))
-    }
-}
-
-fn alias_kind(alias: &str) -> u8 {
-    if alias.starts_with('.') { 0 } else { 1 }
+fn display_address(_snapshot: &CatalogSnapshot, node: &CommandNode) -> String {
+    node.address.clone()
 }
 
 fn summary(snapshot: &CatalogSnapshot, node: &CommandNode) -> String {
@@ -198,8 +161,8 @@ fn summary(snapshot: &CatalogSnapshot, node: &CommandNode) -> String {
 }
 
 struct HelpLabels {
-    kernel_commands: &'static str,
-    project_actions: &'static str,
+    system_commands: &'static str,
+    modules: &'static str,
     subcommands: &'static str,
     help_protocol_error: &'static str,
     protocol_error: &'static str,
@@ -211,8 +174,8 @@ impl HelpLabels {
     fn for_language(language: &str) -> Self {
         if language == "en" {
             Self {
-                kernel_commands: "Kernel Commands:",
-                project_actions: "Project Actions:",
+                system_commands: "System Commands:",
+                modules: "Modules:",
                 subcommands: "Subcommands:",
                 help_protocol_error: "help protocol error",
                 protocol_error: "protocol error",
@@ -221,8 +184,8 @@ impl HelpLabels {
             }
         } else {
             Self {
-                kernel_commands: "内核命令：",
-                project_actions: "项目操作：",
+                system_commands: "系统命令：",
+                modules: "模块：",
                 subcommands: "子命令：",
                 help_protocol_error: "帮助协议错误",
                 protocol_error: "协议错误",
@@ -240,139 +203,115 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn renders_root_document_and_catalog_groups_without_alias_rows() {
+    fn root_help_lists_system_commands_and_module_namespaces() {
         let snapshot = snapshot(vec![
-            node("", CommandSource::Kernel, None, help("Root help")),
+            node("", CommandSpace::System, None, &[], None, help("Root")),
             node(
-                "..entry",
-                CommandSource::Control,
+                ".help",
+                CommandSpace::System,
+                None,
+                &["help"],
                 Some(""),
-                help("Entry profile"),
+                help("Help"),
             ),
-            node(".dev", CommandSource::Kernel, Some(""), help("Develop")),
-            node(".dev.setup", CommandSource::Kernel, Some(".dev"), None),
-            node(".help", CommandSource::Kernel, Some(""), help("Show help")),
-            alias(".h", ".help"),
-            alias("-h", ".help"),
-            alias("--help", ".help"),
-            node("build", CommandSource::Action, Some(""), help("Build")),
-        ]);
-
-        let output = render_help(&snapshot, "").expect("root help");
-
-        assert!(output.starts_with("Root help\n\nswawkit:"));
-        assert!(output.contains("swawkit ..entry"));
-        assert!(output.contains("Kernel Commands:\n  swawkit .dev"));
-        assert!(output.contains("swawkit .help (.h, -h, --help)"));
-        assert!(!output.contains("swawkit .dev.setup"));
-        assert!(
-            !output
-                .lines()
-                .any(|line| line.trim_start().starts_with("swawkit .h "))
-        );
-        assert!(output.contains("Project Actions:\n  swawkit build"));
-    }
-
-    #[test]
-    fn renders_only_same_source_direct_subcommands_with_catalog_fallbacks() {
-        let mut group = node(
-            ".dev",
-            CommandSource::Kernel,
-            Some(""),
-            help("Development commands"),
-        );
-        group.help.as_mut().expect("help").text = "Detailed development help\n".into();
-
-        let mut status = node(".dev.status", CommandSource::Kernel, Some(".dev"), None);
-        status.runnable = true;
-        let mut broken = node(".dev.broken", CommandSource::Kernel, Some(".dev"), None);
-        broken.diagnostic = Some("multiple run entries".into());
-        let snapshot = snapshot(vec![
-            node("", CommandSource::Kernel, None, help("Root")),
-            group,
-            status,
-            broken,
             node(
-                ".dev.nested",
-                CommandSource::Action,
-                Some(".dev"),
-                help("Other source"),
+                "swaw",
+                CommandSpace::Module,
+                Some("swaw"),
+                &[],
+                None,
+                help("Official modules"),
+            ),
+            node(
+                "swaw/context",
+                CommandSpace::Module,
+                Some("swaw"),
+                &["context"],
+                Some("swaw"),
+                help("Contexts"),
             ),
         ]);
 
-        let output = render_help(&snapshot, ".dev").expect("group help");
-
-        assert!(output.starts_with("Detailed development help\n\nSubcommands:"));
-        assert!(output.contains("[protocol error] multiple run entries"));
-        assert!(output.contains("[help handled by command]"));
-        assert!(!output.contains("Other source"));
+        let output = render_help(&snapshot, "").unwrap();
+        assert!(output.contains("System Commands:"));
+        assert!(output.contains("swawkit .help"));
+        assert!(output.contains("Modules:"));
+        assert!(output.contains("swawkit swaw"));
+        assert!(!output.contains("swawkit swaw/context"));
     }
 
     #[test]
-    fn rejects_missing_ambiguous_unopted_and_invalid_targets() {
-        let mut invalid = node("invalid", CommandSource::Action, Some(""), None);
-        invalid.help = help("must not render");
-        invalid.help_diagnostic = Some("help file is empty".into());
+    fn non_root_help_lists_only_direct_children() {
         let snapshot = snapshot(vec![
-            node("", CommandSource::Kernel, None, help("Root")),
-            node("same", CommandSource::Kernel, Some(""), help("Kernel")),
-            node("same", CommandSource::Action, Some(""), help("Action")),
-            node("plain", CommandSource::Action, Some(""), None),
-            invalid,
+            node(
+                ".dev",
+                CommandSpace::System,
+                None,
+                &["dev"],
+                Some(""),
+                help("Development"),
+            ),
+            node(
+                ".dev/setup",
+                CommandSpace::System,
+                None,
+                &["dev", "setup"],
+                Some(".dev"),
+                help("Setup"),
+            ),
         ]);
 
+        let output = render_help(&snapshot, ".dev").unwrap();
+        assert!(output.contains("Subcommands:"));
+        assert!(output.contains("swawkit .dev/setup"));
+    }
+
+    #[test]
+    fn lookup_is_exact_and_does_not_accept_internal_space_prefixes() {
+        let snapshot = snapshot(vec![node(
+            "project/build",
+            CommandSpace::Module,
+            Some("project"),
+            &["build"],
+            Some("project"),
+            help("Build"),
+        )]);
+        assert!(render_help(&snapshot, "project/build").is_ok());
         assert_eq!(
-            render_help(&snapshot, "missing"),
-            Err(HelpRenderError::NotFound("missing".into()))
-        );
-        assert_eq!(
-            render_help(&snapshot, "same"),
-            Err(HelpRenderError::Ambiguous("same".into()))
-        );
-        assert_eq!(
-            render_help(&snapshot, "plain"),
-            Err(HelpRenderError::Unavailable("plain".into()))
-        );
-        assert_eq!(
-            render_help(&snapshot, "invalid"),
-            Err(HelpRenderError::Invalid {
-                address: "invalid".into(),
-                diagnostic: "help file is empty".into(),
-            })
+            render_help(&snapshot, "module/project/build"),
+            Err(HelpRenderError::NotFound("module/project/build".to_owned()))
         );
     }
 
     fn snapshot(commands: Vec<CommandNode>) -> CatalogSnapshot {
         CatalogSnapshot {
             protocol: CATALOG_PROTOCOL,
-            entry_name: "swawkit".into(),
+            entry_name: "swawkit".to_owned(),
             language: "en",
             commands,
         }
     }
 
-    fn alias(address: &str, target: &str) -> CommandNode {
-        let mut node = node(address, CommandSource::Kernel, Some(""), None);
-        node.alias_of = Some(target.into());
-        node
-    }
-
     fn help(summary: &str) -> Option<HelpDocument> {
         Some(HelpDocument {
-            summary: summary.into(),
-            text: summary.into(),
+            summary: summary.to_owned(),
+            text: summary.to_owned(),
         })
     }
 
     fn node(
         address: &str,
-        source: CommandSource,
+        space: CommandSpace,
+        namespace: Option<&str>,
+        path: &[&str],
         parent: Option<&str>,
         help: Option<HelpDocument>,
     ) -> CommandNode {
         CommandNode {
-            address: address.into(),
-            source,
+            address: address.to_owned(),
+            space,
+            namespace: namespace.map(str::to_owned),
+            path: path.iter().map(|segment| (*segment).to_owned()).collect(),
             parent: parent.map(str::to_owned),
             alias_of: None,
             runnable: false,
@@ -387,6 +326,7 @@ mod tests {
             diagnostic: None,
             help_diagnostic: None,
             directory: PathBuf::new(),
+            native_owner: None,
         }
     }
 }

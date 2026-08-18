@@ -34,9 +34,10 @@ function Get-ProjProviderTestPublication {
 
     return Get-ProjRequiredCommandExport `
         -DataRoot $DataRoot `
-        -ProviderAddress '.dev.setup' `
+        -ProviderAddress '.dev/setup' `
         -EntryCommand 'fixture' `
         -InputRevision $InputRevision `
+        -ExportId (Get-ProjDevSetupExportId) `
         -ProducerContract (Get-ProjDevSetupProducerContract)
 }
 
@@ -79,8 +80,8 @@ try {
     }
     Assert-ProjProviderStateTest `
         -Condition (
-            $MissingMessage -like "*'.dev.setup'*" -and
-            $MissingMessage -like "*'fixture .dev.setup'*" -and
+            $MissingMessage -like "*'.dev/setup'*" -and
+            $MissingMessage -like "*'fixture .dev/setup'*" -and
             -not [IO.Directory]::Exists($Context.SetupCommandRoot)
         ) `
         -Message 'missing state did not fail closed without side effects'
@@ -96,7 +97,7 @@ try {
             -InputRevision $InputA)
     }
     Assert-ProjProviderStateTest `
-        -Condition ($LegacyMessage -like "*'fixture .dev.setup'*") `
+        -Condition ($LegacyMessage -like "*'fixture .dev/setup'*") `
         -Message 'legacy export state incorrectly granted readiness'
 
     [IO.File]::WriteAllText($Context.ProviderStatePath, '{broken')
@@ -106,7 +107,7 @@ try {
             -InputRevision $InputA)
     }
     Assert-ProjProviderStateTest `
-        -Condition ($CorruptMessage -like "*'fixture .dev.setup'*") `
+        -Condition ($CorruptMessage -like "*'fixture .dev/setup'*") `
         -Message 'corrupt state did not fail closed with repair advice'
 
     $Attempt = Start-ProjDevSetupProviderPublication -Context $Context
@@ -124,7 +125,7 @@ try {
             [string]$Unavailable.InputRevision -ceq $InputA -and
             [string]$Unavailable.Token -ceq [string]$Attempt.Token -and
             $UnavailableNames.Count -eq 4 -and
-            $UnavailableNames -cnotcontains 'producerContract' -and
+            $UnavailableNames -cnotcontains 'exports' -and
             $UnavailableNames -cnotcontains 'exportRevision'
         ) `
         -Message 'setup did not repair corrupt state as unavailable'
@@ -164,12 +165,16 @@ try {
     Assert-ProjProviderStateTest `
         -Condition (
             $ReadyNames.Count -eq 5 -and
-            $ReadyNames -ccontains 'producerContract' -and
+            $ReadyNames -ccontains 'exports' -and
+            @($ReadyJson.exports).Count -eq 1 -and
+            [string]$ReadyJson.exports[0].id -ceq 'environment' -and
+            [string]$ReadyJson.exports[0].contract -ceq
+                'swawkit.proj.dev-setup/v2' -and
             $ReadyNames -cnotcontains 'exportRevision' -and
             $ReadyNames -cnotcontains 'projectRoot' -and
             $ReadyNames -cnotcontains 'declarations'
         ) `
-        -Message 'ready state does not match the minimal v1 schema'
+        -Message 'ready state does not match the minimal v2 schema'
     $Publication = Get-ProjProviderTestPublication `
         -DataRoot $DataRoot `
         -InputRevision $InputA
@@ -183,6 +188,7 @@ try {
         -State (New-ProjCommandProviderReadyState `
             -InputRevision $InputA `
             -Token ([string]$Attempt.Token) `
+            -ExportId (Get-ProjDevSetupExportId) `
             -ProducerContract 'swawkit.proj.dev-setup/v1')
     $ContractMessage = Get-ProjProviderTestFailure {
         [void](Get-ProjProviderTestPublication `
@@ -197,6 +203,7 @@ try {
         -State (New-ProjCommandProviderReadyState `
             -InputRevision $InputA `
             -Token ([string]$Attempt.Token) `
+            -ExportId (Get-ProjDevSetupExportId) `
             -ProducerContract (Get-ProjDevSetupProducerContract))
     [void](Import-ProjDevGeneratedEnvironment -Context $Context)
     $LeakedMetadata = @(
@@ -258,6 +265,7 @@ Write-ProjCommandProviderState -Context `$Context -State `$ChangedState
         -State (New-ProjCommandProviderReadyState `
             -InputRevision $InputA `
             -Token ([string]$Attempt.Token) `
+            -ExportId (Get-ProjDevSetupExportId) `
             -ProducerContract (Get-ProjDevSetupProducerContract))
 
     $StaleAttempt = Start-ProjDevSetupProviderPublication -Context $Context

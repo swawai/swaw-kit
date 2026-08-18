@@ -1,4 +1,5 @@
 import { t } from "./i18n.js";
+import { commandIdentityKey } from "./command-identity.js";
 
 export function createDocumentProjectionView(elements, options = {}) {
   const renderers = new Map((options.renderers ?? []).map((renderer) => [
@@ -12,7 +13,7 @@ export function createDocumentProjectionView(elements, options = {}) {
   let selectedKey = null;
 
   function subjectKey(subject) {
-    return subject?.canonicalRef ?? `${subject?.source}:${subject?.address}`;
+    return subject?.canonicalRef ?? commandIdentityKey(subject);
   }
 
   function hideRenderers() {

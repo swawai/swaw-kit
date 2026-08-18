@@ -110,7 +110,7 @@ impl Fixture {
 
     fn target(&self) -> PathBuf {
         self.data
-            .join("modules/kernel/.dev/setup/export/rust/installs/stable")
+            .join("modules/system/dev/setup/export/rust/installs/stable")
     }
 }
 

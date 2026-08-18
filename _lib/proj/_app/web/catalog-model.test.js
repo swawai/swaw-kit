@@ -6,12 +6,23 @@ import {
   sortCommands,
 } from "./catalog-model.js";
 
-const protocol = "swawkit.command-catalog/v13";
+const protocol = "swawkit.command-catalog/v16";
 
 function node(address, overrides = {}) {
-  return {
+  const space = overrides.space ?? (address.startsWith(".") || address === "" ? "system" : "module");
+  const namespace = space === "module"
+    ? overrides.namespace ?? address.split("/")[0]
+    : null;
+  const path = space === "system"
+    ? address === "" ? [] : address.slice(1).split("/")
+    : space === "module"
+      ? address === namespace ? [] : address.slice(namespace.length + 1).split("/")
+      : [];
+  const command = {
     address,
-    source: "kernel",
+    space,
+    namespace,
+    path,
     parent: "",
     aliasOf: null,
     runnable: false,
@@ -26,6 +37,20 @@ function node(address, overrides = {}) {
     diagnostic: null,
     ...overrides,
   };
+  if (
+    command.module === null
+    && new Set(["core", "toolchain", "native"]).has(command.adapter)
+  ) {
+    command.module = {
+      schema: "swawkit.command-module/v8",
+      execution: command.adapter === "native"
+        ? { type: "native" }
+        : { type: command.adapter, handler: command.handler },
+      requires: [],
+      provides: [],
+    };
+  }
+  return command;
 }
 
 function payload(commands, overrides = {}) {
@@ -38,11 +63,11 @@ function payload(commands, overrides = {}) {
   };
 }
 
-describe("Catalog v13 model", () => {
+describe("Catalog v16 model", () => {
   test("derives a non-runnable group only from its children", () => {
     const catalog = createCatalog(payload([
       node(".dev"),
-      node(".dev.setup", {
+      node(".dev/setup", {
         parent: ".dev",
         runnable: true,
         entry: "run.ps1",
@@ -54,7 +79,7 @@ describe("Catalog v13 model", () => {
     expect(group.runnable).toBe(false);
     expect(isGroup(catalog, group)).toBe(true);
     expect(childrenOf(catalog, group.address).map(({ address }) => address))
-      .toEqual([".dev.setup"]);
+      .toEqual([".dev/setup"]);
   });
 
   test("keeps runnable capability independent from group capability", () => {
@@ -64,7 +89,7 @@ describe("Catalog v13 model", () => {
         entry: "run.exe",
         adapter: "exe",
       }),
-      node(".tool.status", {
+      node(".tool/status", {
         parent: ".tool",
         runnable: true,
         entry: "run.ps1",
@@ -80,41 +105,41 @@ describe("Catalog v13 model", () => {
   test("sorts sibling commands by address regardless of group capability", () => {
     const catalog = createCatalog(payload([
       node(".dev"),
-      node(".dev.git", { parent: ".dev" }),
-      node(".dev.git.name", { parent: ".dev.git" }),
-      node(".dev.apply", { parent: ".dev" }),
-      node(".dev.project", { parent: ".dev" }),
-      node(".dev.project.root", { parent: ".dev.project" }),
-      node(".dev.language", { parent: ".dev" }),
+      node(".dev/git", { parent: ".dev" }),
+      node(".dev/git/name", { parent: ".dev/git" }),
+      node(".dev/apply", { parent: ".dev" }),
+      node(".dev/project", { parent: ".dev" }),
+      node(".dev/project/root", { parent: ".dev/project" }),
+      node(".dev/language", { parent: ".dev" }),
     ]));
 
     expect(sortCommands(catalog, childrenOf(catalog, ".dev")).map(({ address }) => address))
       .toEqual([
-        ".dev.apply",
-        ".dev.git",
-        ".dev.language",
-        ".dev.project",
+        ".dev/apply",
+        ".dev/git",
+        ".dev/language",
+        ".dev/project",
       ]);
   });
 
   test("keeps typed Profile settings and their ancestors available during setup", () => {
     const catalog = createCatalog(payload([
       node(".dev"),
-      node(".dev.bun", { parent: ".dev" }),
-      node(".dev.bun.mode", {
-        parent: ".dev.bun",
+      node(".dev/bun", { parent: ".dev" }),
+      node(".dev/bun/mode", {
+        parent: ".dev/bun",
         runnable: true,
-        entry: "run.core.json",
+        entry: "swawkit.module.json",
         adapter: "core",
         handler: "entry.profile.set",
       }),
-      node(".dev.exec", { parent: ".dev" }),
+      node(".dev/exec", { parent: ".dev" }),
     ]));
 
     expect(catalog.commandByAddress.get(".dev").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".dev.bun").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".dev.bun.mode").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".dev.exec").setupAvailable).toBe(false);
+    expect(catalog.commandByAddress.get(".dev/bun").setupAvailable).toBe(true);
+    expect(catalog.commandByAddress.get(".dev/bun/mode").setupAvailable).toBe(true);
+    expect(catalog.commandByAddress.get(".dev/exec").setupAvailable).toBe(false);
   });
 
   test("keeps a diagnostic leaf distinct from a command group", () => {
@@ -126,6 +151,31 @@ describe("Catalog v13 model", () => {
     expect(command.issue).toBe("multiple run entries");
     expect(command.runnable).toBe(false);
     expect(isGroup(catalog, command)).toBe(false);
+  });
+
+  test("keeps an invalid execution declaration local to its diagnostic command", () => {
+    const catalog = createCatalog(payload([
+      node("swaw/broken", {
+        module: {
+          schema: "swawkit.command-module/v8",
+          execution: {
+            type: "delegate",
+            owner: {
+              type: "command",
+              space: "module",
+              namespace: "swaw",
+              address: "swaw/missing",
+            },
+          },
+          requires: [],
+          provides: [],
+        },
+        diagnostic: "delegated execution owner is missing",
+      }),
+    ]));
+
+    expect(catalog.commandByAddress.get("swaw/broken").issue)
+      .toBe("delegated execution owner is missing");
   });
 
   test("keeps runnable capability independent from diagnostics", () => {
@@ -145,36 +195,92 @@ describe("Catalog v13 model", () => {
 
   test("rejects an unknown protocol version", () => {
     expect(() => createCatalog(payload([], { protocol: "catalog/v2" })))
-      .toThrow("protocol 必须是 swawkit.command-catalog/v13");
+      .toThrow("protocol 必须是 swawkit.command-catalog/v16");
   });
 
   test("normalizes declared module requirements and provisions", () => {
     const catalog = createCatalog(payload([
       node(".consumer", {
         module: {
-          schema: "swawkit.command-module/v4",
-          requires: [{ provider: ".provider", contract: "swawkit.fixture/v1" }],
-          provides: [{ contract: "swawkit.consumer/v1" }],
+          schema: "swawkit.command-module/v8",
+          requires: [{
+            provider: ".provider",
+            export: "fixture",
+            contract: "swawkit.fixture/v1",
+          }],
+          provides: [{ id: "consumer", contract: "swawkit.consumer/v1" }],
         },
       }),
     ]));
     expect(catalog.commandByAddress.get(".consumer").module).toEqual({
-      schema: "swawkit.command-module/v4",
-      requires: [{ provider: ".provider", contract: "swawkit.fixture/v1" }],
-      provides: [{ contract: "swawkit.consumer/v1" }],
+      schema: "swawkit.command-module/v8",
+      execution: null,
+      requires: [{
+        provider: ".provider",
+        export: "fixture",
+        contract: "swawkit.fixture/v1",
+      }],
+      provides: [{ id: "consumer", contract: "swawkit.consumer/v1" }],
     });
   });
 
-  test("rejects the removed command-module/v3 contract", () => {
+  test("normalizes explicit delegated execution", () => {
+    const catalog = createCatalog(payload([
+      node("swaw/context/add", {
+        runnable: true,
+        entry: "swawkit.module.json",
+        adapter: "delegate",
+        module: {
+          schema: "swawkit.command-module/v8",
+          execution: {
+            type: "delegate",
+            owner: {
+              type: "command",
+              space: "module",
+              namespace: "swaw",
+              address: "swaw/context",
+            },
+          },
+          requires: [],
+          provides: [],
+        },
+      }),
+    ]));
+
+    expect(catalog.commandByAddress.get("swaw/context/add").module.execution).toEqual({
+      type: "delegate",
+      owner: {
+        type: "command",
+        space: "module",
+        namespace: "swaw",
+        address: "swaw/context",
+      },
+    });
+  });
+
+  test("normalizes native execution without a marker file", () => {
+    const catalog = createCatalog(payload([
+      node("swaw/native", {
+        runnable: true,
+        entry: "swawkit.module.json",
+        adapter: "native",
+      }),
+    ]));
+
+    expect(catalog.commandByAddress.get("swaw/native").module.execution)
+      .toEqual({ type: "native" });
+  });
+
+  test("rejects the removed command-module/v6 contract", () => {
     expect(() => createCatalog(payload([
       node(".legacy", {
         module: {
-          schema: "swawkit.command-module/v3",
+          schema: "swawkit.command-module/v6",
           requires: [],
           provides: [{ contract: "legacy/v1" }],
         },
       }),
-    ]))).toThrow("swawkit.command-module/v4");
+    ]))).toThrow("swawkit.command-module/v8");
   });
 
   test("rejects a missing entry name", () => {
@@ -192,33 +298,47 @@ describe("Catalog v13 model", () => {
     expect(() => createCatalog(payload([
       node(".broken", { adapter: "pwsh" }),
     ]))).toThrow("adapter 必须与 entry 同时存在或同时为空");
+
+    expect(() => createCatalog(payload([
+      node("swaw/broken", {
+        runnable: true,
+        entry: "run.ps1",
+        adapter: "pwsh",
+        module: {
+          schema: "swawkit.command-module/v8",
+          execution: { type: "native" },
+          requires: [],
+          provides: [],
+        },
+      }),
+    ]))).toThrow("module execution declaration");
   });
 
-  test("accepts Entry commands and rejects unknown sources", () => {
+  test("accepts System commands and rejects unknown spaces", () => {
     const catalog = createCatalog(payload([
-      node("..entry", {
-        source: "control",
+      node(".entry", {
+        space: "system",
         runnable: true,
-        entry: "run.core.json",
+        entry: "swawkit.module.json",
         adapter: "core",
         handler: "entry.profile",
       }),
     ]));
-    expect(catalog.commandByAddress.get("..entry").handler)
+    expect(catalog.commandByAddress.get(".entry").handler)
       .toBe("entry.profile");
 
     expect(() => createCatalog(payload([
-      node(".legacy", { source: "project" }),
-    ]))).toThrow("source 只能是 control、kernel 或 action");
+      node(".legacy", { space: "project" }),
+    ]))).toThrow("space must be system or module");
   });
 
-  test("allows the dedicated edit renderer to target a typed Control setting", () => {
-    const address = "..entry.language";
+  test("allows the dedicated edit renderer to target a typed System setting", () => {
+    const address = ".entry/language";
     const catalog = createCatalog(payload([
       node(address, {
-        source: "control",
+        space: "system",
         runnable: true,
-        entry: "run.core.json",
+        entry: "swawkit.module.json",
         adapter: "core",
         handler: "entry.profile.set",
         facets: [{
@@ -237,20 +357,20 @@ describe("Catalog v13 model", () => {
 
   test("accepts handlers owned by core and toolchain adapters only", () => {
     const catalog = createCatalog(payload([
-      node(".dev.setup", {
+      node(".dev/setup", {
         runnable: true,
-        entry: "run.toolchain.json",
+        entry: "swawkit.module.json",
         adapter: "toolchain",
         handler: "dev.setup",
       }),
     ]));
-    expect(catalog.commandByAddress.get(".dev.setup").handler)
+    expect(catalog.commandByAddress.get(".dev/setup").handler)
       .toBe("dev.setup");
 
     expect(() => createCatalog(payload([
       node(".broken", {
         runnable: true,
-        entry: "run.toolchain.json",
+        entry: "swawkit.module.json",
         adapter: "toolchain",
       }),
     ]))).toThrow("handler");
@@ -266,13 +386,12 @@ describe("Catalog v13 model", () => {
 
   test("normalizes the parent-owned child column width", () => {
     const catalog = createCatalog(payload([
-      node(".dev.rust", {
-        source: "kernel",
+      node(".dev/rust", {
         view: { childrenColumn: { width: "wide" } },
       }),
     ]));
 
-    expect(catalog.commandByAddress.get(".dev.rust").childrenColumnWidth)
+    expect(catalog.commandByAddress.get(".dev/rust").childrenColumnWidth)
       .toBe("wide");
     expect(() => createCatalog(payload([
       node(".broken", {
@@ -283,8 +402,7 @@ describe("Catalog v13 model", () => {
 
   test("normalizes fixed Web run operations and rejects ambiguous declarations", () => {
     const catalog = createCatalog(payload([
-      node("maintenance.cleanup", {
-        source: "action",
+      node("maintenance/cleanup", {
         runnable: true,
         entry: "run.ps1",
         adapter: "pwsh",
@@ -304,7 +422,7 @@ describe("Catalog v13 model", () => {
       }),
     ]));
 
-    expect(catalog.commandByAddress.get("maintenance.cleanup").runOperations)
+    expect(catalog.commandByAddress.get("maintenance/cleanup").runOperations)
       .toEqual([
         { id: "preview", label: "预览", arguments: [], confirmation: null },
         {
@@ -330,12 +448,12 @@ describe("Catalog v13 model", () => {
 
   test("normalizes a command-resolved Subject collection Facet", () => {
     const catalog = createCatalog(payload([
-      node(".context.list", {
+      node("swaw/context/list", {
         runnable: true,
         entry: "run.ps1",
         adapter: "pwsh",
       }),
-      node(".context", {
+      node("swaw/context", {
         subjectKinds: [{
           kind: "context",
           facets: [{
@@ -347,9 +465,9 @@ describe("Catalog v13 model", () => {
             summary: "查看 Context",
             resolver: {
               type: "command",
-              address: ".context.list",
+              address: "swaw/context/list",
               arguments: [{ bind: "subject.id" }],
-              returns: "swawkit.context/v1",
+              returns: "swawkit.context/v2",
             },
           }],
         }],
@@ -362,25 +480,30 @@ describe("Catalog v13 model", () => {
           summary: "浏览持久化的 Agent 上下文",
           resolver: {
             type: "command",
-            address: ".context.list",
+            address: "swaw/context/list",
             arguments: ["--json"],
-            returns: "swawkit.subject-collection/v2",
+            returns: "swawkit.subject-collection/v3",
           },
           subjectKind: {
             kind: "context",
-            provider: { type: "command", source: "kernel", address: ".context" },
+            provider: {
+              type: "command",
+              space: "module",
+              namespace: "swaw",
+              address: "swaw/context",
+            },
           },
         }],
       }),
     ]));
 
-    const context = catalog.commandByAddress.get(".context");
+    const context = catalog.commandByAddress.get("swaw/context");
     expect(context.facets[0].resolver).toEqual({
       acceptsTail: false,
-      address: ".context.list",
+      address: "swaw/context/list",
       arguments: ["--json"],
       confirmation: null,
-      returns: "swawkit.subject-collection/v2",
+      returns: "swawkit.subject-collection/v3",
       type: "command",
     });
   });
@@ -413,18 +536,18 @@ describe("Catalog v13 model", () => {
       resolver: {
         type: "command",
         address: ".runs",
-        arguments: ["--json", "kernel/.tool"],
-        returns: "swawkit.subject-collection/v2",
+        arguments: ["--json", ".tool"],
+        returns: "swawkit.subject-collection/v3",
       },
       subjectKind: {
         kind: "run",
-        provider: { type: "command", source: "kernel", address: ".runs" },
+        provider: { type: "command", space: "system", address: ".runs" },
       },
     };
     const catalog = createCatalog(payload([
       node(".runs", {
         runnable: true,
-        entry: "run.core.json",
+        entry: "swawkit.module.json",
         adapter: "core",
         handler: "meta.runs",
         subjectKinds: [runs],
@@ -445,7 +568,7 @@ describe("Catalog v13 model", () => {
     expect(() => createCatalog(payload([
       node(".runs", {
         runnable: true,
-        entry: "run.core.json",
+        entry: "swawkit.module.json",
         adapter: "core",
         handler: "meta.runs",
         subjectKinds: [runs],
@@ -463,11 +586,11 @@ describe("Catalog v13 model", () => {
     const catalog = createCatalog(payload([
       node(".check", {
         runnable: true,
-        entry: "run.core.json",
+        entry: "swawkit.module.json",
         adapter: "core",
         handler: "meta.check",
       }),
-      node(".context.list", {
+      node("swaw/context/list", {
         facets: [
           {
             id: "check",
@@ -479,26 +602,26 @@ describe("Catalog v13 model", () => {
             resolver: {
               type: "command",
               address: ".check",
-              arguments: [".context.list", "--json"],
-              returns: "swawkit.module-check/v1",
+              arguments: ["swaw/context/list", "--json"],
+              returns: "swawkit.module-check/v3",
             },
           },
         ],
       }),
     ]));
 
-    const facets = catalog.commandByAddress.get(".context.list").facets;
+    const facets = catalog.commandByAddress.get("swaw/context/list").facets;
     expect(facets[0].id).toBe("check");
     expect(facets[0].resolver).toEqual({
       acceptsTail: false,
       address: ".check",
-      arguments: [".context.list", "--json"],
+      arguments: ["swaw/context/list", "--json"],
       confirmation: null,
-      returns: "swawkit.module-check/v1",
+      returns: "swawkit.module-check/v3",
       type: "command",
     });
     expect(() => createCatalog(payload([
-      node(".context.list", {
+      node("swaw/context/list", {
         facets: [{
           id: "check",
           kind: "operation",

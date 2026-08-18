@@ -1,7 +1,6 @@
 import { t } from "./i18n.js";
 
 const ACTIVE_STATES = new Set(["running", "canceling"]);
-const COMMAND_RUN_SOURCES = new Set(["kernel", "action"]);
 
 export function argumentValues(inputs) {
   return [...inputs].map((input) => String(input.value));
@@ -15,7 +14,10 @@ export function isCommandRunSupported(command) {
   return command?.runnable === true
     && typeof command?.address === "string"
     && command.address.length > 0
-    && COMMAND_RUN_SOURCES.has(command.source);
+    && (
+      command.space === "module"
+      || (command.space === "system" && !["entry", "runtime"].includes(command.path?.[0]))
+    );
 }
 
 export function commandRunStatus(snapshot) {

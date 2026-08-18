@@ -9,7 +9,7 @@ pub(super) fn publication_token(context: &CommandContext) -> Result<String, Stri
 
     let export_root = directory_chain(
         &context.data_root,
-        &["modules", "kernel", ".dev", "setup", "export"],
+        &["modules", "system", "dev", "setup", "export"],
         "development environment export",
     )
     .map_err(|_| unavailable(context))?;
@@ -25,7 +25,7 @@ pub(super) fn publication_token(context: &CommandContext) -> Result<String, Stri
 
 fn unavailable(context: &CommandContext) -> String {
     format!(
-        "Required export from '.dev.setup' is unavailable or outdated. Run '{}'.",
+        "Required export from '.dev/setup' is unavailable or outdated. Run '{}'.",
         context.repair_invocation()
     )
 }

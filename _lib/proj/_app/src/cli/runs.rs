@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde_json::Value;
 use swawkit_proj::{
-    catalog::{CatalogSnapshot, CommandSource},
+    catalog::{CatalogSnapshot, CommandSpace},
     command_journal::{CommandJournalAccess, CommandLocator, RunJournalHistoryDocument},
     context::EntryContext,
     profile::EntryProfileState,
@@ -209,7 +209,8 @@ fn run_collection(
     Ok(SubjectCollection {
         protocol: SUBJECT_COLLECTION_PROTOCOL.to_owned(),
         owner: SubjectRef::Command {
-            source: CommandSource::Kernel,
+            space: CommandSpace::System,
+            namespace: None,
             address: RUNS_ADDRESS.to_owned(),
         },
         facet: ALL_RUNS_FACET.to_owned(),
@@ -227,8 +228,14 @@ fn command_run_collection(
     let facet_ids = run_facet_ids(snapshot)?;
     let locator = CommandLocator::from_cli_target(snapshot, target)
         .map_err(|error| CliError::new(error.to_string()))?;
+    let command = snapshot
+        .commands
+        .iter()
+        .find(|command| command.address == locator.address())
+        .ok_or_else(|| CliError::new("command not found"))?;
     let owner = SubjectRef::Command {
-        source: locator.source(),
+        space: command.space,
+        namespace: command.namespace.clone(),
         address: locator.address().to_owned(),
     };
     let locator_label = locator.to_string();
@@ -268,7 +275,7 @@ fn run_facet_ids(snapshot: &CatalogSnapshot) -> Result<Vec<String>, CliError> {
         .commands
         .iter()
         .find(|command| {
-            command.source == CommandSource::Kernel
+            command.space == CommandSpace::System
                 && command.address == RUNS_ADDRESS
                 && command.alias_of.is_none()
         })
@@ -291,18 +298,10 @@ fn all_journals(
         .commands
         .iter()
         .filter(|command| {
-            command.source != CommandSource::Control
-                && !command.address.is_empty()
-                && command.alias_of.is_none()
-                && (command.source != CommandSource::Action || profile_state.ready().is_some())
+            !command.is_control() && !command.address.is_empty() && command.alias_of.is_none()
         })
         .map(|command| {
-            let source = match command.source {
-                CommandSource::Kernel => "kernel",
-                CommandSource::Action => "action",
-                CommandSource::Control => unreachable!("Control journals are filtered"),
-            };
-            let locator = format!("{source}/{}", command.address);
+            let locator = command.address.clone();
             let journal = CommandJournalAccess::resolve(
                 context,
                 data_root,
@@ -385,7 +384,7 @@ fn civil_date(days_since_epoch: i64) -> (i64, i64, i64) {
 
 fn require_runs_command(snapshot: &CatalogSnapshot) -> Result<(), CliError> {
     if snapshot.commands.iter().any(|command| {
-        command.source == CommandSource::Kernel
+        command.space == CommandSpace::System
             && command.address == RUNS_ADDRESS
             && command.adapter.as_deref() == Some("core")
             && command.handler.as_deref() == Some("meta.runs")

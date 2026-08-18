@@ -16,7 +16,8 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_CORE_COMMAND_ADDRESS',
     'SWAWKIT_HOME',
     'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_ACTION_ROOT',
+    'SWAWKIT_PROJ_PROJECT_MODULE_ROOT',
+    'SWAWKIT_PROJ_MODULE_ROOTS',
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
@@ -293,10 +294,14 @@ try {
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
         SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.setup'
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_HOME = $ControlHome
         SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
-        SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
+        SWAWKIT_PROJ_PROJECT_MODULE_ROOT = $ActionRoot
+        SWAWKIT_PROJ_MODULE_ROOTS = (@{
+            swaw = Join-Path $ControlHome '_lib\proj\modules'
+            project = $ActionRoot
+        } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_DATA_ROOT = $null
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $InvocationRoot
@@ -314,7 +319,7 @@ try {
         Get-ProjDevFileSha256 -Path $SetupProfilePath
     )
     $LegacyStatePath = Join-Path $SetupDataRoot (
-        'modules\kernel\.dev\setup\export\_state.json'
+        'modules\system\dev\setup\export\_state.json'
     )
     [void][IO.Directory]::CreateDirectory(
         (Split-Path -Path $LegacyStatePath -Parent)
@@ -328,16 +333,16 @@ try {
         -Handler 'dev.setup'
     Assert-ProjBunTest `
         -Condition ($SetupResult.ExitCode -eq 0 -and
-            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\env.cmd')) -and
-            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\env.ps1')) -and
-            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\_state.json')) -and
-            -not [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\_state.json')) -and
+            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.cmd')) -and
+            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.ps1')) -and
+            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\system\dev\setup\_state.json')) -and
+            -not [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\system\dev\setup\export\_state.json')) -and
             -not [IO.Directory]::Exists(
-                (Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\bun')
+                (Join-Path $SetupDataRoot 'modules\system\dev\setup\export\bun')
             )) `
-        -Message "real disabled .dev.setup entry failed: $($SetupResult.Output)"
+        -Message "real disabled .dev/setup entry failed: $($SetupResult.Output)"
     $SetupEnvHash = Get-ProjDevFileSha256 `
-        -Path (Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\env.ps1')
+        -Path (Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.ps1')
     $RejectedSetup = Invoke-ProjToolchainCommandFixture `
         -Executable $ResolvedToolchainPath `
         -Handler 'dev.setup' `
@@ -345,9 +350,9 @@ try {
     Assert-ProjBunTest `
         -Condition ($RejectedSetup.ExitCode -eq 1 -and
             (Get-ProjDevFileSha256 `
-                -Path (Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\env.ps1')
+                -Path (Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.ps1')
             ) -ceq $SetupEnvHash) `
-        -Message '.dev.setup accepted arguments or changed state after rejection'
+        -Message '.dev/setup accepted arguments or changed state after rejection'
 
     $PendingDataRoot = Join-Path $TemporaryRoot 'pending setup data'
     [void][IO.Directory]::CreateDirectory($PendingDataRoot)
@@ -369,10 +374,10 @@ try {
     Assert-ProjBunTest `
         -Condition ($PendingSetup.ExitCode -eq 1 -and
             $PendingSetup.Output.Contains(
-                '.dev.setup does not yet handle these enabled declarations: go, python, uv.'
+                '.dev/setup does not yet handle these enabled declarations: go, python, uv.'
             ) -and
-            [IO.File]::Exists((Join-Path $PendingDataRoot 'modules\kernel\.dev\setup\_state.json')) -and
-            -not [IO.Directory]::Exists((Join-Path $PendingDataRoot 'modules\kernel\.dev\setup\export')) -and
+            [IO.File]::Exists((Join-Path $PendingDataRoot 'modules\system\dev\setup\_state.json')) -and
+            -not [IO.Directory]::Exists((Join-Path $PendingDataRoot 'modules\system\dev\setup\export')) -and
             -not [IO.Directory]::Exists(
                 (Join-Path $ProjectRoot 'data\proj_cache')
             )) `

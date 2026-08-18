@@ -29,7 +29,7 @@ function normalizeProfileDocument(value) {
   if (!new Set(["zh-CN", "en"]).has(value.profile.language)) {
     throw new Error("Entry Profile 协议无效：profile.language 只能是 zh-CN 或 en。");
   }
-  if (value.settings["..entry.language"] !== value.profile.language) {
+  if (value.settings[".entry/language"] !== value.profile.language) {
     throw new Error("Entry Profile 协议无效：语言设置与 profile.language 不一致。");
   }
   return value;
@@ -104,7 +104,7 @@ export function createEntryProfileView(
     }
     currentCommand = command;
     const address = command.address;
-    const label = address.slice(address.lastIndexOf(".") + 1);
+    const label = address.split("/").at(-1).replace(/^\.+/, "");
     const known = currentDocument && Object.hasOwn(currentDocument.settings, address);
     elements.entryProfileTitle.textContent = label;
     elements.entryProfileSummary.textContent = command.summary

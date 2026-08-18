@@ -68,7 +68,7 @@ pub fn ensure_installed(
     let installs = ensure_directory_chain(
         context.data_root,
         &[
-            "modules", "kernel", ".dev", "setup", "export", "rust", "installs",
+            "modules", "system", "dev", "setup", "export", "rust", "installs",
         ],
         "Rust installation parent",
     )?;

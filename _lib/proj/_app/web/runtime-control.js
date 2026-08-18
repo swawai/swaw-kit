@@ -193,19 +193,19 @@ export function runtimeRootPresentation(document) {
 
 function handlerPresentation(handler) {
   return {
-    "runtime.status": ["..runtime", t(
+    "runtime.status": [".runtime", t(
       "查看 Runtime 与 Host 的聚合状态。",
       "Inspect aggregate Runtime and Host state.",
     )],
-    "host.exit": ["..runtime.host.exit", t(
+    "host.exit": [".runtime/host/exit", t(
       "退出当前 Entry 的 Host；正在运行的 Web 命令也会终止。",
       "Exit this Entry's Host; running Web commands will also terminate.",
     )],
-    "host.restart": ["..runtime.host.restart", t(
+    "host.restart": [".runtime/host/restart", t(
       "重启 Host，并切换到已经发布且选中的 Runtime Release。",
       "Restart Host and switch to the published selected Runtime release.",
     )],
-    "runtime.cleanup": ["..runtime.cleanup", t(
+    "runtime.cleanup": [".runtime/cleanup", t(
       "预览或清理未被选中、也未被进程占用的旧 Runtime Release。",
       "Preview or remove old Runtime releases that are neither selected nor in use.",
     )],

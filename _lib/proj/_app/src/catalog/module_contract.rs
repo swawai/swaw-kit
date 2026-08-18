@@ -11,6 +11,7 @@ use super::{filesystem::directory_files, invalid_data};
 mod declaration;
 mod validation;
 
+pub use declaration::ModuleExecution;
 use declaration::{
     LocalizedText, ModuleFacetManifest, ModuleFacetResolverManifest, ModuleManifest,
 };
@@ -19,13 +20,15 @@ pub(crate) use declaration::{
 };
 use validation::validate_manifest;
 
-pub const MODULE_CONTRACT_PROTOCOL: &str = "swawkit.command-module/v4";
-const MODULE_CONTRACT_FILE: &str = "_module.json";
+pub const MODULE_CONTRACT_PROTOCOL: &str = "swawkit.command-module/v8";
+pub(crate) const MODULE_CONTRACT_FILE: &str = "swawkit.module.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandModuleContract {
     pub schema: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ModuleExecution>,
     pub requires: Vec<ModuleRequirement>,
     pub provides: Vec<ModuleProvision>,
     #[serde(skip)]
@@ -38,12 +41,14 @@ pub struct CommandModuleContract {
 #[serde(deny_unknown_fields)]
 pub struct ModuleRequirement {
     pub provider: String,
+    pub export: String,
     pub contract: String,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModuleProvision {
+    pub id: String,
     pub contract: String,
 }
 
@@ -84,7 +89,35 @@ pub(super) fn read_local_module_contract(
     }
 
     let content = fs::read_to_string(&file.path)?;
-    let manifest: ModuleManifest = serde_json::from_str(&content).map_err(|error| {
+    let value: serde_json::Value = serde_json::from_str(&content).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "invalid module contract manifest '{}': {error}",
+                file.path.display()
+            ),
+        )
+    })?;
+    let schema = value
+        .get("schema")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "module contract schema is missing or invalid in '{}'",
+                    file.path.display()
+                ),
+            )
+        })?;
+    if schema != MODULE_CONTRACT_PROTOCOL {
+        return invalid_data(format!(
+            "unsupported module contract schema '{}' in '{}'",
+            schema,
+            file.path.display()
+        ));
+    }
+    let manifest: ModuleManifest = serde_json::from_value(value).map_err(|error| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
@@ -114,6 +147,7 @@ pub(super) fn read_local_module_contract(
         .collect();
     Ok(Some(CommandModuleContract {
         schema: manifest.schema,
+        execution: manifest.execution,
         requires: manifest.requires,
         provides: manifest.provides,
         facets,

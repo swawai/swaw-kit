@@ -107,7 +107,7 @@ pub(crate) fn resolve_entry_development(
     if final_state != initial_state {
         return Err(repair_error(
             context,
-            "the development environment changed while resolving the Action environment",
+            "the development environment changed while resolving the Module environment",
         ));
     }
     Ok(ResolvedEntryDevelopment {
@@ -214,7 +214,7 @@ fn read_ready_state(context: &CommandExecutionContext) -> CommandResult<ReadyPro
 
 fn repair_error(context: &CommandExecutionContext, reason: &str) -> CommandError {
     CommandError::new(format!(
-        "{reason}. Run '{} .dev.setup' to publish the current Entry development environment",
+        "{reason}. Run '{} .dev/setup' to publish the current Entry development environment",
         context.entry_name
     ))
 }
@@ -225,7 +225,7 @@ fn repair_with_archive_cause(
     cause: ArchiveToolError,
 ) -> CommandError {
     CommandError::new(format!(
-        "{reason}: {cause}. Run '{} .dev.setup' to publish the current Entry development \
+        "{reason}: {cause}. Run '{} .dev/setup' to publish the current Entry development \
          environment",
         context.entry_name
     ))
@@ -237,7 +237,7 @@ fn repair_with_cause(
     cause: impl std::fmt::Display,
 ) -> CommandError {
     CommandError::new(format!(
-        "{reason}: {cause}. Run '{} .dev.setup' to publish the current Entry development environment",
+        "{reason}: {cause}. Run '{} .dev/setup' to publish the current Entry development environment",
         context.entry_name
     ))
 }

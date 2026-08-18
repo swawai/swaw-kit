@@ -1,10 +1,10 @@
-把 proj.build.app 发布的已验证 Release Set 原子切换为当前产品版本。
+把 project/proj/build/app 发布的已验证 Release Set 原子切换为当前产品版本。
 
 用法:
   {{INVOCATION}}
 
 前置:
-  {{ENTRY}} proj.build.app
+  {{ENTRY}} project/proj/build/app
 
 发布先完整写入不可变目录：
   _lib/proj/_bin/releases/<release-id>/
@@ -13,4 +13,4 @@
   _lib/proj/_bin/current
 
 正在运行的旧 Host 会继续使用旧 Release Set；新调用读取 current。_bin 根目录不再保留
-可执行文件副本。新建 Entry 的 Launcher 模板由 proj.publish.launcher 单独发布。
+可执行文件副本。新建 Entry 的 Launcher 模板由 project/proj/publish/launcher 单独发布。

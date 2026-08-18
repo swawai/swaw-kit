@@ -14,12 +14,12 @@ function collectionFacet() {
       address: ".runs",
       arguments: ["--json"],
       confirmation: null,
-      returns: "swawkit.subject-collection/v2",
+      returns: "swawkit.subject-collection/v3",
       type: "command",
     },
     subjectKind: {
       kind: "run",
-      provider: { type: "command", source: "kernel", address: ".runs" },
+      provider: { type: "command", space: "system", address: ".runs" },
     },
     summary: "Browse runs",
   };
@@ -72,7 +72,7 @@ function catalog() {
     address: ".runs",
     aliasOf: null,
     runnable: true,
-    source: "kernel",
+    space: "system",
   };
   const subjectKind = runKind();
   return {
@@ -83,8 +83,8 @@ function catalog() {
 function collection(facetIds = ["overview", "open"]) {
   return {
     facet: "runs",
-    owner: { type: "command", source: "kernel", address: ".runs" },
-    protocol: "swawkit.subject-collection/v2",
+    owner: { type: "command", space: "system", address: ".runs" },
+    protocol: "swawkit.subject-collection/v3",
     subjects: [{
       ref: { type: "instance", kind: "run", id: "run-01" },
       label: "::run/run-01",
@@ -94,9 +94,9 @@ function collection(facetIds = ["overview", "open"]) {
   };
 }
 
-const owner = { type: "command", source: "kernel", address: ".runs" };
+const owner = { type: "command", space: "system", address: ".runs" };
 
-describe("Subject collection v2 model", () => {
+describe("Subject collection v3 model", () => {
   test("binds trusted Subject templates to an instance ref", () => {
     const result = createSubjectCollection(
       collection(),
@@ -121,7 +121,7 @@ describe("Subject collection v2 model", () => {
 
   test("reuses a provider-owned Subject kind from another command collection", () => {
     const document = collection();
-    document.owner = { type: "command", source: "kernel", address: ".tool" };
+    document.owner = { type: "command", space: "system", address: ".tool" };
     const result = createSubjectCollection(
       document,
       catalog(),
@@ -138,7 +138,7 @@ describe("Subject collection v2 model", () => {
     expect(() => createSubjectCollection(
       collection(),
       catalog(),
-      { type: "command", source: "kernel", address: ".check" },
+      { type: "command", space: "system", address: ".check" },
       collectionFacet(),
     )).toThrow("owner does not match");
 
@@ -167,7 +167,7 @@ describe("Subject collection v2 model", () => {
       catalog(),
       owner,
       collectionFacet(),
-    )).toThrow("not part of SubjectCollection v2");
+    )).toThrow("not part of SubjectCollection v3");
 
     const nested = collection();
     nested.owner = { type: "instance", kind: "run", id: "parent" };

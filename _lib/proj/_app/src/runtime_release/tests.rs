@@ -57,7 +57,7 @@ fn reads_the_selected_release_independently_of_the_running_release() {
 fn rejects_noncanonical_selector_content() {
     let fixture = Fixture::new();
     fs::write(
-        fixture.context.kernel_root().join("_bin/current"),
+        fixture.context.command_root().join("_bin/current"),
         format!("{}\r\n", "B".repeat(64)),
     )
     .expect("replace selector");

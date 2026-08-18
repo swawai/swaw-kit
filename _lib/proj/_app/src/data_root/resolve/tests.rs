@@ -253,7 +253,7 @@ fn rename_follows_file_identity_and_preserves_opaque_module_data() {
     let mut approver = approve;
     let old =
         resolve_data_root(fixture.request(&old_entry), &mut approver).expect("create old binding");
-    let export_root = old.path().join("modules/kernel/.dev/setup/export");
+    let export_root = old.path().join("modules/system/dev/setup/export");
     let old_data_root = old.path().to_path_buf();
     fs::create_dir_all(&export_root).expect("create opaque module export");
     fs::write(export_root.join("sentinel.bin"), b"opaque module data")
@@ -278,7 +278,7 @@ fn rename_follows_file_identity_and_preserves_opaque_module_data() {
         fs::read(
             renamed
                 .path()
-                .join("modules/kernel/.dev/setup/export/sentinel.bin")
+                .join("modules/system/dev/setup/export/sentinel.bin")
         )
         .expect("read preserved module data"),
         b"opaque module data"

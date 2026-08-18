@@ -40,7 +40,8 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_CORE_COMMAND_ADDRESS',
     'SWAWKIT_HOME',
     'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_ACTION_ROOT',
+    'SWAWKIT_PROJ_PROJECT_MODULE_ROOT',
+    'SWAWKIT_PROJ_MODULE_ROOTS',
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
@@ -85,10 +86,14 @@ try {
     Set-ProjBunProcessEnvironment -Values @{
         SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
         SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.status'
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/status'
         SWAWKIT_HOME = $ControlHome
         SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
-        SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
+        SWAWKIT_PROJ_PROJECT_MODULE_ROOT = $ActionRoot
+        SWAWKIT_PROJ_MODULE_ROOTS = (@{
+            swaw = Join-Path $ControlHome '_lib\proj\modules'
+            project = $ActionRoot
+        } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $ProjectRoot
@@ -134,7 +139,7 @@ try {
             $StatusResult.Output -like '*GitHub Release digest*' -and
             $StatusResult.Output -like '*SWAWKIT_PROJ_BUN_SHA256*'
         ) `
-        -Message ".dev.status did not report upstream trust: $($StatusResult.Output)"
+        -Message ".dev/status did not report upstream trust: $($StatusResult.Output)"
 
     $MetadataPath = Get-ProjDevInstallMetadataPath -InstallRoot $InstallRoot
     [byte[]]$OriginalMetadata = [IO.File]::ReadAllBytes($MetadataPath)
@@ -161,7 +166,7 @@ try {
                     '(?m)^\[MISSING\] bun 1\.2\.15\s+upstream\s+'
             ) `
             -Message (
-                '.dev.status trusted metadata without sourceUrl: ' +
+                '.dev/status trusted metadata without sourceUrl: ' +
                 $MissingSourceUrlStatus.Output
             )
     } finally {
@@ -185,18 +190,18 @@ try {
                     '(?m)^\[READY\] bun 1\.2\.15 '
             ) `
             -Message (
-                '.dev.status accepted same-length Bun tampering or lost ' +
+                '.dev/status accepted same-length Bun tampering or lost ' +
                 'the validated source trust: ' + $TamperedStatus.Output
             )
     } finally {
         [IO.File]::WriteAllBytes($BunxPath, $OriginalBunx)
     }
 
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.setup'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
     $SetupResult = Invoke-ProjToolchainCommandFixture `
         -Executable $ResolvedToolchainPath `
         -Handler 'dev.setup'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.status'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/status'
     Assert-ProjBunTest `
         -Condition (
             $SetupResult.ExitCode -eq 0 -and
@@ -205,14 +210,14 @@ try {
             [IO.File]::Exists($Context.EnvCmdPath) -and
             [IO.File]::Exists($Context.EnvPs1Path)
         ) `
-        -Message ".dev.setup did not preserve non-blocking trust: $($SetupResult.Output)"
+        -Message ".dev/setup did not preserve non-blocking trust: $($SetupResult.Output)"
     $ReadyStatus = Invoke-ProjStatusToolchainFixture `
         -Executable $ResolvedToolchainPath
     Assert-ProjBunTest `
         -Condition ($ReadyStatus.Output -cmatch
-            '\[READY\] \.dev\.setup publication [a-f0-9]{8}') `
+            '\[READY\] \.dev/setup publication [a-f0-9]{8}') `
         -Message (
-            '.dev.status did not report the provider publication token: ' +
+            '.dev/status did not report the provider publication token: ' +
             $ReadyStatus.Output
         )
 
@@ -239,13 +244,13 @@ try {
                 '(?m)^\[READY\] bun latest -> 1\.2\.15 '
         ) `
         -Message (
-            '.dev.status accepted an install whose digest disagreed with the ' +
+            '.dev/status accepted an install whose digest disagreed with the ' +
             'latest selection: ' + $MismatchedSelection.Output
         )
 
     $ExternalModules = Join-Path $TemporaryRoot 'external-modules'
     $UnsafeSetupRoot = Join-Path $ExternalModules (
-        'kernel\.dev\setup'
+        'system\dev\setup'
     )
     [void][IO.Directory]::CreateDirectory($UnsafeSetupRoot)
     [void][IO.Directory]::CreateDirectory((Join-Path $UnsafeSetupRoot 'export\bun'))
@@ -277,7 +282,7 @@ try {
             $UnsafeStatus.Output -notlike '*latest -> 9.9.9*'
         ) `
         -Message (
-            '.dev.status followed a reparse-point Export outside DataRoot: ' +
+            '.dev/status followed a reparse-point Export outside DataRoot: ' +
             $UnsafeStatus.Output
         )
 
@@ -292,10 +297,10 @@ try {
             $PinnedStatus.Output -like '*[[]MISSING[]]*bun 1.2.15*pinned*' -and
             $PinnedStatus.Output -notlike '*WARNING*' -and
             -not [IO.Directory]::Exists(
-                (Join-Path $PinnedDataRoot 'modules\kernel\.dev\setup\export')
+                (Join-Path $PinnedDataRoot 'modules\system\dev\setup\export')
             )
         ) `
-        -Message ".dev.status was not read-only for pinned state: $($PinnedStatus.Output)"
+        -Message ".dev/status was not read-only for pinned state: $($PinnedStatus.Output)"
 
     Write-Host '[PASS] Proj Bun development status test' `
         -ForegroundColor Green

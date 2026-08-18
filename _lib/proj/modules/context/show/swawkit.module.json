@@ -1,0 +1,12 @@
+{
+  "schema": "swawkit.command-module/v8",
+  "execution": {
+    "type": "delegate",
+    "owner": {
+      "type": "command",
+      "space": "module",
+      "namespace": "swaw",
+      "address": "swaw/context"
+    }
+  }
+}

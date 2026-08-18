@@ -25,10 +25,10 @@ export {
   commandMenuExpanded,
 } from "./explorer-model.js";
 
-function sourceLabel(source) {
-  return source === "kernel"
-    ? t("内核命令", "Kernel Commands")
-    : t("项目操作", "Project Actions");
+function spaceLabel(space) {
+  return space === "system"
+    ? t("系统命令", "System Commands")
+    : t("模块命名空间", "Module Namespaces");
 }
 
 export function captureColumnScrollOffsets(columns) {
@@ -235,11 +235,11 @@ export function createExplorerView({
     column.dataset.depth = "0";
     column.dataset.scrollKey = "root";
     column.dataset.width = "normal";
-    for (const source of ["control", "kernel", "action"]) {
+    for (const space of ["system", "module"]) {
       appendSection(
         column,
-        source === "control" ? catalog.entryName : sourceLabel(source),
-        catalog.roots.filter((command) => command.source === source),
+        spaceLabel(space),
+        catalog.roots.filter((command) => command.space === space),
         0,
       );
     }

@@ -129,10 +129,10 @@ $EntryName = "test-launcher-$([Guid]::NewGuid().ToString('N'))"
 $EntryPath = Join-Path $RuntimeHome "$EntryName.exe"
 $DataRoot = Join-Path $RuntimeHome "data\proj.$EntryName"
 $TargetRoot = Join-Path $TemporaryRoot 'target'
-$ActionRoot = Join-Path $TargetRoot '.swaw'
-$ProbeRoot = Join-Path $ActionRoot 'probe'
+$ProjectModuleRoot = Join-Path $TargetRoot '.swaw'
+$ProbeRoot = Join-Path $ProjectModuleRoot 'probe'
 $InvocationRoot = Join-Path $TemporaryRoot 'invocation'
-$CapturePath = Join-Path $DataRoot 'modules\action\probe\capture.json'
+$CapturePath = Join-Path $DataRoot 'modules\project\probe\capture.json'
 $UnsupportedRoot = Join-Path $RuntimeHome 'Favorites'
 $UnsupportedEntry = Join-Path $UnsupportedRoot 'unsupported-layout.exe'
 $BootstrapHome = Join-Path $TemporaryRoot 'bootstrap-home'
@@ -147,7 +147,8 @@ $PoisonedVariables = @(
     'SWAWKIT_HOME',
     'SWAWKIT_PROJ_PROTOCOL',
     'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_ACTION_ROOT',
+    'SWAWKIT_PROJ_PROJECT_MODULE_ROOT',
+    'SWAWKIT_PROJ_MODULE_ROOTS',
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_ENTRY_FILE',
@@ -160,6 +161,8 @@ $PoisonedVariables = @(
     'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
     'SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE',
     'SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT',
+    'SWAWKIT_PROJ_CORE_COMMAND_SPACE',
+    'SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE',
     'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
     'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
     'SWAWKIT_PROJ_BUN_VERSION',
@@ -184,7 +187,8 @@ foreach ($Name in $PoisonedVariables) {
 try {
     foreach ($Directory in @(
         (Split-Path -Path $RuntimeCorePath -Parent),
-        (Join-Path $RuntimeKernelRoot '_help'),
+        (Join-Path $RuntimeKernelRoot 'system'),
+        (Join-Path $RuntimeKernelRoot 'modules'),
         $ProbeRoot,
         $InvocationRoot,
         $UnsupportedRoot,
@@ -200,13 +204,8 @@ try {
         ($RuntimeReleaseId + "`n"),
         [Text.UTF8Encoding]::new($false)
     )
-    [IO.File]::Copy(
-        (Join-Path $RepoRoot '_lib\proj\_help\zh-CN.txt'),
-        (Join-Path $RuntimeKernelRoot '_help\zh-CN.txt'),
-        $false
-    )
     Copy-Item `
-        -LiteralPath (Join-Path $RepoRoot '_lib\proj\.dev') `
+        -LiteralPath (Join-Path $RepoRoot '_lib\proj\system') `
         -Destination $RuntimeKernelRoot `
         -Recurse `
         -Force
@@ -314,6 +313,7 @@ $CmdPath = Join-Path ([Environment]::SystemDirectory) 'cmd.exe'
         (($Profile | ConvertTo-Json -Depth 8) + "`n"),
         [Text.UTF8Encoding]::new($false)
     )
+    Add-ProjFixtureCommandManifest -CommandRoot $ProbeRoot
     [IO.File]::WriteAllText(
         (Join-Path $ProbeRoot 'run.ps1'),
         @'
@@ -328,10 +328,13 @@ $Payload = [ordered]@{
     legacyEntryFile = [string]$env:SWAWKIT_PROJ_ENTRY_FILE
     entryName = [string]$env:SWAWKIT_PROJ_ENTRY_COMMAND
     targetProjectRoot = [string]$env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT
-    actionRoot = [string]$env:SWAWKIT_PROJ_ACTION_ROOT
+    projectModuleRoot = [string]$env:SWAWKIT_PROJ_PROJECT_MODULE_ROOT
+    moduleRoots = [string]$env:SWAWKIT_PROJ_MODULE_ROOTS
     dataRoot = [string]$env:SWAWKIT_PROJ_DATA_ROOT
     commandProtocol = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL
     commandDataRoot = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT
+    commandSpace = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_SPACE
+    commandNamespace = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE
     legacyCommandProtocol = [string]$env:SWAWKIT_PROJ_COMMAND_PROTOCOL
     legacyCommandDataRoot = [string]$env:SWAWKIT_PROJ_COMMAND_DATA_ROOT
     invocationDirectory = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR
@@ -359,16 +362,16 @@ exit 37
         [Text.UTF8Encoding]::new($false)
     )
     $ManagedPwshSource = Join-Path $RepoRoot (
-        'data\proj.swawkit\modules\kernel\.dev\setup\export\pwsh\installs\7.6.4'
+        'data\proj.swawkit\modules\system\dev\setup\export\pwsh\installs\7.6.4'
     )
     Copy-ProjFixtureHardLinkTree `
         -Source $ManagedPwshSource `
         -Destination (Join-Path $DataRoot (
-            'modules\kernel\.dev\setup\export\pwsh\installs\7.6.4'
+            'modules\system\dev\setup\export\pwsh\installs\7.6.4'
         ))
     $DevelopmentSetup = Invoke-ProjLauncherRuntimeProcess `
         -Executable $EntryPath `
-        -Arguments '.dev.setup' `
+        -Arguments '.dev/setup' `
         -WorkingDirectory $InvocationRoot
     Assert-ProjLauncherRuntimeTest `
         -Condition ($DevelopmentSetup.ExitCode -eq 0) `
@@ -377,7 +380,8 @@ exit 37
     $env:SWAWKIT_HOME = 'C:\foreign-home'
     $env:SWAWKIT_PROJ_PROTOCOL = 'foreign'
     $env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT = 'C:\foreign-project'
-    $env:SWAWKIT_PROJ_ACTION_ROOT = 'C:\foreign-project\.swaw'
+    $env:SWAWKIT_PROJ_PROJECT_MODULE_ROOT = 'C:\foreign-project\.swaw'
+    $env:SWAWKIT_PROJ_MODULE_ROOTS = '{"foreign":"C:\\foreign-module"}'
     $env:SWAWKIT_PROJ_DATA_ROOT = 'C:\foreign-data'
     $env:SWAWKIT_PROJ_ENTRY_COMMAND = 'foreign-entry'
     $env:SWAWKIT_PROJ_ENTRY_FILE = 'C:\foreign-entry.exe'
@@ -389,6 +393,8 @@ exit 37
     $env:SWAWKIT_PROJ_CORE_LAUNCH_MODE = 'internal-host'
     $env:SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE = 'C:\foreign-command-entry.exe'
     $env:SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT = 'C:\foreign-core-command-data'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_SPACE = 'system'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE = 'foreign'
     $env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = 'foreign-input-revision'
     $env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = 'foreign-profile-revision'
     $env:SWAWKIT_PROJ_BUN_VERSION = 'foreign-version'
@@ -399,7 +405,7 @@ exit 37
 
     $Run = Invoke-ProjLauncherRuntimeProcess `
         -Executable $EntryPath `
-        -Arguments 'probe "" "a&b|c" "你好 世界"' `
+        -Arguments 'project/probe "" "a&b|c" "你好 世界"' `
         -WorkingDirectory $InvocationRoot
     Assert-ProjLauncherRuntimeTest `
         -Condition ($Run.ExitCode -eq 37) `
@@ -408,6 +414,15 @@ exit 37
             "$($Run.ExitCode); stderr=$($Run.StandardError)"
         )
     $Capture = [IO.File]::ReadAllText($CapturePath) | ConvertFrom-Json
+    $ModuleRoots = [string]$Capture.moduleRoots | ConvertFrom-Json
+    Assert-ProjLauncherRuntimeTest `
+        -Condition (
+            [string]$ModuleRoots.project -ceq $ProjectModuleRoot -and
+            [string]$ModuleRoots.swaw -ceq (
+                Join-Path $RuntimeKernelRoot 'modules'
+            )
+        ) `
+        -Message 'structured Module mount roots were not rebuilt by Core'
     Assert-ProjLauncherRuntimeTest `
         -Condition (
             @($Capture.arguments).Count -eq 3 -and
@@ -425,10 +440,12 @@ exit 37
         legacyEntryFile = ''
         entryName = $EntryName
         targetProjectRoot = $TargetRoot
-        actionRoot = $ActionRoot
+        projectModuleRoot = $ProjectModuleRoot
         dataRoot = $DataRoot
         commandProtocol = '1'
-        commandDataRoot = (Join-Path $DataRoot 'modules\action\probe')
+        commandDataRoot = (Join-Path $DataRoot 'modules\project\probe')
+        commandSpace = 'module'
+        commandNamespace = 'project'
         legacyCommandProtocol = ''
         legacyCommandDataRoot = ''
         invocationDirectory = $InvocationRoot
@@ -468,7 +485,7 @@ exit 37
 
     $WorkerRun = Invoke-ProjLauncherRuntimeProcess `
         -Executable $EntryPath `
-        -Arguments 'probe worker-boundary' `
+        -Arguments 'project/probe worker-boundary' `
         -WorkingDirectory $InvocationRoot `
         -EnvironmentVariables @{
             SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL = '2'

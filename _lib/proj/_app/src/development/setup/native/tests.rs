@@ -57,7 +57,7 @@ impl Fixture {
     fn publish_install(&self, tool: &'static ArchiveToolContract, version: &str) -> PathBuf {
         let root = self
             .data_root
-            .join("modules/kernel/.dev/setup/export")
+            .join("modules/system/dev/setup/export")
             .join(tool.name)
             .join("installs")
             .join(version);
@@ -100,7 +100,7 @@ impl Fixture {
         let sdk = "10.0.26100.0";
         let root = self
             .data_root
-            .join("modules/kernel/.dev/setup/export/msvc/installs/17");
+            .join("modules/system/dev/setup/export/msvc/installs/17");
         fs::create_dir_all(&root).unwrap();
         let mut files = Vec::new();
         for (index, relative) in msvc_required_paths(tool, sdk).into_iter().enumerate() {
@@ -147,7 +147,7 @@ impl Fixture {
         .unwrap();
         let root = self
             .data_root
-            .join("modules/kernel/.dev/setup/export/rust/installs/stable");
+            .join("modules/system/dev/setup/export/rust/installs/stable");
         fs::create_dir_all(&root).unwrap();
         let mut files = Vec::new();
         for (index, relative) in definition.required_paths().into_iter().enumerate() {
@@ -263,7 +263,7 @@ fn native_setup_is_offline_and_publishes_one_ready_environment() {
     let cmd = fs::read_to_string(
         fixture
             .data_root
-            .join("modules/kernel/.dev/setup/export/env.cmd"),
+            .join("modules/system/dev/setup/export/env.cmd"),
     )
     .unwrap();
     assert!(cmd.contains(ready.token()));
@@ -274,7 +274,7 @@ fn native_setup_is_offline_and_publishes_one_ready_environment() {
     let ps1 = fs::read(
         fixture
             .data_root
-            .join("modules/kernel/.dev/setup/export/env.ps1"),
+            .join("modules/system/dev/setup/export/env.ps1"),
     )
     .unwrap();
     assert_eq!(&ps1[..3], &[0xef, 0xbb, 0xbf]);
@@ -306,7 +306,7 @@ fn invalid_rust_declaration_leaves_the_provider_unavailable() {
         &fs::read(
             fixture
                 .data_root
-                .join("modules/kernel/.dev/setup/_state.json"),
+                .join("modules/system/dev/setup/_state.json"),
         )
         .unwrap(),
     )
@@ -315,7 +315,7 @@ fn invalid_rust_declaration_leaves_the_provider_unavailable() {
     assert!(
         !fixture
             .data_root
-            .join("modules/kernel/.dev/setup/export/env.cmd")
+            .join("modules/system/dev/setup/export/env.cmd")
             .exists()
     );
 }
@@ -371,7 +371,7 @@ fn ready_rust_joins_the_shared_environment_and_provider_transaction() {
     let cmd = fs::read_to_string(
         fixture
             .data_root
-            .join("modules/kernel/.dev/setup/export/env.cmd"),
+            .join("modules/system/dev/setup/export/env.cmd"),
     )
     .unwrap();
     assert!(cmd.contains("set \"RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-msvc\""));
@@ -392,7 +392,7 @@ fn every_enabled_definition_is_preflighted_before_any_tool_is_touched() {
     ]);
     let env = fixture
         .data_root
-        .join("modules/kernel/.dev/setup/export/env.cmd");
+        .join("modules/system/dev/setup/export/env.cmd");
 
     let error = run_native(&fixture.context(), &declarations, &mut |_, _, _| {})
         .expect_err("invalid MSVC must fail the shared declaration preflight");
@@ -439,7 +439,7 @@ fn ready_msvc_joins_the_same_provider_and_environment_transaction() {
     let cmd = fs::read_to_string(
         fixture
             .data_root
-            .join("modules/kernel/.dev/setup/export/env.cmd"),
+            .join("modules/system/dev/setup/export/env.cmd"),
     )
     .unwrap();
     assert!(cmd.contains(ready.token()));

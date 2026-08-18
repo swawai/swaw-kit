@@ -68,7 +68,7 @@ impl Fixture {
     ) {
         let root = self
             .data_root
-            .join("modules/kernel/.dev/setup/export")
+            .join("modules/system/dev/setup/export")
             .join(tool.name);
         fs::create_dir_all(&root).unwrap();
         let selection = serde_json::json!({
@@ -168,7 +168,7 @@ impl Recipe for FailingRecipe {
 fn install_parent(fixture: &Fixture, tool: &ArchiveToolContract) -> PathBuf {
     fixture
         .data_root
-        .join("modules/kernel/.dev/setup/export")
+        .join("modules/system/dev/setup/export")
         .join(tool.name)
         .join("installs")
 }

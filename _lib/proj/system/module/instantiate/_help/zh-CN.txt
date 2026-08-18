@@ -1,0 +1,5 @@
+将声明 execution.native 的领域模块编译为独立 run.exe，并发布内容寻址 Release。若目标通过 execution.delegate 声明为逻辑端口，则自动实例化它显式指定的原生 owner。
+
+用法：{{INVOCATION}} <原生模块或其逻辑端口地址>
+
+普通命令执行绝不触发编译。源码更新后，显式重新执行本命令即可构建并原子切换到新 Release；编译失败不会替换当前版本。

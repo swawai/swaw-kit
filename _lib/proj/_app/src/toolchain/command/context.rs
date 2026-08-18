@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -7,7 +8,9 @@ use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 const REVISION_PREFIX: &str = "sha256-";
 
 pub(super) struct CommandContext {
+    pub(super) swawkit_home: PathBuf,
     pub(super) data_root: PathBuf,
+    pub(super) module_roots: BTreeMap<String, PathBuf>,
     pub(super) export_root: PathBuf,
     pub(super) entry_command: String,
     pub(super) environment_input_revision: String,
@@ -23,8 +26,9 @@ impl CommandContext {
         require_exact("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL", "1")?;
         require_exact("SWAWKIT_PROJ_CORE_COMMAND_PHASE", "run")?;
         let expected_address = match handler {
-            "dev.setup" => ".dev.setup",
-            "dev.status" => ".dev.status",
+            "dev.setup" => ".dev/setup",
+            "dev.status" => ".dev/status",
+            "module.instantiate" => ".module/instantiate",
             _ => return Err(format!("unsupported Toolchain command handler '{handler}'")),
         };
         require_exact("SWAWKIT_PROJ_CORE_COMMAND_ADDRESS", expected_address)?;
@@ -33,6 +37,15 @@ impl CommandContext {
         regular_directory(&swawkit_home, "Swaw Kit Home")?;
         let data_root = absolute_path(required("SWAWKIT_PROJ_DATA_ROOT")?, "Entry DataRoot")?;
         readable_data_root(&data_root)?;
+        let module_roots: BTreeMap<String, PathBuf> =
+            serde_json::from_str(&required("SWAWKIT_PROJ_MODULE_ROOTS")?)
+                .map_err(|error| format!("invalid Module mount root map: {error}"))?;
+        if !module_roots.contains_key("swaw") || !module_roots.contains_key("project") {
+            return Err("Module mount roots must contain 'swaw' and 'project'".to_owned());
+        }
+        for (namespace, root) in &module_roots {
+            regular_directory(root, &format!("Module mount '{namespace}'"))?;
+        }
         let entry_command = required("SWAWKIT_PROJ_ENTRY_COMMAND")?;
         let environment_input_revision =
             required("SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION")?;
@@ -42,12 +55,14 @@ impl CommandContext {
 
         let setup_root = data_root
             .join("modules")
-            .join("kernel")
-            .join(".dev")
+            .join("system")
+            .join("dev")
             .join("setup");
         let export_root = setup_root.join("export");
         Ok(Self {
+            swawkit_home,
             data_root,
+            module_roots,
             export_root,
             entry_command,
             environment_input_revision,
@@ -55,7 +70,7 @@ impl CommandContext {
     }
 
     pub(super) fn repair_invocation(&self) -> String {
-        format!("{} .dev.setup", self.entry_command)
+        format!("{} .dev/setup", self.entry_command)
     }
 
     pub(super) fn environment(&self, name: &str) -> String {

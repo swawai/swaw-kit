@@ -4,7 +4,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::catalog::{
-    CatalogSnapshot, CommandNode, CommandSource, ModuleProvision, ModuleRequirement,
+    CatalogSnapshot, CommandNode, CommandSpace, ModuleProvision, ModuleRequirement,
 };
 use crate::command::{GuardPlan, ResolvedCommand};
 use crate::context::EntryContext;
@@ -12,9 +12,9 @@ use crate::profile::EntryProfile;
 
 mod publication;
 
-use publication::inspect_publication;
+use publication::{inspect_publication, inspect_runtime_publication};
 
-pub const MODULE_CHECK_PROTOCOL: &str = "swawkit.module-check/v1";
+pub const MODULE_CHECK_PROTOCOL: &str = "swawkit.module-check/v3";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -31,7 +31,8 @@ pub struct ModuleCheckDocument {
 #[serde(rename_all = "camelCase")]
 pub struct CheckedCommand {
     pub address: String,
-    pub source: CommandSource,
+    pub space: CommandSpace,
+    pub namespace: Option<String>,
     pub runnable: bool,
     pub adapter: Option<String>,
     pub diagnostic: Option<String>,
@@ -48,6 +49,7 @@ pub struct GuardCheck {
 #[serde(rename_all = "camelCase")]
 pub struct DependencyCheck {
     pub provider: String,
+    pub export: String,
     pub contract: String,
     pub ready: bool,
     pub status: String,
@@ -60,6 +62,7 @@ pub struct DependencyCheck {
 #[serde(rename_all = "camelCase")]
 pub struct PublicationCheck {
     pub provider: String,
+    pub export: String,
     pub contract: String,
     pub ready: bool,
     pub status: String,
@@ -121,7 +124,8 @@ pub fn inspect(
         protocol: MODULE_CHECK_PROTOCOL,
         command: CheckedCommand {
             address: target.address.clone(),
-            source: target.source,
+            space: target.space,
+            namespace: target.namespace.clone(),
             runnable: target.runnable,
             adapter: target.adapter.clone(),
             diagnostic: target.diagnostic.clone(),
@@ -133,14 +137,81 @@ pub fn inspect(
     })
 }
 
+pub(crate) fn preflight_dependencies(
+    data_root: &Path,
+    entry_name: &str,
+    snapshot: &CatalogSnapshot,
+    target_address: &str,
+) -> Result<(), String> {
+    let target = resolve_target(snapshot, target_address)?;
+    let requirements = target
+        .module
+        .as_ref()
+        .map(|module| module.requires.as_slice())
+        .unwrap_or_default();
+    let mut active = BTreeSet::from([target.address.clone()]);
+    let dependencies = requirements
+        .iter()
+        .map(|requirement| {
+            inspect_runtime_dependency(data_root, entry_name, snapshot, requirement, &mut active)
+        })
+        .collect::<Vec<_>>();
+    let failures = dependencies
+        .iter()
+        .filter(|dependency| !dependency.ready)
+        .map(runtime_failure_summary)
+        .collect::<Vec<_>>();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "module dependency preflight failed for '{}': {}",
+            target.address,
+            failures.join("; ")
+        ))
+    }
+}
+
+fn runtime_failure_summary(dependency: &DependencyCheck) -> String {
+    let status = dependency
+        .publication
+        .as_ref()
+        .filter(|publication| !publication.ready)
+        .map(|publication| publication.status.as_str())
+        .unwrap_or(dependency.status.as_str());
+    if let Some(message) = &dependency.message {
+        return format!(
+            "{}#{} -> {} [{status}]: {message}",
+            dependency.provider, dependency.export, dependency.contract
+        );
+    }
+    if let Some(child) = dependency
+        .dependencies
+        .iter()
+        .find(|dependency| !dependency.ready)
+    {
+        return format!(
+            "{}#{} -> {} depends on {}",
+            dependency.provider,
+            dependency.export,
+            dependency.contract,
+            runtime_failure_summary(child)
+        );
+    }
+    format!(
+        "{}#{} -> {} [{status}]: provider publication is not ready",
+        dependency.provider, dependency.export, dependency.contract
+    )
+}
+
 fn resolve_target<'a>(
     snapshot: &'a CatalogSnapshot,
     address: &str,
 ) -> Result<&'a CommandNode, String> {
-    let mut matches = snapshot.commands.iter().filter(|command| {
-        command.address == address
-            && (!address.is_empty() || command.source == CommandSource::Kernel)
-    });
+    let mut matches = snapshot
+        .commands
+        .iter()
+        .filter(|command| command.address == address);
     let Some(target) = matches.next() else {
         return Err(format!("command not found: {address}"));
     };
@@ -163,7 +234,7 @@ fn inspect_guards(
     }
     let resolved = ResolvedCommand::from_catalog(snapshot, &command.address)
         .map_err(|error| error.to_string())?;
-    let plan = GuardPlan::discover(&context.kernel_root(), &resolved)
+    let plan = GuardPlan::discover(&context.command_root(), &resolved)
         .map_err(|error| error.to_string())?;
     Ok(plan
         .guards
@@ -204,10 +275,9 @@ fn inspect_dependency(
         );
     };
     let declared = provider.module.as_ref().is_some_and(|module| {
-        module
-            .provides
-            .iter()
-            .any(|provision| provision.contract == requirement.contract)
+        module.provides.iter().any(|provision| {
+            provision.id == requirement.export && provision.contract == requirement.contract
+        })
     });
     if !declared {
         active.remove(&requirement.provider);
@@ -224,6 +294,7 @@ fn inspect_dependency(
         profile,
         provider,
         &ModuleProvision {
+            id: requirement.export.clone(),
             contract: requirement.contract.clone(),
         },
     );
@@ -241,9 +312,12 @@ fn inspect_dependency(
         })
         .unwrap_or_default();
     active.remove(&requirement.provider);
-    let ready = publication.ready && dependencies.iter().all(|dependency| dependency.ready);
+    let ready = provider.runnable
+        && publication.ready
+        && dependencies.iter().all(|dependency| dependency.ready);
     DependencyCheck {
         provider: requirement.provider.clone(),
+        export: requirement.export.clone(),
         contract: requirement.contract.clone(),
         ready,
         status: if ready { "ready" } else { "not-ready" }.to_owned(),
@@ -258,6 +332,79 @@ fn inspect_dependency(
     }
 }
 
+fn inspect_runtime_dependency(
+    data_root: &Path,
+    entry_name: &str,
+    snapshot: &CatalogSnapshot,
+    requirement: &ModuleRequirement,
+    active: &mut BTreeSet<String>,
+) -> DependencyCheck {
+    if !active.insert(requirement.provider.clone()) {
+        return dependency_failure(requirement, "cycle", "module dependency cycle detected");
+    }
+    let Some(provider) = snapshot
+        .commands
+        .iter()
+        .find(|command| command.address == requirement.provider && command.alias_of.is_none())
+    else {
+        active.remove(&requirement.provider);
+        return dependency_failure(
+            requirement,
+            "provider-missing",
+            "provider command is absent from the Catalog",
+        );
+    };
+    let Some(provision) = provider.module.as_ref().and_then(|module| {
+        module.provides.iter().find(|provision| {
+            provision.id == requirement.export && provision.contract == requirement.contract
+        })
+    }) else {
+        active.remove(&requirement.provider);
+        return dependency_failure(
+            requirement,
+            "contract-not-declared",
+            "provider does not declare the required contract",
+        );
+    };
+    let publication = inspect_runtime_publication(data_root, entry_name, provider, provision);
+    let dependencies = provider
+        .module
+        .as_ref()
+        .map(|module| {
+            module
+                .requires
+                .iter()
+                .map(|child| {
+                    inspect_runtime_dependency(data_root, entry_name, snapshot, child, active)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    active.remove(&requirement.provider);
+    let ready = provider.runnable
+        && publication.ready
+        && dependencies.iter().all(|dependency| dependency.ready);
+    DependencyCheck {
+        provider: requirement.provider.clone(),
+        export: requirement.export.clone(),
+        contract: requirement.contract.clone(),
+        ready,
+        status: if ready { "ready" } else { "not-ready" }.to_owned(),
+        message: if provider.runnable {
+            publication.message.clone()
+        } else {
+            Some(
+                provider
+                    .diagnostic
+                    .clone()
+                    .unwrap_or_else(|| "provider command is not runnable".to_owned()),
+            )
+        },
+        publication: Some(publication),
+        dependencies,
+    }
+}
+
 fn dependency_failure(
     requirement: &ModuleRequirement,
     status: &str,
@@ -265,6 +412,7 @@ fn dependency_failure(
 ) -> DependencyCheck {
     DependencyCheck {
         provider: requirement.provider.clone(),
+        export: requirement.export.clone(),
         contract: requirement.contract.clone(),
         ready: false,
         status: status.to_owned(),

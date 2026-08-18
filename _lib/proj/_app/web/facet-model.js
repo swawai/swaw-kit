@@ -1,5 +1,7 @@
+import { normalizeCommandIdentity } from "./command-identity.js";
+
 const FACET_ID = /^[a-z][a-z0-9-]{0,31}$/;
-const SUBJECT_COLLECTION_PROTOCOL = "swawkit.subject-collection/v2";
+const SUBJECT_COLLECTION_PROTOCOL = "swawkit.subject-collection/v3";
 const KINDS = new Set(["collection", "operation", "projection"]);
 const RENDERERS = new Set(["collection", "edit", "help", "overview", "run"]);
 
@@ -83,21 +85,20 @@ function normalizeSubjectKindRef(value, field, invalid) {
     throw invalid(`${field}.kind must match [a-z][a-z0-9-]{0,31}.`);
   }
   const provider = requireObject(reference.provider, `${field}.provider`, invalid);
-  if (
-    provider.type !== "command"
-    || !new Set(["control", "kernel", "action"]).has(provider.source)
-    || typeof provider.address !== "string"
-    || (provider.address.length === 0 && provider.source !== "kernel")
-  ) {
+  if (provider.type !== "command") {
     throw invalid(`${field}.provider must identify a command Subject.`);
   }
+  const identity = normalizeCommandIdentity(provider, `${field}.provider`, invalid);
   return {
     kind,
-    provider: {
-      address: provider.address,
-      source: provider.source,
-      type: "command",
-    },
+    provider: identity.space === "system"
+      ? { address: identity.address, space: identity.space, type: "command" }
+      : {
+          address: identity.address,
+          namespace: identity.namespace,
+          space: identity.space,
+          type: "command",
+        },
   };
 }
 

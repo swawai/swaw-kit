@@ -1,6 +1,6 @@
 Set-StrictMode -Version 2.0
 
-# Bun declaration and environment contract shared by setup and .dev.bun.
+# Bun declaration and environment contract shared by setup and .dev/bun.
 $script:ProjDevBunManifestPath = Join-Path $PSScriptRoot 'module.psd1'
 
 function Assert-ProjDevBunDictionaryKeys {
@@ -257,7 +257,7 @@ function Write-ProjDevBunTrustWarning {
     if ($null -eq $Trust.Metadata) {
         Write-Warning (
             "Bun $($Definition.Version) is not pinned by " +
-            'SWAWKIT_PROJ_BUN_SHA256; .dev.setup will use the GitHub Release ' +
+            'SWAWKIT_PROJ_BUN_SHA256; .dev/setup will use the GitHub Release ' +
             'digest when available.'
         )
         return

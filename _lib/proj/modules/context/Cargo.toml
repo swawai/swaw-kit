@@ -1,0 +1,19 @@
+[package]
+name = "swawkit-context"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+
+[lib]
+name = "swawkit_context"
+path = "_lib/src/lib.rs"
+
+[[bin]]
+name = "run"
+path = "_src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }

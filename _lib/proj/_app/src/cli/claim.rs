@@ -11,7 +11,7 @@ use swawkit_proj::{
 
 use super::{CliError, control, write_output};
 
-const ADDRESS: &str = "..entry.claim";
+const ADDRESS: &str = ".entry/claim";
 
 pub(super) fn run(
     context: &EntryContext,

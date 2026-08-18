@@ -56,7 +56,7 @@ $PoisonedEnvironment = [ordered]@{
     SWAWKIT_HOME = 'C:\foreign-home'
     SWAWKIT_PROJ_PROTOCOL = 'foreign'
     SWAWKIT_PROJ_TARGET_PROJECT_ROOT = 'C:\foreign-project'
-    SWAWKIT_PROJ_ACTION_ROOT = 'C:\foreign-project\.swaw'
+    SWAWKIT_PROJ_PROJECT_MODULE_ROOT = 'C:\foreign-project\.swaw'
     SWAWKIT_PROJ_DATA_ROOT = 'C:\foreign-data'
     SWAWKIT_PROJ_ENTRY_COMMAND = 'foreign-entry'
     SWAWKIT_PROJ_ENTRY_FILE = 'C:\foreign-entry.cmd'
@@ -93,10 +93,10 @@ try {
 
     $Missing = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
-        -Arguments @('..entry', '--json')
+        -Arguments @('.entry', '--json')
     Assert-ProjEntrySmoke `
         -Condition ($Missing.ExitCode -eq 0) `
-        -Message "..entry --json failed: $($Missing.Text)"
+        -Message ".entry --json failed: $($Missing.Text)"
     $MissingDocument = $Missing.Text | ConvertFrom-Json
     Assert-ProjEntrySmoke `
         -Condition ($MissingDocument.status -ceq 'setupRequired') `
@@ -105,12 +105,12 @@ try {
     $Saved = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.project.root',
+            '.entry/project/root',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjEntrySmoke `
         -Condition ($Saved.ExitCode -eq 0) `
-        -Message "..entry.project.root failed: $($Saved.Text)"
+        -Message ".entry/project/root failed: $($Saved.Text)"
     $SavedDocument = $Saved.Text | ConvertFrom-Json
     Assert-ProjEntrySmoke `
         -Condition (
@@ -125,8 +125,8 @@ try {
     Assert-ProjEntrySmoke `
         -Condition (
             $Help.ExitCode -eq 0 -and
-            $Help.Text.Contains("${EntryName}:") -and
-            $Help.Text.Contains("$EntryName ..entry")
+            $Help.Text.Contains("$EntryName .entry/language") -and
+            $Help.Text.Contains("$EntryName swaw/context")
         ) `
         -Message "root help did not expose the Entry section: $($Help.Text)"
 
@@ -136,13 +136,13 @@ try {
     Assert-ProjEntrySmoke `
         -Condition (
             $DotHelp.ExitCode -eq 0 -and
-            $DotHelp.Text.Contains("${EntryName}:")
+            $DotHelp.Text.Contains("$EntryName .entry/language")
         ) `
         -Message ".help leaked into its fail-closed adapter: $($DotHelp.Text)"
 
     $DevelopmentStatus = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
-        -Arguments @('.dev.status')
+        -Arguments @('.dev/status')
     Assert-ProjEntrySmoke `
         -Condition (
             $DevelopmentStatus.ExitCode -eq 0 -and
@@ -153,7 +153,7 @@ try {
             $DevelopmentStatus.Text.Contains('[MISSING] rust stable')
         ) `
         -Message (
-            '.dev.status did not execute through the candidate Toolchain: ' +
+            '.dev/status did not execute through the candidate Toolchain: ' +
             $DevelopmentStatus.Text
         )
 
@@ -161,7 +161,7 @@ try {
         $Disabled = Invoke-ProjEntrySmoke `
             -EntryPath $EntryPath `
             -Arguments @(
-                ".dev.$Tool.mode",
+                ".dev/$Tool/mode",
                 'disabled'
             )
         Assert-ProjEntrySmoke `
@@ -171,24 +171,24 @@ try {
     $PwshVersion = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
         -Arguments @(
-            '.dev.pwsh.version',
+            '.dev/pwsh/version',
             '7.6.4'
         )
     Assert-ProjEntrySmoke `
         -Condition ($PwshVersion.ExitCode -eq 0) `
         -Message "failed to select managed PowerShell 7: $($PwshVersion.Text)"
     $ManagedPwshSource = Join-Path $RepoRoot (
-        'data\proj.swawkit\modules\kernel\.dev\setup\export\pwsh\installs\7.6.4'
+        'data\proj.swawkit\modules\system\dev\setup\export\pwsh\installs\7.6.4'
     )
     Copy-ProjFixtureHardLinkTree `
         -Source $ManagedPwshSource `
         -Destination (Join-Path $DataRoot (
-            'modules\kernel\.dev\setup\export\pwsh\installs\7.6.4'
+            'modules\system\dev\setup\export\pwsh\installs\7.6.4'
         ))
     $DevelopmentSetup = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
-        -Arguments @('.dev.setup')
-    $SetupRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
+        -Arguments @('.dev/setup')
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
     Assert-ProjEntrySmoke `
         -Condition (
             $DevelopmentSetup.ExitCode -eq 0 -and
@@ -197,7 +197,7 @@ try {
             [IO.File]::Exists((Join-Path $SetupRoot 'export\env.ps1'))
         ) `
         -Message (
-            '.dev.setup did not execute through Catalog, Core, and the ' +
+            '.dev/setup did not execute through Catalog, Core, and the ' +
             "candidate Toolchain: $($DevelopmentSetup.Text)"
         )
 

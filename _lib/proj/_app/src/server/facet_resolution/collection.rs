@@ -49,14 +49,22 @@ pub(super) fn collection_subject_kind<'a>(
             "collection facet has no Subject kind",
         )
     })?;
-    let SubjectRef::Command { source, address } = &reference.provider else {
+    let SubjectRef::Command {
+        space,
+        namespace,
+        address,
+    } = &reference.provider
+    else {
         unreachable!("Facet validation requires a command Subject kind provider");
     };
     let command = catalog
         .commands
         .iter()
         .find(|command| {
-            command.source == *source && command.address == *address && command.alias_of.is_none()
+            command.space == *space
+                && command.namespace == *namespace
+                && command.address == *address
+                && command.alias_of.is_none()
         })
         .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Subject not found"))?;
     command

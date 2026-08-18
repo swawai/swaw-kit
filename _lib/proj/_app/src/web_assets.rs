@@ -22,6 +22,7 @@ const MODULE_CHECK_PROJECTION_CSS: &str = include_str!("../web/styles/module-che
 
 const APP_JS: &str = include_str!("../web/app.js");
 const I18N_JS: &str = include_str!("../web/i18n.js");
+const COMMAND_IDENTITY_JS: &str = include_str!("../web/command-identity.js");
 const CATALOG_MODEL_JS: &str = include_str!("../web/catalog-model.js");
 const FACET_MODEL_JS: &str = include_str!("../web/facet-model.js");
 const FACET_RESOLUTION_CLIENT_JS: &str = include_str!("../web/facet-resolution-client.js");
@@ -78,6 +79,7 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         }
         "app.js" => Some(("text/javascript; charset=utf-8", APP_JS)),
         "i18n.js" => Some(("text/javascript; charset=utf-8", I18N_JS)),
+        "command-identity.js" => Some(("text/javascript; charset=utf-8", COMMAND_IDENTITY_JS)),
         "catalog-model.js" => Some(("text/javascript; charset=utf-8", CATALOG_MODEL_JS)),
         "facet-model.js" => Some(("text/javascript; charset=utf-8", FACET_MODEL_JS)),
         "facet-resolution-client.js" => {

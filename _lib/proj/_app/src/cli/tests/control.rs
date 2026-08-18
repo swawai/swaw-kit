@@ -3,13 +3,13 @@ use super::*;
 #[test]
 fn runtime_status_is_available_before_data_root_and_profile_gating() {
     let fixture = Fixture::new();
-    fixture.core_command("..runtime", "runtime.status");
+    fixture.core_command(".runtime", "runtime.status");
     let mut unexpected_claim =
         |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     let exit_code = run_with_approver(
         &fixture.context,
-        &argv(&["..runtime", "--json"]),
+        &argv(&[".runtime", "--json"]),
         &mut unexpected_claim,
     )
     .unwrap();
@@ -34,7 +34,7 @@ fn profile_settings_are_independent_typed_catalog_commands() {
 
     assert_eq!(setters.len(), 18);
     assert!(setters.iter().all(|command| {
-        let expected_parent = command.address.rsplit_once('.').map(|(parent, _)| parent);
+        let expected_parent = command.address.rsplit_once('/').map(|(parent, _)| parent);
         command.parent.as_deref() == expected_parent
             && EntryProfileRecord::is_profile_setting_address(&command.address)
     }));
@@ -43,33 +43,29 @@ fn profile_settings_are_independent_typed_catalog_commands() {
 #[test]
 fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     let fixture = Fixture::new();
-    fixture.core_command("..entry", "entry.profile");
-    fixture.core_command("..entry.git.name", "entry.profile.set");
-    fixture.core_command(".dev.bun.mode", "entry.profile.set");
-    fixture.core_command("..entry.apply", "entry.profile.apply");
-    fs::create_dir_all(fixture.context.kernel_root().join("..entry/git/_help")).unwrap();
+    fixture.core_command(".entry", "entry.profile");
+    fixture.core_command(".entry/git/name", "entry.profile.set");
+    fixture.core_command(".dev/bun/mode", "entry.profile.set");
+    fixture.core_command(".entry/apply", "entry.profile.apply");
+    fs::create_dir_all(fixture.context.system_root().join("entry/git/_help")).unwrap();
     fs::write(
         fixture
             .context
-            .kernel_root()
-            .join("..entry/git/_help/zh-CN.txt"),
+            .system_root()
+            .join("entry/git/_help/zh-CN.txt"),
         "Set Entry Profile Git settings",
     )
     .unwrap();
-    let global_guard = fixture.context.kernel_root().join("_global");
+    let global_guard = fixture.context.command_root().join("_global");
     fs::create_dir_all(&global_guard).unwrap();
-    fs::write(
-        global_guard.join("run.core.json"),
-        r#"{"schema":"swawkit.core-command/v1","handler":"runtime.status"}"#,
-    )
-    .unwrap();
+    fs::write(global_guard.join("run.cmd"), "@exit /b 0\r\n").unwrap();
     let mut unexpected_claim =
         |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     assert_eq!(
         run_with_approver(
             &fixture.context,
-            &argv(&["..entry", "--json"]),
+            &argv(&[".entry", "--json"]),
             &mut unexpected_claim,
         )
         .unwrap(),
@@ -80,7 +76,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert_eq!(
         run_with_approver(
             &fixture.context,
-            &argv(&["..entry.git", ".h"]),
+            &argv(&[".entry/git", "--help"]),
             &mut unexpected_claim,
         )
         .unwrap(),
@@ -91,7 +87,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert_eq!(
         run_with_approver(
             &fixture.context,
-            &argv(&["..entry.git.name", "Fixture User"]),
+            &argv(&[".entry/git/name", "Fixture User"]),
             &mut unexpected_claim,
         )
         .unwrap(),
@@ -107,7 +103,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert_eq!(
         run_with_approver(
             &fixture.context,
-            &argv(&[".dev.bun.mode", "disabled"]),
+            &argv(&[".dev/bun/mode", "disabled"]),
             &mut unexpected_claim,
         )
         .unwrap(),
@@ -123,7 +119,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     let before_invalid_update = fs::read(fixture.data_root().join("_profile.json")).unwrap();
     let invalid_update = run_with_approver(
         &fixture.context,
-        &argv(&["..entry.git.unknown", "value"]),
+        &argv(&[".entry/git/unknown", "value"]),
         &mut unexpected_claim,
     )
     .unwrap_err();
@@ -140,7 +136,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert_eq!(
         run_with_approver(
             &fixture.context,
-            &argv(&["..entry.apply", "--file", "profile.json"]),
+            &argv(&[".entry/apply", "--file", "profile.json"]),
             &mut unexpected_claim,
         )
         .unwrap(),

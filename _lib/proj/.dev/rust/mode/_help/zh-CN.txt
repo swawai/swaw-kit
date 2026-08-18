@@ -1,4 +1,0 @@
-设置 Rust 模式：rustup 或 disabled。
-
-用法：{{INVOCATION}} <value>
-修改后需重新执行 {{COMMAND}} .dev.setup。

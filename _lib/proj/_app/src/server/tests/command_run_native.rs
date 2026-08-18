@@ -13,7 +13,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use super::*;
-use crate::profile::EntryProfileRecord;
+use crate::profile::{EntryProfileRecord, ModuleMountProfile};
 use crate::server::command_run::CommandRuns;
 
 const NORMAL_ACTION: &str = "webnativeworkerfixture";
@@ -29,11 +29,24 @@ async fn executes_and_cancels_native_workers_through_the_http_router() {
     let fixture = Fixture::new();
     install_current_test_executable(&fixture);
     fixture.directory("home/_lib/proj");
-    fixture.file(&format!("home/.swaw/{NORMAL_ACTION}/run.exe"), "fixture");
-    fixture.file(&format!("home/.swaw/{CANCEL_ACTION}/run.exe"), "fixture");
+    let normal_root = fixture.directory("external/normal");
+    let cancel_root = fixture.directory("external/cancel");
+    fixture.file("external/normal/run.exe", "fixture");
+    fixture.file("external/cancel/run.exe", "fixture");
+    let mut profile = EntryProfileRecord::default();
+    profile.module_mounts = vec![
+        ModuleMountProfile {
+            namespace: NORMAL_ACTION.to_owned(),
+            root: normal_root.to_string_lossy().into_owned(),
+        },
+        ModuleMountProfile {
+            namespace: CANCEL_ACTION.to_owned(),
+            root: cancel_root.to_string_lossy().into_owned(),
+        },
+    ];
     fixture
         .profile_store()
-        .save(EntryProfileRecord::default())
+        .save(profile)
         .expect("save native worker fixture profile");
 
     let runs = CommandRuns::native();

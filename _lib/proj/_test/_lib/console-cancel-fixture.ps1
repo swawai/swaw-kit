@@ -40,7 +40,7 @@ public static class ProjConsoleCancelDriver
         string resultPath = Path.GetFullPath(arguments[2]);
         string commandAddress = arguments.Length == 5
             ? arguments[3]
-            : ".dev.setup";
+            : ".dev/setup";
         uint expectedProcesses = arguments.Length == 5
             ? UInt32.Parse(arguments[4])
             : 3;

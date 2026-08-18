@@ -8,7 +8,7 @@ use crate::{
 };
 
 use super::{
-    CommandNode, CommandSource,
+    CommandNode, CommandSpace,
     module_contract::{ModuleFacet, ModuleFacetArgument, ModuleFacetBinding, ModuleFacetResolver},
 };
 
@@ -23,14 +23,14 @@ const RUN_KIND: &str = "run";
 
 #[derive(Clone, Copy)]
 struct ResolverCapability {
-    source: CommandSource,
     runnable: bool,
     canonical: bool,
+    control: bool,
 }
 
 impl ResolverCapability {
     fn web_runnable(self) -> bool {
-        self.runnable && self.canonical && self.source != CommandSource::Control
+        self.runnable && self.canonical && !self.control
     }
 }
 
@@ -45,9 +45,9 @@ pub(super) fn resolve_command_facets(commands: &mut [CommandNode], language: Ent
             (
                 command.address.clone(),
                 ResolverCapability {
-                    source: command.source,
                     runnable: command.runnable,
                     canonical: command.alias_of.is_none(),
+                    control: command.is_control(),
                 },
             )
         })
@@ -68,7 +68,8 @@ pub(super) fn resolve_command_facets(commands: &mut [CommandNode], language: Ent
                 (
                     subject_kind.kind.clone(),
                     SubjectRef::Command {
-                        source: command.source,
+                        space: command.space,
+                        namespace: command.namespace.clone(),
                         address: command.address.clone(),
                     },
                 )
@@ -81,7 +82,8 @@ pub(super) fn resolve_command_facets(commands: &mut [CommandNode], language: Ent
             matches!(
                 provider,
                 SubjectRef::Command {
-                    source: CommandSource::Kernel,
+                    space: CommandSpace::System,
+                    namespace: None,
                     address,
                 } if address == RUNS_ADDRESS
             )
@@ -197,7 +199,7 @@ fn resolve_declared_facet(
             };
             if !capability.web_runnable() {
                 return Err(format!(
-                    "facet '{}' command '{}' is not an exact runnable Kernel or Action command",
+                    "facet '{}' command '{}' is not an exact Web-runnable command",
                     declaration.id, address
                 ));
             }

@@ -22,6 +22,7 @@ pub(crate) enum AdapterLaunch {
         executable: PathBuf,
         handler: String,
     },
+    Native(PathBuf),
 }
 
 const ADAPTER_ENVIRONMENT_PREFIX: &str = "SWAWKIT_PROJ_CORE_COMMAND_ADAPTER_";
@@ -117,6 +118,9 @@ fn prepare_command(
     validate_adapter(adapter)?;
     let mut command = match adapter {
         CommandAdapter::Exe => executable_command(entry_path, arguments),
+        CommandAdapter::Native | CommandAdapter::Delegate => {
+            native_command(adapter_launch, arguments)?
+        }
         CommandAdapter::Bun => bun_command(adapter_launch, entry_path, arguments)?,
         CommandAdapter::Toolchain => toolchain_command(adapter_launch, arguments)?,
         CommandAdapter::Pwsh => pwsh_command(adapter_launch, entry_path, arguments)?,
@@ -140,6 +144,8 @@ pub(crate) fn validate_adapter(adapter: CommandAdapter) -> CommandResult<()> {
     if matches!(
         adapter,
         CommandAdapter::Exe
+            | CommandAdapter::Native
+            | CommandAdapter::Delegate
             | CommandAdapter::Bun
             | CommandAdapter::Toolchain
             | CommandAdapter::Pwsh
@@ -151,6 +157,18 @@ pub(crate) fn validate_adapter(adapter: CommandAdapter) -> CommandResult<()> {
         "the Rust V0 executor does not yet support the '{}' adapter",
         adapter.as_str()
     )))
+}
+
+fn native_command(
+    adapter_launch: &AdapterLaunch,
+    arguments: &[OsString],
+) -> CommandResult<Command> {
+    let AdapterLaunch::Native(executable) = adapter_launch else {
+        return Err(CommandError::new(
+            "native execution requires an instantiated native command executable",
+        ));
+    };
+    Ok(executable_command(executable, arguments))
 }
 
 fn bun_command(
@@ -179,7 +197,7 @@ fn toolchain_command(
     } = adapter_launch
     else {
         return Err(CommandError::new(
-            "the run.toolchain.json adapter requires a resolved Toolchain handler",
+            "toolchain execution requires a resolved Toolchain handler",
         ));
     };
     let mut command = Command::new(executable);

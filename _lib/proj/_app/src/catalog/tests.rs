@@ -1,14 +1,13 @@
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-mod facets;
-mod module_contracts;
-mod subject_kinds;
-
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 struct Fixture {
     root: PathBuf,
+    system: PathBuf,
+    swaw: PathBuf,
+    project: PathBuf,
 }
 
 impl Fixture {
@@ -16,21 +15,30 @@ impl Fixture {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root =
             std::env::temp_dir().join(format!("swawkit-catalog-{}-{sequence}", std::process::id()));
-        fs::create_dir_all(&root).expect("create fixture root");
-        Self { root }
+        let system = root.join("home/_lib/proj/system");
+        let swaw = root.join("home/_lib/proj/modules");
+        let project = root.join("project/.swaw");
+        for path in [&system, &swaw, &project] {
+            fs::create_dir_all(path).expect("create fixture command root");
+        }
+        Self {
+            root,
+            system,
+            swaw,
+            project,
+        }
     }
 
-    fn directory(&self, relative: &str) -> PathBuf {
-        let path = self.root.join(relative);
-        fs::create_dir_all(&path).expect("create fixture directory");
-        path
-    }
-
-    fn file(&self, relative: &str, text: &str) {
-        let path = self.root.join(relative);
+    fn file(&self, root: &Path, relative: &str, text: &str) {
+        let path = root.join(relative);
         fs::create_dir_all(path.parent().expect("fixture file parent"))
             .expect("create fixture file parent");
         fs::write(path, text).expect("write fixture file");
+    }
+
+    fn discover(&self) -> CatalogSnapshot {
+        CatalogSnapshot::discover_roots(&self.system, &self.swaw, &self.project, "fixture")
+            .expect("discover fixture catalog")
     }
 }
 
@@ -40,596 +48,459 @@ impl Drop for Fixture {
     }
 }
 
+fn delegate_manifest(owner: &str) -> String {
+    format!(
+        r#"{{"schema":"swawkit.command-module/v8","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
+    )
+}
+
+fn core_manifest(handler: &str) -> String {
+    format!(
+        r#"{{"schema":"swawkit.command-module/v8","execution":{{"type":"core","handler":"{handler}"}}}}"#
+    )
+}
+
+fn toolchain_manifest(handler: &str) -> String {
+    format!(
+        r#"{{"schema":"swawkit.command-module/v8","execution":{{"type":"toolchain","handler":"{handler}"}}}}"#
+    )
+}
+
+fn native_manifest() -> &'static str {
+    r#"{"schema":"swawkit.command-module/v8","execution":{"type":"native"}}"#
+}
+
+fn module_manifest() -> &'static str {
+    r#"{"schema":"swawkit.command-module/v8"}"#
+}
+
 #[test]
-fn discovers_control_kernel_and_action_hierarchies() {
+fn discovers_system_and_explicit_module_namespaces() {
     let fixture = Fixture::new();
-    let kernel = fixture.directory("home/_lib/proj");
-    let actions = fixture.directory("project/.swaw");
+    fixture.file(
+        &fixture.system,
+        "entry/swawkit.module.json",
+        &core_manifest("entry.profile"),
+    );
+    fixture.file(
+        &fixture.system,
+        "entry/language/swawkit.module.json",
+        &core_manifest("entry.profile.set"),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "context/swawkit.module.json",
+        native_manifest(),
+    );
+    fixture.file(
+        &fixture.system,
+        "dev/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(
+        &fixture.system,
+        "dev/setup/swawkit.module.json",
+        &toolchain_manifest("dev.setup"),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "context/add/swawkit.module.json",
+        &delegate_manifest("swaw/context"),
+    );
+    fixture.file(
+        &fixture.project,
+        "build/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(&fixture.project, "build/run.ps1", "exit 0");
 
-    fixture.file("home/_lib/proj/run.ps1", "");
-    fixture.file(
-        "home/_lib/proj/..entry/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/..entry/language/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile.set"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/..entry/_view/web.json",
-        r#"{"schema":"swawkit.command-view/web/v4","childrenColumn":{"width":"wide"}}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/..entry/claim/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"entry.claim"}"#,
-    );
-    fixture.file("home/_lib/proj/.dev/run.ps1", "");
-    fixture.file(
-        "home/_lib/proj/.dev/bun/mode/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile.set"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.dev/setup/run.toolchain.json",
-        r#"{"schema":"swawkit.toolchain-command/v1","handler":"dev.setup"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/..runtime/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"runtime.status"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/..runtime/cleanup/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"runtime.cleanup"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/..runtime/host/exit/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"host.exit"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/..runtime/host/restart/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"host.restart"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.help/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"meta.help"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.runs/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"meta.runs"}"#,
-    );
-    fixture.file("home/_lib/proj/.h/run.ps1", "");
-    fixture.file("home/_lib/proj/-con/run.ps1", "");
-    fixture.file("home/_lib/proj/--nul/run.ps1", "");
-    fixture.file(
-        "home/_lib/proj/.dev/_help/zh-CN.txt",
-        "\n  Inspect {{COMMAND}}.  \nUse {{INVOCATION}}.",
-    );
-    fixture.file("home/_lib/proj/_private/run.ps1", "");
-    fixture.file("home/_lib/proj/ordinary/run.ps1", "");
-    fixture.file("home/_lib/proj/.Bad/run.ps1", "");
-    fixture.file("home/_lib/proj/...invalid/run.core.json", "{}");
-
-    fixture.file("project/.swaw/build/host/run.exe", "");
-    fixture.file("project/.swaw/python/run.py", "");
-    fixture.file(
-        "project/.swaw/build/host/_help/zh-CN.txt",
-        "Build at {{ADDRESS}}\n{{INVOCATION}}",
-    );
-    fixture.file("project/.swaw/_private/run.ps1", "");
-    fixture.file("project/.swaw/Bad/run.ps1", "");
-
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
-    assert_eq!(snapshot.language, "zh-CN");
-    let addresses: Vec<(CommandSource, &str)> = snapshot
+    let snapshot = fixture.discover();
+    let identities = snapshot
         .commands
         .iter()
-        .map(|node| (node.source, node.address.as_str()))
-        .collect();
+        .map(|node| (node.space, node.namespace.as_deref(), node.address.as_str()))
+        .collect::<Vec<_>>();
 
-    assert_eq!(
-        addresses,
-        [
-            (CommandSource::Control, "..entry"),
-            (CommandSource::Control, "..entry.claim"),
-            (CommandSource::Control, "..entry.language"),
-            (CommandSource::Control, "..runtime"),
-            (CommandSource::Control, "..runtime.cleanup"),
-            (CommandSource::Control, "..runtime.host"),
-            (CommandSource::Control, "..runtime.host.exit"),
-            (CommandSource::Control, "..runtime.host.restart"),
-            (CommandSource::Kernel, ""),
-            (CommandSource::Kernel, "--nul"),
-            (CommandSource::Kernel, "-con"),
-            (CommandSource::Kernel, ".dev"),
-            (CommandSource::Kernel, ".dev.bun"),
-            (CommandSource::Kernel, ".dev.bun.mode"),
-            (CommandSource::Kernel, ".dev.setup"),
-            (CommandSource::Kernel, ".h"),
-            (CommandSource::Kernel, ".help"),
-            (CommandSource::Kernel, ".runs"),
-            (CommandSource::Action, "build"),
-            (CommandSource::Action, "build.host"),
-            (CommandSource::Action, "python"),
-        ]
-    );
+    assert!(identities.contains(&(CommandSpace::System, None, "")));
+    assert!(identities.contains(&(CommandSpace::System, None, ".entry")));
+    assert!(identities.contains(&(CommandSpace::System, None, ".entry/language")));
+    assert!(identities.contains(&(CommandSpace::System, None, ".dev/setup")));
+    assert!(identities.contains(&(CommandSpace::Module, Some("swaw"), "swaw")));
+    assert!(identities.contains(&(CommandSpace::Module, Some("swaw"), "swaw/context")));
+    assert!(identities.contains(&(CommandSpace::Module, Some("project"), "project")));
+    assert!(identities.contains(&(CommandSpace::Module, Some("project"), "project/build")));
 
-    let entry = node(&snapshot, CommandSource::Control, "..entry");
-    assert_eq!(entry.parent.as_deref(), Some(""));
+    let context = node(&snapshot, "swaw/context");
+    let entry = node(&snapshot, ".entry");
+    assert_eq!(entry.entry.as_deref(), Some("swawkit.module.json"));
     assert_eq!(entry.adapter.as_deref(), Some("core"));
     assert_eq!(entry.handler.as_deref(), Some("entry.profile"));
-    let entry = node(&snapshot, CommandSource::Control, "..entry");
-    assert_eq!(
-        entry
-            .view
-            .as_ref()
-            .and_then(|view| view.children_column.as_ref())
-            .map(|column| column.width),
-        Some(ColumnWidth::Wide)
-    );
-    let language = node(&snapshot, CommandSource::Control, "..entry.language");
-    assert_eq!(language.parent.as_deref(), Some("..entry"));
-    assert_eq!(language.handler.as_deref(), Some("entry.profile.set"));
-    let bun_mode = node(&snapshot, CommandSource::Kernel, ".dev.bun.mode");
-    assert_eq!(bun_mode.parent.as_deref(), Some(".dev.bun"));
-    assert_eq!(bun_mode.adapter.as_deref(), Some("core"));
-    assert_eq!(bun_mode.handler.as_deref(), Some("entry.profile.set"));
-    let claim = node(&snapshot, CommandSource::Control, "..entry.claim");
-    assert_eq!(claim.handler.as_deref(), Some("entry.claim"));
-
-    let setup = node(&snapshot, CommandSource::Kernel, ".dev.setup");
-    assert_eq!(setup.parent.as_deref(), Some(".dev"));
-    assert_eq!(setup.entry.as_deref(), Some("run.toolchain.json"));
+    let setup = node(&snapshot, ".dev/setup");
+    assert_eq!(setup.entry.as_deref(), Some("swawkit.module.json"));
     assert_eq!(setup.adapter.as_deref(), Some("toolchain"));
     assert_eq!(setup.handler.as_deref(), Some("dev.setup"));
-
-    let runtime = node(&snapshot, CommandSource::Control, "..runtime");
-    assert_eq!(runtime.parent.as_deref(), Some(""));
-    assert_eq!(runtime.handler.as_deref(), Some("runtime.status"));
-    let cleanup = node(&snapshot, CommandSource::Control, "..runtime.cleanup");
-    assert_eq!(cleanup.parent.as_deref(), Some("..runtime"));
-    assert_eq!(cleanup.entry.as_deref(), Some("run.core.json"));
-    assert_eq!(cleanup.adapter.as_deref(), Some("core"));
-    assert_eq!(cleanup.handler.as_deref(), Some("runtime.cleanup"));
-    assert!(cleanup.view.is_none());
-    let exit = node(&snapshot, CommandSource::Control, "..runtime.host.exit");
-    assert_eq!(exit.parent.as_deref(), Some("..runtime.host"));
-    assert_eq!(exit.handler.as_deref(), Some("host.exit"));
-    let restart = node(&snapshot, CommandSource::Control, "..runtime.host.restart");
-    assert_eq!(restart.handler.as_deref(), Some("host.restart"));
-
-    let development = node(&snapshot, CommandSource::Kernel, ".dev");
-    let help = development.help.as_ref().expect("development help");
-    assert_eq!(help.summary, "Inspect fixture.");
-    assert!(help.text.contains("Use fixture .dev."));
-
-    let help_alias = node(&snapshot, CommandSource::Kernel, ".h");
-    assert_eq!(help_alias.alias_of.as_deref(), Some(".help"));
-    let meta_help = node(&snapshot, CommandSource::Kernel, ".help");
-    assert_eq!(meta_help.adapter.as_deref(), Some("core"));
-    assert_eq!(meta_help.handler.as_deref(), Some("meta.help"));
-    let meta_runs = node(&snapshot, CommandSource::Kernel, ".runs");
-    assert_eq!(meta_runs.adapter.as_deref(), Some("core"));
-    assert_eq!(meta_runs.handler.as_deref(), Some("meta.runs"));
-    let root = node(&snapshot, CommandSource::Kernel, "");
-    assert!(root.facets.iter().all(|facet| facet.id != "run"));
-    let root_help = root
-        .facets
-        .iter()
-        .find(|facet| facet.id == "help")
-        .and_then(|facet| facet.resolver.as_ref())
-        .expect("root help facet");
-    assert!(matches!(
-        root_help,
-        FacetResolver::Command { arguments, .. } if arguments.is_empty()
-    ));
-
-    let build = node(&snapshot, CommandSource::Action, "build");
-    assert_eq!(build.parent.as_deref(), Some(""));
-    assert!(!build.runnable);
-
-    let host = node(&snapshot, CommandSource::Action, "build.host");
-    assert_eq!(host.parent.as_deref(), Some("build"));
+    assert_eq!(context.entry.as_deref(), Some("swawkit.module.json"));
+    assert_eq!(context.adapter.as_deref(), Some("native"));
+    assert_eq!(context.native_owner.as_deref(), Some("swaw/context"));
     assert_eq!(
-        host.help.as_ref().map(|help| help.summary.as_str()),
-        Some("Build at build.host")
+        node(&snapshot, "swaw/context/add").native_owner.as_deref(),
+        Some("swaw/context")
     );
-    let python = node(&snapshot, CommandSource::Action, "python");
-    assert!(!python.runnable);
+}
+
+#[test]
+fn system_commands_cannot_use_module_native_adapters() {
+    let fixture = Fixture::new();
+    fixture.file(
+        &fixture.system,
+        "native/swawkit.module.json",
+        native_manifest(),
+    );
+
+    let snapshot = fixture.discover();
+    let command = node(&snapshot, ".native");
+    assert!(!command.runnable);
     assert!(
-        python
+        command
             .diagnostic
             .as_deref()
-            .is_some_and(|message| message.contains("managed Python"))
+            .is_some_and(|message| message.contains("Module commands"))
     );
 }
 
 #[test]
-fn profile_setting_modules_match_the_typed_setting_registry() {
-    let kernel = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("Proj kernel root");
-    let snapshot = CatalogSnapshot::discover_optional_roots(
-        kernel,
-        None,
-        "swawkit",
-        PwshAvailability::ProfileUnavailable,
-        EntryLanguage::default(),
-    )
-    .expect("source-tree Catalog");
-    let setters = snapshot
-        .commands
-        .iter()
-        .filter(|command| command.handler.as_deref() == Some("entry.profile.set"))
-        .collect::<Vec<_>>();
-    let mut actual = setters
-        .iter()
-        .map(|command| command.address.as_str())
-        .collect::<Vec<_>>();
-    let mut expected = crate::profile::EntryProfileRecord::profile_setting_addresses();
-    actual.sort_unstable();
-    expected.sort_unstable();
-
-    assert_eq!(actual, expected);
-    for command in setters {
-        let help = command.help.as_ref().unwrap_or_else(|| {
-            panic!("Profile setter {} must provide local Help", command.address)
-        });
-        assert!(!help.summary.trim().is_empty());
-        assert!(
-            help.text
-                .contains(&format!("swawkit {} <value>", command.address)),
-            "Profile setter {} must document its CLI value argument",
-            command.address
-        );
-    }
-}
-
-#[test]
-fn reports_an_invalid_parent_owned_web_view_without_stopping_discovery() {
+fn framework_execution_handlers_remain_exact_and_system_owned() {
     let fixture = Fixture::new();
-    let kernel = fixture.directory("home/_lib/proj");
-    let actions = fixture.directory("project/.swaw");
-    fixture.file("home/_lib/proj/run.ps1", "");
     fixture.file(
-        "home/_lib/proj/.broken/_view/web.json",
-        r#"{"schema":"swawkit.command-view/web/v4","childrenColumn":{"width":"480px"}}"#,
+        &fixture.system,
+        "wrong-core/swawkit.module.json",
+        &core_manifest("meta.help"),
+    );
+    fixture.file(
+        &fixture.system,
+        "wrong-toolchain/swawkit.module.json",
+        &toolchain_manifest("dev.setup"),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "wrong-space/swawkit.module.json",
+        &core_manifest("meta.help"),
     );
 
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
-    let broken = node(&snapshot, CommandSource::Kernel, ".broken");
-
-    assert!(broken.view.is_none());
-    assert!(
-        broken
-            .diagnostic
-            .as_deref()
-            .is_some_and(|message| message.contains("unknown variant `480px`"))
-    );
-}
-
-#[test]
-fn rejects_ambiguous_web_run_operations() {
-    let fixture = Fixture::new();
-    let kernel = fixture.directory("home/_lib/proj");
-    let actions = fixture.directory("project/.swaw");
-    fixture.file(
-        "home/_lib/proj/.broken/_view/web.json",
-        r#"{"schema":"swawkit.command-view/web/v4","run":{"operations":[{"id":"apply","label":"Apply","arguments":[]},{"id":"apply","label":"Again","arguments":[]}]}}"#,
-    );
-
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
-    let broken = node(&snapshot, CommandSource::Kernel, ".broken");
-    assert!(broken.view.is_none());
-    assert!(
-        broken
-            .diagnostic
-            .as_deref()
-            .is_some_and(|message| message.contains("must be unique"))
-    );
-}
-
-#[test]
-fn module_collection_facets_are_not_restricted_to_a_context_owner() {
-    let fixture = Fixture::new();
-    let kernel = fixture.directory("home/_lib/proj");
-    let actions = fixture.directory("project/.swaw");
-    fixture.file("home/_lib/proj/.context/list/run.cmd", "");
-    fixture.file("home/_lib/proj/.other/list/run.cmd", "");
-    fixture.file(
-        "home/_lib/proj/.context/_module.json",
-        r##"{"schema":"swawkit.command-module/v4","facets":[{"id":"contexts","kind":"collection","renderer":"collection","icon":"#","label":{"zh-CN":"上下文","en":"Contexts"},"summary":{"zh-CN":"浏览上下文","en":"Browse contexts"},"subjectKind":{"kind":"context","provider":{"type":"command","source":"kernel","address":".context"}},"resolver":{"type":"command","address":".context.list","arguments":["--json"],"returns":"swawkit.subject-collection/v2"}}],"subjectKinds":[{"kind":"context","facets":[{"id":"overview","kind":"operation","renderer":"run","icon":"i","label":{"zh-CN":"概览","en":"Overview"},"summary":{"zh-CN":"查看上下文","en":"Inspect context"},"resolver":{"type":"command","address":".context.list","arguments":[{"bind":"subject.id"}]}}]}]}"##,
-    );
-    fixture.file(
-        "home/_lib/proj/.other/_module.json",
-        r##"{"schema":"swawkit.command-module/v4","facets":[{"id":"items","kind":"collection","renderer":"collection","icon":"#","label":{"zh-CN":"对象","en":"Items"},"summary":{"zh-CN":"浏览对象","en":"Browse items"},"subjectKind":{"kind":"item","provider":{"type":"command","source":"kernel","address":".other"}},"resolver":{"type":"command","address":".other.list","arguments":["--json"],"returns":"swawkit.subject-collection/v2"}}],"subjectKinds":[{"kind":"item","facets":[{"id":"overview","kind":"operation","renderer":"run","icon":"i","label":{"zh-CN":"概览","en":"Overview"},"summary":{"zh-CN":"查看对象","en":"Inspect item"},"resolver":{"type":"command","address":".other.list","arguments":[{"bind":"subject.id"}]}}]}]}"##,
-    );
-
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
-    let collection = node(&snapshot, CommandSource::Kernel, ".context")
-        .facets
-        .iter()
-        .find(|facet| facet.id == "contexts")
-        .expect("resolved Context collection");
-    assert_eq!(collection.kind, FacetKind::Collection);
-    let subject_kind = collection.subject_kind.as_ref().expect("Subject kind ref");
-    assert_eq!(subject_kind.kind, "context");
-    assert_eq!(
-        subject_kind.provider,
-        crate::subject::SubjectRef::Command {
-            source: CommandSource::Kernel,
-            address: ".context".to_owned(),
-        }
-    );
-    let context_kind = node(&snapshot, CommandSource::Kernel, ".context")
-        .subject_kinds
-        .iter()
-        .find(|subject_kind| subject_kind.kind == "context")
-        .expect("Context Subject kind");
-    let context_overview = context_kind
-        .instantiate("overview", "release-check")
-        .expect("instantiate Context Facet")
-        .expect("Context overview");
-    assert!(matches!(
-        context_overview.resolver,
-        Some(FacetResolver::Command { ref arguments, .. })
-            if arguments == &["release-check"]
-    ));
-    assert_eq!(
-        collection.resolver,
-        Some(FacetResolver::Command {
-            address: ".context.list".to_owned(),
-            arguments: vec!["--json".to_owned()],
-            accepts_tail: false,
-            confirmation: None,
-            returns: Some("swawkit.subject-collection/v2".to_owned()),
-        })
-    );
-    let other = node(&snapshot, CommandSource::Kernel, ".other");
-    assert!(other.facets.iter().any(|facet| facet.id == "items"));
-    assert_eq!(other.subject_kinds[0].kind, "item");
-    assert!(other.diagnostic.is_none());
-}
-
-#[test]
-fn restricts_owned_entries_to_their_catalog_sources() {
-    let fixture = Fixture::new();
-    let kernel = fixture.directory("home/_lib/proj");
-    let actions = fixture.directory("project/.swaw");
-    fixture.file(
-        "home/_lib/proj/.wrong/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.fake-meta/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"meta.runs"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/..fake-meta/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"meta.runs"}"#,
-    );
-    fixture.file("home/_lib/proj/..external/run.ps1", "");
-    fixture.file(
-        "home/_lib/proj/..unknown/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"dynamic.invoke"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.status/run.toolchain.json",
-        r#"{"schema":"swawkit.toolchain-command/v1","handler":"dev.status"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.unknown-toolchain/run.toolchain.json",
-        r#"{"schema":"swawkit.toolchain-command/v1","handler":"dev.install"}"#,
-    );
-    fixture.file(
-        "project/.swaw/build/run.toolchain.json",
-        r#"{"schema":"swawkit.toolchain-command/v1","handler":"dev.status"}"#,
-    );
-    fixture.file("home/_lib/proj/.bun/run.ts", "");
-
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
-    let status = node(&snapshot, CommandSource::Kernel, ".status");
-    assert!(status.runnable);
-    assert_eq!(status.adapter.as_deref(), Some("toolchain"));
-    assert_eq!(status.handler.as_deref(), Some("dev.status"));
-    for (source, address, expected) in [
-        (
-            CommandSource::Kernel,
-            ".wrong",
-            "restricted to Entry commands",
-        ),
-        (
-            CommandSource::Kernel,
-            ".fake-meta",
-            "exact built-in Kernel commands",
-        ),
-        (
-            CommandSource::Control,
-            "..fake-meta",
-            "exact built-in Kernel commands",
-        ),
-        (
-            CommandSource::Control,
-            "..external",
-            "must use a run.core.json",
-        ),
-        (
-            CommandSource::Control,
-            "..unknown",
-            "unsupported Core command handler",
-        ),
-        (
-            CommandSource::Kernel,
-            ".unknown-toolchain",
-            "unsupported Toolchain command handler",
-        ),
-        (
-            CommandSource::Action,
-            "build",
-            "restricted to Kernel commands",
-        ),
-        (
-            CommandSource::Kernel,
-            ".bun",
-            "restricted to project Action commands",
-        ),
-    ] {
-        let command = node(&snapshot, source, address);
-        assert!(!command.runnable);
+    let snapshot = fixture.discover();
+    for address in [".wrong-core", ".wrong-toolchain", "swaw/wrong-space"] {
+        let command = node(&snapshot, address);
+        assert!(!command.runnable, "{address}");
         assert!(
             command
                 .diagnostic
                 .as_deref()
-                .is_some_and(|diagnostic| diagnostic.contains(expected)),
-            "unexpected diagnostic for {address}: {:?}",
+                .is_some_and(|message| message.contains("exact System command owner")),
+            "{address}: {:?}",
             command.diagnostic
         );
     }
 }
 
 #[test]
-fn reports_multiple_and_non_canonical_run_entries_without_stopping_discovery() {
+fn private_and_noncanonical_directories_do_not_become_commands() {
     let fixture = Fixture::new();
-    let kernel = fixture.directory("home/_lib/proj");
-    let actions = fixture.directory("project/.swaw");
-    fixture.file("home/_lib/proj/.multi/run.ps1", "");
-    fixture.file("home/_lib/proj/.multi/run.cmd", "");
-    fixture.file("home/_lib/proj/.case/RUN.PS1", "");
-    fixture.file("home/_lib/proj/.ok/run.exe", "");
-
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
-    let multiple = node(&snapshot, CommandSource::Kernel, ".multi");
-    assert!(!multiple.runnable);
-    assert!(
-        multiple
-            .diagnostic
-            .as_deref()
-            .is_some_and(|message| message.contains("multiple run entries"))
-    );
-
-    let non_canonical = node(&snapshot, CommandSource::Kernel, ".case");
-    assert!(!non_canonical.runnable);
-    assert!(
-        non_canonical
-            .diagnostic
-            .as_deref()
-            .is_some_and(|message| message.contains("non-canonical entry name"))
-    );
-
-    assert!(node(&snapshot, CommandSource::Kernel, ".ok").runnable);
-}
-
-#[test]
-fn disabled_powershell_is_a_catalog_diagnostic_not_a_hidden_fallback() {
-    let fixture = Fixture::new();
-    let directory = fixture.directory("home/_lib/proj/.script");
-    fixture.file("home/_lib/proj/.script/run.ps1", "");
-    let runs_directory = fixture.directory("home/_lib/proj/.runs");
     fixture.file(
-        "home/_lib/proj/.runs/run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"meta.runs"}"#,
+        &fixture.system,
+        "_private/swawkit.module.json",
+        module_manifest(),
     );
-    let pending = PendingDirectory {
-        path: directory,
-        address: ".script".to_owned(),
-        source: CommandSource::Kernel,
-        is_root: false,
-    };
+    fixture.file(&fixture.system, "_private/run.ps1", "exit 0");
+    fixture.file(
+        &fixture.system,
+        "Bad/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(&fixture.system, "Bad/run.ps1", "exit 0");
+    fixture.file(
+        &fixture.project,
+        "build_ok/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(&fixture.project, "build_ok/run.ps1", "exit 0");
 
-    let disabled = scan_node(
-        &pending,
-        "fixture",
-        PwshAvailability::Disabled,
-        EntryLanguage::default(),
+    let snapshot = fixture.discover();
+    assert_eq!(
+        snapshot
+            .commands
+            .iter()
+            .map(|node| node.address.as_str())
+            .collect::<Vec<_>>(),
+        ["", "project", "swaw"]
     );
-    assert!(!disabled.runnable);
-    assert!(disabled.entry.is_none());
-    assert!(
-        disabled
-            .diagnostic
-            .as_deref()
-            .is_some_and(|message| message.contains(".dev.pwsh.mode"))
-    );
-
-    let enabled = scan_node(
-        &pending,
-        "fixture",
-        PwshAvailability::Enabled,
-        EntryLanguage::default(),
-    );
-    assert!(enabled.runnable);
-    assert_eq!(enabled.adapter.as_deref(), Some("pwsh"));
-
-    let runs = scan_node(
-        &PendingDirectory {
-            path: runs_directory,
-            address: ".runs".to_owned(),
-            source: CommandSource::Kernel,
-            is_root: false,
-        },
-        "fixture",
-        PwshAvailability::Disabled,
-        EntryLanguage::default(),
-    );
-    assert!(runs.runnable);
-    assert_eq!(runs.adapter.as_deref(), Some("core"));
-    assert_eq!(runs.handler.as_deref(), Some("meta.runs"));
 }
 
 #[test]
-fn keeps_invalid_help_distinct_from_absent_help() {
+fn mounted_roots_are_explicit_and_keep_their_namespace_identity() {
     let fixture = Fixture::new();
-    let kernel = fixture.directory("home/_lib/proj");
-    let actions = fixture.directory("project/.swaw");
-    fixture.file("home/_lib/proj/.invalid/_help/zh-CN.txt", "\n  \n");
-    fixture.directory("home/_lib/proj/.absent");
+    let external = fixture.root.join("external/acme");
+    fs::create_dir_all(external.join("release")).unwrap();
+    fs::write(
+        external.join("release/swawkit.module.json"),
+        module_manifest(),
+    )
+    .unwrap();
+    fs::write(external.join("release/run.ps1"), "exit 0").unwrap();
+    let roots = BTreeMap::from([
+        ("swaw".to_owned(), fixture.swaw.clone()),
+        ("project".to_owned(), fixture.project.clone()),
+        ("acme".to_owned(), external),
+    ]);
 
-    let snapshot = CatalogSnapshot::discover_roots(&kernel, &actions, "fixture").expect("catalog");
-    let invalid = node(&snapshot, CommandSource::Kernel, ".invalid");
-    assert!(invalid.help.is_none());
-    assert!(
-        invalid
-            .help_diagnostic
-            .as_deref()
-            .is_some_and(|message| message.contains("help file is empty"))
+    let snapshot =
+        CatalogSnapshot::discover_mounted_roots(&fixture.system, &roots, "fixture").unwrap();
+    assert_eq!(
+        node(&snapshot, "acme/release").namespace.as_deref(),
+        Some("acme")
     );
     assert!(
-        invalid
-            .diagnostic
-            .as_deref()
-            .is_some_and(|message| message.contains("help file is empty"))
+        snapshot
+            .commands
+            .iter()
+            .all(|node| node.address != "release")
     );
-
-    let absent = node(&snapshot, CommandSource::Kernel, ".absent");
-    assert!(absent.help.is_none());
-    assert!(absent.help_diagnostic.is_none());
 }
 
 #[test]
-fn selects_entry_language_help_and_falls_back_only_when_translation_is_absent() {
+fn module_contract_provider_addresses_use_the_new_cli_grammar() {
     let fixture = Fixture::new();
-    let kernel = fixture.directory("home/_lib/proj");
-    let actions = fixture.directory("project/.swaw");
-    fixture.file("home/_lib/proj/.translated/_help/zh-CN.txt", "中文摘要");
-    fixture.file("home/_lib/proj/.translated/_help/en.txt", "English summary");
-    fixture.file("home/_lib/proj/.fallback/_help/zh-CN.txt", "中文回退");
+    fixture.file(
+        &fixture.swaw,
+        "producer/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8","provides":[{"id":"fixture","contract":"fixture/v1"}]}"#,
+    );
+    fixture.file(
+        &fixture.swaw,
+        "consumer/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8","requires":[{"provider":"swaw/producer","export":"fixture","contract":"fixture/v1"}]}"#,
+    );
+    fixture.file(
+        &fixture.swaw,
+        "legacy/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v8","requires":[{"provider":".dev.setup","export":"fixture","contract":"fixture/v1"}]}"#,
+    );
+
+    let snapshot = fixture.discover();
+    assert_eq!(
+        node(&snapshot, "swaw/consumer")
+            .module
+            .as_ref()
+            .unwrap()
+            .requires[0]
+            .provider,
+        "swaw/producer"
+    );
+    assert!(
+        node(&snapshot, "swaw/legacy")
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("provider"))
+    );
+}
+
+#[test]
+fn explicit_delegate_owner_does_not_depend_on_intermediate_entries() {
+    let fixture = Fixture::new();
+    fixture.file(
+        &fixture.swaw,
+        "domain/swawkit.module.json",
+        native_manifest(),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "domain/a/swawkit.module.json",
+        &delegate_manifest("swaw/domain"),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "domain/a/b/swawkit.module.json",
+        &delegate_manifest("swaw/domain"),
+    );
+
+    let snapshot = fixture.discover();
+    for address in ["swaw/domain/a", "swaw/domain/a/b"] {
+        let command = node(&snapshot, address);
+        assert!(command.runnable, "{:?}", command.diagnostic);
+        assert_eq!(command.adapter.as_deref(), Some("delegate"));
+        assert_eq!(command.native_owner.as_deref(), Some("swaw/domain"));
+    }
+}
+
+#[test]
+fn delegated_execution_requires_one_real_native_ancestor() {
+    let fixture = Fixture::new();
+    fixture.file(
+        &fixture.swaw,
+        "script/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(&fixture.swaw, "script/run.ts", "");
+    fixture.file(
+        &fixture.swaw,
+        "script/port/swawkit.module.json",
+        &delegate_manifest("swaw/script"),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "sibling/swawkit.module.json",
+        native_manifest(),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "script/non-ancestor/swawkit.module.json",
+        &delegate_manifest("swaw/sibling"),
+    );
+    fixture.file(&fixture.swaw, "conflict/run.ts", "");
+    fixture.file(
+        &fixture.swaw,
+        "conflict/swawkit.module.json",
+        native_manifest(),
+    );
+
+    let snapshot = fixture.discover();
+    assert!(
+        node(&snapshot, "swaw/script/port")
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("must declare native execution"))
+    );
+    assert_eq!(node(&snapshot, "swaw/script/port").entry, None);
+    assert_eq!(node(&snapshot, "swaw/script/port").adapter, None);
+    assert!(
+        node(&snapshot, "swaw/script/non-ancestor")
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("must be an ancestor"))
+    );
+    assert!(
+        node(&snapshot, "swaw/conflict")
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("both a local run.* entry"))
+    );
+}
+
+#[test]
+fn obsolete_entries_and_v6_module_contract_fail_explicitly() {
+    let fixture = Fixture::new();
+    for (directory, entry) in [
+        ("legacy-core", "run.core.json"),
+        ("legacy-toolchain", "run.toolchain.json"),
+        ("legacy-native", "run.native"),
+        ("legacy-delegate", "run.delegate"),
+    ] {
+        fixture.file(
+            &fixture.swaw,
+            &format!("{directory}/swawkit.module.json"),
+            module_manifest(),
+        );
+        fixture.file(&fixture.swaw, &format!("{directory}/{entry}"), "");
+    }
+    fixture.file(
+        &fixture.swaw,
+        "legacy-contract/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v6","provides":[{"contract":"fixture/v1"}]}"#,
+    );
+
+    let snapshot = fixture.discover();
+    for address in [
+        "swaw/legacy-core",
+        "swaw/legacy-toolchain",
+        "swaw/legacy-native",
+        "swaw/legacy-delegate",
+    ] {
+        assert!(
+            node(&snapshot, address)
+                .diagnostic
+                .as_deref()
+                .is_some_and(|message| message.contains("obsolete command entry")),
+            "{address}"
+        );
+    }
+    assert!(
+        node(&snapshot, "swaw/legacy-contract")
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("unsupported module contract schema"))
+    );
+}
+
+#[test]
+fn only_the_branded_manifest_grants_module_identity() {
+    let fixture = Fixture::new();
+    fixture.file(
+        &fixture.swaw,
+        "foreign/_module.json",
+        r#"{"schema":"another.module/v1"}"#,
+    );
+    fixture.file(
+        &fixture.swaw,
+        "ordinary/nested/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(&fixture.swaw, "broken/swawkit.module.json", "{");
+
+    let snapshot = fixture.discover();
+    assert!(snapshot.commands.iter().all(|command| {
+        command.address != "swaw/foreign"
+            && command.address != "swaw/ordinary"
+            && command.address != "swaw/ordinary/nested"
+    }));
+    let broken = node(&snapshot, "swaw/broken");
+    assert!(!broken.runnable);
+    assert!(
+        broken
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("invalid module contract manifest"))
+    );
+}
+
+#[test]
+fn selects_entry_language_help_and_falls_back_to_chinese() {
+    let fixture = Fixture::new();
+    fixture.file(
+        &fixture.system,
+        "translated/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(&fixture.system, "translated/_help/zh-CN.txt", "中文摘要");
+    fixture.file(
+        &fixture.system,
+        "translated/_help/en.txt",
+        "English summary",
+    );
+    fixture.file(&fixture.system, "fallback/_help/zh-CN.txt", "中文回退");
+
+    fixture.file(
+        &fixture.system,
+        "fallback/swawkit.module.json",
+        module_manifest(),
+    );
 
     let snapshot = CatalogSnapshot::discover_roots_in_language(
-        &kernel,
-        &actions,
+        &fixture.system,
+        &fixture.swaw,
+        &fixture.project,
         "fixture",
         EntryLanguage::En,
     )
-    .expect("English catalog");
+    .unwrap();
 
-    assert_eq!(snapshot.language, "en");
     assert_eq!(
-        node(&snapshot, CommandSource::Kernel, ".translated")
+        node(&snapshot, ".translated")
             .help
             .as_ref()
             .map(|help| help.summary.as_str()),
         Some("English summary")
     );
     assert_eq!(
-        node(&snapshot, CommandSource::Kernel, ".fallback")
+        node(&snapshot, ".fallback")
             .help
             .as_ref()
             .map(|help| help.summary.as_str()),
@@ -637,14 +508,10 @@ fn selects_entry_language_help_and_falls_back_only_when_translation_is_absent() 
     );
 }
 
-fn node<'a>(
-    snapshot: &'a CatalogSnapshot,
-    source: CommandSource,
-    address: &str,
-) -> &'a CommandNode {
+fn node<'a>(snapshot: &'a CatalogSnapshot, address: &str) -> &'a CommandNode {
     snapshot
         .commands
         .iter()
-        .find(|node| node.source == source && node.address == address)
-        .unwrap_or_else(|| panic!("missing node {source:?} {address}"))
+        .find(|node| node.address == address)
+        .unwrap_or_else(|| panic!("missing node {address}"))
 }

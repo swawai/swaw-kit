@@ -1,5 +1,5 @@
 export function commandDisabledDuringSetup(setupRequired, command) {
-  return setupRequired && command.setupAvailable !== true && command.source !== "control";
+  return setupRequired && command.setupAvailable !== true;
 }
 
 export function availableCommand(catalog, setupRequired, address) {

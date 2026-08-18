@@ -2,15 +2,17 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::CommandSource;
+use crate::catalog::CommandSpace;
 
-pub const SUBJECT_COLLECTION_PROTOCOL: &str = "swawkit.subject-collection/v2";
+pub const SUBJECT_COLLECTION_PROTOCOL: &str = "swawkit.subject-collection/v3";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum SubjectRef {
     Command {
-        source: CommandSource,
+        space: CommandSpace,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        namespace: Option<String>,
         address: String,
     },
     Instance {
@@ -73,11 +75,23 @@ impl SubjectCollection {
 
 pub(crate) fn validate_subject_ref(reference: &SubjectRef) -> Result<(), String> {
     match reference {
-        SubjectRef::Command { source, address } => {
-            if address.contains('\0')
-                || address.len() > 256
-                || (address.is_empty() && *source != CommandSource::Kernel)
-            {
+        SubjectRef::Command {
+            space,
+            namespace,
+            address,
+        } => {
+            let valid_identity = match space {
+                CommandSpace::System => {
+                    namespace.is_none() && (address.is_empty() || address.starts_with('.'))
+                }
+                CommandSpace::Module => namespace.as_deref().is_some_and(|namespace| {
+                    address == namespace
+                        || address
+                            .strip_prefix(namespace)
+                            .is_some_and(|tail| tail.starts_with('/'))
+                }),
+            };
+            if address.contains('\0') || address.len() > 256 || !valid_identity {
                 return Err("command Subject ref is invalid".to_owned());
             }
         }
@@ -138,7 +152,7 @@ mod tests {
     fn collection_with(facet_ids: serde_json::Value) -> SubjectCollection {
         serde_json::from_value(json!({
             "protocol": SUBJECT_COLLECTION_PROTOCOL,
-            "owner": {"type": "command", "source": "kernel", "address": ".context"},
+            "owner": {"type": "command", "space": "module", "namespace": "swaw", "address": "swaw/context"},
             "facet": "contexts",
             "subjects": [{
                 "ref": {"type": "instance", "kind": "context", "id": "release-check"},

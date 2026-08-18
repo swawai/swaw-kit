@@ -489,7 +489,7 @@ try {
             -Definition $RuntimeRequirement.Definition
     } catch {
         $InvalidVersionRejected = $_.Exception.Message -like (
-            "*invalid version variables*Run 'fixture .dev.setup'*"
+            "*invalid version variables*Run 'fixture .dev/setup'*"
         )
     } finally {
         $env:WindowsSDKVersion = $ExpectedWindowsSdkVersion

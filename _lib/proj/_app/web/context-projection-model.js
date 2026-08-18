@@ -1,4 +1,6 @@
-const CONTEXT_SCHEMA = "swawkit.context/v1";
+import { normalizeCommandIdentity } from "./command-identity.js";
+
+const CONTEXT_SCHEMA = "swawkit.context/v2";
 
 function invalid(message) {
   return new Error(`Invalid Context projection protocol: ${message}`);
@@ -21,14 +23,17 @@ export function createContextProjection(document, expectedId) {
   }
   const commands = payload.commands.map((raw, index) => {
     const command = object(raw, `commands[${index}]`);
-    if (
-      !new Set(["kernel", "action", "control"]).has(command.source)
-      || typeof command.address !== "string"
-      || command.address.length === 0
-    ) {
+    const identity = normalizeCommandIdentity(command, `commands[${index}]`, invalid);
+    if (identity.address.length === 0) {
       throw invalid(`commands[${index}] is invalid.`);
     }
-    return { address: command.address, source: command.source };
+    return identity.space === "system"
+      ? { address: identity.address, space: identity.space }
+      : {
+          address: identity.address,
+          namespace: identity.namespace,
+          space: identity.space,
+        };
   });
   if (payload.notes.some((note) => typeof note !== "string")) {
     throw invalid("Context notes must contain strings.");

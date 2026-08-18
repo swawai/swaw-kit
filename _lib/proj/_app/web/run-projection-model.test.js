@@ -6,7 +6,7 @@ function run(overrides = {}) {
   return {
     protocol: RUN_JOURNAL_PROTOCOL,
     id: "000001a009035cb9-00002aac-0000000000000001",
-    address: ".dev.status",
+    address: ".dev/status",
     source: "cli",
     state: "exited",
     startedAtUnixMs: 1,
@@ -33,7 +33,7 @@ describe("Run projection model", () => {
   test("validates a Journal against the selected Run", () => {
     const value = run();
     expect(createRunProjection(value, value.id)).toEqual(expect.objectContaining({
-      address: ".dev.status",
+      address: ".dev/status",
       id: value.id,
       state: "exited",
     }));

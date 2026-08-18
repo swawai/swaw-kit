@@ -4,7 +4,7 @@ import { acquireExclusiveFileLock } from "../../build/_lib/windows-filesystem.ts
 import { readReadyBuildArtifact } from "../../build/launcher/_lib/artifact.ts";
 import { publishLauncherTemplate } from "./_lib/template.ts";
 
-if (Bun.argv.length !== 2) throw new Error("proj.publish.launcher does not accept dynamic arguments.");
+if (Bun.argv.length !== 2) throw new Error("project/proj/publish/launcher does not accept dynamic arguments.");
 const projHome = requiredAbsolute("SWAWKIT_HOME");
 const dataRoot = requiredAbsolute("SWAWKIT_PROJ_DATA_ROOT");
 const entryCommand = process.env.SWAWKIT_PROJ_ENTRY_COMMAND;
@@ -12,8 +12,8 @@ if (!entryCommand) throw new Error("required environment variable is missing: SW
 
 const providerLocks = await requireControlledDirectory(
   dataRoot,
-  ["modules", "action", "proj", "build", "launcher", "locks"],
-  "proj.build.launcher locks",
+  ["modules", "project", "proj", "build", "launcher", "locks"],
+  "project/proj/build/launcher locks",
 );
 using providerLock = await acquireExclusiveFileLock(join(providerLocks, "build.lock"), 120_000);
 const artifact = await readReadyBuildArtifact(dataRoot, entryCommand);

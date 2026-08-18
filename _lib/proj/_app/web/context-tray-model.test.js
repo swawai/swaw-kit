@@ -15,7 +15,7 @@ function subject() {
       renderer: "run",
       resolver: {
         acceptsTail: true,
-        address: ".context.add",
+        address: "swaw/context/add",
         arguments: ["test"],
         confirmation: null,
         returns: null,
@@ -25,7 +25,12 @@ function subject() {
     ref: { id: "test", kind: "context", type: "instance" },
     via: {
       facet: "contexts",
-      subject: { address: ".context", source: "kernel", type: "command" },
+      subject: {
+        address: "swaw/context",
+        namespace: "swaw",
+        space: "module",
+        type: "command",
+      },
     },
   };
 }
@@ -42,7 +47,7 @@ describe("Context tray model", () => {
     const record = createPinnedContextRecord(subject());
     expect(() => parsePinnedContextRecord(JSON.stringify({
       ...record,
-      resolver: { address: ".context.show" },
+      resolver: { address: "swaw/context/show" },
     }))).toThrow("invalid shape");
     expect(() => createPinnedContextRecord({
       ...subject(),
@@ -53,12 +58,12 @@ describe("Context tray model", () => {
   test("maps the selected command through the declared add operation", () => {
     const invocation = contextAddInvocation(
       subject(),
-      { address: ".dev.status", source: "kernel" },
+      { address: ".dev/status", space: "system" },
       { commands: [] },
     );
     expect(invocation).toEqual({
-      address: ".context.add",
-      arguments: ["test", ".dev.status"],
+      address: "swaw/context/add",
+      arguments: ["test", ".dev/status"],
       state: "available",
     });
   });
@@ -66,12 +71,12 @@ describe("Context tray model", () => {
   test("does not run for an existing command or an undeclared capability", () => {
     expect(contextAddInvocation(
       subject(),
-      { address: ".dev.status", source: "kernel" },
-      { commands: [{ address: ".dev.status", source: "kernel" }] },
+      { address: ".dev/status", space: "system" },
+      { commands: [{ address: ".dev/status", space: "system" }] },
     )).toEqual({ state: "present" });
     expect(contextAddInvocation(
       { ...subject(), facets: [] },
-      { address: ".dev.status", source: "kernel" },
+      { address: ".dev/status", space: "system" },
       { commands: [] },
     )).toBeNull();
   });

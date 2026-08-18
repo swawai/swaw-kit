@@ -29,7 +29,7 @@ function resolver(overrides = {}) {
 function subjectKindRef(kind = "item", address = ".fixture") {
   return {
     kind,
-    provider: { type: "command", source: "kernel", address },
+    provider: { type: "command", space: "system", address },
   };
 }
 
@@ -74,10 +74,10 @@ describe("Facet model", () => {
         subjectKind: subjectKindRef(),
         resolver: resolver({ returns: "fixture.items/v1" }),
       }),
-    ], "facets", invalid)).toThrow("swawkit.subject-collection/v2");
+    ], "facets", invalid)).toThrow("swawkit.subject-collection/v3");
     expect(() => normalizeFacets([
       facet({
-        resolver: resolver({ returns: "swawkit.subject-collection/v2" }),
+        resolver: resolver({ returns: "swawkit.subject-collection/v3" }),
       }),
     ], "facets", invalid)).toThrow("projection resolver cannot return a Subject collection");
   });
@@ -88,11 +88,11 @@ describe("Facet model", () => {
       kind: "collection",
       renderer: "collection",
       subjectKind: subjectKindRef("item", ".items"),
-      resolver: resolver({ returns: "swawkit.subject-collection/v2" }),
+      resolver: resolver({ returns: "swawkit.subject-collection/v3" }),
     });
     expect(normalizeFacets([collection], "facets", invalid)[0].subjectKind).toEqual({
       kind: "item",
-      provider: { type: "command", source: "kernel", address: ".items" },
+      provider: { type: "command", space: "system", address: ".items" },
     });
     expect(() => normalizeFacets([
       { ...collection, subjectKind: "item" },

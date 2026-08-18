@@ -14,9 +14,10 @@ import { moveFileReplace } from "./windows-filesystem.ts";
 
 const BUILD_SCHEMA = "swawkit.proj-build-release-set/v1";
 const RUNTIME_SCHEMA = "swawkit.proj-release-set/v1";
-const STATE_SCHEMA = "swawkit.command-provider-state/v1";
+const STATE_SCHEMA = "swawkit.command-provider-state/v2";
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 export const PRODUCER_CONTRACT = "swawkit.proj-build-app/v3";
+export const PRODUCER_EXPORT = "runtime-release";
 export const RUNTIME_ARTIFACT_NAMES = [
   "swawkit-proj.exe",
   "swawkit-proj-host.exe",
@@ -283,7 +284,7 @@ export async function publishBuildReleaseSet(
     status: "ready",
     inputRevision,
     token,
-    producerContract: PRODUCER_CONTRACT,
+    exports: [{ id: PRODUCER_EXPORT, contract: PRODUCER_CONTRACT }],
   }));
   return id;
 }

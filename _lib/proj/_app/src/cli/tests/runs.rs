@@ -3,14 +3,10 @@ use super::*;
 #[test]
 fn runs_read_history_and_latest_after_the_target_stops_being_runnable() {
     let fixture = Fixture::new();
-    let runs_directory = fixture.command(
-        ".runs",
-        "run.core.json",
-        r#"{"schema":"swawkit.core-command/v1","handler":"meta.runs"}"#,
-    );
+    let runs_directory = fixture.core_command(".runs", "meta.runs");
     fs::write(
-        runs_directory.join("_module.json"),
-        include_str!("../../../../.runs/_module.json"),
+        runs_directory.join("swawkit.module.json"),
+        include_str!("../../../../system/runs/swawkit.module.json"),
     )
     .expect("write Runs module contract");
     let command_directory = fixture.command(
@@ -28,7 +24,7 @@ fn runs_read_history_and_latest_after_the_target_stops_being_runnable() {
             0
         );
     }
-    let runs_root = fixture.data_root().join("modules/kernel/.demo/_runs");
+    let runs_root = fixture.data_root().join("modules/system/demo/_runs");
     let run_id = fs::read_dir(&runs_root)
         .unwrap()
         .next()
@@ -42,7 +38,7 @@ fn runs_read_history_and_latest_after_the_target_stops_being_runnable() {
     for arguments in [
         vec![".runs"],
         vec![".runs", "--json"],
-        vec![".runs", "--json", "kernel/.demo"],
+        vec![".runs", "--json", ".demo"],
         vec![".runs", "--run", &run_id],
         vec![".runs", ".demo"],
         vec![".runs", ".demo", "--latest", "1"],

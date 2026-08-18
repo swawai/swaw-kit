@@ -15,7 +15,7 @@ use crate::event;
 
 pub(super) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<(), String> {
     if !arguments.is_empty() {
-        return Err(".dev.setup does not accept dynamic arguments".to_owned());
+        return Err(".dev/setup does not accept dynamic arguments".to_owned());
     }
     let setup_context = SetupCommandContext::from_environment()?;
     let setup = NativeSetupContext::new(
@@ -205,7 +205,7 @@ fn remove_legacy_state(context: &CommandContext) {
 
 fn validate_export_root(context: &CommandContext) -> Result<(), String> {
     let mut path = context.data_root.clone();
-    for segment in ["modules", "kernel", ".dev", "setup", "export"] {
+    for segment in ["modules", "system", "dev", "setup", "export"] {
         path.push(segment);
         let metadata = fs::symlink_metadata(&path)
             .map_err(|error| format!("cannot inspect '{}': {error}", path.display()))?;

@@ -23,6 +23,7 @@ $CandidateArguments = @{
 & (Join-Path $PSScriptRoot 'claim-entry.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'development-declaration.ps1')
 & (Join-Path $PSScriptRoot 'development-command-layout.ps1')
+& (Join-Path $PSScriptRoot 'context-modules.ps1')
 & (Join-Path $PSScriptRoot 'command-export.ps1')
 & (Join-Path $PSScriptRoot 'provider-state.ps1')
 & (Join-Path $PSScriptRoot 'provider-activation.ps1')
@@ -32,9 +33,20 @@ $TypeScriptTests = @(
     (Join-Path $RepoRoot '.swaw\proj\publish\launcher\_lib\template.test.ts'),
     (Join-Path $RepoRoot '.swaw\proj\publish\_lib\runtime-release.test.ts')
 )
-& $RepoRoot\swawkit.exe .dev.bun test @TypeScriptTests
+$ProfilePath = Join-Path $RepoRoot 'data\proj.swawkit\_profile.json'
+$Profile = Get-Content -LiteralPath $ProfilePath -Raw -Encoding UTF8 |
+    ConvertFrom-Json
+$Bun = $Profile.development.bun
+$BunExecutable = Join-Path $RepoRoot (
+    'data\proj.swawkit\modules\system\dev\setup\export\bun\installs\{0}\bun.exe' -f
+    [string]$Bun.version
+)
+if ($Bun.mode -cne 'managed' -or -not [IO.File]::Exists($BunExecutable)) {
+    throw "Proj Module TypeScript tests require the declared managed Bun: '$BunExecutable'."
+}
+& $BunExecutable test @TypeScriptTests
 if ($LASTEXITCODE -ne 0) {
-    throw "Proj Action TypeScript contract tests failed with exit code $LASTEXITCODE."
+    throw "Proj Module TypeScript contract tests failed with exit code $LASTEXITCODE."
 }
 & (Join-Path $PSScriptRoot 'app-build.ps1')
 & (Join-Path $PSScriptRoot 'app-publish.ps1')

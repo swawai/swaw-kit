@@ -33,7 +33,7 @@ pub(super) fn evaluate(
             level: TrustLevel::Unpinned,
             message: "awaiting GitHub Release resolution",
             warning: Some(format!(
-                "{} {} is not pinned by {}; .dev.setup will use the GitHub Release digest when available.",
+                "{} {} is not pinned by {}; .dev/setup will use the GitHub Release digest when available.",
                 tool.display_name, resolved.version, tool.hash_variable
             )),
         };

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -32,7 +33,8 @@ impl Fixture {
         let data_root = root.join("data");
         for directory in [
             data_root.clone(),
-            root.join("_lib/proj"),
+            root.join("_lib/proj/system"),
+            root.join("_lib/proj/modules"),
             root.join("project/.swaw"),
         ] {
             fs::create_dir_all(directory).expect("create fixture directory");
@@ -45,9 +47,12 @@ impl Fixture {
         profile.development.rust.mode = "disabled".to_owned();
         let context = CommandExecutionContext {
             swawkit_home: root.clone(),
-            kernel_root: root.join("_lib/proj"),
+            command_root: root.join("_lib/proj"),
             target_project_root: root.join("project"),
-            action_root: root.join("project/.swaw"),
+            module_roots: BTreeMap::from([
+                ("swaw".to_owned(), root.join("_lib/proj/modules")),
+                ("project".to_owned(), root.join("project/.swaw")),
+            ]),
             data_root,
             entry_name: "fixture".to_owned(),
             entry_file: root.join("fixture.exe"),
@@ -62,7 +67,7 @@ impl Fixture {
     }
 
     fn publish_exact(&self, state_revision: &str, version: &str) -> PathBuf {
-        let provider = self.context.data_root.join("modules/kernel/.dev/setup");
+        let provider = self.context.data_root.join("modules/system/dev/setup");
         let install = provider.join("export/bun/installs").join(version);
         fs::create_dir_all(&install).expect("create Bun installation");
         let executable = install.join("bun.exe");
@@ -101,11 +106,14 @@ impl Fixture {
         write_json(
             &provider.join("_state.json"),
             &json!({
-                "schema": "swawkit.command-provider-state/v1",
+                "schema": "swawkit.command-provider-state/v2",
                 "status": "ready",
                 "inputRevision": state_revision,
                 "token": "d".repeat(32),
-                "producerContract": "swawkit.proj.dev-setup/v2"
+                "exports": [{
+                    "id": "environment",
+                    "contract": "swawkit.proj.dev-setup/v2"
+                }]
             }),
         );
         executable
@@ -139,7 +147,7 @@ fn stale_provider_state_is_rejected_with_one_repair_command() {
 
     let error = resolve_entry_bun(&fixture.context).unwrap_err().to_string();
     assert!(error.contains("not ready for the current Entry Profile"));
-    assert!(error.contains("fixture .dev.setup"));
+    assert!(error.contains("fixture .dev/setup"));
 }
 
 #[test]
@@ -162,7 +170,7 @@ fn same_length_bun_tampering_is_rejected() {
 
     let error = resolve_entry_bun(&fixture.context).unwrap_err().to_string();
     assert!(error.contains("SHA-256"), "{error}");
-    assert!(error.contains("fixture .dev.setup"), "{error}");
+    assert!(error.contains("fixture .dev/setup"), "{error}");
 }
 
 #[test]
@@ -205,7 +213,7 @@ fn latest_entry_bun_uses_the_published_selection() {
     let selection = fixture
         .context
         .data_root
-        .join("modules/kernel/.dev/setup/export/bun/.swawkit-dev-selection.json");
+        .join("modules/system/dev/setup/export/bun/.swawkit-dev-selection.json");
     write_json(
         &selection,
         &json!({
@@ -227,10 +235,16 @@ fn bun_is_resolved_after_guards_can_change_the_published_installation() {
         &fixture.context.environment_input_revision,
         &fixture.context.profile.development.bun.version,
     );
-    let action = fixture.context.action_root.join("task");
-    fs::create_dir_all(&action).expect("create Action command");
-    fs::write(action.join("run.ts"), "console.log('must not run')").expect("write Action command");
-    let guard = fixture.context.kernel_root.join("_global");
+    let project_module_root = &fixture.context.module_roots["project"];
+    let module = project_module_root.join("task");
+    fs::create_dir_all(&module).expect("create Module command");
+    fs::write(
+        module.join("swawkit.module.json"),
+        r#"{"schema":"swawkit.command-module/v8"}"#,
+    )
+    .expect("write Module manifest");
+    fs::write(module.join("run.ts"), "console.log('must not run')").expect("write Module command");
+    let guard = fixture.context.command_root.join("_global");
     fs::create_dir_all(&guard).expect("create global guard");
     let changed = fixture.root.join("changed-bun.exe");
     fs::write(&changed, b"changed").expect("write changed Bun fixture");
@@ -244,23 +258,24 @@ fn bun_is_resolved_after_guards_can_change_the_published_installation() {
     )
     .expect("write mutating guard");
     let catalog = CatalogSnapshot::discover_roots(
-        &fixture.context.kernel_root,
-        &fixture.context.action_root,
+        &fixture.context.command_root.join("system"),
+        &fixture.context.module_roots["swaw"],
+        project_module_root,
         "fixture",
     )
     .expect("discover fixture Catalog");
 
     let error = CommandExecutor::new(&fixture.context, &catalog)
-        .execute(&[OsString::from("task")])
+        .execute(&[OsString::from("project/task")])
         .unwrap_err()
         .to_string();
 
     assert!(error.contains("SHA-256"), "{error}");
-    assert!(error.contains("fixture .dev.setup"), "{error}");
+    assert!(error.contains("fixture .dev/setup"), "{error}");
 }
 
 #[test]
-fn action_environment_contains_only_validated_enabled_domains() {
+fn module_environment_contains_only_validated_enabled_domains() {
     let fixture = Fixture::new();
     let expected = fixture.publish_exact(
         &fixture.context.environment_input_revision,
@@ -275,7 +290,7 @@ fn action_environment_contains_only_validated_enabled_domains() {
 }
 
 #[test]
-fn applying_action_environment_removes_disabled_domain_variables() {
+fn applying_module_environment_removes_disabled_domain_variables() {
     let fixture = Fixture::new();
     let expected = fixture.publish_exact(
         &fixture.context.environment_input_revision,
@@ -289,7 +304,7 @@ fn applying_action_environment_removes_disabled_domain_variables() {
             &fixture
                 .context
                 .data_root
-                .join("modules/kernel/.dev/setup/export"),
+                .join("modules/system/dev/setup/export"),
         )
         .unwrap();
 
