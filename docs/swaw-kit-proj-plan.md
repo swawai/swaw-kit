@@ -1,95 +1,283 @@
-# Swaw Kit Proj：架构与源码导读
+# SWAW Kit Proj 架构与实施计划
 
-## 一、项目是什么
+## 1. 结论
 
-1. Swaw Kit Proj（根目录 Entry + `_lib/proj`）是一个以项目为对象的本地控制面，通过同一套 Core 向 CLI 和 Web 提供项目配置、开发环境和功能命令；`Favorites/template.proj1.exe` 只作为待复制模板发布。
-2. 一个 Entry 对应一套相互隔离的项目资源：目标项目、功能命令、Git 身份、DataRoot、开发环境，以及随项目维护的 skills 和提示词。Entry 必须直接位于 `SWAWKIT_HOME`；创建 Entry：在根目录执行 `copy Favorites\template.proj1.exe MyProjEntry.exe`。
-3. Entry 是约 10 KB 的原生 Launcher，只负责读取 `_lib/proj/_bin/current`、确定不可变 Release Set 中的共享 Core、传递自身路径与原始参数，并建立必要的启动语义。Web Worker 的 Job Object 由 Rust 父进程在恢复 Launcher 前建立。若 selector 尚未生成，Launcher 会调用 `_lib/proj/bootstrap.ps1`，由仓库内固定的 Rust/MSVC 工具链完成首次三件套构建和发布。
-4. 运行主链可以记作：`Entry Launcher -> Rust Core（CLI / Host / Worker）-> Catalog -> Control / Kernel / Action`。Bootstrap 只是 Core 缺失时的恢复路径，不参与日常命令逻辑。
-5. Rust Core 根据 Entry 名和 Windows File ID 识别入口，并在 `data/proj.{入口名}/` 管理专用 DataRoot；复制产生新 Entry，改名仍延续原身份。同一 Entry 只保留一个 Entry Host，普通 CLI 和 Entry Worker 则是按次创建的短生命周期进程。
-6. Entry Profile 记录目标项目、界面语言和开发环境等用户配置，CLI 与 Web 共用这份配置；项目自定义命令从目标项目的 `.swaw` 中发现。
+Proj 的长期设计心智是：**协议集中、领域自治、能力可组合**。
 
-理解后续设计，先记住六个核心名称：
+- Core 只集中维护跨领域必须一致的协议：Entry 身份、Profile、Catalog、Command Identity、DataRoot、进程生命周期、Guard、Journal、Host/Web 边界和受限 System handler。
+- Module 领域拥有自己的源码、入口、帮助、声明、状态、数据、构建与发布生命周期。修改一个原生领域，不要求把它重新静态链接进共享 Core。
+- 模块之间通过稳定命令地址、Provider contract 与 Export 协作，不通过 Core 内部函数互相耦合。
+- 普通执行只消费已经存在的能力，不安装工具、不编译、不修复发布状态。构建原生模块必须显式执行 `.module/instantiate`。
 
-| 名称 | 定义 |
-| --- | --- |
-| **Entry** | 一份稳定入口身份，以及与之绑定的 Profile、DataRoot 和单实例 Host 边界 |
-| **目录命令模块** | 以目录为最小领域单元；目录层级定义地址，`run.*`、`_module.json`、Guard、Help、View 和私有实现就近组织 |
-| **Catalog** | Core 从目录树生成的统一命令读模型，供 CLI 与 Web 共同发现和定位能力 |
-| **模块数据根** | Core 为每个目录命令模块派生的专属数据路径，与命令来源和相对目录同构 |
-| **模块 Export / Provider State** | 模块对外发布的稳定资源，以及描述该发布当前是否可消费的状态协议 |
-| **Subject / Facet** | Subject 是静态命令或动态对象的统一身份；Facet 是该 Subject 可浏览、投影或执行的能力面，精确映射到 Catalog 关系或既有 CLI 命令 |
-| **Entry Host / Entry Worker** | Host 提供单实例 Web 控制面；Worker 按次通过完整 Entry 链执行命令 |
+当前命令模型只有两种身份：`System` 与 `Module`。旧的 `Control / Kernel / Action` 分类、双点地址、点分隔层级和 `module/` CLI 前缀都不是兼容入口，也不再属于现行协议。
 
-架构记忆句是：**协议集中，领域自治**。Core 统一身份、地址、生命周期和进程协议；目录命令模块拥有行为、数据、状态与 Export。进一步可以记成：**目录定义能力，数据跟随模块，依赖通过 Export 连接，环境按次生成。**
+## 2. 总体运行链
 
-## 二、代码地图与阅读顺序
+```text
+Entry Launcher
+  -> Rust Core（CLI / Host / Worker）
+  -> Catalog v15
+  -> CommandId { space, namespace?, path }
+  -> Guard / Journal / Adapter
+  -> System handler 或 Module run.*
+```
 
-中心代码只维护必须统一的事实和协议，例如 Entry 身份、DataRoot、Profile、Catalog 与进程执行边界；具体能力、状态和演进节奏归属各自的目录命令模块。
+Entry 是薄原生 Launcher。它负责确定自身身份、读取 `_lib/proj/_bin/current`、选择不可变 Core Release Set，并原样传递 argv。若共享 Core 尚不存在，Launcher 才调用 `_lib/proj/bootstrap.ps1`。
 
-| 路径 | 主要职责 |
-| --- | --- |
-| `Favorites/template.proj1.exe` | 随仓库发布的 Launcher 模板；复制出的 Entry 必须放在 `SWAWKIT_HOME` 根目录 |
-| `_lib/proj/_launcher` | 原生 Launcher 源码；构建候选写入 `data/proj_cache/bootstrap/build/launcher/release/template.proj1.exe` |
-| `_lib/proj/bootstrap.ps1` / `bootstrap.json` | Core 缺失时使用固定工具链构建并发布共享 Rust Core |
-| `_lib/proj/build.ps1` | 使用固定工具链构建 App 与 Launcher 候选，不发布正式制品 |
-| `_lib/proj/_toolchain` | 受管工具链及模块 Export、状态、锁、环境生成与激活等共享机制 |
-| `_lib/proj/_app` | Rust 产品源码，按 Core、Host 与 Toolchain 领域承载身份、DataRoot、Profile、Catalog、命令执行、Web 生命周期及受管工具能力 |
-| `_lib/proj/_bin` | Bootstrap 或显式发布产生的共享运行时制品 |
-| `_lib/proj/..runtime` | Runtime 与 Host 的有状态 Control：聚合状态、退出、重启和显式 Release 清理 |
-| `_lib/proj/.dev/{setup,status,bun,rust,msvc,exec,cmd,pwsh,...}` | 管理受管开发环境、类型化工具设置，并提供专用工具与一次性进程入口 |
-| `_lib/proj/.help` / `.check` | 分别读取命令说明，以及只读检查模块声明、Guard 结构、依赖 Provider 与 Export 当前状态；目标地址都使用前缀参数形式 |
-| `_lib/proj/.runs` | 查询所有命令或指定命令的持久 Run Journal，并为 Web 提供全局与命令范围的 Run 集合 |
-| `_lib/proj/.context` | Agent Context 领域模块；静态子命令负责行为，根模块以 Facet 暴露 Context 集合，动态 `::context/<id>` Subject 携带自身 Facet；`show` 输出持久结构，`render` 生成确定性 Agent Markdown |
-| `_lib/proj/.<name>` / `.swaw/<name>` | Kernel 命令 / 目标项目的 Action 命令 |
-| `_lib/proj/_test` | 原生 Entry、Rust Core、Entry Worker、Bootstrap 和工具模块的正式回归入口 |
+冷 Bootstrap 只构建和发布共享的 `swawkit-proj.exe`、`swawkit-proj-host.exe` 与 `swawkit-proj-toolchain.exe`，不会扫描、编译或链接领域 Module。因此领域源码物理下沉后，增加或修改原生 Module 不会扩大冷 Bootstrap 的 Rust 编译集合。
 
-建议沿主链阅读源码：先看 `_launcher/launcher.c` 和 `bootstrap.ps1`，再进入 `_app/src/launch.rs`、`main.rs`、`cli.rs`，随后按问题深入 `catalog`、`data_root`、`profile`、`command`、`entry_runner` 或 `server`。
+## 3. Command Identity 与 CLI
 
-命令分为三类：Control 以 `..` 开头并管理 Entry/Host；Kernel 在 `_lib/proj` 中定义且以 `.` 开头；Action 在目标项目的 `.swaw` 中定义且没有前缀。Core 扫描这些目录并忽略下划线开头的私有实现。Kernel/Action 可执行模块只提供一个 `run.*` 入口，Control 使用受限的 `run.core.json`；`_module.json`、`_guard`、`_help`、`_view/web.json` 和私有库与所属命令放在一起，由 Catalog 汇总为统一模型。
+内部身份是结构化值，不从字符串前缀反推来源：
 
-## 三、开发取向
+```text
+System: { space: system, path: [entry, language] }
+Module: { space: module, namespace: swaw, path: [context, add] }
+```
 
-1. 框架保持一条清晰主路径和一个事实源；新路径成立后，旧实现应有明确的退出点。
-2. Core 只承载跨模块协议和必要生命周期；目录命令模块拥有领域行为、数据和 Export。共享库负责路径校验、原子发布、锁和状态检查等通用机制。
-3. 模块依赖由消费方在 `_module.json` 就近声明，并指向明确的提供命令和 producer contract；提供方在同一协议声明自己提供的 contract。稳定概念出现第二个真实消费者后再抽象，AHA 优先于 DRY，局部清晰优先于通用包装。
+规范 CLI 地址：
 
-## 四、关键不变量与协议
+```text
+swawkit .help
+swawkit .entry/language
+swawkit .dev/setup
+swawkit .module/instantiate swaw/context
 
-1. **身份与配置。** Entry 以 Windows File ID 保持身份：复制产生新身份，改名延续原身份，文件被替换时才要求显式认领（claim）。`_entry.json` 只记录 Entry 身份，`_profile.json` 只记录用户配置；运行时环境变量不能反过来成为配置来源。
-2. **目录即命令协议。** 命令地址由目录层级唯一推导，一个目录最多有一个规范执行入口；Module、Help、Web 展示提示、Facet 和 Guard 都是模块的伴随声明。Catalog 以 `swawkit.command-catalog/v13` 生成结构性的 `runnable`、`diagnostic`、语言、`facets`、`subjectKinds` 与可选 `module`；静态子命令关系和模块声明的动态集合都收敛为 `kind=collection` 的 Facet，Finder 不再自行猜测或合成另一套能力。Help 从模块自己的 `_help/{zh-CN|en}.txt` 按 Entry Profile 选择，英文译文缺失时回退简体中文。`_module.json` 使用 `swawkit.command-module/v4` 声明 `requires`、`provides`、Command Facet 与 Instance Facet 模板；collection 的 `subjectKind` 是包含 `kind + provider Command SubjectRef` 的显式类型引用，允许不同命令通过同一个可信 Provider 复用一种 Instance 模板，而不是复制 resolver 或按字符串暗中全局查找。同 ID 的模块 Facet 可明确替换 Core 默认 Facet，声明无效时直接形成诊断，不静默回退。`_view/web.json` 使用 `swawkit.command-view/web/v4`，只保留列宽和运行表单等展示提示，不再声明能力。Control 的 `run.core.json` 使用 `swawkit.core-command/v1`，Kernel 中由 CLI 在普通执行器之前消费的精确内置命令可声明受限 Core handler，其他 Kernel 产品命令可用 `run.toolchain.json` 与 `swawkit.toolchain-command/v1` 静态选择同 Release Set 中的受限 Rust handler。全局与模块 Guard 在执行前判断运行前提。
-3. **模块数据根与动态 Subject。** Core 按命令来源和相对目录，将每个目录命令模块同构映射到 `DataRoot/modules/{control|kernel|action}/...`。例如 `.dev.setup` 对应 `modules/kernel/.dev/setup/`。`SWAWKIT_PROJ_DATA_ROOT` 表示 Entry 根，`SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT` 表示当前模块数据根；普通命令的工作数据、状态、锁和 Export 都归入后者。统一对象模型只有三个角色：`SubjectRef` 表达身份，`Facet` 表达一个 Subject 可浏览、投影或执行的能力，`SubjectCollection` 表达某个 collection Facet 的解析结果。静态命令引用为 `{type=command, source, address}`；动态对象引用为 `{type=instance, kind, id}`，规范显示投影是 `::kind/id`，不携带发现它的 owner，也不伪装成 CLI 命令。集合保留 `owner + facet` 来表达“从谁的哪个关系发现”。`swawkit.subject-collection/v2` 刻意只支持静态 Command owner 到一层 Instance；成员只返回 `facetIds`，不能携带 resolver，Core 与 Web 必须从 collection Facet 显式引用的 Provider Catalog `subjectKinds` 模板重建 Facet，并通过类型化 `{bind="subject.id"}` 绑定当前实例。`kind` 在一个 Catalog 中全局唯一；集合可以按资源状态返回模板能力的子集。Instance 暂不暴露 collection Facet；真实嵌套对象需求出现后，必须连同 provenance 与 URL 深链一起设计下一版，不能制造不可恢复的半递归。`.context/_module.json` 直接声明 `contexts` collection Facet 和 `context` Instance 模板，resolver 分别映射 `.context.list --json` 以及 `.context.show/.context.add/...` 等真实 CLI 能力；资源目录中的 `_resource.json` 只保存 Context 状态。其持久目录仍是 `modules/kernel/.context/mycontext01/`，目录内部格式和操作由 Context 领域自治。Core 不扫描 DataRoot 生成动态命令，不认识 context/run/artifact 类型，也不再维护 `resource.core.json` 或按资源类型硬编码注册表。只有 Core 缺失时的 Bootstrap 构建和确实需要跨 Entry 复用的下载缓存进入 `data/proj_cache/`。
-4. **模块 Export 与显式依赖。** 模块把稳定候选或供其他模块消费的产物发布到自身的 `export/`，中间文件留在 `work/`。消费方 `_module.json` 的 `requires` 指向 Provider 命令地址和精确 contract，提供方的 `provides` 声明自身 contract；Catalog 与 Web 因而无需读取实现源码即可展示静态关系。`export/` 只是稳定发布边界，不自动等于一套资产系统：需要自动消费的构建产物可由模块自己的 `manifest.json` 声明文件名、长度与 SHA-256，并由提供命令地址、`producerContract` 和 `_state.json` 建立可验证发布边界。`.check <command-address> [--json]` V1 只读遍历依赖闭包，复验公共的声明、Provider State、producer contract 与安全的 Export 根目录，并有界列出顶层产物；它既不猜测模块私有 Manifest，也不单独执行 `_guard`，避免“检查”产生业务副作用。依赖尚未 Ready 时，错误信息直接给出应执行的提供命令；需要内容级完整性校验的模块仍由自身 Guard 或消费路径负责。
-5. **Provider State。** `_state.json` 使用 `swawkit.command-provider-state/v1`，状态为 `unavailable` 或 `ready`。影响开发环境的 Profile 输入变化时，`.dev.setup` 状态同步变为 `unavailable`；重新执行 `.dev.setup` 后，完成的 Export 与 `ready` 状态一起成为新的有效发布。`inputRevision`、`token` 与 `producerContract` 共同标识这次发布并保证消费一致性。
-6. **环境变量是边界，不是状态。** 除系列根目录使用 `SWAWKIT_HOME` 外，Proj 拥有的变量统一使用 `SWAWKIT_PROJ_` 前缀：`SWAWKIT_PROJ_CORE_LAUNCH_*` 传递一次性启动声明，`SWAWKIT_PROJ_CORE_COMMAND_*` 描述单次命令上下文，`SWAWKIT_PROJ_MODULE_*` 用于模块私有适配。Core 在读取 Launcher 声明后、创建线程前清除进程中的 `SWAWKIT_HOME` 与全部 `SWAWKIT_PROJ_*`；Host 的长期事实保存在类型化对象和 DataRoot。每次执行命令时，Core 再从当前 Entry/Profile 生成命令环境，适配器私有变量在消费后清除。
-7. **执行一致性。** 普通 Kernel 和 Action 依次执行全局 Guard、模块 Guard 和 `run.*`；Guard 只检查前提，不安装工具或修复状态。CLI 直接进入这条执行链，Web 则通过同一个 Entry Launcher 创建 Entry Worker，再进入同一条链，因此两者共享解释器、cwd、Profile、DataRoot 与环境语义。
-8. **持久运行日志。** CLI 和 Web 运行都在所属模块数据根的 `_runs/{run-id}/` 写入同一套事实：`events.jsonl` 使用 `swawkit.command-run-event/v1` 追加带时间和阶段的 `kind=output|progress` 事件；`output` 保存 stdout/stderr UTF-8 文本，`progress` 保存稳定 ID、状态、数值、单位和消息。`_state.json` 使用 `swawkit.command-run-journal/v1` 原子发布来源、起止时间和终态。Journal 统一生成 sequence 与时间戳；CLI 控制台、Web 实时窗口和历史查询消费同一事件，而不是各自重新编号或从日志文件轮询实时输出。新运行先在隐藏 work 目录准备完整 events / state，由写入者在 `_runs/` 根独占持有同 Run ID 的 owner 租约，最后一次目录重命名才发布 `{run-id}`。进程异常结束后操作系统释放租约，下一次历史读取会只在取得该精确租约后，去掉未完整的 JSONL 尾记录、同步完整事件并原子收敛为带明确原因的 `failed`；缺少租约的旧版记录不猜测改写。原始参数不落盘，只记录数量；每次运行最多保留 8 MiB 事件文件，达到上限后明确标记 `truncated`。日志写入是执行契约的一部分，初始化或完成日志失败会使本次运行失败，而不是静默丢失。
-9. **构建与发布分离。** build 只产出候选文件，显式 publish/update 命令才可替换正式制品。`proj.publish.app` 只消费 `proj.build.app` 的 Ready Provider 与匹配 Manifest，在共享锁内原子切换 Release Set selector；旧进程继续运行已映射版本，新调用使用新版本。工具下载、安装、更新和主动清理由显式命令触发，受管工具始终使用已验证的受管版本，而不是系统 PATH 中的同名程序。
-10. **有状态操作只发布完整可用结果。** 产品拥有的 Control / Kernel 状态遵循 `prepare -> validate -> commit -> recover`：候选与中间文件留在 `work/`、staging 或显式 `unavailable` 状态，锁或 CAS 固定并发输入，最后一个原子 selector / State 才授予可用性；提交前失败应恢复旧状态，无法证明所有权时宁可保留不可用现场而不猜测删除。提交后的旧备份或垃圾清理失败只报告告警，不撤销已经完整可用的新结果。多项独立清理不是伪装成全局事务，而应保证每项先隔离、可重试且最终收敛。Action 仍是受信任项目代码；Core 能统一生命周期和数据边界，但其业务状态原子性由模块实现、模板与故障测试约束。
+swawkit swaw/context
+swawkit swaw/context/add my-context project/proj/build/app
+swawkit project/proj/build/app
+swawkit user-custom/something
+```
 
-## 五、当前做到哪里
+规则：
 
-1. Native Launcher 和 Rust Core 已接管正常启动、Entry 身份、DataRoot、Profile、命令发现、Guard、CLI、单实例 Entry Host 与 Entry Worker 主链。DataRoot Create / Claim 在发布绑定记录前固定目录身份；首建或重命名后的记录发布失败会按同一目录身份尝试精确回滚，无法安全恢复时保留不可用现场并报错，不猜测删除。成功路径则把同一目录租约连续传递到最终绑定，避免先发布再重新打开目录的空窗。
-2. Entry Host 采用 Axum、Tray 和系统浏览器；Web 已能浏览命令、编辑 Profile，并启动、增量读取和取消 Kernel/Action 命令。Catalog v13 将当前语言、真实 Facet、Instance Facet 模板以及 `_module.json` 的依赖、产物和能力契约交给同一界面。命令本身的地址、调用方式和静态 Module 契约直接作为基础详情呈现，不再伪造一个不可执行的 `overview` Facet；真正需要实时解析的检查由 Core 为适用的 Kernel / Action Command 生成 `check` projection Facet，精确执行 `.check <command-address> --json`，并按 `swawkit.module-check/v1` 结构化渲染可运行状态、Guard、依赖和发布物。命令页使用可刷新的 `/commands/{source}/...` 深链；Finder 只渲染 Subject 已声明的 Facet：`collection` Facet 在点击后调用自身 resolver 组织下一列，`projection` Facet 返回声明协议的文档，`operation` Facet 映射到真实 CLI 执行边界。静态 children 由 Catalog relation 解析；动态文档统一通过 `POST /api/v2/facet-resolutions` 懒加载，客户端只提交结构化 Subject、Facet ID 与发现路径，Host 必须从 Catalog 模板和上游 SubjectCollection 的 `facetIds` 重建受信 resolver，不能接受客户端或资源数据自报命令与参数。`.context` 与 `.runs` 分别是持久业务资源和持久运行事实的完整垂直样例；Web/协议层都不内建 context 或 run 类型，只按声明的返回协议选择投影渲染器。Context 概览可在当前浏览器标签页固定为右侧托盘；切换 Finder 命令时，托盘通过该 Context 声明的 `add` operation Facet 映射到真实 `.context.add` 调用并在完成后重新解析投影。固定状态只在 `sessionStorage` 保存类型化 Subject 身份和 collection provenance，恢复时仍从 Catalog 与 SubjectCollection 重建能力，不保存 resolver，也不制造没有 CLI 对应行为的 `.context.pin` 命令。Subject 操作中的固定 ID 参数不可编辑，只有 `acceptsTail` 明确允许的尾参数交给用户输入。顶部面包屑与 Host 状态栏已移除，避免出现脱离命令模型的第二套导航和控制面；`..runtime` 根命令直接呈现 Host / selector 聚合状态，`..runtime.host.exit`、`..runtime.host.restart` 与 `..runtime.cleanup` 承接相应控制。Host 会原子发布带 Entry 身份、Boot ID、PID 和回环 URL 的瞬时运行描述；二次启动验证健康端点后由新进程打开控制台。新 Release 已发布时，安全重启由短命协调进程先固定旧 Host 进程句柄并确认就绪，旧 Host 才释放单实例租约，协调进程随后通过原 Entry Launcher 启动新 Release，因此不依赖睡眠、PID 猜测或任务管理器。Control 仍由受限 Core handler 或专用 API 承担，不作为任意 Entry Worker 命令开放。
-3. `_profile.json` 使用 `swawkit.entry-profile/v2`，是用户配置的唯一来源；公开设置使用 `.dev.bun.mode`、`.dev.rust.toolchain`、`..entry.git.name`、`..entry.language` 等类型化命令地址，`SWAWKIT_PROJ_*` 只作为执行边界变量，不再构成配置 API。语言只接受 `zh-CN` 与 `en`，同时驱动 CLI Help、Catalog 和 Web；`repository.remote` 交还 Git 配置这个事实源，没有实际消费者的默认 IDE/Shell 设置不再保留。相关环境输入变化会同步使 `.dev.setup` Provider State 失效；语言和 Git 等非 Provider 输入不会使开发环境失效。`.dev.setup` 仍以一个锁和一次 Provider CAS 原子协调完整项目环境，其 `env.cmd`、`env.ps1` 位于自身 `export/`。`.dev.bun`、`.dev.rust.cargo`、`.dev.rust.rustc`、`.dev.msvc.cl` 等专用消费者复验各自依赖闭包后运行，`.dev.exec` 明确提供完整开发环境中的直接进程入口。
-4. 当前执行器支持 `run.exe`、由当前 Entry 开发环境执行的 Action `run.ts`、Kernel 专用 `run.toolchain.json`、由 PowerShell 7 执行的 `run.ps1` 和受限的 `run.cmd`。`run.ts` 与 `run.ps1` 都在 Guard 完成后严格解析 Entry Profile 与 `.dev.setup` Provider Export，复验当次启用的受管 Bun、PowerShell、MSVC 与 Rust 声明、安装元数据和完整文件哈希，再映射开发环境；它们不加载生成的 `env.ps1` 形成第二套解释器。`SWAWKIT_PROJ_PWSH_MODE` 只有 `managed`、`system`、`disabled`：managed 使用 `.dev.setup` 发布的受管 PowerShell，system 只接受 PATH 中探测确认为 PowerShell Core 7+ 的 `pwsh.exe`，disabled 使全部 `run.ps1` 在 Catalog 中不可运行；任何模式都不回退 Windows PowerShell 5.1。`run.toolchain.json` 不执行目录脚本，而是固定调用同 Release Set 的 `swawkit-proj-toolchain.exe command-v1 <handler>`，Catalog 同时限制 handler 白名单与 Kernel 所有权。`.dev.status` 与 `.dev.setup` 已完成垂直迁移，原 PowerShell 入口均已删除。Bun/PowerShell 的 selection、安装元数据、文件清单、重解析点、完整 SHA-256 与信任分类收敛为一套 Archive Tool SSOT，其中 Core 消费 Bun 与 PowerShell，Toolchain 消费 Bun 与 PowerShell。MSVC 与 Rust 也分别形成原生领域闭环：受限来源、内容寻址缓存、严格解包或隔离安装、规范元数据、精确文件清单、完整 SHA-256、中断恢复、原子发布和环境映射共用各自读写契约；已就绪或可恢复的安装保持完全离线。四个默认领域由同一个原生总编排管理：共用 setup 锁和 Provider CAS，先完整预检所有启用声明，再按固定领域顺序离线优先解析或恢复安装，发布字节稳定的 `env.cmd` / `env.ps1` 后才完成 ready；CLI 与 Web Worker 的下载进度通过统一事件协议记录和渲染。只有 Toolchain 尚不存在时的冷 Bootstrap 继续保留系统原生 Shell 实现。
-5. `proj.build.app` 与 `proj.publish.app` 均已迁移为 `run.ts`，直接消费上述受信开发环境，不再依赖 `_toolchain` 私有 PowerShell。前者构建高频 CLI/Worker Core、常驻 Web/Tray Host 与低频原生 Toolchain，分别发布为 `swawkit-proj.exe`、`swawkit-proj-host.exe`、`swawkit-proj-toolchain.exe`，并组成不可变 Build Release Set；后者在构建 Provider 锁内复验 Ready State、selector、Manifest 与完整文件哈希，再写入 `_bin/releases/<release-id>/`，最后只原子切换 `_bin/current`。`_bin` 根目录不保留可执行 bridge，旧进程继续运行已映射版本。当前维护的 Entry Launcher 已原地迁移到 selector 协议并保持文件身份，`proj.publish.launcher` 继续只更新新建 Entry 模板。失败构建不会授予 Ready 状态。正式测试同时覆盖 Launcher/Core/Host/Toolchain 协议、模块 Export 与 Provider State、Entry 环境 Bun 与 Action `run.ts`、Entry Host 单实例、Entry Worker 输出和整棵进程树取消；CLI 在恢复命令根进程前先将其加入本次运行专属的 Windows Job Object，控制台取消由 Core 回收整棵命令进程树并把 Journal 收敛为 `canceled`，既有薄 Launcher 无需升级，`.dev.setup` 还覆盖 setup 锁等待时取消、确定性网络拒绝、显式公网冷下载和断网缓存重装。
+1. System 使用一个前导点，目录层级使用 `/`。
+2. Module 直接从显式 namespace 开始，CLI 不输入 `module/`。
+3. namespace 和路径段只接受可移植的小写短横线语法；`system`、`module` 是保留 namespace。
+4. 不接受 `..entry`、`.dev.setup`、`system/help`、`module/swaw/context`、`.h` 等旧地址或别名。
+5. `::context/<id>` 是动态 Subject 的显示与寻址身份，不是 CLI 命令地址。
 
-`run.py` 当前只作为未来入口被 Catalog 识别并显示“受管 Python 尚未就绪”的诊断，不会向 CLI/Web 暴露虚假的可执行能力；其启用门槛是 `.dev.setup` 完整拥有 Python 的版本、来源、安装元数据和文件哈希。
+## 4. 物理目录与挂载
 
-## 六、Web 与执行边界
+| 身份 | 物理根 | namespace | 示例地址 |
+| --- | --- | --- | --- |
+| System | `_lib/proj/system/` | 无 | `.dev/setup` |
+| 官方 Module | `_lib/proj/modules/` | `swaw` | `swaw/context` |
+| 当前项目 Module | `<targetProjectRoot>/.swaw/` | `project` | `project/proj/build/app` |
+| 外部 Module | Profile `moduleMounts[]` | 显式声明 | `user-custom/something` |
 
-1. Web 使用固定 Finder 式界面，目录命令模块通过 `_module.json` 声明公共 Facet，通过 `_view/web.json` 提供纯展示提示和少量运行表单配置。命令只在自身成为路径末端时原位展开 Catalog 已解析的 Facet；有真实子命令时默认选择 `children` 集合，Profile 设置叶子命令默认选择“设置”，普通叶子命令不自动选择 Facet，而是直接显示命令基础详情，“执行”永不自动触发且只对 Kernel/Action 开放；`..runtime` 是明确例外，它直接显示聚合状态基础详情。动态 Subject 集合与静态子命令集合使用同一 Finder 投影：选择 collection Facet 时懒加载下一列，选择 projection 或 operation Facet 时打开对应详情；选择动态 Subject 后保持发现它的 owner collection Facet 选中，并在 Subject 行下展开它自己的 Facet。URL 路径只编码稳定静态 owner 命令，查询参数各负其责：`facet=<owner-facet>`、`subject=::kind/id`、`subject-facet=<subject-facet>`；高频增删对象不进入目录命令路由，默认 Facet、临时表单与运行状态也不进入 URL。Finder 摘要、Web 帮助与 CLI 帮助共同读取叶子命令目录的 `_help/{language}.txt`，Web 不维护第二份领域文案；Web 自身固定控件由同一 Entry language 切换。通用 `web/v4` run 配置仍只服务 Kernel/Action 的固定 argv；Runtime 生命周期是 Control 领域，由专用本地 API 和受限 Core handler 承接，不伪装成普通命令执行。`swawkit.runtime-status/v1` 聚合 selector、Release 数量和可选 Host 状态；`swawkit.host-status/v1` 同时公开运行 Release 与 selector Release，避免把“已发布”误报成“已运行”。cleanup 的 preview/apply 通过显式控制头区分，最终路径校验、占用复验和删除边界仍由低频 Toolchain 单点实现。单实例租约只负责互斥，不再兼任无法确认结果的激活或更新通道。
-2. Web run 使用 `swawkit.command-run/v1` 表达当前 Host 内的运行标识、状态、增量事件和退出结果。每次运行都从当前用户环境基线启动新的 Entry Worker，并过滤已有的 Swaw Kit 环境命名空间；Host 负责请求与生命周期，具体命令仍经过完整 Entry 边界。
-3. Entry Worker 使用 Windows Job Object 管理整棵子进程树；取消和 Entry Host 退出都会回收后代进程。stdin 关闭，stdout/stderr 由执行边界截获并转换为 UTF-8 `output` 事件；启用 `swawkit.command-event-frame/v1` 的第一方模块还可在同一管道发送严格、可回退的 `progress` 帧，非法或不完整帧按普通文本保留。CLI 将进度渲染为行式状态，Web 实时窗口按进度 ID 原位更新，历史日志保留每次状态变化；三者共享同一 Journal 事件身份和容量上限。当前 `.dev.setup` 下载已接入该协议，直接绕过 Core 调用脚本时仍保留原有控制台文本；当前执行模型面向非交互任务。
-4. 当前 Host 的 run registry 只负责活跃运行、取消和短期内存窗口；持久事实由模块 `_runs/` 中的 Run Journal 承担。CLI 在执行器边界边回显边记录，Web 则由 Host 在 Worker 外层记录，因此 Worker 启动失败和取消也能形成一致终态。`.runs/_module.json` 是 Run 类型和浏览能力的唯一声明：它自己的 `all` collection Facet 通过 `.runs --json` 汇总最近 32 次持久运行；Core 还为每个可运行 Kernel / Action Command 生成 `runs` 上下文 collection Facet，通过 `.runs --json <source/address>` 只返回该命令的运行。因此 `.runs` 在 Web 中同时拥有“全部运行记录”和自身的“运行记录”，两者范围明确。两种关系都显式引用 `.runs` 提供的 `run` SubjectKind，并返回 owner 无关的同一 `::run/<run-id>` 身份；模块声明同 ID Facet 时可替换默认行为。每个成员只携带模板内的 `overview/open` Facet ID；`overview` 通过 `.runs --run <run-id>` 返回 `swawkit.command-run-journal/v1`，Web 只按返回协议选择 Run 投影渲染器，`open` 则通过普通 operation Facet 调用 `.runs --open <run-id>`。专用 Journal Web API 已移除，全局与上下文入口都使用同一个 Facet resolution、SubjectKind 模板和 Run resolver，不构成第二套寻址或权限路径。Run ID 使用纳秒时间、进程 ID 与进程内序列组合，新写入格式在一个 DataRoot 中具备足够强的全局身份；读取时仍兼容旧 ID，并对跨命令重复 ID 明确报歧义。`.runs` 无参数直接输出全局最近运行；命令范围查询使用 `swawkit .runs <command-address>`；`.runs <command-address> --latest <n|n..m>` 提供单次调用内的相对查询，稳定自动化使用 owner 无关的 `.runs --run <run-id> [--after <cursor>]`。通过 `swawkit .check <command-address> --json` 查询依赖和发布事实；磁盘日志不依赖当前 Host 生命周期。Proj 帮助同样采用不会误执行目标的前缀形式 `swawkit .help <command-address>`，而 `<command-address> --help` 保留给模块自身解释。
-5. `.swaw` Action 是以当前用户权限运行的受信任项目代码；Web 约束调用入口和生命周期，但 Action 本身不是安全沙箱。Run Journal 是执行可观测性，不替代模块自身的业务状态、Provider State 或 Export。
+Catalog 扫描这些显式根并生成 `swawkit.command-catalog/v16`。除显式挂载根外，只有拥有规范 `swawkit.module.json` 且目录名满足 lower-kebab-case CommandId 语法的目录才形成命令；没有 Manifest 的目录整棵剪枝。下划线不承担额外发现语义，`_lib`、`_src` 等目录只是自然地不具备 Manifest、也不满足公开地址语法。目录、CLI 地址与 namespace 的映射只有这一处事实源；Web、CLI、Journal、DataRoot 和 Subject 协议都消费同一个结构化身份。
 
-## 七、下一步
+Profile 中的外部挂载形如：
 
-1. `..runtime` 已验证“Catalog 中的有状态 Control + 专用类型化 API + 同一 CLI handler”这条垂直路径。后续只有出现第二个真实的同类控制面后，才提取共享状态卡片或通用控制协议；不要把 Runtime 专有状态提前塞入 `_view/web.json`，也不要制造 mode 驱动的万能 Control 表单。临时输入和输出不进入 URL。
-2. Run Journal V1 先通过 8 MiB 单次上限约束失控输出，并已用运行所有者租约收敛新版进程异常退出留下的未完成记录；正式黑盒已能启动真实 Action、确认首条持久事件、强制结束本次测试专属的完整进程树，再通过公共 `.runs --run` 验证原事件保留、`failed` 终态、owner 清理和后代退出。积累真实使用量后，再定义跨进程安全的按模块保留数量与清理入口，不提前加入常驻日志服务或 OpenTelemetry SDK。确有跨进程 Trace 或外部采集需求时，再从当前事件协议映射到 OTLP。
-3. `.dev.setup` / `.dev.status` 已验证 `run.toolchain.json` 的完整垂直路径；App 与 Launcher 的 build → publish 均已验证完整开发环境驱动 Action `run.ts`、模块 Provider 消费和原子发布的日常垂直路径。`run.ps1` 的 managed/system/disabled 三模式已有 CLI 黑盒与 Web/Catalog 协议验收；Host Release 黑盒同时覆盖二次启动激活、更新状态、安全重启和无残留退出。默认四领域的长期执行边界现已补齐 CLI 控制台取消、Provider/Journal 收尾、网络失败不发布、Bun latest 公网冷下载及离线缓存重装；公网验收保持显式慢速入口，不加入每次快速回归。冷 Bootstrap 的 Rust/MSVC 准备逻辑继续保留在系统原生 Shell。为受管 Python 建立明确所有权后再启用目前只由 Catalog 诊断的 `run.py`，避免系统 Python fallback。
-4. Launcher 的日常 Action 与冷 Bootstrap 构建器共用声明式 `build.json` 编译契约；前者消费 Entry 受管 MSVC，后者只在 Core 不存在时准备固定工具链。不要把 Bootstrap 恢复逻辑重新引入普通 Action，也不要为单一产品制品制造通用资产框架。
-5. 不可变 Release Set 已由显式 `..runtime.cleanup` 管理：默认 preview，只有 `--apply` 才删除；Core/Host 只调用版本化的窄协议，低频扫描和删除仍由 Toolchain 单点实现。它与发布共用锁，严格复验 selector、Manifest、成员、长度和 SHA-256，并保留当前 Release、被 Core/Host/Toolchain 进程映射的 Release、破损目录与重解析点。生命周期判断不进入每次发布。
-6. 长期目标是保持一个正式 Core、一套配置与命令协议，让 CLI、Web 和后续入口共享同一套行为语义，同时让每个目录化模块独立拥有自己的领域数据与演进节奏。
+```json
+{
+  "moduleMounts": [
+    { "namespace": "user-custom", "root": "D:\\modules\\user-custom" }
+  ]
+}
+```
+
+挂载必须显式，不能靠扫描任意父目录或环境变量猜测。Core 在每次命令执行时发布 `SWAWKIT_PROJ_MODULE_ROOTS` JSON；`SWAWKIT_PROJ_PROJECT_MODULE_ROOT` 只是 `project` 挂载的便捷投影。
+
+## 5. 目录命令协议
+
+`swawkit.module.json` 是命令身份凭证，也是能力声明的单一事实源。只有 schema 的最小 Manifest 表示不可运行的结构命令；Manifest 存在但内容无效时，Catalog 保留该命令的本地诊断并继续检查其显式子模块。普通 `_module.json` 属于其他协议，不被读取，也不会触发递归。
+
+一个可执行命令目录必须且只能拥有一个执行来源：一个真实的本地 `run.*` 文件，或一个 `swawkit.module.json.execution` 声明。两者互斥。
+
+| 入口 | 所属 | 语义 |
+| --- | --- | --- |
+| `run.exe` | Module | 随源码或发行包直接提供的原生可执行入口 |
+| `run.ts` | Module | 随领域源码提供，由当前 Entry 的受管 Bun 执行 |
+| `run.py` | Module | 预留给受管 Python；工具链所有权完整前只诊断、不可执行 |
+| `run.ps1` / `run.cmd` | 按 Catalog 约束 | 脚本入口；PowerShell 必须满足受管或明确 system 模式 |
+| `execution.core` | System | 调用受限、白名单化的进程内 Core handler |
+| `execution.toolchain` | System | 调用同一 Release Set 的低频 Toolchain handler |
+| `execution.native` | Module | 目录拥有独立原生项目和内容寻址发布生命周期 |
+| `execution.delegate` | Module | 显式委派到同 namespace 的 `execution.native` 真祖先 owner |
+
+`swawkit.module.json`、`_guard/`、`_help/`、`_view/` 与私有 `_lib/`、`_src/` 就近属于该命令。相关逻辑靠近所属领域，Catalog 只汇总协议事实，不搬走领域实现。
+
+System 允许 Core/Toolchain 实现，是一个有意且窄的边界：Entry Profile、DataRoot claim、Host 生命周期等行为需要在拥有状态的进程内完成，或需要特权协调。普通业务领域不得仅因“官方内置”而进入 Core。
+
+## 6. 原生 Module 的独立构建与发布
+
+原生 owner 自身就是独立 Rust 项目：
+
+```text
+_lib/proj/modules/context/
+├─ Cargo.toml
+├─ Cargo.lock
+├─ _src/main.rs
+├─ _lib/src/...
+├─ swawkit.module.json                 # execution.native
+└─ add|remove|show|.../swawkit.module.json  # execution.delegate -> swaw/context
+```
+
+它不是 `_app` Cargo workspace 成员。`Cargo.toml` 显式生成名为 `run.exe` 的 bin。领域 schema、存储、操作和测试留在领域目录；Core 不通过 Registry 把源码重新静态组合回三个共享 Rust 制品。
+
+显式实例化：
+
+```text
+swawkit .dev/setup
+swawkit .module/instantiate swaw/context
+```
+
+`.module/instantiate` 的职责是：
+
+1. 从 Catalog 将 delegate 目标归一到 native owner。
+2. 使用 `.dev/setup` 已验证并发布的 Rust/MSVC 环境。
+3. 从已验证 `rustc` 同目录选择真实 `cargo.exe`，不回退系统 PATH 或 rustup proxy。
+4. 在 owner DataRoot 的 `_native/work/cargo-target/` 执行 `cargo build --locked --release`。
+5. 重新计算 owner 与全部 delegate Manifest 的源码契约，构建期间发生变化则拒绝发布。
+6. 调用候选 `run.exe --swawkit-describe`，要求它报告的 owner 与命令集合和源码 Manifest 完全一致。
+7. 将源码契约、EXE 长度与哈希写入不可变 `swawkit.release.json`，以该文档的 SHA-256 作为 Release ID。
+8. 发布不可变 Release bundle，最后原子切换唯一 selector。
+
+发布结构：
+
+```text
+DataRoot/modules/<namespace>/<owner-path>/_native/
+├─ locks/instantiate.lock
+├─ work/cargo-target/
+└─ export/command/
+   ├─ current
+   └─ releases/<sha256>/
+      ├─ run.exe
+      └─ swawkit.release.json
+```
+
+构建或自描述对账失败不会影响旧 selector；同一 Release bundle 重复实例化是幂等操作。普通调用除了验证 selector、Release Manifest 和 EXE 完整性，还会重新计算当前源码契约；任一 Manifest 漂移都会让旧实例明确失效并提示重新实例化，不能让旧 EXE 冒充新声明继续运行。运行路径绝不懒编译，因此“源码存在但编译不通过”与 TypeScript/Python 的语法错误一样，是模块自身可观察的发布错误，而不是 Core 的隐式恢复任务。
+
+委派关系由叶子命令自己的 `swawkit.module.json.execution` 显式给出，不放置零字节 marker，也不向上猜测“最近的可运行祖先”。v8 要求 owner 与叶子位于同一 Module namespace、是叶子的真祖先，并且声明 `execution.native`。中间目录是否可运行、是否也声明委派，都不会改变解析结果。Core 仍以叶子命令身份创建 Guard、DataRoot、环境与 Journal，然后一次性启动 owner 的当前 `run.exe`；环境同时带有逻辑命令与 native owner 身份。这样既保留 `swaw/context/add` 的独立命令语义，也避免九个子命令耦合发布九份 EXE。
+
+```json
+{
+  "schema": "swawkit.command-module/v8",
+  "execution": {
+    "type": "delegate",
+    "owner": {
+      "type": "command",
+      "space": "module",
+      "namespace": "swaw",
+      "address": "swaw/context"
+    }
+  }
+}
+```
+
+## 7. DataRoot、Export 与依赖
+
+DataRoot 与结构化身份同构：
+
+```text
+System .dev/setup              -> DataRoot/modules/system/dev/setup/
+Module swaw/context            -> DataRoot/modules/swaw/context/
+Module project/proj/build/app  -> DataRoot/modules/project/proj/build/app/
+```
+
+这里要区分两种 Export：
+
+1. **能力 Export**：命令地址及其 `run.*` 是模块天然对外能力。需要完整命令语义时，脚本、用户和跨模块编排统一调用 `swawkit <address>`。
+2. **产物 Export**：模块把稳定文件、目录或可执行物发布到自身 DataRoot 的 `export/`，候选和中间文件留在 `work/`。Provider State、领域产物 Manifest、长度与哈希共同形成可验证边界。
+
+Manifest v8 使用具名 Export，而不是把一个 Provider 等同于一个模糊的产物：
+
+```json
+{
+  "schema": "swawkit.command-module/v8",
+  "requires": [{
+    "provider": ".dev/setup",
+    "export": "environment",
+    "contract": "swawkit.proj.dev-setup/v2"
+  }],
+  "provides": [{
+    "id": "runtime-release",
+    "contract": "swawkit.proj-build-app/v3"
+  }]
+}
+```
+
+`provider + export` 是被依赖能力的逻辑身份，`contract` 是其精确数据或 IO 协议身份。Provider State v2 在一次原子发布中列出实际 Ready 的 `{id, contract}` 集合；Manifest 声明、Provider State 和消费要求三者必须精确相交。框架当前不在声明中增加泛化 `kind`：文件、目录、Release Set 与 EXE 的内容完整性继续由各自领域 Manifest 验证，避免用一个过早的万能 Artifact schema 抹平真实差异。
+
+`.check <command-address> --json` 只读检查声明、Provider State 和安全 Export 边界，不猜测领域私有文件格式，也不执行有副作用的修复。普通 CLI 与 Web 执行也会递归执行同一依赖预检；任一依赖缺失、契约不匹配或传递依赖未就绪时，会在 Guard、Journal 和目标进程之前失败，防止半程副作用。
+
+跨模块调用默认经过统一 `swawkit` 入口是正确的，因为它保留目标命令自己的 Guard、Profile、DataRoot、Journal、取消和版本选择。Core 会在启动时清除继承的 `SWAWKIT_*` 状态，再按当前调用重建环境，不会把上一层命令上下文错误叠加。真正高频且确认存在的低层依赖，未来可以增加版本化 EXE/DLL/包 Export 注入协议；在第二个真实消费者出现前不提前制造通用动态加载框架。
+
+`::artifact/<id>` 可以作为未来统一文件产物身份，并用 `path`、`run` 等 Facet 暴露能力；`.path`、`.run` 不应拼入 Subject 规范地址。当前具名 Export 已解决模块间依赖身份，但尚没有第二种真实文件 Subject，因此不建立全局 artifact registry。
+
+Manifest、解析结果与 Playbook 必须分层：`swawkit.module.json` 是作者维护的声明，Provider State 与不可变 Release Manifest 是运行时发布事实；未来若需要可复现的跨模块解析，应生成独立 lock 文档。Playbook 是按顺序调用命令和引用 Export 的程序，不应把解析结果回写进模块 Manifest，也不应把 Web Facet 配置误当成执行 DSL。首个 Playbook 应从真实链路（例如 build → publish）提炼，而不是现在预建通用语法。
+
+## 8. Subject、Facet 与 Web
+
+统一对象模型包含：
+
+- `SubjectRef`：静态 Command 或动态 Instance 的结构化身份。
+- `Facet`：Subject 可浏览、投影或执行的能力。
+- `SubjectCollection`：某个 collection Facet 的解析结果。
+
+当前关键协议是 Catalog v16、SubjectCollection v3、Context v2、ModuleCheck v3。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
+
+Web 路由与身份一致：
+
+```text
+/commands/system/entry/language
+/commands/module/swaw/context
+/commands/module/project/proj/build/app
+```
+
+Finder 先分 System 与 Module，再按 Module namespace 分组。Web 不自建命令别名，不从物理路径猜能力；它只消费 Catalog、SubjectKind 模板与 Facet resolver。
+
+`swaw/context` 是首个完整垂直样例：一个独立 Cargo owner 提供 Context v2 存储、原子更新、Markdown 与 SubjectCollection 投影；`new/add/remove/note/prompt/show/render/list/delete` 是 delegate 端口。领域记录位于 `DataRoot/modules/swaw/context/state/contexts/`，框架的原生实例位于 `_native/`，二者互不混用。
+
+## 9. 环境、执行与 Journal
+
+环境变量是一次执行的边界，不是长期状态。Core 清除继承的 `SWAWKIT_HOME` 与全部 `SWAWKIT_PROJ_*`，再从当前 Entry、Profile、CommandId 与挂载表生成新环境。关键字段包括：
+
+```text
+SWAWKIT_PROJ_CORE_COMMAND_SPACE
+SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE
+SWAWKIT_PROJ_CORE_COMMAND_ADDRESS
+SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT
+SWAWKIT_PROJ_PROJECT_MODULE_ROOT
+SWAWKIT_PROJ_MODULE_ROOTS
+```
+
+CLI 与 Web Worker 进入同一执行链，使用同一 Catalog、Profile、cwd、Guard、Adapter、DataRoot 和 Journal。Windows Job Object 管理整棵命令进程树；取消和 Host 退出都会回收后代。
+
+每次运行在所属命令 DataRoot 的 `_runs/<run-id>/` 保存 `events.jsonl` 与 `_state.json`。CLI、Web 实时窗口和历史查询消费同一事件身份。异常退出由 owner lease 与下一次读取安全收敛为明确失败，不能凭 PID 或半写文件猜测成功。
+
+## 10. 当前实施状态
+
+已经完成：
+
+1. `CommandSpace::{System, Module}`、显式 namespace 与唯一规范 CLI 地址。
+2. `_lib/proj/system`、官方 `swaw`、项目 `project` 和 Profile 外部挂载扫描。
+3. Catalog v16、Web 路由/分组、结构化 Subject CommandRef 与新 DataRoot 映射。
+4. `swawkit.module.json.execution` 统一 Core、Toolchain、Native 与 Delegate，配合 `.module/instantiate`、独立 Cargo 构建、自描述对账、不可变 Release Manifest、内容寻址发布与原子 selector。
+5. `swaw/context` 完整领域下沉；Core 中旧 Context 业务实现已移除。
+6. `.dev/setup` 和旧 Context DataRoot 的一次性状态迁移；迁移只处理已知旧布局，不形成长期双写或 fallback。
+7. 项目 `.swaw/proj/...` 命令迁到 `project/proj/...` 地址和 DataRoot。
+8. Manifest v8 具名 Export、Provider State v2 发布集合、ModuleCheck v3 与执行前递归依赖预检。
+9. Rust、Web、Context、TypeScript 与关键 Launcher/CLI/进程树/Journal 黑盒回归。
+
+后续按真实收益推进，而不是为“纯模块化”迁移一切：
+
+1. 审计仍在 System 的业务，只有能形成独立 bounded context 且不需要进程内状态所有权的能力才下沉 Module。
+2. 为受管 Python 建立完整版本、来源、安装元数据和哈希所有权后，再启用 `run.py`。
+3. 出现真实高频跨模块低层调用后，再设计版本化 EXE/DLL/包 Export 注入；默认仍走 `swawkit <address>`。
+4. 出现第二种真实文件 Subject 后，再定义 artifact SubjectKind；不预建万能资产层。
+
+## 11. 架构护栏
+
+评审新功能时依次问：
+
+1. 这是跨领域必须统一的协议，还是某个领域自己的行为？
+2. 修改这个领域，是否被迫修改并重新发布共享 Core？如果是，边界是否放错？
+3. 调用方需要完整命令语义，还是经过测量确认的低层高频能力？
+4. 状态的唯一事实源和原子授予点在哪里？
+5. 失败是否保持旧版本可用，且没有无删除条件的兼容 fallback？
+6. 目录、CLI、DataRoot、Subject 和 Web 是否都指向同一个结构化身份？
+
+最终目标不是让所有东西都成为进程，而是让复杂度落在正确所有者处：**Core 为一致性付费，Module 为领域变化付费；两者通过明确协议组合。**
