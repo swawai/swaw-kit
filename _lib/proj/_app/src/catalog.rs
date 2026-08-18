@@ -23,10 +23,10 @@ pub use crate::facet::{Facet, FacetKind, FacetRenderer, FacetResolver};
 use address::child_address;
 pub(crate) use entry::{CommandAdapter, ResolvedEntry, resolve_entry};
 use facet::resolve_command_facets;
+pub(crate) use filesystem::named_directories;
 use filesystem::{
     FileCandidate, absolute_path, assert_command_root, child_directories, directory_files,
 };
-pub(crate) use filesystem::{NamedDirectory, named_directories};
 use identity::CommandId;
 pub use identity::CommandSpace;
 pub(crate) use identity::valid_namespace;
@@ -340,25 +340,19 @@ fn scan_node(
             None
         }
         (None, Some(ModuleExecution::Core { handler })) => Some(ResolvedEntry::declared(
-            pending.path.join(MODULE_CONTRACT_FILE),
             CommandAdapter::Core,
             Some(handler.clone()),
         )),
         (None, Some(ModuleExecution::Toolchain { handler })) => Some(ResolvedEntry::declared(
-            pending.path.join(MODULE_CONTRACT_FILE),
             CommandAdapter::Toolchain,
             Some(handler.clone()),
         )),
-        (None, Some(ModuleExecution::Native)) => Some(ResolvedEntry::declared(
-            pending.path.join(MODULE_CONTRACT_FILE),
-            CommandAdapter::Native,
-            None,
-        )),
-        (None, Some(ModuleExecution::Delegate { .. })) => Some(ResolvedEntry::declared(
-            pending.path.join(MODULE_CONTRACT_FILE),
-            CommandAdapter::Delegate,
-            None,
-        )),
+        (None, Some(ModuleExecution::Native)) => {
+            Some(ResolvedEntry::declared(CommandAdapter::Native, None))
+        }
+        (None, Some(ModuleExecution::Delegate { .. })) => {
+            Some(ResolvedEntry::declared(CommandAdapter::Delegate, None))
+        }
         (entry, None) => entry,
     };
     let entry = match entry {

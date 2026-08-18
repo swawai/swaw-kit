@@ -12,7 +12,9 @@ use swawkit_proj::{
     catalog::{CatalogSnapshot, is_help_marker},
     command::{CommandExecutionContext, CommandExecutor, CommandProcessMode, ConsoleCancellation},
     context::EntryContext,
-    data_root::{DataRootClaimApprover, ResolveDataRootRequest, resolve_data_root},
+    data_root::{
+        DataRootClaimApprover, ResolveDataRootRequest, inspect_data_root, resolve_data_root,
+    },
     help::render_help,
     profile::{EntryProfileState, EntryProfileStore},
 };
@@ -75,6 +77,10 @@ fn run_with_dependencies(
         None => {}
     }
 
+    if check::is_invocation(argv) {
+        return run_read_only_check(context, argv);
+    }
+
     let resolved = resolve_data_root(
         ResolveDataRootRequest {
             swawkit_home: &context.swawkit_home,
@@ -94,11 +100,6 @@ fn run_with_dependencies(
         return Ok(0);
     }
     if let Some(exit_code) =
-        check::dispatch(&snapshot, argv, context, resolved.path(), &profile_state)?
-    {
-        return Ok(exit_code);
-    }
-    if let Some(exit_code) =
         runs::dispatch(&snapshot, argv, context, resolved.path(), &profile_state)?
     {
         return Ok(exit_code);
@@ -106,7 +107,7 @@ fn run_with_dependencies(
     if let Some(exit_code) = control::dispatch(&snapshot, argv, context, &profile_store)? {
         return Ok(exit_code);
     }
-    CommandExecutor::preflight(&context.command_root(), &snapshot, argv)
+    CommandExecutor::validate_invocation(&snapshot, argv)
         .map_err(|error| CliError::new(error.to_string()))?;
     let profile = match profile_state {
         EntryProfileState::Ready(profile) => profile,
@@ -136,6 +137,31 @@ fn run_with_dependencies(
         CommandProcessMode::NoWindow => executor.execute(argv),
     }
     .map_err(|error| CliError::new(error.to_string()))
+}
+
+fn run_read_only_check(context: &EntryContext, argv: &[OsString]) -> Result<i32, CliError> {
+    let inspection = inspect_data_root(ResolveDataRootRequest {
+        swawkit_home: &context.swawkit_home,
+        entry_file: &context.entry_file,
+    })
+    .map_err(|error| CliError::new(format!("DataRoot inspection failed: {error}")))?;
+    if let Some(pending) = &inspection.claim {
+        return Err(CliError::new(
+            claim::rejection(context, pending).to_string(),
+        ));
+    }
+
+    let profile_state = EntryProfileStore::new(&context.swawkit_home, &inspection.data_root).read();
+    let snapshot = CatalogSnapshot::discover(context, profile_state.ready())
+        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    check::dispatch(
+        &snapshot,
+        argv,
+        context,
+        &inspection.data_root,
+        &profile_state,
+    )?
+    .ok_or_else(|| CliError::new("Catalog invariant failed: .check was not dispatched"))
 }
 
 fn protocol_help(

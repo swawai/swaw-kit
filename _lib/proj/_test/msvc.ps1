@@ -420,7 +420,7 @@ try {
     Complete-ProjDevSetupProviderPublication `
         -Context $Context `
         -Attempt $Attempt
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
     $env:SWAWKIT_HOME = [IO.Path]::GetFullPath(
         (Join-Path $ProjRoot '..\..')
     )

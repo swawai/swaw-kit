@@ -30,6 +30,12 @@ function run(overrides = {}) {
 }
 
 describe("Run projection model", () => {
+  test("rejects the pre-hard-cut Journal document protocol", () => {
+    expect(() => createRunProjection(run({
+      protocol: "swawkit.command-run-journal/v1",
+    }), run().id)).toThrow(RUN_JOURNAL_PROTOCOL);
+  });
+
   test("validates a Journal against the selected Run", () => {
     const value = run();
     expect(createRunProjection(value, value.id)).toEqual(expect.objectContaining({

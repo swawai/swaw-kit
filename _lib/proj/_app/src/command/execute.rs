@@ -6,8 +6,8 @@ use crate::native_command;
 use crate::run_journal::{RunJournal, RunJournalPhase, RunJournalSource, StartRunJournal};
 
 use super::{
-    CommandError, CommandExecutionContext, CommandResult, ConsoleCancellation, ExecutionPhase,
-    GuardPlan, Invocation, ProcessEnvironment, ResolvedCommand, command_data_root,
+    CommandError, CommandExecutionContext, CommandResult, ConsoleCancellation, Invocation,
+    ProcessEnvironment, ResolvedCommand, command_data_root,
     process::{AdapterLaunch, run_process, run_process_journaled, validate_adapter},
     resolve_entry_development,
 };
@@ -22,20 +22,15 @@ impl<'a> CommandExecutor<'a> {
         Self { context, catalog }
     }
 
-    pub fn preflight(
-        command_root: &Path,
-        catalog: &CatalogSnapshot,
-        argv: &[OsString],
-    ) -> CommandResult<()> {
+    pub fn validate_invocation(catalog: &CatalogSnapshot, argv: &[OsString]) -> CommandResult<()> {
         let invocation = Invocation::resolve(catalog, argv)?;
         validate_command_adapter(&invocation.command)?;
-        GuardPlan::discover(command_root, &invocation.command)?;
         Ok(())
     }
 
     pub fn execute(&self, argv: &[OsString]) -> CommandResult<i32> {
         let invocation = Invocation::resolve(self.catalog, argv)?;
-        self.preflight_dependencies(&invocation)?;
+        self.assert_dependencies_ready(&invocation)?;
         self.execute_invocation(&invocation, None)
     }
 
@@ -57,7 +52,7 @@ impl<'a> CommandExecutor<'a> {
         cancellation: Option<&ConsoleCancellation>,
     ) -> CommandResult<i32> {
         let invocation = Invocation::resolve(self.catalog, argv)?;
-        self.preflight_dependencies(&invocation)?;
+        self.assert_dependencies_ready(&invocation)?;
         if invocation.command.handler.as_deref() == Some("dev.setup") {
             crate::development::setup::provider::migrate_legacy_layout(&self.context.data_root)
                 .map_err(CommandError::new)?;
@@ -97,8 +92,8 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    fn preflight_dependencies(&self, invocation: &Invocation) -> CommandResult<()> {
-        crate::module_check::preflight_dependencies(
+    fn assert_dependencies_ready(&self, invocation: &Invocation) -> CommandResult<()> {
+        crate::command_check::assert_dependencies_ready(
             &self.context.data_root,
             &self.context.entry_name,
             self.catalog,
@@ -113,36 +108,6 @@ impl<'a> CommandExecutor<'a> {
         journal: Option<&RunJournal>,
     ) -> CommandResult<i32> {
         validate_command_adapter(&invocation.command)?;
-        let guard_plan = GuardPlan::discover(&self.context.command_root, &invocation.command)?;
-
-        for guard in guard_plan.guards {
-            let environment = ProcessEnvironment::for_command(
-                self.context,
-                &invocation.command,
-                ExecutionPhase::Guard(guard.scope),
-            )?;
-            let phase = match guard.scope {
-                super::GuardScope::Global => RunJournalPhase::GuardGlobal,
-                super::GuardScope::Command => RunJournalPhase::GuardCommand,
-            };
-            let exit_code = run(
-                guard.adapter,
-                &guard.entry_path,
-                &[],
-                &self.context.target_project_root,
-                &AdapterLaunch::Direct,
-                &environment,
-                self.context.process_mode,
-                journal,
-                phase,
-            )?;
-            if exit_code != 0 {
-                return Ok(exit_code);
-            }
-        }
-
-        // Guards can repair or invalidate the managed runtime. Resolve mutable adapter
-        // resources only after every guard has completed, immediately before launch.
         let mut development_environment = None;
         let mut native_resolution = None;
         let adapter_launch = match invocation.command.adapter {
@@ -198,11 +163,7 @@ impl<'a> CommandExecutor<'a> {
             }
             _ => AdapterLaunch::Direct,
         };
-        let mut environment = ProcessEnvironment::for_command(
-            self.context,
-            &invocation.command,
-            ExecutionPhase::Run,
-        )?;
+        let mut environment = ProcessEnvironment::for_command(self.context, &invocation.command)?;
         if let Some(plan) = &development_environment {
             environment.apply_development_environment(
                 plan,
@@ -228,7 +189,6 @@ impl<'a> CommandExecutor<'a> {
             &environment,
             self.context.process_mode,
             journal,
-            RunJournalPhase::Run,
         )
     }
 }
@@ -243,7 +203,6 @@ fn run(
     environment: &ProcessEnvironment,
     process_mode: super::CommandProcessMode,
     journal: Option<&RunJournal>,
-    phase: RunJournalPhase,
 ) -> CommandResult<i32> {
     match journal {
         Some(journal) => run_process_journaled(
@@ -255,7 +214,7 @@ fn run(
             environment,
             process_mode,
             journal,
-            phase,
+            RunJournalPhase::Run,
         ),
         None => run_process(
             adapter,

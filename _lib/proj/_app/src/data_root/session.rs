@@ -8,8 +8,8 @@ use super::resolve::{
     OwnedRequest, claim_owned_data_root, inspect_owned_data_root, resolve_owned_data_root,
 };
 use super::{
-    ClaimApprovalError, DataRootClaim, ResolveDataRootError, ResolveDataRootRequest,
-    ResolvedDataRoot,
+    ClaimApprovalError, DataRootClaim, DataRootInspection, ResolveDataRootError,
+    ResolveDataRootRequest, ResolvedDataRoot,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +34,10 @@ impl DataRootSession {
 
     pub fn entry_identity(&self) -> &EntryIdentity {
         self.request.entry_identity()
+    }
+
+    pub fn inspect(&self) -> Result<DataRootInspection, DataRootSessionError> {
+        inspect_owned_data_root(&self.request).map_err(Into::into)
     }
 
     pub fn status(&self) -> Result<DataRootSessionState, DataRootSessionError> {

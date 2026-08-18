@@ -1,6 +1,6 @@
 import { normalizeCommandEvents } from "./command-event-client.js";
 
-export const RUN_JOURNAL_PROTOCOL = "swawkit.command-run-journal/v1";
+export const RUN_JOURNAL_PROTOCOL = "swawkit.command-run-journal/v2";
 
 const SOURCES = new Set(["cli", "web"]);
 const STATES = new Set(["running", "exited", "canceled", "failed"]);

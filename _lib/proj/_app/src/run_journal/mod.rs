@@ -20,7 +20,7 @@ pub use read::{RunJournalDocument, RunJournalHistoryDocument};
 pub(crate) use read::{read_run, read_run_directory, read_run_history};
 
 pub(crate) const JOURNAL_STATE_SCHEMA: &str = "swawkit.command-run-journal/v1";
-pub(crate) const JOURNAL_EVENT_SCHEMA: &str = "swawkit.command-run-event/v1";
+pub(crate) const JOURNAL_EVENT_SCHEMA: &str = "swawkit.command-run-event/v2";
 pub(crate) const JOURNAL_DIRECTORY_NAME: &str = "_runs";
 pub(crate) const JOURNAL_STATE_FILE_NAME: &str = "_state.json";
 pub(crate) const JOURNAL_EVENTS_FILE_NAME: &str = "events.jsonl";

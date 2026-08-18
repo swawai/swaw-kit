@@ -522,7 +522,7 @@ describe("Catalog v16 model", () => {
           type: "command",
           address: ".runs",
           arguments: [{ bind: "subject.id" }],
-          returns: "swawkit.command-run-journal/v1",
+          returns: "swawkit.command-run-journal/v2",
         },
       }],
     };
@@ -603,7 +603,7 @@ describe("Catalog v16 model", () => {
               type: "command",
               address: ".check",
               arguments: ["swaw/context/list", "--json"],
-              returns: "swawkit.module-check/v3",
+              returns: "swawkit.command-check/v1",
             },
           },
         ],
@@ -617,7 +617,7 @@ describe("Catalog v16 model", () => {
       address: ".check",
       arguments: ["swaw/context/list", "--json"],
       confirmation: null,
-      returns: "swawkit.module-check/v3",
+      returns: "swawkit.command-check/v1",
       type: "command",
     });
     expect(() => createCatalog(payload([

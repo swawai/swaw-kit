@@ -42,3 +42,39 @@ fn dependency_and_export_sets_share_the_provider_state_bound() {
             .contains("cannot contain more than 64 items")
     );
 }
+
+#[test]
+fn core_execution_cannot_declare_module_requirements() {
+    let manifest: ModuleManifest = serde_json::from_value(json!({
+        "schema": "swawkit.command-module/v8",
+        "execution": {"type": "core", "handler": "entry.profile"},
+        "requires": [{
+            "provider": ".dev/setup",
+            "export": "environment",
+            "contract": "swawkit.proj.dev-setup/v2"
+        }]
+    }))
+    .unwrap();
+
+    let error = validate_manifest(&manifest, Path::new("core/swawkit.module.json"))
+        .unwrap_err()
+        .to_string();
+
+    assert!(error.contains("Core execution cannot declare module requirements"));
+}
+
+#[test]
+fn toolchain_execution_can_declare_module_requirements() {
+    let manifest: ModuleManifest = serde_json::from_value(json!({
+        "schema": "swawkit.command-module/v8",
+        "execution": {"type": "toolchain", "handler": "fixture.toolchain"},
+        "requires": [{
+            "provider": ".dev/setup",
+            "export": "environment",
+            "contract": "swawkit.proj.dev-setup/v2"
+        }]
+    }))
+    .unwrap();
+
+    assert!(validate_manifest(&manifest, Path::new("toolchain/swawkit.module.json")).is_ok());
+}

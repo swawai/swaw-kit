@@ -260,7 +260,7 @@ async fn serves_only_the_declared_local_surface() {
     assert!(index_html.contains("id=\"command-run-confirmation\""));
     assert!(index_html.contains("class=\"command-run-output\" id=\"command-run-output\""));
     assert!(index_html.contains("class=\"run-projection-output\" id=\"run-projection-output\""));
-    assert!(index_html.contains("id=\"module-check-pane\""));
+    assert!(index_html.contains("id=\"command-check-pane\""));
 
     for path in [
         "/commands",
@@ -304,7 +304,7 @@ async fn serves_only_the_declared_local_surface() {
             "text/css; charset=utf-8",
         ),
         (
-            "/assets/styles/module-check-projection.css",
+            "/assets/styles/command-check-projection.css",
             "text/css; charset=utf-8",
         ),
         ("/assets/app.js", "text/javascript; charset=utf-8"),
@@ -379,11 +379,11 @@ async fn serves_only_the_declared_local_surface() {
         ),
         ("/assets/context-tray.js", "text/javascript; charset=utf-8"),
         (
-            "/assets/module-check-projection-model.js",
+            "/assets/command-check-projection-model.js",
             "text/javascript; charset=utf-8",
         ),
         (
-            "/assets/module-check-projection.js",
+            "/assets/command-check-projection.js",
             "text/javascript; charset=utf-8",
         ),
         (

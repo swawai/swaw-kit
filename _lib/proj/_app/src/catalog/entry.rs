@@ -1,5 +1,5 @@
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::{
     CommandSpace, MODULE_CONTRACT_FILE,
@@ -18,20 +18,14 @@ const ENTRY_PROTOCOL: [(&str, CommandAdapter); 5] = [
 pub(crate) struct ResolvedEntry {
     pub(crate) name: &'static str,
     pub(crate) adapter: CommandAdapter,
-    pub(crate) path: PathBuf,
     pub(crate) handler: Option<String>,
 }
 
 impl ResolvedEntry {
-    pub(super) fn declared(
-        path: PathBuf,
-        adapter: CommandAdapter,
-        handler: Option<String>,
-    ) -> Self {
+    pub(super) fn declared(adapter: CommandAdapter, handler: Option<String>) -> Self {
         Self {
             name: MODULE_CONTRACT_FILE,
             adapter,
-            path,
             handler,
         }
     }
@@ -119,7 +113,6 @@ pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry
         existing.push(ResolvedEntry {
             name: canonical_name,
             adapter,
-            path: file.path.clone(),
             handler: None,
         });
     }
@@ -179,10 +172,6 @@ impl CommandAdapter {
             Self::Pwsh => "pwsh",
             Self::Cmd => "cmd",
         }
-    }
-
-    pub(crate) fn is_bootstrap_safe(self) -> bool {
-        matches!(self, Self::Exe | Self::Cmd)
     }
 }
 

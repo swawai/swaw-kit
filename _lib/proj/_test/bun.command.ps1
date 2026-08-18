@@ -18,7 +18,6 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
-    'SWAWKIT_PROJ_CORE_COMMAND_PHASE',
     'SWAWKIT_PROJ_CORE_COMMAND_ADDRESS',
     'SWAWKIT_PROJ_CORE_COMMAND_DIR',
     'SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT',
@@ -78,14 +77,13 @@ try {
         -EnvironmentInputRevision $InputRevision `
         -CommandProfileRevision $ProfileRevision
     Set-ProjBunProcessEnvironment -Values @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
         SWAWKIT_HOME = $ControlHome
         SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ConsumerContext.ProjectRoot
         SWAWKIT_PROJ_PROJECT_MODULE_ROOT = $ActionRoot
         SWAWKIT_PROJ_DATA_ROOT = $ConsumerContext.DataRoot
         SWAWKIT_PROJ_ENTRY_COMMAND = $ConsumerContext.EntryCommand
         SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $ConsumerContext.InvocationDirectory
-        SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
         SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/bun'
         SWAWKIT_PROJ_CORE_COMMAND_DIR = (Join-Path $ProjRoot 'system\dev\bun')
         SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT = (Join-Path $ConsumerDataRoot 'modules\system\dev\bun')

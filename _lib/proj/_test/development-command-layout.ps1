@@ -286,7 +286,7 @@ $RunsContractChecks = @(
     ($RunOverviewFacet.resolver.address -ceq '.runs')
     ($RunOverviewFacet.resolver.arguments[0] -ceq '--run')
     ($RunOverviewFacet.resolver.arguments[1].bind -ceq 'subject.id')
-    ($RunOverviewFacet.resolver.returns -ceq 'swawkit.command-run-journal/v1')
+    ($RunOverviewFacet.resolver.returns -ceq 'swawkit.command-run-journal/v2')
     ($RunOpenFacet.resolver.address -ceq '.runs')
     ($RunOpenFacet.resolver.arguments[0] -ceq '--open')
     ($RunOpenFacet.resolver.arguments[1].bind -ceq 'subject.id')

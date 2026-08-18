@@ -17,11 +17,12 @@ use crate::{
     profile::{EntryProfile, EntryProfileRecord},
 };
 
-use super::{CommandError, CommandResult, GuardScope, ResolvedCommand};
+use super::{CommandError, CommandResult, ResolvedCommand};
 
-const TRANSIENT_ENVIRONMENT: [&str; 3] = [
+const CLEARED_INVOCATION_ENVIRONMENT: [&str; 4] = [
     ENTRY_FILE_ENV,
     LAUNCH_MODE_ENV,
+    "SWAWKIT_PROJ_CORE_COMMAND_PHASE",
     "SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE",
 ];
 const COMMAND_OWNER_ENVIRONMENT: [&str; 3] = [
@@ -117,12 +118,6 @@ impl CommandExecutionContext {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExecutionPhase {
-    Run,
-    Guard(GuardScope),
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ProcessEnvironment {
     values: BTreeMap<OsString, Option<OsString>>,
@@ -132,24 +127,16 @@ impl ProcessEnvironment {
     pub(crate) fn for_command(
         context: &CommandExecutionContext,
         protocol_command: &ResolvedCommand,
-        phase: ExecutionPhase,
     ) -> CommandResult<Self> {
         let mut environment = Self::default();
-        for name in TRANSIENT_ENVIRONMENT {
+        for name in CLEARED_INVOCATION_ENVIRONMENT {
             environment.remove(name);
         }
         for name in COMMAND_OWNER_ENVIRONMENT {
             environment.remove(name);
         }
-        environment.set("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL", "1");
+        environment.set("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL", "2");
         environment.set(COMMAND_EVENT_PROTOCOL_ENV, COMMAND_EVENT_FRAME_PROTOCOL);
-        environment.set(
-            "SWAWKIT_PROJ_CORE_COMMAND_PHASE",
-            match phase {
-                ExecutionPhase::Run => "run",
-                ExecutionPhase::Guard(_) => "guard",
-            },
-        );
         environment.set(
             "SWAWKIT_PROJ_CORE_COMMAND_ADDRESS",
             &protocol_command.address,
@@ -170,9 +157,6 @@ impl ProcessEnvironment {
             "SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT",
             command_data_root(context, protocol_command)?,
         );
-        if let ExecutionPhase::Guard(scope) = phase {
-            environment.set("SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE", scope.as_str());
-        }
         environment.set(
             "SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR",
             &context.invocation_directory,

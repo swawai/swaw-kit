@@ -71,9 +71,9 @@ fn publishes_append_only_events_and_an_atomic_terminal_state() {
 
     let first = journal
         .output(
-            RunJournalPhase::GuardGlobal,
+            RunJournalPhase::Run,
             RunJournalStream::Stdout,
-            "guard\n".to_owned(),
+            "first\n".to_owned(),
         )
         .unwrap()
         .expect("non-empty journal event");
@@ -106,10 +106,76 @@ fn publishes_append_only_events_and_an_atomic_terminal_state() {
     assert_eq!(events[0]["schema"], JOURNAL_EVENT_SCHEMA);
     assert_eq!(events[0]["runId"], id);
     assert_eq!(events[0]["sequence"], first.sequence);
-    assert_eq!(events[0]["phase"], "guard-global");
+    assert_eq!(events[0]["phase"], "run");
     assert_eq!(events[0]["kind"], "output");
     assert_eq!(events[1]["sequence"], second.sequence);
     assert_eq!(events[1]["stream"], "stderr");
+}
+
+#[test]
+fn removed_guard_phases_are_not_journal_values() {
+    assert!(serde_json::from_str::<RunJournalPhase>(r#""guard-global""#).is_err());
+    assert!(serde_json::from_str::<RunJournalPhase>(r#""guard-command""#).is_err());
+}
+
+#[test]
+fn rejects_v1_event_schema_at_the_storage_boundary() {
+    let fixture = Fixture::new();
+    let journal = fixture.start(RunJournalSource::Cli);
+    let id = journal.id().unwrap();
+    journal
+        .output(
+            RunJournalPhase::Run,
+            RunJournalStream::Stdout,
+            "legacy".to_owned(),
+        )
+        .unwrap();
+    journal.finish_exited(0).unwrap();
+
+    let events_path = fixture
+        .root
+        .join(JOURNAL_DIRECTORY_NAME)
+        .join(&id)
+        .join(JOURNAL_EVENTS_FILE_NAME);
+    let events = fs::read_to_string(&events_path)
+        .unwrap()
+        .replace(JOURNAL_EVENT_SCHEMA, "swawkit.command-run-event/v1");
+    fs::write(events_path, events).unwrap();
+
+    let error = read_run(&fixture.root, ".fixture", &id, 0).unwrap_err();
+    assert!(error.to_string().contains("not a contiguous run stream"));
+}
+
+#[test]
+fn rejects_v2_event_without_an_explicit_kind() {
+    let fixture = Fixture::new();
+    let journal = fixture.start(RunJournalSource::Cli);
+    let id = journal.id().unwrap();
+    journal
+        .output(
+            RunJournalPhase::Run,
+            RunJournalStream::Stdout,
+            "invalid".to_owned(),
+        )
+        .unwrap();
+    journal.finish_exited(0).unwrap();
+
+    let events_path = fixture
+        .root
+        .join(JOURNAL_DIRECTORY_NAME)
+        .join(&id)
+        .join(JOURNAL_EVENTS_FILE_NAME);
+    let content = fs::read_to_string(&events_path).unwrap();
+    let mut event: Value = serde_json::from_str(content.trim_end()).unwrap();
+    assert!(event.as_object_mut().unwrap().remove("kind").is_some());
+    fs::write(
+        events_path,
+        format!("{}\n", serde_json::to_string(&event).unwrap()),
+    )
+    .unwrap();
+
+    let error = read_run(&fixture.root, ".fixture", &id, 0).unwrap_err();
+    assert!(error.to_string().contains("missing field `kind`"));
 }
 
 #[test]
@@ -143,7 +209,7 @@ fn reads_history_and_incremental_run_documents() {
     let document =
         serde_json::to_value(read_run(&fixture.root, ".fixture", &id, 1).expect("read journal"))
             .unwrap();
-    assert_eq!(document["protocol"], "swawkit.command-run-journal/v1");
+    assert_eq!(document["protocol"], "swawkit.command-run-journal/v2");
     assert_eq!(document["nextCursor"], 2);
     assert_eq!(document["events"].as_array().unwrap().len(), 1);
     assert_eq!(document["events"][0]["sequence"], 2);

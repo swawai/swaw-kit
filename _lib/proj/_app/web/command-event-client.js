@@ -1,4 +1,4 @@
-const PHASES = new Set(["guard-global", "guard-command", "run", "worker"]);
+const PHASES = new Set(["run", "worker"]);
 const PROGRESS_STATES = new Set(["running", "completed", "failed"]);
 const PROGRESS_UNITS = new Set(["bytes", "items", "percent"]);
 const PROGRESS_ID = /^[A-Za-z0-9._:-]{1,128}$/;

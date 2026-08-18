@@ -1,6 +1,6 @@
 use crate::{
+    command_check::COMMAND_CHECK_PROTOCOL,
     facet::{Facet, FacetKind, FacetRenderer, FacetResolver},
-    module_check::MODULE_CHECK_PROTOCOL,
     profile::EntryLanguage,
     subject::SUBJECT_COLLECTION_PROTOCOL,
     subject_kind::SubjectKindRef,
@@ -81,8 +81,8 @@ pub(super) fn default_facets(
             label: text(language, "检查", "Check").to_owned(),
             summary: text(
                 language,
-                "检查可运行状态、依赖与产物",
-                "Check readiness, dependencies, and publications",
+                "检查命令入口与输入依赖",
+                "Check the command entry and input dependencies",
             )
             .to_owned(),
             subject_kind: None,
@@ -91,7 +91,7 @@ pub(super) fn default_facets(
                 arguments: vec![command.address.clone(), "--json".to_owned()],
                 accepts_tail: false,
                 confirmation: None,
-                returns: Some(MODULE_CHECK_PROTOCOL.to_owned()),
+                returns: Some(COMMAND_CHECK_PROTOCOL.to_owned()),
             }),
         });
     }

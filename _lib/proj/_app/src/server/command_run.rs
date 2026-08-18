@@ -23,7 +23,7 @@ use crate::{
 use super::{ServerState, api_error, data_root_status};
 pub(super) use registry::{CommandRuns, RegistryError};
 
-pub(super) const COMMAND_RUN_PROTOCOL: &str = "swawkit.command-run/v1";
+pub(super) const COMMAND_RUN_PROTOCOL: &str = "swawkit.command-run/v2";
 const MAX_ARGUMENT_COUNT: usize = 128;
 const MAX_ARGUMENT_UTF16: usize = 4096;
 const MAX_COMMAND_UTF16: usize = 8192;
@@ -266,7 +266,7 @@ pub(super) async fn prepare_run(
                 "in-process System lifecycle commands cannot run through the Web command worker",
             ));
         }
-        crate::module_check::preflight_dependencies(
+        crate::command_check::assert_dependencies_ready(
             &data_root_path,
             &context.entry_name,
             &catalog,

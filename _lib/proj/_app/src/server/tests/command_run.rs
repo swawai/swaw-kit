@@ -158,7 +158,7 @@ async fn publishes_the_contract_and_incremental_output_cursor() {
     let created = response_json(response).await;
     let id = created["id"].as_str().expect("command run id");
     assert_eq!(location, format!("/api/v2/command-runs/{id}"));
-    assert_eq!(created["protocol"], "swawkit.command-run/v1");
+    assert_eq!(created["protocol"], "swawkit.command-run/v2");
     assert_eq!(created["address"], ".demo");
     assert_eq!(created["state"], "running");
     assert_eq!(created["exitCode"], Value::Null);

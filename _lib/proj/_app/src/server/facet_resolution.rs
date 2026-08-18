@@ -11,8 +11,8 @@ use serde::Deserialize;
 
 use crate::{
     catalog::{CatalogSnapshot, CommandNode, CommandSpace},
+    command_check::COMMAND_CHECK_PROTOCOL,
     context::EntryContext,
-    data_root::DataRootSessionState,
     entry_runner::EntryRunSpec,
     facet::{Facet, FacetKind, FacetResolver, valid_facet_id},
     profile::EntryProfileStore,
@@ -20,7 +20,7 @@ use crate::{
 };
 
 use super::command_run::CommandRuns;
-use super::{ServerState, api_error, data_root_status};
+use super::{ServerState, api_error};
 
 mod collection;
 
@@ -79,18 +79,25 @@ pub(super) async fn post_facet_resolution(
 }
 
 async fn resolution_context(state: &ServerState) -> ApiResult<ResolutionContext> {
-    let resolved = match data_root_status(state).await? {
-        DataRootSessionState::Ready(resolved) => resolved,
-        DataRootSessionState::ClaimRequired(_) => {
-            return Err(api_error(
-                StatusCode::CONFLICT,
-                "DataRoot ownership claim is required",
-            ));
-        }
-    };
+    let data_root_session = state.data_root.clone();
+    let inspection = tokio::task::spawn_blocking(move || data_root_session.inspect())
+        .await
+        .map_err(|error| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("DataRoot inspection worker failed: {error}"),
+            )
+        })?
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    if inspection.claim.is_some() {
+        return Err(api_error(
+            StatusCode::CONFLICT,
+            "DataRoot ownership claim is required",
+        ));
+    }
     let entry = state.context.clone();
     let command_runs = state.command_runs.clone();
-    let data_root = resolved.path().to_path_buf();
+    let data_root = inspection.data_root;
     tokio::task::spawn_blocking(move || {
         let profile_state = EntryProfileStore::new(&entry.swawkit_home, &data_root).read();
         let catalog = CatalogSnapshot::discover(&entry, profile_state.ready()).map_err(|_| {
@@ -345,6 +352,7 @@ fn resolve_command_document(
         )
     })?;
     validate_return_protocol(&value, returns)?;
+    validate_resolver_exit(&value, returns, output.exit_code)?;
     let collection = if returns == SUBJECT_COLLECTION_PROTOCOL {
         let collection: SubjectCollection =
             serde_json::from_value(value.clone()).map_err(|_| {
@@ -364,6 +372,41 @@ fn resolve_command_document(
         None
     };
     Ok(FacetResolutionDocument { value, collection })
+}
+
+fn validate_resolver_exit(
+    document: &serde_json::Value,
+    returns: &str,
+    exit_code: i32,
+) -> ApiResult<()> {
+    if returns != COMMAND_CHECK_PROTOCOL {
+        return if exit_code == 0 {
+            Ok(())
+        } else {
+            Err(api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("facet resolver command exited with code {exit_code}"),
+            ))
+        };
+    }
+
+    let ready = document
+        .get("ready")
+        .and_then(serde_json::Value::as_bool)
+        .ok_or_else(|| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "command-check resolver returned an invalid ready state",
+            )
+        })?;
+    if matches!((exit_code, ready), (0, true) | (1, false)) {
+        Ok(())
+    } else {
+        Err(api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "command-check resolver exit code does not match document readiness",
+        ))
+    }
 }
 
 fn validate_return_protocol(document: &serde_json::Value, expected: &str) -> ApiResult<()> {

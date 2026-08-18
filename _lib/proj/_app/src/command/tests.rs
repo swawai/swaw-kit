@@ -14,8 +14,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::{
-    CommandExecutionContext, CommandExecutor, CommandProcessMode, ExecutionPhase, GuardPlan,
-    GuardScope, Invocation, ProcessEnvironment, ResolvedCommand,
+    CommandExecutionContext, CommandExecutor, CommandProcessMode, Invocation, ProcessEnvironment,
+    ResolvedCommand,
     process::{AdapterLaunch, run_process},
 };
 
@@ -103,12 +103,6 @@ impl Fixture {
         .expect("write command manifest");
         fs::write(directory.join("run.ps1"), script).expect("write command entry");
         directory
-    }
-
-    fn guard(&self, root: &Path, name: &str, script: &str) {
-        let directory = root.join(name);
-        fs::create_dir_all(&directory).expect("create guard directory");
-        fs::write(directory.join("run.cmd"), script).expect("write guard entry");
     }
 
     fn catalog(&self) -> CatalogSnapshot {
@@ -218,44 +212,17 @@ fn invocation_preserves_help_markers_for_the_cli_protocol_boundary() {
 }
 
 #[test]
-fn guard_plan_is_global_then_command_and_rejects_unsafe_entries() {
-    let fixture = Fixture::new();
-    let command_directory = fixture.command(".tool", "exit 0");
-    fixture.guard(&fixture.command_root, "_global", "@exit /b 0\r\n");
-    fixture.guard(&command_directory, "_guard", "@exit /b 0\r\n");
-    let command = ResolvedCommand::from_catalog(&fixture.catalog(), ".tool").unwrap();
-
-    let plan = GuardPlan::discover(&fixture.command_root, &command).unwrap();
-    assert_eq!(
-        plan.guards
-            .iter()
-            .map(|guard| guard.scope)
-            .collect::<Vec<_>>(),
-        vec![GuardScope::Global, GuardScope::Command]
-    );
-
-    fs::remove_file(command_directory.join("_guard/run.cmd")).unwrap();
-    fs::write(command_directory.join("_guard/run.ps1"), "").unwrap();
-    assert!(
-        GuardPlan::discover(&fixture.command_root, &command)
-            .unwrap_err()
-            .to_string()
-            .contains("not bootstrap-safe")
-    );
-}
-
-#[test]
-fn process_environment_is_declarative_and_phase_specific() {
+fn process_environment_is_declarative() {
     let fixture = Fixture::new();
     fixture.command(".tool", "exit 0");
     let command = ResolvedCommand::from_catalog(&fixture.catalog(), ".tool").unwrap();
     let context = fixture.context();
 
-    let mut run = ProcessEnvironment::for_command(&context, &command, ExecutionPhase::Run)
-        .expect("build run environment");
+    let mut run =
+        ProcessEnvironment::for_command(&context, &command).expect("build run environment");
     assert_eq!(
         run.value("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL"),
-        Some(Some(OsStr::new("1")))
+        Some(Some(OsStr::new("2")))
     );
     assert_eq!(
         run.value("SWAWKIT_PROJ_CORE_COMMAND_EVENT_PROTOCOL"),
@@ -263,6 +230,11 @@ fn process_environment_is_declarative_and_phase_specific() {
     );
     assert_eq!(run.value(ENTRY_FILE_ENV), Some(None));
     assert_eq!(run.value(LAUNCH_MODE_ENV), Some(None));
+    assert_eq!(run.value("SWAWKIT_PROJ_CORE_COMMAND_PHASE"), Some(None));
+    assert_eq!(
+        run.value("SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE"),
+        Some(None)
+    );
     assert_eq!(
         run.value("SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE"),
         Some(Some(context.entry_file.as_os_str()))
@@ -278,14 +250,6 @@ fn process_environment_is_declarative_and_phase_specific() {
     assert_eq!(
         run.value("SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION"),
         Some(Some(OsStr::new(&context.profile_revision)))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_PHASE"),
-        Some(Some(OsStr::new("run")))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE"),
-        Some(None)
     );
     assert_eq!(
         run.value("SWAWKIT_PROJ_CORE_COMMAND_ADDRESS"),
@@ -336,16 +300,6 @@ fn process_environment_is_declarative_and_phase_specific() {
         run.value("SWAWKIT_PROJ_CORE_COMMAND_OWNER_DATA_ROOT"),
         Some(Some(owner_data_root.as_os_str()))
     );
-    let guard = ProcessEnvironment::for_command(
-        &context,
-        &command,
-        ExecutionPhase::Guard(GuardScope::Global),
-    )
-    .expect("build guard environment");
-    assert_eq!(
-        guard.value("SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE"),
-        Some(Some(OsStr::new("global")))
-    );
 }
 
 #[test]
@@ -356,7 +310,7 @@ fn process_environment_rejects_a_missing_runtime_toolchain() {
     let context = fixture.context();
     fs::remove_file(&context.toolchain_executable).expect("remove Toolchain fixture");
 
-    let error = ProcessEnvironment::for_command(&context, &command, ExecutionPhase::Run)
+    let error = ProcessEnvironment::for_command(&context, &command)
         .expect_err("missing Toolchain must reject command execution");
 
     assert!(error.to_string().contains("Toolchain is unavailable"));
@@ -390,8 +344,7 @@ fn command_data_roots_are_isolated_by_structured_identity() {
         ("project/build", "project", "build"),
     ] {
         let command = ResolvedCommand::from_catalog(&catalog, address).unwrap();
-        let environment =
-            ProcessEnvironment::for_command(&context, &command, ExecutionPhase::Run).unwrap();
+        let environment = ProcessEnvironment::for_command(&context, &command).unwrap();
         assert_eq!(
             environment.value("SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT"),
             Some(Some(
@@ -407,7 +360,7 @@ fn command_data_roots_are_isolated_by_structured_identity() {
 }
 
 #[test]
-fn pwsh_pipeline_preserves_arguments_environment_order_and_exit_code() {
+fn pwsh_pipeline_preserves_arguments_environment_and_exit_code() {
     let fixture = Fixture::new();
     let target = r#"
 $adapterNames = @([Environment]::GetEnvironmentVariables().Keys |
@@ -425,52 +378,30 @@ if ($adapterNames.Count -ne 0) {
 $encoded = @($args | ForEach-Object {
     [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$_))
 }) -join ','
-$line = 'target|' + $env:SWAWKIT_PROJ_CORE_COMMAND_PHASE + '|' +
-    $env:SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE + '|' +
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS + '|' + $encoded
+$line = 'target|' + $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS + '|' + $encoded
 $tracePath = Join-Path $env:SWAWKIT_PROJ_DATA_ROOT 'trace.txt'
 [IO.File]::AppendAllText($tracePath, $line + [Environment]::NewLine)
 exit 23
 "#;
-    let command_directory = fixture.command(".tool", target);
-    fixture.guard(
-        &fixture.command_root,
-        "_global",
-        "@echo global^|%SWAWKIT_PROJ_CORE_COMMAND_PHASE%^|%SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE%^|%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%^|>>\"%SWAWKIT_PROJ_DATA_ROOT%\\trace.txt\"\r\n@exit /b 0\r\n",
-    );
-    fixture.guard(
-        &command_directory,
-        "_guard",
-        "@echo command^|%SWAWKIT_PROJ_CORE_COMMAND_PHASE%^|%SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE%^|%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%^|>>\"%SWAWKIT_PROJ_DATA_ROOT%\\trace.txt\"\r\n@exit /b 0\r\n",
-    );
+    fixture.command(".tool", target);
     let catalog = fixture.catalog();
     let context = fixture.context();
-    let before = env::var_os("SWAWKIT_PROJ_CORE_COMMAND_PHASE");
-
     let exit_code = CommandExecutor::new(&context, &catalog)
         .execute(&argv(&[".tool", "", "a b", "quote\"x"]))
         .unwrap();
 
     assert_eq!(exit_code, 23);
-    assert_eq!(env::var_os("SWAWKIT_PROJ_CORE_COMMAND_PHASE"), before);
     let lines = fs::read_to_string(fixture.data_root.join("trace.txt")).unwrap();
     let lines: Vec<&str> = lines.lines().collect();
-    assert_eq!(lines[0], "global|guard|global|.tool|");
-    assert_eq!(lines[1], "command|guard|command|.tool|");
-    assert_eq!(lines[2], "target|run||.tool|,YSBi,cXVvdGUieA==");
+    assert_eq!(lines, ["target|.tool|,YSBi,cXVvdGUieA=="]);
 }
 
 #[test]
-fn journaled_execution_persists_guard_and_target_output_in_the_module_data_root() {
+fn journaled_execution_persists_target_output_in_the_module_data_root() {
     let fixture = Fixture::new();
     fixture.command(
         ".journal",
         r#"[Console]::Out.WriteLine('target out'); [Console]::Error.WriteLine(([char]0x1e) + 'swawkit-event-v1 {"schema":"swawkit.command-event/v1","kind":"progress","id":"download:fixture.zip","state":"completed","current":42,"total":42,"unit":"bytes","message":"Downloaded fixture.zip"}'); [Console]::Error.WriteLine('target err'); exit 4"#,
-    );
-    fixture.guard(
-        &fixture.command_root,
-        "_global",
-        "@echo guard out\r\n@exit /b 0\r\n",
     );
     let catalog = fixture.catalog();
 
@@ -494,32 +425,12 @@ fn journaled_execution_persists_guard_and_target_output_in_the_module_data_root(
     assert_eq!(state["exitCode"], 4);
     assert_eq!(state["argumentCount"], 1);
     let events = fs::read_to_string(run_root.join("events.jsonl")).unwrap();
-    assert!(events.contains("\"phase\":\"guard-global\""));
     assert!(events.contains("\"phase\":\"run\""));
     assert!(events.contains("\"kind\":\"progress\""));
     assert!(events.contains("\"id\":\"download:fixture.zip\""));
-    assert!(events.contains("guard out"));
     assert!(events.contains("target err"));
     assert!(!events.contains("swawkit-event-v1"));
     assert!(!events.contains("argument-not-persisted"));
-}
-
-#[test]
-fn a_failing_guard_stops_the_pipeline() {
-    let fixture = Fixture::new();
-    fixture.command(
-        ".tool",
-        "Set-Content (Join-Path $env:SWAWKIT_PROJ_DATA_ROOT 'target.txt') 'ran'; exit 0",
-    );
-    fixture.guard(&fixture.command_root, "_global", "@exit /b 17\r\n");
-    let catalog = fixture.catalog();
-
-    let exit_code = CommandExecutor::new(&fixture.context(), &catalog)
-        .execute(&argv(&[".tool"]))
-        .unwrap();
-
-    assert_eq!(exit_code, 17);
-    assert!(!fixture.data_root.join("target.txt").exists());
 }
 
 #[test]

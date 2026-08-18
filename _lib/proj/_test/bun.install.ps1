@@ -12,7 +12,6 @@ $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
-    'SWAWKIT_PROJ_CORE_COMMAND_PHASE',
     'SWAWKIT_PROJ_CORE_COMMAND_ADDRESS',
     'SWAWKIT_HOME',
     'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
@@ -292,8 +291,7 @@ try {
     $ActionRoot = Join-Path $ProjectRoot '.swaw'
     [void][IO.Directory]::CreateDirectory($ActionRoot)
     Set-ProjBunProcessEnvironment -Values @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-        SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
         SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_HOME = $ControlHome
         SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot

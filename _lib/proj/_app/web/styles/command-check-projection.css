@@ -1,8 +1,8 @@
-.module-check-pane {
+.command-check-pane {
   padding: 27px 26px;
 }
 
-.module-check-heading {
+.command-check-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -10,7 +10,7 @@
   padding-bottom: 8px;
 }
 
-.module-check-heading h2 {
+.command-check-heading h2 {
   margin: 0;
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
@@ -19,13 +19,13 @@
   letter-spacing: -0.02em;
 }
 
-.module-check-heading p {
+.command-check-heading p {
   margin: 12px 0 0;
   color: var(--ui-text-muted);
   font-size: 12px;
 }
 
-.module-check-state {
+.command-check-state {
   flex: 0 0 auto;
   padding: 5px 9px;
   border-radius: var(--radius-pill);
@@ -35,12 +35,12 @@
   font-weight: 700;
 }
 
-.module-check-state[data-state="blocked"] {
+.command-check-state[data-state="blocked"] {
   color: var(--ui-status-error);
   background: var(--ui-status-error-surface);
 }
 
-.module-check-diagnostic {
+.command-check-diagnostic {
   margin: 16px 0 0;
   padding: 12px;
   border-radius: var(--radius-control);
@@ -51,16 +51,15 @@
   white-space: pre-wrap;
 }
 
-.module-check-list,
-.module-check-tree,
-.module-check-exports {
+.command-check-list,
+.command-check-tree {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.module-check-item,
-.module-check-list > li {
+.command-check-item,
+.command-check-list > li {
   padding: 9px 10px;
   border-top: 1px solid var(--ui-border);
   color: var(--ui-text);
@@ -68,17 +67,17 @@
   line-height: 1.5;
 }
 
-.module-check-list > li:last-child {
+.command-check-list > li:last-child {
   border-bottom: 1px solid var(--ui-border);
 }
 
-.module-check-item-heading {
+.command-check-item-heading {
   display: flex;
   align-items: baseline;
   gap: 8px;
 }
 
-.module-check-marker {
+.command-check-marker {
   width: 16px;
   flex: 0 0 16px;
   color: var(--ui-status-ok);
@@ -86,37 +85,31 @@
   text-align: center;
 }
 
-.module-check-item[data-state="blocked"] > .module-check-item-heading .module-check-marker {
+.command-check-item[data-state="blocked"] > .command-check-item-heading .command-check-marker {
   color: var(--ui-status-error);
 }
 
-.module-check-item-detail {
+.command-check-item-detail {
   display: block;
   margin: 4px 0 0 24px;
   color: var(--ui-text-muted);
   overflow-wrap: anywhere;
 }
 
-.module-check-tree .module-check-tree,
-.module-check-exports {
+.command-check-tree .command-check-tree {
   margin: 8px 0 0 24px;
 }
 
-.module-check-exports li {
-  padding: 3px 0;
-  color: var(--ui-text-muted);
-}
-
-.module-check-empty {
+.command-check-empty {
   color: var(--ui-text-muted) !important;
 }
 
 @media (max-width: 560px) {
-  .module-check-pane {
+  .command-check-pane {
     padding: 23px 18px;
   }
 
-  .module-check-heading {
+  .command-check-heading {
     gap: 10px;
   }
 }

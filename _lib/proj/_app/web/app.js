@@ -12,7 +12,7 @@ import { createDocumentProjectionView } from "./document-projection.js";
 import { createExplorerView } from "./explorer.js";
 import { createEntryProfileView } from "./entry-profile.js";
 import { setLanguage, t } from "./i18n.js";
-import { createModuleCheckProjectionRenderer } from "./module-check-projection.js";
+import { createCommandCheckProjectionRenderer } from "./command-check-projection.js";
 import { createRuntimeControlView } from "./runtime-control.js";
 import { createRunProjectionRenderer } from "./run-projection.js";
 import {
@@ -122,14 +122,12 @@ const elements = {
   issueCard: document.querySelector("#issue-card"),
   loadingState: document.querySelector("#loading-state"),
   moduleContractSection: document.querySelector("#module-contract-section"),
-  moduleCheckDependencies: document.querySelector("#module-check-dependencies"),
-  moduleCheckDiagnostic: document.querySelector("#module-check-diagnostic"),
-  moduleCheckGuards: document.querySelector("#module-check-guards"),
-  moduleCheckMeta: document.querySelector("#module-check-meta"),
-  moduleCheckPane: document.querySelector("#module-check-pane"),
-  moduleCheckPublications: document.querySelector("#module-check-publications"),
-  moduleCheckState: document.querySelector("#module-check-state"),
-  moduleCheckTitle: document.querySelector("#module-check-title"),
+  commandCheckDependencies: document.querySelector("#command-check-dependencies"),
+  commandCheckDiagnostic: document.querySelector("#command-check-diagnostic"),
+  commandCheckMeta: document.querySelector("#command-check-meta"),
+  commandCheckPane: document.querySelector("#command-check-pane"),
+  commandCheckState: document.querySelector("#command-check-state"),
+  commandCheckTitle: document.querySelector("#command-check-title"),
   moduleProvides: document.querySelector("#module-provides"),
   moduleRequires: document.querySelector("#module-requires"),
   propertyAddress: document.querySelector("#property-address"),
@@ -201,7 +199,7 @@ const contextProjection = createContextProjectionRenderer(elements, {
 });
 const documentProjection = createDocumentProjectionView(elements, {
   renderers: [
-    createModuleCheckProjectionRenderer(elements),
+    createCommandCheckProjectionRenderer(elements),
     contextProjection,
     createRunProjectionRenderer(elements),
   ],

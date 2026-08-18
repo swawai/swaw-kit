@@ -3,13 +3,13 @@ SWAW Kit：项目目录绑定的便携开发与项目控制入口。
 命令目录就是命令地址；每个可执行命令目录必须且只能包含一个受支持的 run.*。
 以下列表由 Proj Core 扫描真实命令目录动态生成，不维护独立 catalog。
 
-命令可提供私有 _guard/run.exe 或 run.cmd 声明执行前提，并通过 swawkit.module.json
-声明所需 Provider contract 与自己提供的 Export contract。可使用：
+命令通过 swawkit.module.json 声明所需 Provider contract 与自己提供的 Export
+contract。可使用纯只读检查：
 {{COMMAND}} .check <command-address> [--json]
 
-Core 固定按 _global → 命令 _guard → 命令 run.* 执行；Guard 不接收动态参数，
-只负责放行或拒绝，不能替后续进程注入环境。需要受管工具的 run.* 必须自行
-加载并复核环境；不依赖开发环境的命令无需承担这套策略。
+`.check` 只报告命令入口和已声明输入依赖是否就绪；普通执行会在 Journal 与
+目标进程之前复用同一只读依赖断言。检查不会安装、编译、修复或运行领域代码。
+动态业务前提由所属 run.* 自己验证。
 
 极薄 EXE Launcher 负责入口身份、Host/CLI 分流和原生 argv 边界；
 每个项目入口都是同一模板的独立副本：共享 Core 缺失时调用 Bootstrap，
@@ -21,7 +21,7 @@ Core 固定按 _global → 命令 _guard → 命令 run.* 执行；Guard 不接�
 System 命令以一个点开头，层级使用斜杠，例如 {{COMMAND}} .entry/language；
 模块命令从显式命名空间开始，例如 {{COMMAND}} swaw/context 或
 {{COMMAND}} project/build。CLI 不接受 system/、module/ 或旧式点分隔地址。
-`.entry` 与 `.runtime` 管理 Entry 自身生命周期，也不执行项目 Guard。
+`.entry` 与 `.runtime` 管理 Entry 自身生命周期。
 不带参数启动 {{COMMAND}} 会启动或激活本地 Web 控制台。
 Runtime 状态与控制统一位于：
 {{COMMAND}} .runtime

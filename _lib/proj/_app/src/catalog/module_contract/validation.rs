@@ -78,6 +78,16 @@ fn validate_execution(manifest: &ModuleManifest, path: &Path) -> io::Result<()> 
         }
         Some(super::declaration::ModuleExecution::Native) | None => {}
     }
+    if matches!(
+        &manifest.execution,
+        Some(super::declaration::ModuleExecution::Core { .. })
+    ) && !manifest.requires.is_empty()
+    {
+        return invalid_data(format!(
+            "Core execution cannot declare module requirements in '{}'",
+            path.display()
+        ));
+    }
     Ok(())
 }
 

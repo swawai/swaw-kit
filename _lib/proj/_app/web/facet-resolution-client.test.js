@@ -16,9 +16,9 @@ describe("Facet resolution client", () => {
     const facet = {
       id: "status",
       kind: "projection",
-      resolver: { returns: "swawkit.module-check/v3", type: "command" },
+      resolver: { returns: "swawkit.command-check/v1", type: "command" },
     };
-    const document = { protocol: "swawkit.module-check/v3" };
+    const document = { protocol: "swawkit.command-check/v1" };
     const result = await resolveFacet({}, command, facet, {
       fetchImpl: async (url, options) => {
         request = { options, url };

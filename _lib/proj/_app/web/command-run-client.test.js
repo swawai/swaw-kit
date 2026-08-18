@@ -10,7 +10,7 @@ import {
 
 function snapshot(overrides = {}) {
   return {
-    protocol: "swawkit.command-run/v1",
+    protocol: "swawkit.command-run/v2",
     id: "run-17",
     address: ".dev/status",
     state: "running",
@@ -49,6 +49,12 @@ function response(status, document = null, location = null) {
 }
 
 describe("command run protocol client", () => {
+  test("rejects the pre-hard-cut live protocol", () => {
+    expect(() => normalizeCommandRunSnapshot(snapshot({
+      protocol: "swawkit.command-run/v1",
+    }))).toThrow("swawkit.command-run/v2");
+  });
+
   test("normalizes ordered stdout and stderr events", () => {
     const document = snapshot({
       state: "exited",

@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::env;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -8,9 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use super::CommandExecutor;
 use super::{CommandExecutionContext, CommandProcessMode, ProcessEnvironment, resolve_entry_bun};
-use crate::catalog::CatalogSnapshot;
 use crate::development::BUN;
 use crate::profile::EntryProfileRecord;
 
@@ -226,52 +223,6 @@ fn latest_entry_bun_uses_the_published_selection() {
     );
 
     assert_eq!(resolve_entry_bun(&fixture.context).unwrap(), expected);
-}
-
-#[test]
-fn bun_is_resolved_after_guards_can_change_the_published_installation() {
-    let fixture = Fixture::new();
-    let executable = fixture.publish_exact(
-        &fixture.context.environment_input_revision,
-        &fixture.context.profile.development.bun.version,
-    );
-    let project_module_root = &fixture.context.module_roots["project"];
-    let module = project_module_root.join("task");
-    fs::create_dir_all(&module).expect("create Module command");
-    fs::write(
-        module.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v8"}"#,
-    )
-    .expect("write Module manifest");
-    fs::write(module.join("run.ts"), "console.log('must not run')").expect("write Module command");
-    let guard = fixture.context.command_root.join("_global");
-    fs::create_dir_all(&guard).expect("create global guard");
-    let changed = fixture.root.join("changed-bun.exe");
-    fs::write(&changed, b"changed").expect("write changed Bun fixture");
-    fs::write(
-        guard.join("run.cmd"),
-        format!(
-            "@copy /y \"{}\" \"{}\" >nul\r\n@exit /b 0\r\n",
-            changed.display(),
-            executable.display()
-        ),
-    )
-    .expect("write mutating guard");
-    let catalog = CatalogSnapshot::discover_roots(
-        &fixture.context.command_root.join("system"),
-        &fixture.context.module_roots["swaw"],
-        project_module_root,
-        "fixture",
-    )
-    .expect("discover fixture Catalog");
-
-    let error = CommandExecutor::new(&fixture.context, &catalog)
-        .execute(&[OsString::from("project/task")])
-        .unwrap_err()
-        .to_string();
-
-    assert!(error.contains("SHA-256"), "{error}");
-    assert!(error.contains("fixture .dev/setup"), "{error}");
 }
 
 #[test]

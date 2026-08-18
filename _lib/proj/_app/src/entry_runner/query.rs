@@ -10,6 +10,7 @@ const MAX_QUERY_OUTPUT_BYTES: usize = 1024 * 1024;
 
 pub(crate) struct EntryQueryOutput {
     pub stdout: String,
+    pub exit_code: i32,
 }
 
 pub(crate) fn run_entry_query(
@@ -44,21 +45,19 @@ fn run_entry_query_with(
         QueryWait::Rejected(error) => return Err(error),
         QueryWait::Completed => {}
     }
-    match state.outcome {
-        Some(EntryRunOutcome::Exited(0)) => {}
-        Some(EntryRunOutcome::Exited(exit_code)) => {
-            return Err(format!("facet query exited with code {exit_code}"));
-        }
+    let exit_code = match state.outcome {
+        Some(EntryRunOutcome::Exited(exit_code)) => exit_code,
         Some(EntryRunOutcome::Failed(error)) => {
             return Err(format!("facet query failed: {error}"));
         }
         None => return Err("facet query completed without an outcome".to_owned()),
-    }
+    };
     if !state.stderr.is_empty() {
         return Err("facet query wrote to stderr".to_owned());
     }
     Ok(EntryQueryOutput {
         stdout: state.stdout,
+        exit_code,
     })
 }
 
@@ -232,7 +231,7 @@ mod tests {
     }
 
     #[test]
-    fn returns_only_clean_successful_stdout() {
+    fn returns_clean_stdout_and_exit_code() {
         let canceled = Arc::new(AtomicBool::new(false));
         let output = run_entry_query_with(
             Arc::new(ImmediateRunner {
@@ -247,10 +246,29 @@ mod tests {
         )
         .unwrap();
         assert_eq!(output.stdout, "{\"protocol\":\"fixture/v1\"}");
+        assert_eq!(output.exit_code, 0);
+
+        let output = run_entry_query_with(
+            Arc::new(ImmediateRunner {
+                stdout: "{\"protocol\":\"fixture/v1\",\"ready\":false}",
+                stderr: "",
+                outcome: Some(EntryRunOutcome::Exited(1)),
+                canceled: Arc::new(AtomicBool::new(false)),
+            }),
+            spec(),
+            Duration::from_secs(1),
+            1024,
+        )
+        .unwrap();
+        assert_eq!(
+            output.stdout,
+            "{\"protocol\":\"fixture/v1\",\"ready\":false}"
+        );
+        assert_eq!(output.exit_code, 1);
     }
 
     #[test]
-    fn rejects_stderr_nonzero_overflow_and_timeout() {
+    fn rejects_stderr_failed_overflow_and_timeout() {
         for runner in [
             ImmediateRunner {
                 stdout: "{}",
@@ -261,7 +279,7 @@ mod tests {
             ImmediateRunner {
                 stdout: "{}",
                 stderr: "",
-                outcome: Some(EntryRunOutcome::Exited(7)),
+                outcome: Some(EntryRunOutcome::Failed("worker failed".to_owned())),
                 canceled: Arc::new(AtomicBool::new(false)),
             },
         ] {

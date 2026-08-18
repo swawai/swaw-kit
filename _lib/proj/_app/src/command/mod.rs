@@ -2,7 +2,6 @@ mod console_cancel;
 mod development;
 mod environment;
 mod execute;
-mod guard;
 mod invocation;
 mod process;
 mod resolve;
@@ -15,9 +14,8 @@ pub use environment::{
     CommandExecutionContext, CommandProcessMode, catalog_command_data_root,
     catalog_command_data_root_from_roots,
 };
-pub(crate) use environment::{ExecutionPhase, ProcessEnvironment, command_data_root};
+pub(crate) use environment::{ProcessEnvironment, command_data_root};
 pub use execute::CommandExecutor;
-pub(crate) use guard::{GuardPlan, GuardScope};
 pub(crate) use invocation::Invocation;
 pub(crate) use resolve::ResolvedCommand;
 

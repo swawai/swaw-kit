@@ -18,7 +18,7 @@ use super::{
 };
 
 const HISTORY_PROTOCOL: &str = "swawkit.command-run-history/v1";
-const DOCUMENT_PROTOCOL: &str = "swawkit.command-run-journal/v1";
+const DOCUMENT_PROTOCOL: &str = "swawkit.command-run-journal/v2";
 const MAX_HISTORY_RUNS: usize = 32;
 const MAX_RESPONSE_EVENTS: usize = 4096;
 const MAX_RESPONSE_TEXT_BYTES: usize = 1024 * 1024;
@@ -359,21 +359,7 @@ fn sync_complete_event_stream(run_root: &Path, event_read: &EventRead) -> io::Re
 }
 
 fn parse_stored_event(line: &[u8]) -> io::Result<StoredRunEvent> {
-    let mut value: serde_json::Value = serde_json::from_slice(line).map_err(invalid)?;
-    let Some(object) = value.as_object_mut() else {
-        return Err(invalid("run journal event must be an object"));
-    };
-    // v1 journals written before event kinds were introduced are still valid
-    // output events. Keep this compatibility at the storage boundary instead
-    // of spreading a second event shape through the runtime and Web clients.
-    if !object.contains_key("kind") && object.contains_key("stream") && object.contains_key("text")
-    {
-        object.insert(
-            "kind".to_owned(),
-            serde_json::Value::String("output".to_owned()),
-        );
-    }
-    serde_json::from_value(value).map_err(invalid)
+    serde_json::from_slice(line).map_err(invalid)
 }
 
 impl From<StoredRunState> for RunJournalSummary {

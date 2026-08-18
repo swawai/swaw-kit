@@ -56,9 +56,6 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
         "Set Entry Profile Git settings",
     )
     .unwrap();
-    let global_guard = fixture.context.command_root().join("_global");
-    fs::create_dir_all(&global_guard).unwrap();
-    fs::write(global_guard.join("run.cmd"), "@exit /b 0\r\n").unwrap();
     let mut unexpected_claim =
         |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 

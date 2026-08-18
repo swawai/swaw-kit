@@ -442,7 +442,7 @@ exit 37
         targetProjectRoot = $TargetRoot
         projectModuleRoot = $ProjectModuleRoot
         dataRoot = $DataRoot
-        commandProtocol = '1'
+        commandProtocol = '2'
         commandDataRoot = (Join-Path $DataRoot 'modules\project\probe')
         commandSpace = 'module'
         commandNamespace = 'project'

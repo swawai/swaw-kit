@@ -5,7 +5,7 @@ use super::{CommandExecutor, Fixture, argv, write_json};
 const CONTRACT: &str = "swawkit.fixture/publication/v1";
 
 #[test]
-fn dependency_preflight_stops_execution_before_journal_or_command_side_effects() {
+fn dependency_readiness_stops_execution_before_journal_or_command_side_effects() {
     let fixture = Fixture::new();
     let provider = fixture.command(".provider", "exit 0");
     let consumer = fixture.command(
@@ -37,7 +37,11 @@ fn dependency_preflight_stops_execution_before_journal_or_command_side_effects()
         .execute_journaled(&argv(&[".consumer"]))
         .unwrap_err();
 
-    assert!(error.to_string().contains("dependency preflight failed"));
+    assert!(
+        error
+            .to_string()
+            .contains("command dependencies are not ready")
+    );
     assert!(error.to_string().contains("state-missing"));
     assert!(!fixture.data_root.join("consumer-ran.txt").exists());
     assert!(
@@ -49,7 +53,7 @@ fn dependency_preflight_stops_execution_before_journal_or_command_side_effects()
 }
 
 #[test]
-fn dependency_preflight_allows_a_matching_ready_publication() {
+fn dependency_readiness_allows_a_matching_ready_publication() {
     let fixture = Fixture::new();
     let provider = fixture.command(".provider", "exit 0");
     let consumer = fixture.command(
@@ -97,7 +101,7 @@ fn dependency_preflight_allows_a_matching_ready_publication() {
 }
 
 #[test]
-fn dependency_preflight_rejects_a_stale_provider_export_set() {
+fn dependency_readiness_rejects_a_stale_provider_export_set() {
     let fixture = Fixture::new();
     let provider = fixture.command(".provider", "exit 0");
     let consumer = fixture.command(

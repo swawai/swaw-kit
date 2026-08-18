@@ -1,7 +1,7 @@
 import { normalizeCommandEvents } from "./command-event-client.js";
 
 const COMMAND_RUNS_URL = "/api/v2/command-runs";
-const COMMAND_RUN_PROTOCOL = "swawkit.command-run/v1";
+const COMMAND_RUN_PROTOCOL = "swawkit.command-run/v2";
 const COMMAND_RUN_STATES = new Set([
   "running",
   "canceling",

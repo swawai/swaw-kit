@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 const REVISION_PREFIX: &str = "sha256-";
+const COMMAND_PROTOCOL: &str = "2";
 
 pub(super) struct CommandContext {
     pub(super) swawkit_home: PathBuf,
@@ -23,8 +24,7 @@ pub(super) struct SetupCommandContext {
 
 impl CommandContext {
     pub(super) fn from_environment(handler: &str) -> Result<Self, String> {
-        require_exact("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL", "1")?;
-        require_exact("SWAWKIT_PROJ_CORE_COMMAND_PHASE", "run")?;
+        validate_command_protocol(&required("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL")?)?;
         let expected_address = match handler {
             "dev.setup" => ".dev/setup",
             "dev.status" => ".dev/status",
@@ -112,6 +112,16 @@ fn require_exact(name: &str, expected: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_command_protocol(actual: &str) -> Result<(), String> {
+    if actual == COMMAND_PROTOCOL {
+        Ok(())
+    } else {
+        Err(format!(
+            "unsupported SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL value '{actual}'; expected '{COMMAND_PROTOCOL}'"
+        ))
+    }
+}
+
 fn absolute_path(value: String, subject: &str) -> Result<PathBuf, String> {
     let path = PathBuf::from(value);
     if !path.is_absolute() {
@@ -163,4 +173,15 @@ fn is_revision(value: &str) -> bool {
         && value[REVISION_PREFIX.len()..]
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_command_protocol;
+
+    #[test]
+    fn command_environment_protocol_hard_cut_accepts_only_v2() {
+        assert_eq!(validate_command_protocol("2"), Ok(()));
+        assert!(validate_command_protocol("1").is_err());
+    }
 }

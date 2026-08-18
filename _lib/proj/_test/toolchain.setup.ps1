@@ -70,8 +70,7 @@ try {
         Get-FileHash -LiteralPath $Profile -Algorithm SHA256
     ).Hash.ToLowerInvariant()
     $Environment = @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-        SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
         SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $RepoRoot

@@ -9,6 +9,8 @@ use crate::entry_runner::{
 };
 use crate::server::command_run::CommandRuns;
 
+mod query_exit;
+
 fn context_surface(fixture: &Fixture) {
     fixture.file(
         "home/_lib/proj/modules/context/swawkit.module.json",
@@ -49,6 +51,7 @@ async fn resolve(app: Router, request: Value) -> Response {
 
 struct FacetQueryRunner {
     documents: BTreeMap<Vec<String>, String>,
+    exit_codes: BTreeMap<Vec<String>, i32>,
 }
 
 impl EntryRunner for FacetQueryRunner {
@@ -68,8 +71,9 @@ impl EntryRunner for FacetQueryRunner {
                 format!("no fake facet document for {argv:?}"),
             )
         })?;
+        let exit_code = self.exit_codes.get(&argv).copied().unwrap_or(0);
         observer.output(EntryOutputStream::Stdout, document.clone());
-        observer.completed(EntryRunOutcome::Exited(0));
+        observer.completed(EntryRunOutcome::Exited(exit_code));
         Ok(Arc::new(CompletedQuery))
     }
 }
@@ -87,7 +91,18 @@ impl EntryRunControl for CompletedQuery {
 }
 
 fn facet_app(fixture: &Fixture, documents: BTreeMap<Vec<String>, String>) -> Router {
-    let runner: Arc<dyn EntryRunner> = Arc::new(FacetQueryRunner { documents });
+    facet_app_with_exit_codes(fixture, documents, BTreeMap::new())
+}
+
+fn facet_app_with_exit_codes(
+    fixture: &Fixture,
+    documents: BTreeMap<Vec<String>, String>,
+    exit_codes: BTreeMap<Vec<String>, i32>,
+) -> Router {
+    let runner: Arc<dyn EntryRunner> = Arc::new(FacetQueryRunner {
+        documents,
+        exit_codes,
+    });
     router_with_runs(
         AUTHORITY.to_owned(),
         fixture.context(),
@@ -272,7 +287,7 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
         }]
     });
     let journal = json!({
-        "schema": "swawkit.command-run-journal/v1",
+        "schema": "swawkit.command-run-journal/v2",
         "id": "run-01"
     });
     let app = facet_app(
@@ -312,7 +327,7 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
         .await
         .expect("Run journal body");
     let document: Value = serde_json::from_slice(&body).expect("Run journal JSON");
-    assert_eq!(document["schema"], "swawkit.command-run-journal/v1");
+    assert_eq!(document["schema"], "swawkit.command-run-journal/v2");
     assert_eq!(document["id"], "run-01");
 }
 

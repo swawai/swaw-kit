@@ -355,7 +355,7 @@ try {
     )
     Assert-ProjJournalAbandonment `
         -Condition (
-            $Document.protocol -ceq 'swawkit.command-run-journal/v1' -and
+            $Document.protocol -ceq 'swawkit.command-run-journal/v2' -and
             $Document.id -ceq $RunId -and
             $Document.state -ceq 'failed' -and
             $Document.error -ceq (

@@ -1,124 +1,74 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::os::windows::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Component, Path};
 
 use serde_json::Value;
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
-use crate::catalog::{CommandNode, ModuleProvision};
-use crate::command::{catalog_command_data_root, catalog_command_data_root_from_roots};
-use crate::context::EntryContext;
-use crate::profile::EntryProfile;
-
-use super::{ExportItem, PublicationCheck};
+use crate::catalog::CommandNode;
+use crate::command::catalog_command_data_root_from_roots;
 
 const PROVIDER_STATE_SCHEMA: &str = "swawkit.command-provider-state/v2";
 const MAX_PROVIDER_STATE_BYTES: u64 = 64 * 1024;
-const MAX_EXPORT_ITEMS: usize = 64;
 const MAX_DECLARED_EXPORTS: usize = 64;
 const REVISION_PREFIX: &str = "sha256-";
 
-pub(super) fn inspect_publication(
-    context: &EntryContext,
-    data_root: &Path,
-    profile: Option<&EntryProfile>,
-    provider: &CommandNode,
-    provision: &ModuleProvision,
-) -> PublicationCheck {
-    let module_root = match catalog_command_data_root(
-        context,
-        data_root,
-        profile.map(|profile| profile.binding()),
-        provider,
-    ) {
-        Ok(path) => path,
-        Err(error) => {
-            return publication_failure(
-                provider,
-                provision,
-                "data-root-unavailable",
-                error.to_string(),
-            );
-        }
-    };
-    inspect_publication_root(&module_root, &context.entry_name, provider, provision)
+pub(super) struct PublicationEvaluation {
+    pub ready: bool,
+    pub status: String,
+    pub message: Option<String>,
 }
 
-pub(super) fn inspect_runtime_publication(
+pub(super) fn inspect_publication(
     data_root: &Path,
     entry_name: &str,
     provider: &CommandNode,
-    provision: &ModuleProvision,
-) -> PublicationCheck {
+) -> PublicationEvaluation {
     let module_root = match catalog_command_data_root_from_roots(data_root, provider) {
         Ok(path) => path,
         Err(error) => {
-            return publication_failure(
-                provider,
-                provision,
-                "data-root-unavailable",
-                error.to_string(),
-            );
+            return publication_failure("data-root-unavailable", error.to_string());
         }
     };
-    inspect_publication_root(&module_root, entry_name, provider, provision)
+    if let Err(error) = validate_provider_directory_chain(data_root, &module_root) {
+        return publication_failure("provider-path-invalid", error);
+    }
+    inspect_publication_root(&module_root, entry_name, provider)
 }
 
 fn inspect_publication_root(
     module_root: &Path,
     entry_name: &str,
     provider: &CommandNode,
-    provision: &ModuleProvision,
-) -> PublicationCheck {
+) -> PublicationEvaluation {
     let state_path = module_root.join("_state.json");
     let export_root = module_root.join("export");
-    let (exports, exports_truncated) = match list_exports(&export_root) {
-        Ok(exports) => exports,
+    let export_ready = match inspect_export_root(&export_root) {
+        Ok(ready) => ready,
         Err(error) => {
-            return PublicationCheck {
-                provider: provider.address.clone(),
-                export: provision.id.clone(),
-                contract: provision.contract.clone(),
+            return PublicationEvaluation {
                 ready: false,
                 status: "export-invalid".to_owned(),
                 message: Some(error),
-                state_path: Some(display_path(&state_path)),
-                export_root: Some(display_path(&export_root)),
-                exports: Vec::new(),
-                exports_truncated: false,
             };
         }
     };
     let state = match read_provider_state(&state_path) {
         Ok(state) => state,
         Err(error) => {
-            return PublicationCheck {
-                provider: provider.address.clone(),
-                export: provision.id.clone(),
-                contract: provision.contract.clone(),
+            return PublicationEvaluation {
                 ready: false,
                 status: "state-invalid".to_owned(),
                 message: Some(error),
-                state_path: Some(display_path(&state_path)),
-                export_root: Some(display_path(&export_root)),
-                exports,
-                exports_truncated,
             };
         }
     };
     let Some(state) = state else {
-        return PublicationCheck {
-            provider: provider.address.clone(),
-            export: provision.id.clone(),
-            contract: provision.contract.clone(),
+        return PublicationEvaluation {
             ready: false,
             status: "state-missing".to_owned(),
             message: Some(format!("run '{entry_name} {}'", provider.address)),
-            state_path: Some(display_path(&state_path)),
-            export_root: Some(display_path(&export_root)),
-            exports,
-            exports_truncated,
         };
     };
     let status = state
@@ -126,7 +76,6 @@ fn inspect_publication_root(
         .and_then(Value::as_str)
         .unwrap_or("invalid");
     let exports_match = state_exports(&state) == manifest_exports(provider);
-    let export_ready = regular_directory(&export_root);
     let ready = status == "ready" && exports_match && export_ready;
     let message = if status != "ready" {
         Some(format!(
@@ -140,17 +89,10 @@ fn inspect_publication_root(
     } else {
         None
     };
-    PublicationCheck {
-        provider: provider.address.clone(),
-        export: provision.id.clone(),
-        contract: provision.contract.clone(),
+    PublicationEvaluation {
         ready,
         status: if ready { "ready" } else { "not-ready" }.to_owned(),
         message,
-        state_path: Some(display_path(&state_path)),
-        export_root: Some(display_path(&export_root)),
-        exports,
-        exports_truncated,
     }
 }
 
@@ -179,23 +121,11 @@ fn manifest_exports(provider: &CommandNode) -> BTreeSet<(String, String)> {
         .collect()
 }
 
-fn publication_failure(
-    provider: &CommandNode,
-    provision: &ModuleProvision,
-    status: &str,
-    message: String,
-) -> PublicationCheck {
-    PublicationCheck {
-        provider: provider.address.clone(),
-        export: provision.id.clone(),
-        contract: provision.contract.clone(),
+fn publication_failure(status: &str, message: String) -> PublicationEvaluation {
+    PublicationEvaluation {
         ready: false,
         status: status.to_owned(),
         message: Some(message),
-        state_path: None,
-        export_root: None,
-        exports: Vec::new(),
-        exports_truncated: false,
     }
 }
 
@@ -323,50 +253,66 @@ fn is_lower_hex(value: &str, length: usize) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn list_exports(root: &Path) -> Result<(Vec<ExportItem>, bool), String> {
-    if !regular_directory(root) {
-        return Ok((Vec::new(), false));
+fn validate_provider_directory_chain(data_root: &Path, module_root: &Path) -> Result<(), String> {
+    let relative = module_root.strip_prefix(data_root).map_err(|_| {
+        format!(
+            "provider directory '{}' is outside Entry DataRoot '{}'",
+            module_root.display(),
+            data_root.display()
+        )
+    })?;
+    let mut current = data_root.to_path_buf();
+    if !validate_existing_directory(&current)? {
+        return Ok(());
     }
-    let mut entries = fs::read_dir(root)
-        .map_err(|error| format!("cannot inspect export '{}': {error}", root.display()))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("cannot inspect export '{}': {error}", root.display()))?;
-    entries.sort_by_key(|entry| entry.file_name());
-    let truncated = entries.len() > MAX_EXPORT_ITEMS;
-    entries.truncate(MAX_EXPORT_ITEMS);
-    let mut exports = Vec::with_capacity(entries.len());
-    for entry in entries {
-        let metadata = fs::symlink_metadata(entry.path()).map_err(|error| {
-            format!(
-                "cannot inspect export item '{}': {error}",
-                entry.path().display()
-            )
-        })?;
-        let kind = if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            "reparse"
-        } else if metadata.is_dir() {
-            "directory"
-        } else if metadata.is_file() {
-            "file"
-        } else {
-            "other"
+    for component in relative.components() {
+        let Component::Normal(name) = component else {
+            return Err(format!(
+                "provider directory '{}' is not a canonical DataRoot descendant",
+                module_root.display()
+            ));
         };
-        exports.push(ExportItem {
-            name: entry.file_name().to_string_lossy().into_owned(),
-            kind,
-        });
+        current.push(name);
+        if !validate_existing_directory(&current)? {
+            return Ok(());
+        }
     }
-    Ok((exports, truncated))
+    Ok(())
+}
+
+fn validate_existing_directory(path: &Path) -> Result<bool, String> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect provider directory '{}': {error}",
+                path.display()
+            ));
+        }
+    };
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(format!(
+            "provider directory is not a regular directory: {}",
+            path.display()
+        ));
+    }
+    Ok(true)
+}
+
+fn inspect_export_root(root: &Path) -> Result<bool, String> {
+    if !regular_directory(root) {
+        return Ok(false);
+    }
+    fs::read_dir(root)
+        .map_err(|error| format!("cannot inspect export '{}': {error}", root.display()))?;
+    Ok(true)
 }
 
 fn regular_directory(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| {
         metadata.is_dir() && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0
     })
-}
-
-fn display_path(path: &Path) -> String {
-    path.display().to_string()
 }
 
 #[cfg(test)]

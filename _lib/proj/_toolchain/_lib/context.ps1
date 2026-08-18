@@ -82,10 +82,10 @@ function New-ProjDevContext {
 }
 
 function New-ProjDevContextFromEnvironment {
-    if ([string]$env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL -cne '1') {
+    if ([string]$env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL -cne '2') {
         throw (
             'Unsupported or missing SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL. ' +
-            'Expected protocol version 1.'
+            'Expected protocol version 2.'
         )
     }
 

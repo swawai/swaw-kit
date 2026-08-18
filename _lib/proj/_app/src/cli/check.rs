@@ -3,8 +3,8 @@ use std::path::Path;
 
 use swawkit_proj::{
     catalog::{CatalogSnapshot, CommandSpace},
+    command_check::{CommandCheckDocument, DependencyCheck, inspect},
     context::EntryContext,
-    module_check::{DependencyCheck, ModuleCheckDocument, PublicationCheck, inspect},
     profile::EntryProfileState,
 };
 
@@ -12,12 +12,16 @@ use super::{CliError, write_output};
 
 const CHECK_ADDRESS: &str = ".check";
 
+pub(super) fn is_invocation(argv: &[OsString]) -> bool {
+    argv.first().is_some_and(|address| address == CHECK_ADDRESS)
+}
+
 pub(super) fn dispatch(
     snapshot: &CatalogSnapshot,
     argv: &[OsString],
     context: &EntryContext,
     data_root: &Path,
-    profile_state: &EntryProfileState,
+    _profile_state: &EntryProfileState,
 ) -> Result<Option<i32>, CliError> {
     let Some(address) = argv.first().and_then(|value| value.to_str()) else {
         return Ok(None);
@@ -31,17 +35,17 @@ pub(super) fn dispatch(
         [_, target, format] if format == "--json" => (unicode(target, "command address")?, true),
         _ => return Err(check_usage()),
     };
-    let document = inspect(context, data_root, profile_state.ready(), snapshot, target)
-        .map_err(CliError::new)?;
+    let document =
+        inspect(data_root, &context.entry_name, snapshot, target).map_err(CliError::new)?;
     let output = if json {
         serde_json::to_string_pretty(&document)
-            .map_err(|error| CliError::new(format!("cannot serialize module check: {error}")))?
+            .map_err(|error| CliError::new(format!("cannot serialize command check: {error}")))?
     } else {
         render_text(&document)
     };
     write_output(&output)
         .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
-    Ok(Some(if document.ok { 0 } else { 1 }))
+    Ok(Some(if document.ready { 0 } else { 1 }))
 }
 
 fn require_check_command(snapshot: &CatalogSnapshot) -> Result<(), CliError> {
@@ -58,13 +62,10 @@ fn require_check_command(snapshot: &CatalogSnapshot) -> Result<(), CliError> {
     }
 }
 
-fn render_text(document: &ModuleCheckDocument) -> String {
+fn render_text(document: &CommandCheckDocument) -> String {
     let mut lines = vec![
         format!("Command: {}", document.command.address),
-        format!(
-            "Status: {}",
-            if document.ok { "ready" } else { "not ready" }
-        ),
+        format!("Ready: {}", yes_no(document.ready)),
         format!("Runnable: {}", yes_no(document.command.runnable)),
         format!(
             "Adapter: {}",
@@ -73,19 +74,6 @@ fn render_text(document: &ModuleCheckDocument) -> String {
     ];
     if let Some(diagnostic) = &document.command.diagnostic {
         lines.push(format!("Diagnostic: {diagnostic}"));
-    }
-
-    lines.push(String::new());
-    lines.push("Guards:".to_owned());
-    if document.guards.is_empty() {
-        lines.push("  none".to_owned());
-    } else {
-        lines.extend(
-            document
-                .guards
-                .iter()
-                .map(|guard| format!("  {}: {}", guard.scope, guard.entry)),
-        );
     }
 
     lines.push(String::new());
@@ -98,15 +86,6 @@ fn render_text(document: &ModuleCheckDocument) -> String {
         }
     }
 
-    lines.push(String::new());
-    lines.push("Publications:".to_owned());
-    if document.publications.is_empty() {
-        lines.push("  none declared".to_owned());
-    } else {
-        for publication in &document.publications {
-            append_publication(&mut lines, publication, 1);
-        }
-    }
     lines.join("\n")
 }
 
@@ -122,36 +101,8 @@ fn append_dependency(lines: &mut Vec<String>, dependency: &DependencyCheck, dept
     if let Some(message) = &dependency.message {
         lines.push(format!("{indent}  {message}"));
     }
-    if let Some(publication) = &dependency.publication {
-        if let Some(root) = &publication.export_root {
-            lines.push(format!("{indent}  export: {root}"));
-        }
-    }
     for child in &dependency.dependencies {
         append_dependency(lines, child, depth + 1);
-    }
-}
-
-fn append_publication(lines: &mut Vec<String>, publication: &PublicationCheck, depth: usize) {
-    let indent = "  ".repeat(depth);
-    lines.push(format!(
-        "{indent}{} {}#{} [{}]",
-        marker(publication.ready),
-        publication.provider,
-        publication.export,
-        publication.contract
-    ));
-    if let Some(message) = &publication.message {
-        lines.push(format!("{indent}  {message}"));
-    }
-    if let Some(root) = &publication.export_root {
-        lines.push(format!("{indent}  export: {root}"));
-    }
-    for item in &publication.exports {
-        lines.push(format!("{indent}  - {} ({})", item.name, item.kind));
-    }
-    if publication.exports_truncated {
-        lines.push(format!("{indent}  - ... additional items omitted"));
     }
 }
 
@@ -176,12 +127,12 @@ fn check_usage() -> CliError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use swawkit_proj::module_check::{CheckedCommand, MODULE_CHECK_PROTOCOL};
+    use swawkit_proj::command_check::{COMMAND_CHECK_PROTOCOL, CheckedCommand};
 
     #[test]
     fn text_report_has_stable_sections() {
-        let document = ModuleCheckDocument {
-            protocol: MODULE_CHECK_PROTOCOL,
+        let document = CommandCheckDocument {
+            protocol: COMMAND_CHECK_PROTOCOL,
             command: CheckedCommand {
                 address: ".tool".to_owned(),
                 space: CommandSpace::System,
@@ -190,14 +141,14 @@ mod tests {
                 adapter: Some("exe".to_owned()),
                 diagnostic: None,
             },
-            guards: Vec::new(),
             dependencies: Vec::new(),
-            publications: Vec::new(),
-            ok: true,
+            ready: true,
         };
         let output = render_text(&document);
         assert!(output.contains("Command: .tool"));
+        assert!(output.contains("Ready: yes"));
         assert!(output.contains("Dependencies:\n  none declared"));
-        assert!(output.contains("Publications:\n  none declared"));
+        assert!(!output.contains("Guards:"));
+        assert!(!output.contains("Publications:"));
     }
 }

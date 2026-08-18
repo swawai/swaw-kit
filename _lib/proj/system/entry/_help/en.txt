@@ -6,4 +6,4 @@ Usage:
 
 Project binding, interface language, and Git settings use typed commands below {{ADDRESS}}. Development-tool settings live below the matching .dev tool node. Use {{ADDRESS}}.apply for a complete replacement and {{ADDRESS}}.claim to inspect and explicitly accept a DataRoot ownership change.
 
-This Entry command remains available when the Profile is missing or invalid and does not execute project _global or _guard entries.
+This Entry command remains available when the Profile is missing or invalid.
