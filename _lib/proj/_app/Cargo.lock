@@ -2369,6 +2369,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "swawkit-proj-protocol",
  "tokio",
  "tower",
  "tray-icon",
@@ -2378,6 +2379,15 @@ dependencies = [
  "windows-sys 0.61.2",
  "winit",
  "zip",
+]
+
+[[package]]
+name = "swawkit-proj-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

@@ -6,7 +6,7 @@ import {
   sortCommands,
 } from "./catalog-model.js";
 
-const protocol = "swawkit.command-catalog/v16";
+const protocol = "swawkit.command-catalog/v17";
 
 function node(address, overrides = {}) {
   const space = overrides.space ?? (address.startsWith(".") || address === "" ? "system" : "module");
@@ -29,6 +29,7 @@ function node(address, overrides = {}) {
     entry: null,
     adapter: null,
     handler: null,
+    product: null,
     module: null,
     help: null,
     subjectKinds: [],
@@ -39,13 +40,15 @@ function node(address, overrides = {}) {
   };
   if (
     command.module === null
-    && new Set(["core", "toolchain", "native"]).has(command.adapter)
+    && new Set(["core", "toolchain", "runtime", "native"]).has(command.adapter)
   ) {
     command.module = {
-      schema: "swawkit.command-module/v8",
+      schema: "swawkit.command-module/v9",
       execution: command.adapter === "native"
         ? { type: "native" }
-        : { type: command.adapter, handler: command.handler },
+        : command.adapter === "runtime"
+          ? { type: "runtime", product: command.product }
+          : { type: command.adapter, handler: command.handler },
       requires: [],
       provides: [],
     };
@@ -63,7 +66,7 @@ function payload(commands, overrides = {}) {
   };
 }
 
-describe("Catalog v16 model", () => {
+describe("Catalog v17 model", () => {
   test("derives a non-runnable group only from its children", () => {
     const catalog = createCatalog(payload([
       node(".dev"),
@@ -157,7 +160,7 @@ describe("Catalog v16 model", () => {
     const catalog = createCatalog(payload([
       node("swaw/broken", {
         module: {
-          schema: "swawkit.command-module/v8",
+          schema: "swawkit.command-module/v9",
           execution: {
             type: "delegate",
             owner: {
@@ -195,14 +198,14 @@ describe("Catalog v16 model", () => {
 
   test("rejects an unknown protocol version", () => {
     expect(() => createCatalog(payload([], { protocol: "catalog/v2" })))
-      .toThrow("protocol 必须是 swawkit.command-catalog/v16");
+      .toThrow("protocol 必须是 swawkit.command-catalog/v17");
   });
 
   test("normalizes declared module requirements and provisions", () => {
     const catalog = createCatalog(payload([
       node(".consumer", {
         module: {
-          schema: "swawkit.command-module/v8",
+          schema: "swawkit.command-module/v9",
           requires: [{
             provider: ".provider",
             export: "fixture",
@@ -213,7 +216,7 @@ describe("Catalog v16 model", () => {
       }),
     ]));
     expect(catalog.commandByAddress.get(".consumer").module).toEqual({
-      schema: "swawkit.command-module/v8",
+      schema: "swawkit.command-module/v9",
       execution: null,
       requires: [{
         provider: ".provider",
@@ -231,7 +234,7 @@ describe("Catalog v16 model", () => {
         entry: "swawkit.module.json",
         adapter: "delegate",
         module: {
-          schema: "swawkit.command-module/v8",
+          schema: "swawkit.command-module/v9",
           execution: {
             type: "delegate",
             owner: {
@@ -271,16 +274,16 @@ describe("Catalog v16 model", () => {
       .toEqual({ type: "native" });
   });
 
-  test("rejects the removed command-module/v6 contract", () => {
+  test("rejects the removed command-module/v8 contract", () => {
     expect(() => createCatalog(payload([
       node(".legacy", {
         module: {
-          schema: "swawkit.command-module/v6",
+          schema: "swawkit.command-module/v8",
           requires: [],
           provides: [{ contract: "legacy/v1" }],
         },
       }),
-    ]))).toThrow("swawkit.command-module/v8");
+    ]))).toThrow("swawkit.command-module/v9");
   });
 
   test("rejects a missing entry name", () => {
@@ -305,7 +308,7 @@ describe("Catalog v16 model", () => {
         entry: "run.ps1",
         adapter: "pwsh",
         module: {
-          schema: "swawkit.command-module/v8",
+          schema: "swawkit.command-module/v9",
           execution: { type: "native" },
           requires: [],
           provides: [],
@@ -382,6 +385,43 @@ describe("Catalog v16 model", () => {
         handler: "dev.setup",
       }),
     ]))).toThrow("handler");
+  });
+
+  test("normalizes the exact module Runtime Component without a handler", () => {
+    const catalog = createCatalog(payload([
+      node(".module/status", {
+        parent: ".module",
+        runnable: true,
+        entry: "swawkit.module.json",
+        adapter: "runtime",
+        product: "module",
+      }),
+    ]));
+    const status = catalog.commandByAddress.get(".module/status");
+
+    expect(status.handler).toBe("");
+    expect(status.product).toBe("module");
+    expect(status.module.execution).toEqual({
+      type: "runtime",
+      product: "module",
+    });
+
+    expect(() => createCatalog(payload([
+      node(".module/status", {
+        runnable: true,
+        entry: "swawkit.module.json",
+        adapter: "runtime",
+        product: "toolchain",
+      }),
+    ]))).toThrow("runtime product module is restricted");
+    expect(() => createCatalog(payload([
+      node(".wrong", {
+        runnable: true,
+        entry: "swawkit.module.json",
+        adapter: "runtime",
+        product: "module",
+      }),
+    ]))).toThrow("runtime product module is restricted");
   });
 
   test("normalizes the parent-owned child column width", () => {

@@ -242,6 +242,61 @@ function Resolve-ProjBootstrapMsvcExecutable {
     return $ExecutablePath
 }
 
+function Invoke-ProjBootstrapModuleBuild {
+    param(
+        [Parameter(Mandatory = $true)][string]$CargoPath,
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$TargetDirectory
+    )
+
+    foreach ($Path in @($CargoPath, $ManifestPath, $TargetDirectory)) {
+        if (-not [IO.Path]::IsPathRooted($Path)) {
+            throw "The Module build path must be absolute: $Path"
+        }
+    }
+    $CargoPath = [IO.Path]::GetFullPath($CargoPath)
+    $ManifestPath = [IO.Path]::GetFullPath($ManifestPath)
+    $TargetDirectory = [IO.Path]::GetFullPath($TargetDirectory)
+    if (-not [IO.File]::Exists($CargoPath)) {
+        throw "The Module Cargo executable is missing: $CargoPath"
+    }
+    if (-not [IO.File]::Exists($ManifestPath)) {
+        throw "The Module Cargo manifest is missing: $ManifestPath"
+    }
+
+    $Arguments = @(
+        'build',
+        '--locked',
+        '--release',
+        '--manifest-path',
+        $ManifestPath,
+        '--target-dir',
+        $TargetDirectory
+    )
+    Push-Location (Split-Path $ManifestPath -Parent)
+    try {
+        & $CargoPath @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Module Cargo failed with exit code $LASTEXITCODE."
+        }
+    } finally {
+        Pop-Location
+    }
+
+    $Candidate = Join-Path $TargetDirectory (
+        'release\swawkit-proj-module.exe'
+    )
+    $Item = Get-Item -LiteralPath $Candidate -ErrorAction SilentlyContinue
+    if ($null -eq $Item -or
+        -not [IO.File]::Exists($Candidate) -or
+        $Item.Length -le 0 -or
+        ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Cargo reported success but the Module executable is invalid: $Candidate"
+    }
+    Write-Host "[BUILT] $Candidate ($($Item.Length) bytes)" -ForegroundColor Green
+    Write-Output $Candidate
+}
+
 function Invoke-ProjBootstrapToolchain {
     param([Parameter(Mandatory = $true)][scriptblock]$Action)
 

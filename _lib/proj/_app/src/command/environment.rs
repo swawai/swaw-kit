@@ -1,11 +1,8 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
-use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 use crate::{
     binding::ProjectBinding,
@@ -69,6 +66,7 @@ pub struct CommandExecutionContext {
     pub entry_file: PathBuf,
     pub invocation_directory: PathBuf,
     pub toolchain_executable: PathBuf,
+    pub module_executable: PathBuf,
     pub profile: EntryProfileRecord,
     pub environment_input_revision: String,
     pub profile_revision: String,
@@ -110,6 +108,7 @@ impl CommandExecutionContext {
             entry_file: entry.entry_file.clone(),
             invocation_directory: entry.invocation_directory.clone(),
             toolchain_executable: entry.sibling_product_executable("swawkit-proj-toolchain.exe"),
+            module_executable: entry.sibling_product_executable("swawkit-proj-module.exe"),
             profile: profile.record().clone(),
             environment_input_revision: profile.environment_input_revision().to_owned(),
             profile_revision: profile.profile_revision().to_owned(),
@@ -176,7 +175,6 @@ impl ProcessEnvironment {
         environment.set("SWAWKIT_PROJ_DATA_ROOT", &context.data_root);
         environment.set("SWAWKIT_PROJ_ENTRY_COMMAND", &context.entry_name);
         environment.set("SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE", &context.entry_file);
-        validate_toolchain_executable(&context.toolchain_executable)?;
         environment.set(
             "SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE",
             &context.toolchain_executable,
@@ -314,20 +312,42 @@ fn path_is_within_windows(path: &Path, root: &Path) -> bool {
                 .is_some_and(|byte| *byte == b'\\' || *byte == b'/')
 }
 
-fn validate_toolchain_executable(path: &Path) -> CommandResult<()> {
+pub(crate) fn validate_toolchain_executable(path: &Path) -> CommandResult<()> {
     let metadata = std::fs::symlink_metadata(path).map_err(|error| {
         CommandError::new(format!(
             "the Runtime Release Toolchain is unavailable at '{}': {error}",
             path.display()
         ))
     })?;
-    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+    if !metadata.is_file() {
         return Err(CommandError::new(format!(
             "the Runtime Release Toolchain is not a regular file: '{}'",
             path.display()
         )));
     }
-    Ok(())
+    crate::runtime_release::validate_product(path).map_err(|error| {
+        CommandError::new(format!("the Runtime Release Toolchain is invalid: {error}"))
+    })
+}
+
+pub(crate) fn validate_module_executable(path: &Path) -> CommandResult<()> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+        CommandError::new(format!(
+            "the Runtime Component product 'module' is unavailable at '{}': {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.is_file() {
+        return Err(CommandError::new(format!(
+            "the Runtime Component product 'module' is not a regular file: '{}'",
+            path.display()
+        )));
+    }
+    crate::runtime_release::validate_product(path).map_err(|error| {
+        CommandError::new(format!(
+            "the Runtime Component product 'module' is invalid: {error}"
+        ))
+    })
 }
 
 pub(crate) fn command_data_root(

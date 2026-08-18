@@ -38,6 +38,8 @@ impl Fixture {
         }
         fs::write(root.join("swawkit-proj-toolchain.exe"), "fixture")
             .expect("write Toolchain fixture");
+        fs::write(root.join("swawkit-proj-module.exe"), "fixture")
+            .expect("write module Runtime Component fixture");
         let mut profile = EntryProfileRecord::default();
         profile.development.pwsh.mode = "disabled".to_owned();
         profile.development.msvc.mode = "disabled".to_owned();
@@ -55,6 +57,7 @@ impl Fixture {
             entry_file: root.join("fixture.exe"),
             invocation_directory: root.join("project"),
             toolchain_executable: root.join("swawkit-proj-toolchain.exe"),
+            module_executable: root.join("swawkit-proj-module.exe"),
             environment_input_revision: profile.environment_input_revision(),
             profile_revision: format!("sha256-{}", "0".repeat(64)),
             profile,

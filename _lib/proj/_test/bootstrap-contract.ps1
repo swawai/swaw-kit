@@ -37,6 +37,21 @@ Assert-ProjBootstrapContractTest `
             (Join-Path $RepoRoot 'data\proj_cache\bootstrap\build\app'),
             [StringComparison]::OrdinalIgnoreCase
         ) -and
+        [IO.Path]::GetFullPath($Layout.ModuleBuildRoot).Equals(
+            (Join-Path $RepoRoot 'data\proj_cache\bootstrap\build\module'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.ModuleManifestPath).Equals(
+            (Join-Path $RepoRoot '_lib\proj\system\module\_app\Cargo.toml'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.ModuleCandidatePath).Equals(
+            (Join-Path $RepoRoot (
+                'data\proj_cache\bootstrap\build\module\release\' +
+                'swawkit-proj-module.exe'
+            )),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
         [IO.Path]::GetFullPath($Layout.LauncherBuildRoot).Equals(
             (Join-Path $RepoRoot 'data\proj_cache\bootstrap\build\launcher'),
             [StringComparison]::OrdinalIgnoreCase
@@ -90,7 +105,11 @@ Assert-ProjBootstrapContractTest `
 
 $BootstrapEntry = [IO.File]::ReadAllText($Layout.BootstrapEntryPath)
 Assert-ProjBootstrapContractTest `
-    -Condition (-not $BootstrapEntry.Contains('LauncherBuild')) `
+    -Condition (
+        -not $BootstrapEntry.Contains('LauncherBuild') -and
+        $BootstrapEntry.Contains('Invoke-ProjBootstrapModuleBuild') -and
+        $BootstrapEntry.Contains('CandidateModulePath')
+    ) `
     -Message 'the cold Bootstrap entry still builds the Launcher'
 
 $BootstrapToolchain = [IO.File]::ReadAllText(

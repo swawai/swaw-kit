@@ -144,6 +144,7 @@ fn publish_release(releases: &Path, seed: &[u8]) -> String {
     let artifacts = [
         ("swawkit-proj.exe", [seed, b"-core"].concat()),
         ("swawkit-proj-host.exe", [seed, b"-host"].concat()),
+        ("swawkit-proj-module.exe", [seed, b"-module"].concat()),
         ("swawkit-proj-toolchain.exe", [seed, b"-toolchain"].concat()),
     ];
     let records = artifacts

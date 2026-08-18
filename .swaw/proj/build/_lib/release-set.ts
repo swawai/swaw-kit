@@ -5,6 +5,7 @@ import {
   mkdir,
   open,
   readFile,
+  readdir,
   rename,
   rm,
   writeFile,
@@ -12,15 +13,17 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { moveFileReplace } from "./windows-filesystem.ts";
 
-const BUILD_SCHEMA = "swawkit.proj-build-release-set/v1";
-const RUNTIME_SCHEMA = "swawkit.proj-release-set/v1";
+const BUILD_SCHEMA = "swawkit.proj-build-release-set/v2";
+const RUNTIME_SCHEMA = "swawkit.proj-release-set/v2";
 const STATE_SCHEMA = "swawkit.command-provider-state/v2";
 const MAX_MANIFEST_BYTES = 1024 * 1024;
-export const PRODUCER_CONTRACT = "swawkit.proj-build-app/v3";
+const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
+export const PRODUCER_CONTRACT = "swawkit.proj-build-app/v4";
 export const PRODUCER_EXPORT = "runtime-release";
 export const RUNTIME_ARTIFACT_NAMES = [
   "swawkit-proj.exe",
   "swawkit-proj-host.exe",
+  "swawkit-proj-module.exe",
   "swawkit-proj-toolchain.exe",
 ] as const;
 type RuntimeArtifactName = typeof RUNTIME_ARTIFACT_NAMES[number];
@@ -47,7 +50,12 @@ async function fileRecord(name: string, path: string): Promise<Artifact> {
     throw new Error(`invalid Release Set artifact name: '${name}'`);
   }
   const metadata = await lstat(path);
-  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0) {
+  if (
+    !metadata.isFile()
+    || metadata.isSymbolicLink()
+    || metadata.size <= 0
+    || metadata.size > MAX_ARTIFACT_BYTES
+  ) {
     throw new Error(`Release Set build candidate is invalid: ${path}`);
   }
   return {
@@ -165,6 +173,11 @@ export async function readBuildReleaseDirectory(
   expectedNames: readonly string[],
 ): Promise<Artifact[]> {
   await regularDirectory(root, "build Release Set");
+  const members = (await readdir(root)).sort();
+  const expectedMembers = [...expectedNames, "manifest.json"].sort();
+  if (members.join("\n") !== expectedMembers.join("\n")) {
+    throw new Error(`build Release Set directory membership is invalid: ${root}`);
+  }
   const manifestPath = join(root, "manifest.json");
   const manifestMetadata = await lstat(manifestPath);
   if (
@@ -194,6 +207,7 @@ export async function readBuildReleaseDirectory(
       || Object.keys(value).sort().join("\n") !== ["length", "name", "sha256"].join("\n")
       || typeof value.name !== "string"
       || !Number.isSafeInteger(value.length) || value.length <= 0
+      || value.length > MAX_ARTIFACT_BYTES
       || typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.sha256)
     ) {
       throw new Error(`build Release Set manifest is invalid: ${root}`);

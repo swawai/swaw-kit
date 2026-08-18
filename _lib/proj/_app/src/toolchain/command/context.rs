@@ -9,9 +9,7 @@ const REVISION_PREFIX: &str = "sha256-";
 const COMMAND_PROTOCOL: &str = "2";
 
 pub(super) struct CommandContext {
-    pub(super) swawkit_home: PathBuf,
     pub(super) data_root: PathBuf,
-    pub(super) module_roots: BTreeMap<String, PathBuf>,
     pub(super) export_root: PathBuf,
     pub(super) entry_command: String,
     pub(super) environment_input_revision: String,
@@ -28,7 +26,6 @@ impl CommandContext {
         let expected_address = match handler {
             "dev.setup" => ".dev/setup",
             "dev.status" => ".dev/status",
-            "module.instantiate" => ".module/instantiate",
             _ => return Err(format!("unsupported Toolchain command handler '{handler}'")),
         };
         require_exact("SWAWKIT_PROJ_CORE_COMMAND_ADDRESS", expected_address)?;
@@ -60,9 +57,7 @@ impl CommandContext {
             .join("setup");
         let export_root = setup_root.join("export");
         Ok(Self {
-            swawkit_home,
             data_root,
-            module_roots,
             export_root,
             entry_command,
             environment_input_revision,

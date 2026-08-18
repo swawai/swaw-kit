@@ -14,7 +14,10 @@ pub use environment::{
     CommandExecutionContext, CommandProcessMode, catalog_command_data_root,
     catalog_command_data_root_from_roots,
 };
-pub(crate) use environment::{ProcessEnvironment, command_data_root};
+pub(crate) use environment::{
+    ProcessEnvironment, command_data_root, validate_module_executable,
+    validate_toolchain_executable,
+};
 pub use execute::CommandExecutor;
 pub(crate) use invocation::Invocation;
 pub(crate) use resolve::ResolvedCommand;

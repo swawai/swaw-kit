@@ -14,6 +14,7 @@ pub(crate) struct ResolvedCommand {
     pub entry_path: PathBuf,
     pub adapter: CommandAdapter,
     pub handler: Option<String>,
+    pub product: Option<String>,
     pub native_owner: Option<String>,
 }
 
@@ -72,6 +73,7 @@ impl ResolvedCommand {
             entry_path: node.directory.join(entry_name),
             adapter,
             handler: node.handler.clone(),
+            product: node.product.clone(),
             native_owner: node.native_owner.clone(),
         })
     }

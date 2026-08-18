@@ -19,14 +19,20 @@ pub(crate) struct ResolvedEntry {
     pub(crate) name: &'static str,
     pub(crate) adapter: CommandAdapter,
     pub(crate) handler: Option<String>,
+    pub(crate) product: Option<String>,
 }
 
 impl ResolvedEntry {
-    pub(super) fn declared(adapter: CommandAdapter, handler: Option<String>) -> Self {
+    pub(super) fn declared(
+        adapter: CommandAdapter,
+        handler: Option<String>,
+        product: Option<String>,
+    ) -> Self {
         Self {
             name: MODULE_CONTRACT_FILE,
             adapter,
             handler,
+            product,
         }
     }
 
@@ -48,14 +54,38 @@ impl ResolvedEntry {
                 && EntryProfileRecord::is_profile_setting_address(address)))
     }
 
-    pub(super) fn has_valid_toolchain_owner(&self, space: CommandSpace, address: &str) -> bool {
+    pub(super) fn invalid_declared_owner(
+        &self,
+        space: CommandSpace,
+        address: &str,
+    ) -> Option<&'static str> {
+        match self.adapter {
+            CommandAdapter::Core if !self.has_valid_core_owner(space, address) => {
+                Some("core execution is restricted to its exact System command owner")
+            }
+            CommandAdapter::Toolchain if !self.has_valid_toolchain_owner(space, address) => {
+                Some("toolchain execution is restricted to its exact System command owner")
+            }
+            CommandAdapter::Runtime if !self.has_valid_runtime_owner(space, address) => Some(
+                "Runtime Component execution is restricted to product 'module' at exact System owners .module/instantiate and .module/status",
+            ),
+            _ => None,
+        }
+    }
+
+    fn has_valid_toolchain_owner(&self, space: CommandSpace, address: &str) -> bool {
         space == CommandSpace::System
             && matches!(
                 (address, self.handler.as_deref()),
-                (".dev/setup", Some("dev.setup"))
-                    | (".dev/status", Some("dev.status"))
-                    | (".module/instantiate", Some("module.instantiate"))
+                (".dev/setup", Some("dev.setup")) | (".dev/status", Some("dev.status"))
             )
+    }
+
+    fn has_valid_runtime_owner(&self, space: CommandSpace, address: &str) -> bool {
+        space == CommandSpace::System
+            && self.handler.is_none()
+            && self.product.as_deref() == Some("module")
+            && matches!(address, ".module/instantiate" | ".module/status")
     }
 }
 
@@ -114,6 +144,7 @@ pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry
             name: canonical_name,
             adapter,
             handler: None,
+            product: None,
         });
     }
 
@@ -135,6 +166,7 @@ pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry
 pub(crate) enum CommandAdapter {
     Core,
     Toolchain,
+    Runtime,
     Native,
     Delegate,
     Exe,
@@ -149,6 +181,7 @@ impl CommandAdapter {
         match value {
             "core" => Some(Self::Core),
             "toolchain" => Some(Self::Toolchain),
+            "runtime" => Some(Self::Runtime),
             "native" => Some(Self::Native),
             "delegate" => Some(Self::Delegate),
             "exe" => Some(Self::Exe),
@@ -164,6 +197,7 @@ impl CommandAdapter {
         match self {
             Self::Core => "core",
             Self::Toolchain => "toolchain",
+            Self::Runtime => "runtime",
             Self::Native => "native",
             Self::Delegate => "delegate",
             Self::Exe => "exe",

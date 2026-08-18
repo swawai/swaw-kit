@@ -3,6 +3,7 @@ param(
     [string]$LauncherPath = '',
     [string]$CorePath = '',
     [string]$HostPath = '',
+    [string]$ModulePath = '',
     [string]$ToolchainPath = ''
 )
 
@@ -76,6 +77,7 @@ $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 if ([string]::IsNullOrWhiteSpace($LauncherPath) -or
     [string]::IsNullOrWhiteSpace($CorePath) -or
     [string]::IsNullOrWhiteSpace($HostPath) -or
+    [string]::IsNullOrWhiteSpace($ModulePath) -or
     [string]::IsNullOrWhiteSpace($ToolchainPath)) {
     . (Join-Path $RepoRoot (
         '_lib\proj\_toolchain\bootstrap-layout.ps1'
@@ -90,6 +92,9 @@ if ([string]::IsNullOrWhiteSpace($LauncherPath) -or
     if ([string]::IsNullOrWhiteSpace($HostPath)) {
         $HostPath = Join-Path $Layout.BuildRoot 'release\swawkit-proj-host.exe'
     }
+    if ([string]::IsNullOrWhiteSpace($ModulePath)) {
+        $ModulePath = $Layout.ModuleCandidatePath
+    }
     if ([string]::IsNullOrWhiteSpace($ToolchainPath)) {
         $ToolchainPath = Join-Path $Layout.BuildRoot (
             'release\swawkit-proj-toolchain.exe'
@@ -100,11 +105,13 @@ if ([string]::IsNullOrWhiteSpace($LauncherPath) -or
 $LauncherPath = [IO.Path]::GetFullPath($LauncherPath)
 $CorePath = [IO.Path]::GetFullPath($CorePath)
 $HostPath = [IO.Path]::GetFullPath($HostPath)
+$ModulePath = [IO.Path]::GetFullPath($ModulePath)
 $ToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
 foreach ($RequiredFile in @(
     $LauncherPath,
     $CorePath,
     $HostPath,
+    $ModulePath,
     $ToolchainPath
 )) {
     if (-not [IO.File]::Exists($RequiredFile)) {
@@ -117,13 +124,20 @@ $TemporaryRoot = Join-Path $RepoRoot (
 )
 $RuntimeHome = Join-Path $TemporaryRoot 'runtime-home'
 $RuntimeKernelRoot = Join-Path $RuntimeHome '_lib\proj'
-$RuntimeReleaseId = 'a' * 64
+$RuntimeReleaseSet = New-ProjRuntimeReleaseSetFromFiles -Artifacts ([ordered]@{
+    'swawkit-proj.exe' = $CorePath
+    'swawkit-proj-host.exe' = $HostPath
+    'swawkit-proj-module.exe' = $ModulePath
+    'swawkit-proj-toolchain.exe' = $ToolchainPath
+})
+$RuntimeReleaseId = [string]$RuntimeReleaseSet.ReleaseId
 $RuntimeBin = Join-Path $RuntimeKernelRoot '_bin'
 $RuntimeRelease = Join-Path (
     Join-Path $RuntimeBin 'releases'
 ) $RuntimeReleaseId
 $RuntimeCorePath = Join-Path $RuntimeRelease 'swawkit-proj.exe'
 $RuntimeHostPath = Join-Path $RuntimeRelease 'swawkit-proj-host.exe'
+$RuntimeModulePath = Join-Path $RuntimeRelease 'swawkit-proj-module.exe'
 $RuntimeToolchainPath = Join-Path $RuntimeRelease 'swawkit-proj-toolchain.exe'
 $EntryName = "test-launcher-$([Guid]::NewGuid().ToString('N'))"
 $EntryPath = Join-Path $RuntimeHome "$EntryName.exe"
@@ -186,7 +200,6 @@ foreach ($Name in $PoisonedVariables) {
 
 try {
     foreach ($Directory in @(
-        (Split-Path -Path $RuntimeCorePath -Parent),
         (Join-Path $RuntimeKernelRoot 'system'),
         (Join-Path $RuntimeKernelRoot 'modules'),
         $ProbeRoot,
@@ -196,14 +209,10 @@ try {
     )) {
         [void][IO.Directory]::CreateDirectory($Directory)
     }
-    [IO.File]::Copy($CorePath, $RuntimeCorePath, $false)
-    [IO.File]::Copy($HostPath, $RuntimeHostPath, $false)
-    [IO.File]::Copy($ToolchainPath, $RuntimeToolchainPath, $false)
-    [IO.File]::WriteAllText(
-        (Join-Path $RuntimeBin 'current'),
-        ($RuntimeReleaseId + "`n"),
-        [Text.UTF8Encoding]::new($false)
-    )
+    [void](Publish-ProjRuntimeReleaseSet `
+        -ReleaseSet $RuntimeReleaseSet `
+        -ProjHome $RuntimeHome `
+        -CacheDataRoot (Join-Path $RuntimeHome 'data\proj_cache'))
     Copy-Item `
         -LiteralPath (Join-Path $RepoRoot '_lib\proj\system') `
         -Destination $RuntimeKernelRoot `

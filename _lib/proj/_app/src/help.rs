@@ -318,6 +318,7 @@ mod tests {
             entry: None,
             adapter: None,
             handler: None,
+            product: None,
             module: None,
             help,
             subject_kinds: Vec::new(),

@@ -1,30 +1,36 @@
-use std::fs;
-use std::os::windows::fs::MetadataExt;
-use std::path::{Component, Path, PathBuf};
+use std::fs::{self, OpenOptions};
+use std::io::Read;
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+use std::path::{Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 use crate::command::{CommandError, CommandResult};
 
 pub(super) const RELEASE_ID_LENGTH: usize = 64;
+const SELECTOR_LENGTH: u64 = (RELEASE_ID_LENGTH + 1) as u64;
 
 pub(super) fn read_release_selector(path: &Path, label: &str) -> CommandResult<String> {
-    let bytes = read_regular_file(path, label)?;
-    let value = std::str::from_utf8(&bytes).map_err(|error| {
+    let bytes = read_regular_file(path, label, SELECTOR_LENGTH)?;
+    if bytes.len() as u64 != SELECTOR_LENGTH || bytes.last() != Some(&b'\n') {
+        return invalid(format!(
+            "{label} '{}' must contain exactly one lowercase SHA-256 digest followed by LF",
+            path.display()
+        ));
+    }
+    let value = std::str::from_utf8(&bytes[..RELEASE_ID_LENGTH]).map_err(|error| {
         CommandError::new(format!(
             "{label} '{}' is not UTF-8: {error}",
             path.display()
         ))
     })?;
-    let release_id = value.strip_suffix('\n').unwrap_or(value);
-    if !is_release_id(release_id) {
+    if !is_release_id(value) {
         return invalid(format!(
-            "{label} '{}' must contain one lowercase SHA-256 digest",
+            "{label} '{}' must contain exactly one lowercase SHA-256 digest followed by LF",
             path.display()
         ));
     }
-    Ok(release_id.to_owned())
+    Ok(value.to_owned())
 }
 
 pub(super) fn is_release_id(value: &str) -> bool {
@@ -50,92 +56,46 @@ pub(super) fn checked_directory(path: &Path, label: &str) -> CommandResult<PathB
     Ok(path.to_path_buf())
 }
 
-pub(super) fn read_regular_file(path: &Path, label: &str) -> CommandResult<Vec<u8>> {
-    let metadata = fs::symlink_metadata(path).map_err(|error| {
+pub(super) fn read_regular_file(path: &Path, label: &str, maximum: u64) -> CommandResult<Vec<u8>> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .map_err(|error| {
+            CommandError::new(format!(
+                "{label} is unavailable at '{}': {error}",
+                path.display()
+            ))
+        })?;
+    let metadata = file.metadata().map_err(|error| {
         CommandError::new(format!(
-            "{label} is unavailable at '{}': {error}",
+            "cannot inspect {label} '{}': {error}",
             path.display()
         ))
     })?;
-    if !metadata.is_file() || is_reparse_point(&metadata) {
+    if !metadata.is_file() || is_reparse_point(&metadata) || metadata.len() > maximum {
         return invalid(format!(
-            "{label} is not a regular file: '{}'",
+            "{label} is not a bounded regular file: '{}'",
             path.display()
         ));
     }
-    fs::read(path).map_err(|error| {
-        CommandError::new(format!("cannot read {label} '{}': {error}", path.display()))
-    })
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(maximum.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            CommandError::new(format!("cannot read {label} '{}': {error}", path.display()))
+        })?;
+    if bytes.len() as u64 > maximum {
+        return invalid(format!(
+            "{label} is not a bounded regular file: '{}'",
+            path.display()
+        ));
+    }
+    Ok(bytes)
 }
 
 pub(super) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-}
-
-pub(super) fn hex_sha256(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut value = String::with_capacity(RELEASE_ID_LENGTH);
-    for byte in digest {
-        use std::fmt::Write;
-        write!(&mut value, "{byte:02x}").expect("write to String");
-    }
-    value
-}
-
-pub(super) fn ensure_data_root(path: &Path) -> Result<(), String> {
-    match fs::create_dir(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let parent = path
-                .parent()
-                .ok_or_else(|| "Entry DataRoot has no parent directory".to_owned())?;
-            checked_directory(parent, "Entry DataRoot parent")
-                .map_err(|error| error.to_string())?;
-            fs::create_dir(path).map_err(|error| {
-                format!("cannot create Entry DataRoot '{}': {error}", path.display())
-            })?;
-        }
-        Err(error) => {
-            return Err(format!(
-                "cannot create Entry DataRoot '{}': {error}",
-                path.display()
-            ));
-        }
-    }
-    checked_directory(path, "Entry DataRoot")
-        .map(|_| ())
-        .map_err(|error| error.to_string())
-}
-
-pub(super) fn ensure_descendant(
-    root: &Path,
-    target: &Path,
-    label: &str,
-) -> Result<PathBuf, String> {
-    let relative = target
-        .strip_prefix(root)
-        .map_err(|_| format!("{label} escapes its controlled root"))?;
-    let mut current = root.to_path_buf();
-    checked_directory(&current, label).map_err(|error| error.to_string())?;
-    for component in relative.components() {
-        let Component::Normal(segment) = component else {
-            return Err(format!("{label} contains an unsafe path component"));
-        };
-        current.push(segment);
-        match fs::create_dir(&current) {
-            Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-            Err(error) => {
-                return Err(format!(
-                    "cannot create {label} '{}': {error}",
-                    current.display()
-                ));
-            }
-        }
-        checked_directory(&current, label).map_err(|error| error.to_string())?;
-    }
-    Ok(current)
 }
 
 pub(super) fn invalid<T>(message: String) -> CommandResult<T> {

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use swawkit_proj_protocol::{valid_command_segment, valid_module_namespace};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -81,40 +82,11 @@ impl CommandId {
 }
 
 pub(crate) fn valid_namespace(value: &str) -> bool {
-    valid_segment(value) && !matches!(value, "system" | "module")
+    valid_module_namespace(value)
 }
 
 pub(crate) fn valid_segment(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 64
-        && value.bytes().enumerate().all(|(index, byte)| {
-            byte.is_ascii_lowercase() || (index > 0 && (byte.is_ascii_digit() || byte == b'-'))
-        })
-        && !matches!(
-            value,
-            "con"
-                | "prn"
-                | "aux"
-                | "nul"
-                | "com1"
-                | "com2"
-                | "com3"
-                | "com4"
-                | "com5"
-                | "com6"
-                | "com7"
-                | "com8"
-                | "com9"
-                | "lpt1"
-                | "lpt2"
-                | "lpt3"
-                | "lpt4"
-                | "lpt5"
-                | "lpt6"
-                | "lpt7"
-                | "lpt8"
-                | "lpt9"
-        )
+    valid_command_segment(value)
 }
 
 #[cfg(test)]

@@ -15,12 +15,15 @@ function Assert-ProjAppBuildTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+. (Join-Path $RepoRoot '_lib\proj\_toolchain\bootstrap.ps1')
 $BuildScript = Join-Path $RepoRoot '_lib\proj\_app\build.ps1'
+$ModuleManifest = Join-Path $RepoRoot '_lib\proj\system\module\_app\Cargo.toml'
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-app-build-$([Guid]::NewGuid().ToString('N'))"
 )
 $FakeCargo = Join-Path $TemporaryRoot 'cargo.cmd'
 $TargetRoot = Join-Path $TemporaryRoot 'target with spaces'
+$ModuleTargetRoot = Join-Path $TemporaryRoot 'module target with spaces'
 $RuntimePath = Join-Path $RepoRoot '_lib\proj\_bin\current'
 $RuntimeHash = if ([IO.File]::Exists($RuntimePath)) {
     (Get-FileHash -LiteralPath $RuntimePath -Algorithm SHA256).Hash
@@ -34,8 +37,13 @@ try {
 @echo off
 setlocal
 set "target="
+set "manifest="
 :next
 if "%~1"=="" goto build
+if "%~1"=="--manifest-path" (
+  set "manifest=%~2"
+  shift
+)
 if "%~1"=="--target-dir" (
   set "target=%~2"
   shift
@@ -45,9 +53,14 @@ goto next
 :build
 if not defined target exit /b 41
 if not exist "%target%\release" mkdir "%target%\release"
+echo %target% | findstr /i /l /c:"module target with spaces" >nul
+if not errorlevel 1 goto module
 copy /y "%ComSpec%" "%target%\release\swawkit-proj.exe" >nul
 copy /y "%ComSpec%" "%target%\release\swawkit-proj-host.exe" >nul
 copy /y "%ComSpec%" "%target%\release\swawkit-proj-toolchain.exe" >nul
+exit /b %errorlevel%
+:module
+copy /y "%ComSpec%" "%target%\release\swawkit-proj-module.exe" >nul
 exit /b %errorlevel%
 '@
     [IO.File]::WriteAllText(
@@ -59,15 +72,23 @@ exit /b %errorlevel%
     $Output = @(& $BuildScript `
         -CargoPath $FakeCargo `
         -TargetDirectory $TargetRoot)
+    $ModuleOutput = @(Invoke-ProjBootstrapModuleBuild `
+        -CargoPath $FakeCargo `
+        -ManifestPath $ModuleManifest `
+        -TargetDirectory $ModuleTargetRoot)
     $Candidate = Join-Path $TargetRoot 'release\swawkit-proj.exe'
     $HostCandidate = Join-Path $TargetRoot 'release\swawkit-proj-host.exe'
     $ToolchainCandidate = Join-Path $TargetRoot (
         'release\swawkit-proj-toolchain.exe'
     )
+    $ModuleCandidate = Join-Path $ModuleTargetRoot (
+        'release\swawkit-proj-module.exe'
+    )
     Assert-ProjAppBuildTest `
         -Condition (
             [IO.File]::Exists($Candidate) -and
             [IO.File]::Exists($HostCandidate) -and
+            [IO.File]::Exists($ModuleCandidate) -and
             [IO.File]::Exists($ToolchainCandidate) -and
             (Get-Item -LiteralPath $Candidate).Length -gt 0
         ) `
@@ -81,6 +102,9 @@ exit /b %errorlevel%
     Assert-ProjAppBuildTest `
         -Condition (@($Output) -contains $ToolchainCandidate) `
         -Message 'the App build primitive did not report its Toolchain candidate path'
+    Assert-ProjAppBuildTest `
+        -Condition (@($ModuleOutput) -contains $ModuleCandidate) `
+        -Message 'the Module build primitive did not report its candidate path'
     if ($null -eq $RuntimeHash) {
         Assert-ProjAppBuildTest `
             -Condition (-not [IO.File]::Exists($RuntimePath)) `

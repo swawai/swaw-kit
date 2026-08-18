@@ -26,6 +26,23 @@ Invoke-ProjBootstrapToolchain -Action {
         $AppLock.Dispose()
     }
 
+    $ModuleTarget = Assert-ProjDevPathInsideDataRoot `
+        -Path $Layout.ModuleBuildRoot `
+        -DataRoot $Toolchain.Context.DataRoot `
+        -Activity 'building the Bootstrap Module executable'
+    $ModuleLock = Enter-ProjDevFileLock `
+        -Path (Join-Path $Layout.LockRoot 'module-build.lock') `
+        -ControlledRoot $Toolchain.Context.DataRoot `
+        -TimeoutSeconds 1800
+    try {
+        Invoke-ProjBootstrapModuleBuild `
+            -CargoPath ([string]$Toolchain.CargoPath) `
+            -ManifestPath $Layout.ModuleManifestPath `
+            -TargetDirectory $ModuleTarget | Out-Host
+    } finally {
+        $ModuleLock.Dispose()
+    }
+
     $LauncherRoot = Assert-ProjDevPathInsideDataRoot `
         -Path $Layout.LauncherBuildRoot `
         -DataRoot $Toolchain.Context.DataRoot `

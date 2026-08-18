@@ -33,7 +33,7 @@ foreach ($ModuleManifest in $ModuleManifests) {
     $ModuleDocument = Get-Content -LiteralPath $ModuleManifest.FullName -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v8') `
+        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v9') `
         -Message "legacy module contract remains: $($ModuleManifest.FullName)"
 }
 $LegacyModuleManifests = @(
@@ -124,7 +124,7 @@ Assert-ProjDevelopmentCommandLayout `
 $SetupContract = Get-Content -LiteralPath $SetupManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v8' -and
+    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v9' -and
         $SetupContract.execution.type -ceq 'toolchain' -and
         $SetupContract.execution.handler -ceq 'dev.setup') `
     -Message '.dev/setup Toolchain manifest is invalid'
@@ -132,14 +132,43 @@ Assert-ProjDevelopmentCommandLayout `
 $InstantiateManifest = Join-Path $SystemRoot 'module\instantiate\swawkit.module.json'
 Assert-ProjDevelopmentCommandLayout `
     -Condition ([IO.File]::Exists($InstantiateManifest)) `
-    -Message '.module/instantiate Toolchain manifest is missing'
+    -Message '.module/instantiate Runtime Component manifest is missing'
 $InstantiateContract = Get-Content -LiteralPath $InstantiateManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v8' -and
-        $InstantiateContract.execution.type -ceq 'toolchain' -and
-        $InstantiateContract.execution.handler -ceq 'module.instantiate') `
-    -Message '.module/instantiate Toolchain manifest is invalid'
+    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v9' -and
+        $InstantiateContract.execution.type -ceq 'runtime' -and
+        $InstantiateContract.execution.product -ceq 'module' -and
+        @($InstantiateContract.requires).Count -eq 1 -and
+        $InstantiateContract.requires[0].provider -ceq '.dev/setup' -and
+        $InstantiateContract.requires[0].export -ceq 'environment' -and
+        $InstantiateContract.requires[0].contract -ceq 'swawkit.proj.dev-setup/v2') `
+    -Message '.module/instantiate Runtime Component manifest is invalid'
+
+$StatusManifest = Join-Path $SystemRoot 'module\status\swawkit.module.json'
+Assert-ProjDevelopmentCommandLayout `
+    -Condition ([IO.File]::Exists($StatusManifest)) `
+    -Message '.module/status Runtime Component manifest is missing'
+$StatusContract = Get-Content -LiteralPath $StatusManifest -Raw -Encoding UTF8 |
+    ConvertFrom-Json
+$StatusRequires = @(if (
+    $null -ne $StatusContract.PSObject.Properties['requires']
+) {
+    $StatusContract.requires
+})
+Assert-ProjDevelopmentCommandLayout `
+    -Condition ($StatusContract.schema -ceq 'swawkit.command-module/v9' -and
+        $StatusContract.execution.type -ceq 'runtime' -and
+        $StatusContract.execution.product -ceq 'module' -and
+        $StatusRequires.Count -eq 0) `
+    -Message '.module/status Runtime Component manifest is invalid'
+
+$ModuleProductRoot = Join-Path $SystemRoot 'module\_app'
+Assert-ProjDevelopmentCommandLayout `
+    -Condition ([IO.File]::Exists((Join-Path $ModuleProductRoot 'Cargo.toml')) -and
+        [IO.File]::Exists((Join-Path $ModuleProductRoot 'Cargo.lock')) -and
+        [IO.File]::Exists((Join-Path $ModuleProductRoot 'src\main.rs'))) `
+    -Message '.module does not own an independent locked Rust Runtime Component'
 
 Assert-ProjDevelopmentCommandLayout `
     -Condition (-not (Test-Path -LiteralPath (Join-Path $ProjRoot '.runtime'))) `
@@ -159,7 +188,7 @@ foreach ($RuntimeContract in $RuntimeContracts) {
     $RuntimeDocument = Get-Content -LiteralPath $RuntimeManifest -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v8' -and
+        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v9' -and
             $RuntimeDocument.execution.type -ceq 'core' -and
             $RuntimeDocument.execution.handler -ceq $RuntimeContract.Handler) `
         -Message "Runtime System manifest is invalid: $($RuntimeContract.Path)"
@@ -197,7 +226,7 @@ foreach ($ContextCommand in $ContextCommands) {
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
         -Condition ([IO.File]::Exists($ContextManifestPath) -and
-            $ContextManifest.schema -ceq 'swawkit.command-module/v8' -and
+            $ContextManifest.schema -ceq 'swawkit.command-module/v9' -and
             $ContextManifest.execution.type -ceq 'delegate' -and
             $ContextManifest.execution.owner.type -ceq 'command' -and
             $ContextManifest.execution.owner.space -ceq 'module' -and
@@ -226,7 +255,7 @@ $ContextOverviewFacet = @($ContextSubjectKind.facets) |
     Where-Object { $_.id -ceq 'overview' } |
     Select-Object -First 1
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v8' -and
+    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v9' -and
         $ContextModule.execution.type -ceq 'native' -and
         @($ContextModule.facets).Count -eq 1 -and
         $ContextFacet.id -ceq 'contexts' -and
@@ -267,7 +296,7 @@ $RunOpenFacet = @($RunSubjectKind.facets) |
     Where-Object { $_.id -ceq 'open' } |
     Select-Object -First 1
 $RunsContractChecks = @(
-    ($RunsModule.schema -ceq 'swawkit.command-module/v8')
+    ($RunsModule.schema -ceq 'swawkit.command-module/v9')
     (@($RunsModule.facets).Count -eq 1)
     ($AllRunsFacet.id -ceq 'all')
     ($AllRunsFacet.kind -ceq 'collection')

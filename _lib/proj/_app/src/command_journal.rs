@@ -259,6 +259,7 @@ mod tests {
                 entry: Some("run.exe".to_owned()),
                 adapter: Some("exe".to_owned()),
                 handler: None,
+                product: None,
                 module: None,
                 help: None,
                 subject_kinds: Vec::new(),

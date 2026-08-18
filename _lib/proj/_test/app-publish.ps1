@@ -26,11 +26,13 @@ $RuntimeRoot = Join-Path $ProjHome '_lib\proj\_bin'
 $JunctionPath = Join-Path $TemporaryRoot 'junction-runtime\releases'
 $PreviousCore = Join-Path $TemporaryRoot 'previous\swawkit-proj.exe'
 $PreviousHost = Join-Path $TemporaryRoot 'previous\swawkit-proj-host.exe'
+$PreviousModule = Join-Path $TemporaryRoot 'previous\swawkit-proj-module.exe'
 $PreviousToolchain = Join-Path $TemporaryRoot (
     'previous\swawkit-proj-toolchain.exe'
 )
 $CoreCandidate = Join-Path $TemporaryRoot 'candidate\swawkit-proj.exe'
 $HostCandidate = Join-Path $TemporaryRoot 'candidate\swawkit-proj-host.exe'
+$ModuleCandidate = Join-Path $TemporaryRoot 'candidate\swawkit-proj-module.exe'
 $ToolchainCandidate = Join-Path $TemporaryRoot (
     'candidate\swawkit-proj-toolchain.exe'
 )
@@ -47,11 +49,13 @@ try {
     }
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\cmd.exe'), $PreviousCore)
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\where.exe'), $PreviousHost)
+    [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\hostname.exe'), $PreviousModule)
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\whoami.exe'), $PreviousToolchain)
     $PreviousSet = New-ProjRuntimeReleaseSetFromFiles `
         -Artifacts ([ordered]@{
             'swawkit-proj.exe' = $PreviousCore
             'swawkit-proj-host.exe' = $PreviousHost
+            'swawkit-proj-module.exe' = $PreviousModule
             'swawkit-proj-toolchain.exe' = $PreviousToolchain
         })
     $PreviousRelease = Publish-ProjRuntimeReleaseSet `
@@ -68,11 +72,44 @@ try {
 
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\where.exe'), $CoreCandidate)
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\whoami.exe'), $HostCandidate)
+    [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\cmd.exe'), $ModuleCandidate)
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\hostname.exe'), $ToolchainCandidate)
+    $OversizedCandidate = Join-Path $TemporaryRoot 'candidate\oversized.exe'
+    $OversizedStream = [IO.File]::Open(
+        $OversizedCandidate,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None
+    )
+    try {
+        $OversizedStream.SetLength(512MB + 1)
+    } finally {
+        $OversizedStream.Dispose()
+    }
+    try {
+        New-ProjRuntimeReleaseSetFromFiles `
+            -Artifacts ([ordered]@{
+                'swawkit-proj.exe' = $OversizedCandidate
+                'swawkit-proj-host.exe' = $HostCandidate
+                'swawkit-proj-module.exe' = $ModuleCandidate
+                'swawkit-proj-toolchain.exe' = $ToolchainCandidate
+            }) |
+            Out-Null
+        throw 'an oversized runtime artifact unexpectedly passed validation'
+    } catch {
+        Assert-ProjAppPublishTest `
+            -Condition $_.Exception.Message.Contains(
+                'Release Set artifact is invalid'
+            ) `
+            -Message 'an oversized runtime artifact failed for the wrong reason'
+    } finally {
+        [IO.File]::Delete($OversizedCandidate)
+    }
     $ReleaseSet = New-ProjRuntimeReleaseSetFromFiles `
         -Artifacts ([ordered]@{
             'swawkit-proj.exe' = $CoreCandidate
             'swawkit-proj-host.exe' = $HostCandidate
+            'swawkit-proj-module.exe' = $ModuleCandidate
             'swawkit-proj-toolchain.exe' = $ToolchainCandidate
         })
     $Published = Publish-ProjRuntimeReleaseSet `
@@ -91,6 +128,7 @@ try {
             [IO.File]::Exists((Join-Path $ReleaseRoot 'manifest.json')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj.exe')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-host.exe')) -and
+            -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-module.exe')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-toolchain.exe'))
         ) `
         -Message 'a complete Release Set was not atomically selected beside a running old release'
@@ -139,6 +177,52 @@ try {
                 Where-Object { $_.Name -like '.*.tmp' -or $_.Name -like '.current.*' }
         ).Count -eq 0) `
         -Message 'successful publication left runtime temporary files behind'
+
+    $UnexpectedMember = Join-Path $ReleaseRoot 'unexpected.bin'
+    [IO.File]::WriteAllText($UnexpectedMember, 'unexpected')
+    try {
+        Read-ProjSelectedRuntimeReleaseSet -RuntimeRoot $RuntimeRoot |
+            Out-Null
+        throw 'a Release Set with an unexpected member passed validation'
+    } catch {
+        Assert-ProjAppPublishTest `
+            -Condition $_.Exception.Message.Contains(
+                'directory membership is invalid'
+            ) `
+            -Message 'an unexpected runtime member failed for the wrong reason'
+    } finally {
+        [IO.File]::Delete($UnexpectedMember)
+    }
+
+    $OversizedManifestId = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+    $OversizedManifestRoot = Join-Path (
+        Join-Path $RuntimeRoot 'releases'
+    ) $OversizedManifestId
+    Copy-Item -LiteralPath $ReleaseRoot -Destination $OversizedManifestRoot -Recurse
+    $OversizedManifest = [IO.File]::Open(
+        (Join-Path $OversizedManifestRoot 'manifest.json'),
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None
+    )
+    try {
+        $OversizedManifest.SetLength(1MB + 1)
+    } finally {
+        $OversizedManifest.Dispose()
+    }
+    try {
+        Read-ProjRuntimeReleaseSet `
+            -ReleaseRoot $OversizedManifestRoot `
+            -ReleaseId $OversizedManifestId |
+            Out-Null
+        throw 'an oversized runtime manifest unexpectedly passed validation'
+    } catch {
+        Assert-ProjAppPublishTest `
+            -Condition $_.Exception.Message.Contains('manifest is invalid') `
+            -Message 'an oversized runtime manifest failed for the wrong reason'
+    } finally {
+        [IO.Directory]::Delete($OversizedManifestRoot, $true)
+    }
 
     $ReleaseHost = Join-Path $ReleaseRoot 'swawkit-proj-host.exe'
     [IO.File]::WriteAllText($ReleaseHost, 'coherently-tampered-host')

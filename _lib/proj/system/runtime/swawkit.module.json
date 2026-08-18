@@ -1,4 +1,4 @@
 {
-  "schema": "swawkit.command-module/v8",
+  "schema": "swawkit.command-module/v9",
   "execution": { "type": "core", "handler": "runtime.status" }
 }

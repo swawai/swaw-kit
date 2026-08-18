@@ -3,6 +3,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
+const SHARED_VALID_FULL: &str =
+    include_str!("../../../_protocol/tests/fixtures/command-module/valid-full.json");
+const SHARED_INVALID_FACET: &str =
+    include_str!("../../../_protocol/tests/fixtures/command-module/invalid-facet.json");
+const SHARED_INVALID_SUBJECT_KIND: &str =
+    include_str!("../../../_protocol/tests/fixtures/command-module/invalid-subject-kind.json");
+
 struct Fixture {
     root: PathBuf,
     system: PathBuf,
@@ -50,28 +57,70 @@ impl Drop for Fixture {
 
 fn delegate_manifest(owner: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v8","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
+        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
     )
 }
 
 fn core_manifest(handler: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v8","execution":{{"type":"core","handler":"{handler}"}}}}"#
+        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"core","handler":"{handler}"}}}}"#
     )
 }
 
 fn toolchain_manifest(handler: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v8","execution":{{"type":"toolchain","handler":"{handler}"}}}}"#
+        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"toolchain","handler":"{handler}"}}}}"#
+    )
+}
+
+fn runtime_manifest(product: &str) -> String {
+    format!(
+        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"runtime","product":"{product}"}}}}"#
     )
 }
 
 fn native_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v8","execution":{"type":"native"}}"#
+    r#"{"schema":"swawkit.command-module/v9","execution":{"type":"native"}}"#
 }
 
 fn module_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v8"}"#
+    r#"{"schema":"swawkit.command-module/v9"}"#
+}
+
+#[test]
+fn shared_protocol_fixtures_define_catalog_membership() {
+    let fixture = Fixture::new();
+    fixture.file(
+        &fixture.swaw,
+        "valid/swawkit.module.json",
+        SHARED_VALID_FULL,
+    );
+    fixture.file(
+        &fixture.swaw,
+        "invalid-facet/swawkit.module.json",
+        SHARED_INVALID_FACET,
+    );
+    fixture.file(
+        &fixture.swaw,
+        "invalid-subject-kind/swawkit.module.json",
+        SHARED_INVALID_SUBJECT_KIND,
+    );
+
+    let snapshot = fixture.discover();
+    assert!(node(&snapshot, "swaw/valid").module.is_some());
+    for address in ["swaw/invalid-facet", "swaw/invalid-subject-kind"] {
+        let command = node(&snapshot, address);
+        assert!(command.module.is_none(), "{address}");
+        assert!(!command.runnable, "{address}");
+        assert!(
+            command
+                .diagnostic
+                .as_deref()
+                .is_some_and(|value| value.contains("invalid module contract manifest")),
+            "{address}: {:?}",
+            command.diagnostic
+        );
+    }
 }
 
 #[test]
@@ -203,6 +252,83 @@ fn framework_execution_handlers_remain_exact_and_system_owned() {
 }
 
 #[test]
+fn module_runtime_component_is_exact_and_has_no_handler() {
+    let fixture = Fixture::new();
+    fixture.file(
+        &fixture.system,
+        "module/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(
+        &fixture.system,
+        "module/instantiate/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v9","execution":{"type":"runtime","product":"module"},"requires":[{"provider":".dev/setup","export":"environment","contract":"swawkit.proj.dev-setup/v2"}]}"#,
+    );
+    fixture.file(
+        &fixture.system,
+        "module/status/swawkit.module.json",
+        &runtime_manifest("module"),
+    );
+    fixture.file(
+        &fixture.system,
+        "wrong-runtime/swawkit.module.json",
+        &runtime_manifest("module"),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "wrong-runtime/swawkit.module.json",
+        &runtime_manifest("module"),
+    );
+    fixture.file(
+        &fixture.system,
+        "module/wrong-product/swawkit.module.json",
+        &runtime_manifest("toolchain"),
+    );
+
+    let snapshot = fixture.discover();
+    for address in [".module/instantiate", ".module/status"] {
+        let command = node(&snapshot, address);
+        assert!(command.runnable, "{address}: {:?}", command.diagnostic);
+        assert_eq!(command.adapter.as_deref(), Some("runtime"));
+        assert_eq!(command.product.as_deref(), Some("module"));
+        assert_eq!(command.handler, None);
+    }
+    assert_eq!(
+        node(&snapshot, ".module/instantiate")
+            .module
+            .as_ref()
+            .expect("instantiate contract")
+            .requires
+            .len(),
+        1
+    );
+    assert!(
+        node(&snapshot, ".module/status")
+            .module
+            .as_ref()
+            .expect("status contract")
+            .requires
+            .is_empty()
+    );
+    for address in [
+        ".wrong-runtime",
+        "swaw/wrong-runtime",
+        ".module/wrong-product",
+    ] {
+        let command = node(&snapshot, address);
+        assert!(!command.runnable, "{address}");
+        assert!(
+            command
+                .diagnostic
+                .as_deref()
+                .is_some_and(|message| message.contains("Runtime Component")),
+            "{address}: {:?}",
+            command.diagnostic
+        );
+    }
+}
+
+#[test]
 fn private_and_noncanonical_directories_do_not_become_commands() {
     let fixture = Fixture::new();
     fixture.file(
@@ -272,17 +398,17 @@ fn module_contract_provider_addresses_use_the_new_cli_grammar() {
     fixture.file(
         &fixture.swaw,
         "producer/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v8","provides":[{"id":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v9","provides":[{"id":"fixture","contract":"fixture/v1"}]}"#,
     );
     fixture.file(
         &fixture.swaw,
         "consumer/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v8","requires":[{"provider":"swaw/producer","export":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v9","requires":[{"provider":"swaw/producer","export":"fixture","contract":"fixture/v1"}]}"#,
     );
     fixture.file(
         &fixture.swaw,
         "legacy/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v8","requires":[{"provider":".dev.setup","export":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v9","requires":[{"provider":".dev.setup","export":"fixture","contract":"fixture/v1"}]}"#,
     );
 
     let snapshot = fixture.discover();
@@ -329,6 +455,46 @@ fn explicit_delegate_owner_does_not_depend_on_intermediate_entries() {
         assert_eq!(command.adapter.as_deref(), Some("delegate"));
         assert_eq!(command.native_owner.as_deref(), Some("swaw/domain"));
     }
+}
+
+#[test]
+fn delegate_cannot_cross_a_conflicting_nested_native_declaration() {
+    let fixture = Fixture::new();
+    fixture.file(
+        &fixture.swaw,
+        "domain/swawkit.module.json",
+        native_manifest(),
+    );
+    fixture.file(
+        &fixture.swaw,
+        "domain/child/swawkit.module.json",
+        native_manifest(),
+    );
+    fixture.file(&fixture.swaw, "domain/child/run.ts", "");
+    fixture.file(
+        &fixture.swaw,
+        "domain/child/port/swawkit.module.json",
+        &delegate_manifest("swaw/domain"),
+    );
+
+    let snapshot = fixture.discover();
+    assert!(
+        node(&snapshot, "swaw/domain/child")
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("both a local run.* entry"))
+    );
+    let command = node(&snapshot, "swaw/domain/child/port");
+    assert_eq!(command.entry, None);
+    assert_eq!(command.adapter, None);
+    assert!(
+        command
+            .diagnostic
+            .as_deref()
+            .is_some_and(|message| message.contains("cannot cross nested native owner")),
+        "{:?}",
+        command.diagnostic
+    );
 }
 
 #[test]
@@ -386,7 +552,7 @@ fn delegated_execution_requires_one_real_native_ancestor() {
 }
 
 #[test]
-fn obsolete_entries_and_v6_module_contract_fail_explicitly() {
+fn obsolete_entries_and_v8_module_contract_fail_explicitly() {
     let fixture = Fixture::new();
     for (directory, entry) in [
         ("legacy-core", "run.core.json"),
@@ -404,7 +570,7 @@ fn obsolete_entries_and_v6_module_contract_fail_explicitly() {
     fixture.file(
         &fixture.swaw,
         "legacy-contract/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v6","provides":[{"contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v8","provides":[{"id":"fixture","contract":"fixture/v1"}]}"#,
     );
 
     let snapshot = fixture.discover();

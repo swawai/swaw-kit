@@ -6,8 +6,8 @@ import {
   sameCommandIdentity,
 } from "./command-identity.js";
 
-const CATALOG_PROTOCOL = "swawkit.command-catalog/v16";
-const MODULE_PROTOCOL = "swawkit.command-module/v8";
+const CATALOG_PROTOCOL = "swawkit.command-catalog/v17";
+const MODULE_PROTOCOL = "swawkit.command-module/v9";
 
 function contractError(message) {
   return new Error(`${t("Catalog 协议无效", "Invalid Catalog protocol")}: ${message}`);
@@ -64,12 +64,22 @@ function normalizeExecution(value, field) {
       ),
     };
   }
+  if (execution.type === "runtime") {
+    return {
+      type: "runtime",
+      product: requireString(
+        execution.product,
+        `${field}.execution.product`,
+        { allowEmpty: false },
+      ),
+    };
+  }
   if (execution.type === "native") {
     return { type: "native" };
   }
   if (execution.type !== "delegate") {
     throw contractError(
-      `${field}.execution.type must be core, toolchain, native, or delegate.`,
+      `${field}.execution.type must be core, toolchain, runtime, native, or delegate.`,
     );
   }
   const owner = requireObject(execution.owner, `${field}.execution.owner`);
@@ -237,6 +247,7 @@ function normalizeCommand(value, index) {
   const entry = nullableString(command.entry, field("entry"));
   const adapter = nullableString(command.adapter, field("adapter"));
   const handler = nullableString(command.handler, field("handler"));
+  const product = nullableString(command.product, field("product"));
   const issue = nullableString(command.diagnostic, field("diagnostic"));
   if (command.runnable !== (entry !== null)) {
     throw contractError(`${field("runnable")} 必须与 entry 是否存在一致。`);
@@ -250,11 +261,16 @@ function normalizeCommand(value, index) {
       `${field("handler")} 必须且只能由 core 或 toolchain adapter 声明。`,
     );
   }
+  if ((adapter === "runtime") !== (product !== null)) {
+    throw contractError(
+      `${field("product")} must be declared if and only if adapter is runtime.`,
+    );
+  }
 
   const help = normalizeHelp(command.help, index);
   const module = normalizeModule(command.module, index);
   const declaredAdapter = module?.execution?.type ?? null;
-  const routedAdapters = new Set(["core", "toolchain", "native", "delegate"]);
+  const routedAdapters = new Set(["core", "toolchain", "runtime", "native", "delegate"]);
   const executionMismatch = routedAdapters.has(adapter)
     ? declaredAdapter !== adapter
     : adapter !== null
@@ -271,6 +287,23 @@ function normalizeCommand(value, index) {
   ) {
     throw contractError(
       `${field("handler")} must match the module execution declaration.`,
+    );
+  }
+  if (adapter === "runtime" && module.execution.product !== product) {
+    throw contractError(
+      `${field("product")} must match the module execution declaration.`,
+    );
+  }
+  if (
+    adapter === "runtime"
+    && (
+      space !== "system"
+      || product !== "module"
+      || !new Set([".module/instantiate", ".module/status"]).has(address)
+    )
+  ) {
+    throw contractError(
+      `${field("product")} runtime product module is restricted to .module/instantiate and .module/status.`,
     );
   }
   const view = normalizeView(command.view, index);
@@ -300,6 +333,7 @@ function normalizeCommand(value, index) {
       allowEmpty: true,
     }),
     path,
+    product: product ?? "",
     runOperations: view?.runOperations ?? [],
     runnable: command.runnable,
     setupAvailable: space === "system" && ["entry", "runtime"].includes(path[0]),

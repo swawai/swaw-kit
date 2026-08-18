@@ -2,25 +2,38 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
+pub use swawkit_proj_protocol::{
+    COMMAND_MODULE_SCHEMA as MODULE_CONTRACT_PROTOCOL, ModuleProvision, ModuleRequirement,
+};
+use swawkit_proj_protocol::{
+    CommandModuleCommandSpace as WireCommandSpace, CommandModuleExecution as WireExecution,
+    CommandModuleFacet as WireFacet, CommandModuleFacetArgument as WireFacetArgument,
+    CommandModuleFacetBinding as WireFacetBinding, CommandModuleFacetKind as WireFacetKind,
+    CommandModuleFacetRenderer as WireFacetRenderer,
+    CommandModuleFacetResolver as WireFacetResolver,
+    CommandModuleLocalizedText as WireLocalizedText,
+    CommandModuleSubjectKindRef as WireSubjectKindRef, CommandModuleSubjectRef as WireSubjectRef,
+    parse_command_module,
+};
 
-use crate::profile::EntryLanguage;
+use crate::{
+    facet::{FacetKind, FacetRenderer},
+    profile::EntryLanguage,
+    subject::SubjectRef,
+    subject_kind::SubjectKindRef,
+};
 
-use super::{filesystem::directory_files, invalid_data};
+use super::{CommandSpace, filesystem::directory_files, invalid_data};
 
 mod declaration;
-mod validation;
 
 pub use declaration::ModuleExecution;
-use declaration::{
-    LocalizedText, ModuleFacetManifest, ModuleFacetResolverManifest, ModuleManifest,
-};
 pub(crate) use declaration::{
-    ModuleFacet, ModuleFacetArgument, ModuleFacetBinding, ModuleFacetResolver, ModuleSubjectKind,
+    ModuleFacet, ModuleFacetArgument, ModuleFacetArgumentBinding, ModuleFacetBinding,
+    ModuleFacetResolver, ModuleSubjectKind,
 };
-use validation::validate_manifest;
 
-pub const MODULE_CONTRACT_PROTOCOL: &str = "swawkit.command-module/v8";
 pub(crate) const MODULE_CONTRACT_FILE: &str = "swawkit.module.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -35,21 +48,6 @@ pub struct CommandModuleContract {
     pub(crate) facets: Vec<ModuleFacet>,
     #[serde(skip)]
     pub(crate) subject_kinds: Vec<ModuleSubjectKind>,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ModuleRequirement {
-    pub provider: String,
-    pub export: String,
-    pub contract: String,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ModuleProvision {
-    pub id: String,
-    pub contract: String,
 }
 
 pub(super) fn read_local_module_contract(
@@ -88,8 +86,8 @@ pub(super) fn read_local_module_contract(
         ));
     }
 
-    let content = fs::read_to_string(&file.path)?;
-    let value: serde_json::Value = serde_json::from_str(&content).map_err(|error| {
+    let content = fs::read(&file.path)?;
+    let manifest = parse_command_module(&content).map_err(|error| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
@@ -98,40 +96,11 @@ pub(super) fn read_local_module_contract(
             ),
         )
     })?;
-    let schema = value
-        .get("schema")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "module contract schema is missing or invalid in '{}'",
-                    file.path.display()
-                ),
-            )
-        })?;
-    if schema != MODULE_CONTRACT_PROTOCOL {
-        return invalid_data(format!(
-            "unsupported module contract schema '{}' in '{}'",
-            schema,
-            file.path.display()
-        ));
-    }
-    let manifest: ModuleManifest = serde_json::from_value(value).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "invalid module contract manifest '{}': {error}",
-                file.path.display()
-            ),
-        )
-    })?;
-    validate_manifest(&manifest, &file.path)?;
 
     let facets = manifest
         .facets
         .into_iter()
-        .map(|facet| localize_facet(facet, language))
+        .map(|facet| project_facet(facet, language))
         .collect();
     let subject_kinds = manifest
         .subject_kinds
@@ -141,13 +110,13 @@ pub(super) fn read_local_module_contract(
             facets: subject_kind
                 .facets
                 .into_iter()
-                .map(|facet| localize_facet(facet, language))
+                .map(|facet| project_facet(facet, language))
                 .collect(),
         })
         .collect();
     Ok(Some(CommandModuleContract {
         schema: manifest.schema,
-        execution: manifest.execution,
+        execution: manifest.execution.map(project_execution),
         requires: manifest.requires,
         provides: manifest.provides,
         facets,
@@ -155,17 +124,29 @@ pub(super) fn read_local_module_contract(
     }))
 }
 
-fn localize_facet(facet: ModuleFacetManifest, language: EntryLanguage) -> ModuleFacet {
+fn project_execution(execution: WireExecution) -> ModuleExecution {
+    match execution {
+        WireExecution::Core { handler } => ModuleExecution::Core { handler },
+        WireExecution::Toolchain { handler } => ModuleExecution::Toolchain { handler },
+        WireExecution::Runtime { product } => ModuleExecution::Runtime { product },
+        WireExecution::Native => ModuleExecution::Native,
+        WireExecution::Delegate { owner } => ModuleExecution::Delegate {
+            owner: project_subject_ref(owner),
+        },
+    }
+}
+
+fn project_facet(facet: WireFacet, language: EntryLanguage) -> ModuleFacet {
     ModuleFacet {
         id: facet.id,
-        kind: facet.kind,
-        renderer: facet.renderer,
+        kind: project_facet_kind(facet.kind),
+        renderer: project_facet_renderer(facet.renderer),
         icon: facet.icon,
         label: localized(facet.label, language),
         summary: localized(facet.summary, language),
-        subject_kind: facet.subject_kind,
+        subject_kind: facet.subject_kind.map(project_subject_kind_ref),
         resolver: facet.resolver.map(|resolver| match resolver {
-            ModuleFacetResolverManifest::Command {
+            WireFacetResolver::Command {
                 address,
                 arguments,
                 accepts_tail,
@@ -173,7 +154,7 @@ fn localize_facet(facet: ModuleFacetManifest, language: EntryLanguage) -> Module
                 returns,
             } => ModuleFacetResolver::Command {
                 address,
-                arguments,
+                arguments: arguments.into_iter().map(project_argument).collect(),
                 accepts_tail,
                 confirmation,
                 returns,
@@ -182,7 +163,64 @@ fn localize_facet(facet: ModuleFacetManifest, language: EntryLanguage) -> Module
     }
 }
 
-fn localized(value: LocalizedText, language: EntryLanguage) -> String {
+fn project_argument(argument: WireFacetArgument) -> ModuleFacetArgument {
+    match argument {
+        WireFacetArgument::Literal(value) => ModuleFacetArgument::Literal(value),
+        WireFacetArgument::Binding(binding) => {
+            ModuleFacetArgument::Binding(ModuleFacetArgumentBinding {
+                bind: match binding.bind {
+                    WireFacetBinding::CommandAddress => ModuleFacetBinding::CommandAddress,
+                    WireFacetBinding::SubjectId => ModuleFacetBinding::SubjectId,
+                },
+            })
+        }
+    }
+}
+
+fn project_facet_kind(kind: WireFacetKind) -> FacetKind {
+    match kind {
+        WireFacetKind::Collection => FacetKind::Collection,
+        WireFacetKind::Operation => FacetKind::Operation,
+        WireFacetKind::Projection => FacetKind::Projection,
+    }
+}
+
+fn project_facet_renderer(renderer: WireFacetRenderer) -> FacetRenderer {
+    match renderer {
+        WireFacetRenderer::Collection => FacetRenderer::Collection,
+        WireFacetRenderer::Edit => FacetRenderer::Edit,
+        WireFacetRenderer::Help => FacetRenderer::Help,
+        WireFacetRenderer::Overview => FacetRenderer::Overview,
+        WireFacetRenderer::Run => FacetRenderer::Run,
+    }
+}
+
+fn project_subject_kind_ref(reference: WireSubjectKindRef) -> SubjectKindRef {
+    SubjectKindRef {
+        kind: reference.kind,
+        provider: project_subject_ref(reference.provider),
+    }
+}
+
+fn project_subject_ref(reference: WireSubjectRef) -> SubjectRef {
+    match reference {
+        WireSubjectRef::Command {
+            space,
+            namespace,
+            address,
+        } => SubjectRef::Command {
+            space: match space {
+                WireCommandSpace::System => CommandSpace::System,
+                WireCommandSpace::Module => CommandSpace::Module,
+            },
+            namespace,
+            address,
+        },
+        WireSubjectRef::Instance { kind, id } => SubjectRef::Instance { kind, id },
+    }
+}
+
+fn localized(value: WireLocalizedText, language: EntryLanguage) -> String {
     match language {
         EntryLanguage::ZhCn => value.zh_cn,
         EntryLanguage::En => value.en,

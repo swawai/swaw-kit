@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readReadyBuildReleaseSet } from "./provider-release.ts";
@@ -22,11 +22,12 @@ test("publishes the PowerShell-compatible immutable Release Set identity", async
   const candidates = {
     "swawkit-proj.exe": await candidate(work, "swawkit-proj.exe", "core"),
     "swawkit-proj-host.exe": await candidate(work, "swawkit-proj-host.exe", "host"),
+    "swawkit-proj-module.exe": await candidate(work, "swawkit-proj-module.exe", "module"),
     "swawkit-proj-toolchain.exe": await candidate(work, "swawkit-proj-toolchain.exe", "toolchain"),
   };
 
   const id = await publishBuildReleaseSet(commandDataRoot, candidates);
-  expect(id).toBe("414ab4df81e05a8b7ee16525c259949fc40234049f811a54b2a70194a8415bcc");
+  expect(id).toBe("40c929121e574fc23ff816c7fc1ca46a3bc042cc6ea233ab05f8c8ffb373d733");
   expect((await readFile(join(commandDataRoot, "export", "current"), "utf8")).trim()).toBe(id);
   const state = JSON.parse(await readFile(join(commandDataRoot, "_state.json"), "utf8"));
   expect(state).toMatchObject({
@@ -35,7 +36,7 @@ test("publishes the PowerShell-compatible immutable Release Set identity", async
     inputRevision: `sha256-${id}`,
     exports: [{
       id: "runtime-release",
-      contract: "swawkit.proj-build-app/v3",
+      contract: "swawkit.proj-build-app/v4",
     }],
   });
   expect(await publishBuildReleaseSet(commandDataRoot, candidates)).toBe(id);
@@ -50,6 +51,7 @@ test("reads one coherent Ready Provider snapshot and rejects tampering", async (
   const candidates = {
     "swawkit-proj.exe": await candidate(work, "swawkit-proj.exe", "core"),
     "swawkit-proj-host.exe": await candidate(work, "swawkit-proj-host.exe", "host"),
+    "swawkit-proj-module.exe": await candidate(work, "swawkit-proj-module.exe", "module"),
     "swawkit-proj-toolchain.exe": await candidate(
       work,
       "swawkit-proj-toolchain.exe",
@@ -61,8 +63,20 @@ test("reads one coherent Ready Provider snapshot and rejects tampering", async (
   const release = await readReadyBuildReleaseSet(dataRoot, "fixture");
   expect(release.releaseId).toBe(id);
   expect(release.artifacts.map(({ name }) => name).sort()).toEqual(
-    ["swawkit-proj-host.exe", "swawkit-proj-toolchain.exe", "swawkit-proj.exe"],
+    [
+      "swawkit-proj-host.exe",
+      "swawkit-proj-module.exe",
+      "swawkit-proj-toolchain.exe",
+      "swawkit-proj.exe",
+    ],
   );
+
+  const unexpected = join(release.root, "unexpected.bin");
+  await writeFile(unexpected, "unexpected");
+  expect(readReadyBuildReleaseSet(dataRoot, "fixture")).rejects.toThrow(
+    "run 'fixture project/proj/build/app'",
+  );
+  await rm(unexpected);
 
   await writeFile(join(release.root, "swawkit-proj-host.exe"), "evil");
   expect(readReadyBuildReleaseSet(dataRoot, "fixture")).rejects.toThrow(
@@ -78,6 +92,7 @@ test("rejects corruption in an existing immutable release", async () => {
   const candidates = {
     "swawkit-proj.exe": await candidate(work, "swawkit-proj.exe", "core"),
     "swawkit-proj-host.exe": await candidate(work, "swawkit-proj-host.exe", "host"),
+    "swawkit-proj-module.exe": await candidate(work, "swawkit-proj-module.exe", "module"),
     "swawkit-proj-toolchain.exe": await candidate(work, "swawkit-proj-toolchain.exe", "toolchain"),
   };
   const id = await publishBuildReleaseSet(commandDataRoot, candidates);
@@ -98,6 +113,29 @@ test("rejects an empty Release Set", async () => {
   await mkdir(commandDataRoot, { recursive: true });
   expect(publishBuildReleaseSet(commandDataRoot, {} as never)).rejects.toThrow(
     "at least one artifact",
+  );
+});
+
+test("rejects an oversized runtime artifact before hashing it", async () => {
+  const root = await temporaryRoot();
+  const commandDataRoot = join(root, "command");
+  const work = join(commandDataRoot, "work");
+  await mkdir(work, { recursive: true });
+  const oversized = await candidate(work, "swawkit-proj.exe", "core");
+  await truncate(oversized, 512 * 1024 * 1024 + 1);
+  const candidates = {
+    "swawkit-proj.exe": oversized,
+    "swawkit-proj-host.exe": await candidate(work, "swawkit-proj-host.exe", "host"),
+    "swawkit-proj-module.exe": await candidate(work, "swawkit-proj-module.exe", "module"),
+    "swawkit-proj-toolchain.exe": await candidate(
+      work,
+      "swawkit-proj-toolchain.exe",
+      "toolchain",
+    ),
+  };
+
+  expect(publishBuildReleaseSet(commandDataRoot, candidates)).rejects.toThrow(
+    "build candidate is invalid",
   );
 });
 

@@ -65,6 +65,22 @@ try {
             } finally {
                 $BuildLock.Dispose()
             }
+            $ModuleTargetDirectory = Assert-ProjDevPathInsideDataRoot `
+                -Path $BuildLayout.ModuleBuildRoot `
+                -DataRoot $Toolchain.Context.DataRoot `
+                -Activity 'building the Bootstrap Module executable'
+            $ModuleBuildLock = Enter-ProjDevFileLock `
+                -Path (Join-Path $BuildLayout.LockRoot 'module-build.lock') `
+                -ControlledRoot $Toolchain.Context.DataRoot `
+                -TimeoutSeconds 1800
+            try {
+                Invoke-ProjBootstrapModuleBuild `
+                    -CargoPath ([string]$Toolchain.CargoPath) `
+                    -ManifestPath $BuildLayout.ModuleManifestPath `
+                    -TargetDirectory $ModuleTargetDirectory | Out-Host
+            } finally {
+                $ModuleBuildLock.Dispose()
+            }
             & $BuildLayout.AppPublishPath `
                 -CandidateCorePath (Join-Path $TargetDirectory (
                     'release\swawkit-proj.exe'
@@ -75,6 +91,7 @@ try {
                 -CandidateToolchainPath (Join-Path $TargetDirectory (
                     'release\swawkit-proj-toolchain.exe'
                 )) `
+                -CandidateModulePath $BuildLayout.ModuleCandidatePath `
                 -ProjHome $BuildLayout.ProjHome `
                 -CandidateRoot $Toolchain.Context.DataRoot
         }

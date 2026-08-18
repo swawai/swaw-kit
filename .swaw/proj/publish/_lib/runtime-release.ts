@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, lstat, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
   type Artifact,
@@ -13,8 +13,9 @@ import {
   moveFileReplace,
 } from "../../build/_lib/windows-filesystem.ts";
 
-const RUNTIME_SCHEMA = "swawkit.proj-release-set/v1";
+const RUNTIME_SCHEMA = "swawkit.proj-release-set/v2";
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
 
 export async function publishRuntimeReleaseSet(
   projHome: string,
@@ -52,6 +53,12 @@ function releaseIdentity(artifacts: Artifact[]): string {
   for (const name of RUNTIME_ARTIFACT_NAMES) {
     const artifact = records.get(name);
     if (!artifact) throw new Error("the application Release Set has invalid membership");
+    if (
+      !Number.isSafeInteger(artifact.length)
+      || artifact.length <= 0
+      || artifact.length > MAX_ARTIFACT_BYTES
+      || !/^[a-f0-9]{64}$/.test(artifact.sha256)
+    ) throw new Error(`the application Release Set artifact is invalid: ${artifact.path}`);
     identity.push(name, String(artifact.length), artifact.sha256);
   }
   return createHash("sha256").update(identity.join("\n")).digest("hex");
@@ -100,6 +107,11 @@ async function validateRuntimeRelease(
   if (requireReleaseLeaf && basename(root) !== expected.releaseId) {
     throw new Error(`runtime Release Set path is invalid: ${root}`);
   }
+  const members = (await readdir(root)).sort();
+  const expectedMembers = [...RUNTIME_ARTIFACT_NAMES, "manifest.json"].sort();
+  if (members.join("\n") !== expectedMembers.join("\n")) {
+    throw new Error(`runtime Release Set directory membership is invalid: ${root}`);
+  }
   const manifestPath = join(root, "manifest.json");
   const manifestMetadata = await lstat(manifestPath);
   if (
@@ -127,6 +139,7 @@ async function validateRuntimeRelease(
       || Object.keys(record).sort().join("\n") !== ["length", "name", "sha256"].join("\n")
       || typeof record.name !== "string"
       || !Number.isSafeInteger(record.length) || record.length <= 0
+      || record.length > MAX_ARTIFACT_BYTES
       || typeof record.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.sha256)
       || records.has(record.name)
     ) throw new Error(`runtime Release Set manifest is invalid: ${manifestPath}`);
@@ -136,13 +149,17 @@ async function validateRuntimeRelease(
     const record = records.get(artifact.name);
     const path = join(root, artifact.name);
     const item = await lstat(path);
-    const bytes = await readFile(path);
-    const actual = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
     if (
       !record || !item.isFile() || item.isSymbolicLink()
+      || item.size <= 0 || item.size > MAX_ARTIFACT_BYTES
       || item.size !== artifact.length || record.length !== artifact.length
-      || actual !== artifact.sha256 || record.sha256 !== artifact.sha256
+      || record.sha256 !== artifact.sha256
     ) throw new Error(`runtime Release Set artifact is corrupt: ${path}`);
+    const bytes = await readFile(path);
+    const actual = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+    if (actual !== artifact.sha256) {
+      throw new Error(`runtime Release Set artifact is corrupt: ${path}`);
+    }
   }
   if (records.size !== RUNTIME_ARTIFACT_NAMES.length) {
     throw new Error(`runtime Release Set has invalid membership: ${manifestPath}`);

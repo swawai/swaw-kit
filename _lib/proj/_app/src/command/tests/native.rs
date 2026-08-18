@@ -2,12 +2,12 @@ use super::*;
 
 fn delegate_manifest(owner: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v8","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
+        r#"{{"schema":"swawkit.command-module/v9","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
     )
 }
 
 fn native_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v8","execution":{"type":"native"}}"#
+    r#"{"schema":"swawkit.command-module/v9","execution":{"type":"native"}}"#
 }
 
 #[test]

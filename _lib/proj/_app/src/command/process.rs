@@ -22,6 +22,10 @@ pub(crate) enum AdapterLaunch {
         executable: PathBuf,
         handler: String,
     },
+    Runtime {
+        executable: PathBuf,
+        address: String,
+    },
     Native(PathBuf),
 }
 
@@ -123,6 +127,7 @@ fn prepare_command(
         }
         CommandAdapter::Bun => bun_command(adapter_launch, entry_path, arguments)?,
         CommandAdapter::Toolchain => toolchain_command(adapter_launch, arguments)?,
+        CommandAdapter::Runtime => runtime_command(adapter_launch, arguments)?,
         CommandAdapter::Pwsh => pwsh_command(adapter_launch, entry_path, arguments)?,
         CommandAdapter::Cmd => cmd_command(entry_path, arguments)?,
         CommandAdapter::Core | CommandAdapter::Python => unreachable!(),
@@ -148,6 +153,7 @@ pub(crate) fn validate_adapter(adapter: CommandAdapter) -> CommandResult<()> {
             | CommandAdapter::Delegate
             | CommandAdapter::Bun
             | CommandAdapter::Toolchain
+            | CommandAdapter::Runtime
             | CommandAdapter::Pwsh
             | CommandAdapter::Cmd
     ) {
@@ -203,6 +209,25 @@ fn toolchain_command(
     let mut command = Command::new(executable);
     remove_inherited_adapter_environment(&mut command);
     command.arg("command-v1").arg(handler).args(arguments);
+    Ok(command)
+}
+
+fn runtime_command(
+    adapter_launch: &AdapterLaunch,
+    arguments: &[OsString],
+) -> CommandResult<Command> {
+    let AdapterLaunch::Runtime {
+        executable,
+        address,
+    } = adapter_launch
+    else {
+        return Err(CommandError::new(
+            "Runtime Component execution requires a resolved product and command address",
+        ));
+    };
+    let mut command = Command::new(executable);
+    remove_inherited_adapter_environment(&mut command);
+    command.arg("command-v1").arg(address).args(arguments);
     Ok(command)
 }
 
@@ -326,6 +351,28 @@ mod tests {
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             ["command-v1", "dev.status", "first", "two words"]
+                .map(OsStr::new)
+                .to_vec()
+        );
+    }
+
+    #[test]
+    fn runtime_launch_pins_the_protocol_and_canonical_address_before_user_arguments() {
+        let executable = PathBuf::from(r"C:\runtime\swawkit-proj-module.exe");
+        let launch = AdapterLaunch::Runtime {
+            executable: executable.clone(),
+            address: ".module/status".to_owned(),
+        };
+        let command = runtime_command(
+            &launch,
+            &[OsString::from("swaw/context"), OsString::from("--json")],
+        )
+        .expect("Runtime Component command");
+
+        assert_eq!(command.get_program(), executable.as_os_str());
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["command-v1", ".module/status", "swaw/context", "--json",]
                 .map(OsStr::new)
                 .to_vec()
         );

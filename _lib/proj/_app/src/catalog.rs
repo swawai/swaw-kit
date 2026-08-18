@@ -4,8 +4,7 @@ use crate::{
     subject::SubjectRef,
 };
 use serde::Serialize;
-use std::collections::BTreeMap;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -40,7 +39,7 @@ use subject_kind::resolve_subject_kinds;
 use view::read_local_web_view;
 pub use view::{ChildrenColumnView, ColumnWidth, CommandView, RunOperationView, RunView};
 
-pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v16";
+pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v17";
 
 pub const HELP_ADDRESS: &str = ".help";
 pub const HELP_MARKERS: [&str; 3] = [HELP_ADDRESS, "-h", "--help"];
@@ -241,6 +240,7 @@ pub struct CommandNode {
     pub entry: Option<String>,
     pub adapter: Option<String>,
     pub handler: Option<String>,
+    pub product: Option<String>,
     pub module: Option<CommandModuleContract>,
     pub help: Option<HelpDocument>,
     pub subject_kinds: Vec<crate::subject_kind::SubjectKind>,
@@ -342,37 +342,37 @@ fn scan_node(
         (None, Some(ModuleExecution::Core { handler })) => Some(ResolvedEntry::declared(
             CommandAdapter::Core,
             Some(handler.clone()),
+            None,
         )),
         (None, Some(ModuleExecution::Toolchain { handler })) => Some(ResolvedEntry::declared(
             CommandAdapter::Toolchain,
             Some(handler.clone()),
+            None,
+        )),
+        (None, Some(ModuleExecution::Runtime { product })) => Some(ResolvedEntry::declared(
+            CommandAdapter::Runtime,
+            None,
+            Some(product.clone()),
         )),
         (None, Some(ModuleExecution::Native)) => {
-            Some(ResolvedEntry::declared(CommandAdapter::Native, None))
+            Some(ResolvedEntry::declared(CommandAdapter::Native, None, None))
         }
-        (None, Some(ModuleExecution::Delegate { .. })) => {
-            Some(ResolvedEntry::declared(CommandAdapter::Delegate, None))
-        }
+        (None, Some(ModuleExecution::Delegate { .. })) => Some(ResolvedEntry::declared(
+            CommandAdapter::Delegate,
+            None,
+            None,
+        )),
         (entry, None) => entry,
     };
+    let entry = entry.and_then(|entry| {
+        if let Some(diagnostic) = entry.invalid_declared_owner(pending.id.space, &address) {
+            diagnostics.push(diagnostic.to_owned());
+            None
+        } else {
+            Some(entry)
+        }
+    });
     let entry = match entry {
-        Some(entry)
-            if entry.adapter == CommandAdapter::Core
-                && !entry.has_valid_core_owner(pending.id.space, &address) =>
-        {
-            diagnostics
-                .push("core execution is restricted to its exact System command owner".to_owned());
-            None
-        }
-        Some(entry)
-            if entry.adapter == CommandAdapter::Toolchain
-                && !entry.has_valid_toolchain_owner(pending.id.space, &address) =>
-        {
-            diagnostics.push(
-                "toolchain execution is restricted to its exact System command owner".to_owned(),
-            );
-            None
-        }
         Some(entry)
             if entry.adapter == CommandAdapter::Bun && pending.id.space != CommandSpace::Module =>
         {
@@ -449,7 +449,8 @@ fn scan_node(
         adapter: entry
             .as_ref()
             .map(|entry| entry.adapter.as_str().to_owned()),
-        handler: entry.and_then(|entry| entry.handler),
+        handler: entry.as_ref().and_then(|entry| entry.handler.clone()),
+        product: entry.and_then(|entry| entry.product),
         module,
         help,
         subject_kinds: Vec::new(),
@@ -472,8 +473,12 @@ fn resolve_native_owners(commands: &mut [CommandNode]) {
                     command.space,
                     command.namespace.clone(),
                     command.path.clone(),
-                    command.runnable,
                     command.adapter.clone(),
+                    command
+                        .module
+                        .as_ref()
+                        .and_then(|module| module.execution.as_ref())
+                        .is_some_and(|execution| matches!(execution, ModuleExecution::Native)),
                 ),
             )
         })
@@ -492,6 +497,7 @@ fn resolve_native_owners(commands: &mut [CommandNode]) {
                         command.entry = None;
                         command.adapter = None;
                         command.handler = None;
+                        command.product = None;
                         command.diagnostic = Some(match command.diagnostic.take() {
                             Some(existing) => format!("{existing}; {diagnostic}"),
                             None => diagnostic,
@@ -511,8 +517,8 @@ fn delegated_native_owner(
             CommandSpace,
             Option<String>,
             Vec<String>,
-            bool,
             Option<String>,
+            bool,
         ),
     >,
     command: &CommandNode,
@@ -544,8 +550,7 @@ fn delegated_native_owner(
             address
         ));
     }
-    let Some((owner_space, owner_namespace, owner_path, runnable, adapter)) = entries.get(address)
-    else {
+    let Some((owner_space, owner_namespace, owner_path, adapter, _)) = entries.get(address) else {
         return Err(format!(
             "delegated execution owner '{}' is missing from the Catalog",
             address
@@ -563,7 +568,21 @@ fn delegated_native_owner(
             address, command.address
         ));
     }
-    if !*runnable || adapter.as_deref() != Some("native") {
+    if let Some((nested_address, _)) = entries.iter().find(|(_, candidate)| {
+        let (space, namespace, path, _, declares_native) = candidate;
+        *space == CommandSpace::Module
+            && namespace == &command.namespace
+            && *declares_native
+            && path.len() > owner_path.len()
+            && path.len() < command.path.len()
+            && command.path.starts_with(path)
+    }) {
+        return Err(format!(
+            "delegated command '{}' cannot cross nested native owner '{}' to reach '{}'",
+            command.address, nested_address, address
+        ));
+    }
+    if adapter.as_deref() != Some("native") {
         return Err(format!(
             "delegated execution owner '{}' must declare native execution",
             address

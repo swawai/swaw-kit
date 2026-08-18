@@ -3,6 +3,7 @@ param(
     [string]$LauncherPath = '',
     [string]$CorePath = '',
     [string]$HostPath = '',
+    [string]$ModulePath = '',
     [string]$ToolchainPath = ''
 )
 
@@ -45,6 +46,7 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -LauncherPath $LauncherPath `
     -CorePath $CorePath `
     -HostPath $HostPath `
+    -ModulePath $ModulePath `
     -ToolchainPath $ToolchainPath
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-host-release-$([Guid]::NewGuid().ToString('N'))"
@@ -59,6 +61,7 @@ try {
         -LauncherPath $Artifacts.LauncherPath `
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
+        -ModulePath $Artifacts.ModulePath `
         -ToolchainPath $Artifacts.ToolchainPath
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
@@ -154,19 +157,32 @@ try {
     $SecondTree.Dispose()
     [void]$OwnedTrees.Remove($SecondTree)
 
-    $RunningReleaseId = 'a' * 64
-    $SelectedReleaseId = 'c' * 64
-    $SelectedRelease = Join-Path (
-        Join-Path $Runtime.RuntimeBin 'releases'
-    ) $SelectedReleaseId
-    Copy-ProjFixtureHardLinkTree `
-        -Source $Runtime.RuntimeRelease `
-        -Destination $SelectedRelease
-    [IO.File]::WriteAllText(
-        (Join-Path $Runtime.RuntimeBin 'current'),
-        ($SelectedReleaseId + "`n"),
-        [Text.UTF8Encoding]::new($false)
+    $RunningReleaseId = [string]$Runtime.ReleaseId
+    $SelectedToolchain = Join-Path $TemporaryRoot 'selected-toolchain.exe'
+    [IO.File]::Copy($Artifacts.ToolchainPath, $SelectedToolchain, $false)
+    $SelectedStream = [IO.File]::Open(
+        $SelectedToolchain,
+        [IO.FileMode]::Append,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None
     )
+    try {
+        $SelectedStream.WriteByte(0)
+    } finally {
+        $SelectedStream.Dispose()
+    }
+    $SelectedSet = New-ProjRuntimeReleaseSetFromFiles -Artifacts ([ordered]@{
+        'swawkit-proj.exe' = $Artifacts.CorePath
+        'swawkit-proj-host.exe' = $Artifacts.HostPath
+        'swawkit-proj-module.exe' = $Artifacts.ModulePath
+        'swawkit-proj-toolchain.exe' = $SelectedToolchain
+    })
+    $SelectedPublication = Publish-ProjRuntimeReleaseSet `
+        -ReleaseSet $SelectedSet `
+        -ProjHome $Runtime.Home `
+        -CacheDataRoot (Join-Path $Runtime.Home 'data\proj_cache')
+    $SelectedReleaseId = [string]$SelectedPublication.ReleaseId
+    $SelectedRelease = [string]$SelectedPublication.Root
     $HostStatus = Invoke-WebRequest `
         -UseBasicParsing `
         -Uri ([string]$Document.url + 'api/v2/host') `

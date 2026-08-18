@@ -1,0 +1,4 @@
+{
+  "schema": "swawkit.command-module/v9",
+  "execution": { "type": "runtime", "product": "module" }
+}

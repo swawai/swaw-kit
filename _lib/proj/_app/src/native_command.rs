@@ -1,227 +1,28 @@
-use std::env;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Duration;
 
-use crate::catalog::{
-    CatalogSnapshot, CommandAdapter, CommandNode, CommandSpace, MODULE_CONTRACT_FILE,
+#[cfg(test)]
+use swawkit_proj_protocol::{
+    CommandRelease, command_release_document, command_release_id, revision,
 };
+use swawkit_proj_protocol::{
+    ExecutionContract, ExecutionContractCommand, ExecutionSemantics,
+    ModuleProvision as ProtocolProvision, ModuleRequirement as ProtocolRequirement,
+};
+
+use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandNode, CommandSpace};
 use crate::command::{
     CommandError, CommandExecutionContext, CommandResult, ResolvedCommand,
     catalog_command_data_root_from_roots,
 };
-use crate::development::setup::storage::ExclusiveFileLock;
 
-mod release;
 mod single;
 mod storage;
-
-use storage::{ensure_data_root, ensure_descendant, read_regular_file};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NativeCommandPublication {
-    pub release_id: String,
-    pub changed: bool,
-}
 
 pub(crate) struct NativeCommandResolution {
     pub(crate) executable: PathBuf,
     pub(crate) owner_address: String,
     pub(crate) owner_directory: PathBuf,
     pub(crate) owner_data_root: PathBuf,
-}
-
-pub fn instantiate(
-    data_root: &Path,
-    catalog: &CatalogSnapshot,
-    command: &CommandNode,
-) -> Result<NativeCommandPublication, String> {
-    let cargo = managed_cargo()?;
-    instantiate_with_cargo(data_root, catalog, command, &cargo)
-}
-
-pub fn instantiation_target_address(command: &CommandNode) -> Result<&str, String> {
-    match command.adapter.as_deref() {
-        Some("native") => Ok(&command.address),
-        Some("delegate") => command.native_owner.as_deref().ok_or_else(|| {
-            format!(
-                "delegated command '{}' has no validated native owner",
-                command.address
-            )
-        }),
-        _ => Err(format!(
-            "command '{}' is not an instantiable native module or delegated port",
-            command.address
-        )),
-    }
-}
-
-fn instantiate_with_cargo(
-    data_root: &Path,
-    catalog: &CatalogSnapshot,
-    command: &CommandNode,
-    cargo: &Path,
-) -> Result<NativeCommandPublication, String> {
-    let owner = native_owner(catalog, command)?;
-    ensure_data_root(data_root)?;
-
-    let module_data_root = catalog_command_data_root_from_roots(data_root, owner)
-        .map_err(|error| error.to_string())?;
-    ensure_descendant(data_root, &module_data_root, "native module DataRoot")?;
-    let native_root = ensure_descendant(
-        &module_data_root,
-        &module_data_root.join("_native"),
-        "native module runtime",
-    )?;
-    let _lock = acquire_build_lock(&native_root)?;
-    let source_before = release::source_contract(catalog, owner)?;
-    let candidate = build_candidate(&native_root, owner, cargo)?;
-    let source_after = release::source_contract(catalog, owner)?;
-    if source_after != source_before {
-        return Err(format!(
-            "native module '{}' source manifests changed during compilation",
-            owner.address
-        ));
-    }
-    release::validate_candidate(&candidate.path, owner, &source_after)?;
-    let release_document =
-        release::release_document(&owner.address, source_after, &candidate.bytes)?;
-    single::publish(&native_root, &candidate.bytes, &release_document)
-}
-
-fn native_owner<'a>(
-    catalog: &'a CatalogSnapshot,
-    command: &CommandNode,
-) -> Result<&'a CommandNode, String> {
-    if command.space == CommandSpace::System {
-        return Err(format!(
-            "System command '{}' cannot be instantiated as a Module",
-            command.address
-        ));
-    }
-    let owner_address = instantiation_target_address(command)?;
-    let owner = catalog
-        .commands
-        .iter()
-        .find(|candidate| candidate.address == owner_address)
-        .ok_or_else(|| {
-            format!(
-                "native owner '{}' for command '{}' is missing from the Catalog",
-                owner_address, command.address
-            )
-        })?;
-    validate_native_command(owner)?;
-    Ok(owner)
-}
-
-fn validate_native_command(command: &CommandNode) -> Result<(), String> {
-    if command.space != CommandSpace::Module
-        || command.entry.as_deref() != Some(MODULE_CONTRACT_FILE)
-        || command.adapter.as_deref() != Some("native")
-    {
-        return Err(format!(
-            "command '{}' is not an instantiable native module",
-            command.address
-        ));
-    }
-    Ok(())
-}
-
-fn acquire_build_lock(module_data_root: &Path) -> Result<ExclusiveFileLock, String> {
-    let locks = ensure_descendant(
-        module_data_root,
-        &module_data_root.join("locks"),
-        "native module locks",
-    )?;
-    ExclusiveFileLock::acquire(&locks.join("instantiate.lock"), Duration::from_secs(600))
-        .map_err(|error| format!("cannot acquire native module build lock: {error}"))
-}
-
-struct NativeCandidate {
-    path: PathBuf,
-    bytes: Vec<u8>,
-}
-
-fn build_candidate(
-    module_data_root: &Path,
-    command: &CommandNode,
-    cargo: &Path,
-) -> Result<NativeCandidate, String> {
-    let manifest = command.directory.join("Cargo.toml");
-    read_regular_file(&manifest, "native module Cargo manifest")
-        .map_err(|error| error.to_string())?;
-    let work = ensure_descendant(
-        module_data_root,
-        &module_data_root.join("work/cargo-target"),
-        "native module build directory",
-    )?;
-    let status = Command::new(cargo)
-        .arg("build")
-        .arg("--locked")
-        .arg("--release")
-        .arg("--manifest-path")
-        .arg(&manifest)
-        .arg("--target-dir")
-        .arg(&work)
-        .current_dir(&command.directory)
-        .status()
-        .map_err(|error| format!("cannot start managed Cargo '{}': {error}", cargo.display()))?;
-    if !status.success() {
-        return Err(format!(
-            "native module '{}' failed to compile with exit code {}",
-            command.address,
-            status.code().unwrap_or(1)
-        ));
-    }
-    let candidate = work.join("release/run.exe");
-    let bytes = read_regular_file(&candidate, "compiled native command")
-        .map_err(|error| error.to_string())?;
-    if bytes.is_empty() {
-        return Err(format!(
-            "compiled native command is empty: {}",
-            candidate.display()
-        ));
-    }
-    Ok(NativeCandidate {
-        path: candidate,
-        bytes,
-    })
-}
-
-#[cfg(test)]
-fn resolve_executable(
-    module_data_root: &Path,
-    owner: &str,
-    source: &release::SourceContract,
-) -> CommandResult<PathBuf> {
-    let native_root = resolve_native_root(module_data_root)?;
-    single::resolve(&native_root, owner, source)
-}
-
-#[cfg(test)]
-pub(crate) fn publish_test_executable(
-    module_data_root: &Path,
-    catalog: &CatalogSnapshot,
-    owner: &CommandNode,
-    bytes: &[u8],
-) -> Result<NativeCommandPublication, String> {
-    let source = release::source_contract(catalog, owner)?;
-    let document = release::release_document(&owner.address, source, bytes)?;
-    publish_executable(module_data_root, bytes, &document)
-}
-
-#[cfg(test)]
-fn publish_executable(
-    module_data_root: &Path,
-    bytes: &[u8],
-    release_document: &[u8],
-) -> Result<NativeCommandPublication, String> {
-    let native_root = ensure_descendant(
-        module_data_root,
-        &module_data_root.join("_native"),
-        "native module runtime",
-    )?;
-    single::publish(&native_root, bytes, release_document)
 }
 
 pub(crate) fn resolve_command_executable(
@@ -240,10 +41,14 @@ pub(crate) fn resolve_command_executable(
                 owner_address
             ))
         })?;
+    let contract = execution_contract(catalog, owner).map_err(CommandError::new)?;
+    let contract_revision = contract.revision().map_err(|error| {
+        CommandError::new(format!("cannot derive native execution contract: {error}"))
+    })?;
+    let commands = contract.delegated_commands();
     let owner_data_root = catalog_command_data_root_from_roots(&context.data_root, owner)?;
     let native_root = resolve_native_root(&owner_data_root)?;
-    let source = release::source_contract(catalog, owner).map_err(CommandError::new)?;
-    let executable = single::resolve(&native_root, &owner.address, &source)?;
+    let executable = single::resolve(&native_root, &owner.address, &contract_revision, &commands)?;
     Ok(NativeCommandResolution {
         executable,
         owner_address,
@@ -259,7 +64,7 @@ fn resolve_native_root(module_data_root: &Path) -> CommandResult<PathBuf> {
     )
     .map_err(|error| {
         CommandError::new(format!(
-            "{error}. the module has not been instantiated; publish its run.exe export before execution"
+            "{error}. the module has not been instantiated; publish its run.exe before execution"
         ))
     })
 }
@@ -280,32 +85,135 @@ pub(crate) fn instantiation_target(command: &ResolvedCommand) -> CommandResult<S
     }
 }
 
-fn managed_cargo() -> Result<PathBuf, String> {
-    let rustc = env::var_os("RUSTC")
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            "managed Rust is disabled; enable it in the Entry Profile and run .dev/setup".to_owned()
-        })?;
-    managed_toolchain_cargo(&PathBuf::from(rustc))
-}
-
-fn managed_toolchain_cargo(rustc: &Path) -> Result<PathBuf, String> {
-    if !rustc.is_absolute() {
-        return Err("managed RUSTC must be absolute".to_owned());
-    }
-    if rustc.file_name() != Some(std::ffi::OsStr::new("rustc.exe")) {
+fn execution_contract(
+    catalog: &CatalogSnapshot,
+    owner: &CommandNode,
+) -> Result<ExecutionContract, String> {
+    if owner.space != CommandSpace::Module
+        || owner.adapter.as_deref() != Some("native")
+        || owner.native_owner.as_deref() != Some(owner.address.as_str())
+    {
         return Err(format!(
-            "managed RUSTC must name rustc.exe: {}",
-            rustc.display()
+            "command '{}' is not a validated native owner",
+            owner.address
         ));
     }
-    read_regular_file(rustc, "managed Rust compiler").map_err(|error| error.to_string())?;
-    let cargo = rustc
-        .parent()
-        .expect("an absolute executable path has a parent")
-        .join("cargo.exe");
-    read_regular_file(&cargo, "managed Cargo").map_err(|error| error.to_string())?;
-    Ok(cargo)
+    let members = catalog
+        .commands
+        .iter()
+        .filter(|command| {
+            command.alias_of.is_none()
+                && (command.address == owner.address
+                    || command.native_owner.as_deref() == Some(owner.address.as_str()))
+        })
+        .map(|command| execution_contract_command(command, &owner.address))
+        .collect::<Result<Vec<_>, _>>()?;
+    ExecutionContract::new(&owner.address, members)
+        .map_err(|error| format!("invalid native execution contract: {error}"))
+}
+
+fn execution_contract_command(
+    command: &CommandNode,
+    owner: &str,
+) -> Result<ExecutionContractCommand, String> {
+    let module = command.module.as_ref().ok_or_else(|| {
+        format!(
+            "native release member '{}' has no canonical module contract",
+            command.address
+        )
+    })?;
+    let execution = match command.adapter.as_deref() {
+        Some("native") if command.address == owner => ExecutionSemantics::Native,
+        Some("delegate") if command.native_owner.as_deref() == Some(owner) => {
+            ExecutionSemantics::Delegate {
+                owner: owner.to_owned(),
+            }
+        }
+        _ => {
+            return Err(format!(
+                "native release member '{}' has incompatible execution",
+                command.address
+            ));
+        }
+    };
+    Ok(ExecutionContractCommand {
+        address: command.address.clone(),
+        execution,
+        requires: module
+            .requires
+            .iter()
+            .map(|requirement| ProtocolRequirement {
+                provider: requirement.provider.clone(),
+                export: requirement.export.clone(),
+                contract: requirement.contract.clone(),
+            })
+            .collect(),
+        provides: module
+            .provides
+            .iter()
+            .map(|provision| ProtocolProvision {
+                id: provision.id.clone(),
+                contract: provision.contract.clone(),
+            })
+            .collect(),
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn publish_test_executable(
+    module_data_root: &Path,
+    catalog: &CatalogSnapshot,
+    owner: &CommandNode,
+    bytes: &[u8],
+) -> Result<PathBuf, String> {
+    use std::fs;
+
+    let contract = execution_contract(catalog, owner)?;
+    let release = CommandRelease::new(
+        &owner.address,
+        revision(b"core-native-test-build-input"),
+        contract
+            .revision()
+            .map_err(|error| format!("cannot derive native execution contract: {error}"))?,
+        contract.delegated_commands(),
+        bytes,
+    )
+    .map_err(|error| error.to_string())?;
+    let document = command_release_document(&release).map_err(|error| error.to_string())?;
+    let release_id = command_release_id(&document);
+    let release_root = module_data_root
+        .join("_native/export/command/releases")
+        .join(&release_id);
+    fs::create_dir_all(&release_root).map_err(|error| {
+        format!(
+            "cannot create native test release '{}': {error}",
+            release_root.display()
+        )
+    })?;
+    fs::write(release_root.join("run.exe"), bytes).map_err(|error| error.to_string())?;
+    fs::write(release_root.join("swawkit.release.json"), document)
+        .map_err(|error| error.to_string())?;
+    let selector = module_data_root.join("_native/export/command/current");
+    fs::write(&selector, format!("{release_id}\n")).map_err(|error| error.to_string())?;
+    Ok(release_root.join("run.exe"))
+}
+
+#[cfg(test)]
+fn resolve_test_executable(
+    module_data_root: &Path,
+    catalog: &CatalogSnapshot,
+    owner: &CommandNode,
+) -> CommandResult<PathBuf> {
+    let contract = execution_contract(catalog, owner).map_err(CommandError::new)?;
+    let revision = contract
+        .revision()
+        .map_err(|error| CommandError::new(error.to_string()))?;
+    single::resolve(
+        &resolve_native_root(module_data_root)?,
+        &owner.address,
+        &revision,
+        &contract.delegated_commands(),
+    )
 }
 
 #[cfg(test)]

@@ -11,6 +11,7 @@ $CandidateArguments = @{
     LauncherPath = $Layout.LauncherCandidatePath
     CorePath = Join-Path $Layout.BuildRoot 'release\swawkit-proj.exe'
     HostPath = Join-Path $Layout.BuildRoot 'release\swawkit-proj-host.exe'
+    ModulePath = $Layout.ModuleCandidatePath
     ToolchainPath = Join-Path $Layout.BuildRoot (
         'release\swawkit-proj-toolchain.exe'
     )

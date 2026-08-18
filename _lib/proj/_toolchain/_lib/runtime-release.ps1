@@ -1,6 +1,8 @@
 Set-StrictMode -Version 2.0
 
-$script:ProjRuntimeReleaseManifestSchema = 'swawkit.proj-release-set/v1'
+$script:ProjRuntimeReleaseManifestSchema = 'swawkit.proj-release-set/v2'
+$script:ProjRuntimeReleaseMaxManifestBytes = 1MB
+$script:ProjRuntimeReleaseMaxArtifactBytes = 512MB
 
 function New-ProjRuntimeReleaseSetFromFiles {
     param(
@@ -21,6 +23,7 @@ function New-ProjRuntimeReleaseSetFromFiles {
         }
         $Item = Get-Item -LiteralPath $Path
         if ($Item.Length -le 0 -or
+            $Item.Length -gt $script:ProjRuntimeReleaseMaxArtifactBytes -or
             ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
             throw "The runtime Release Set artifact is invalid: $Path"
         }
@@ -38,11 +41,15 @@ function New-ProjRuntimeReleaseSetFromFiles {
         $Identity.Add($Hash)
     }
     $Names = [string[]]@($Records | ForEach-Object Name | Sort-Object)
-    if ($Names.Count -ne 3 -or
+    if ($Names.Count -ne 4 -or
         $Names -cnotcontains 'swawkit-proj.exe' -or
         $Names -cnotcontains 'swawkit-proj-host.exe' -or
+        $Names -cnotcontains 'swawkit-proj-module.exe' -or
         $Names -cnotcontains 'swawkit-proj-toolchain.exe') {
-        throw 'The application Release Set must contain exactly Core, Host, and Toolchain.'
+        throw (
+            'The application Release Set must contain exactly Core, Host, ' +
+            'Module, and Toolchain.'
+        )
     }
     return [pscustomobject][ordered]@{
         ReleaseId = Get-ProjDevSha256Text `
@@ -174,7 +181,45 @@ function Read-ProjRuntimeReleaseSet {
     Assert-ProjRuntimeDirectory -Path $RuntimeRoot
     Assert-ProjRuntimeDirectory -Path $ReleasesRoot
     Assert-ProjRuntimeDirectory -Path $ReleaseRoot
+    $ExpectedMembers = [string[]]@(
+        'manifest.json',
+        'swawkit-proj.exe',
+        'swawkit-proj-host.exe',
+        'swawkit-proj-module.exe',
+        'swawkit-proj-toolchain.exe'
+    )
+    try {
+        $ActualMembers = [string[]]@(
+            Get-ChildItem -LiteralPath $ReleaseRoot -Force |
+                ForEach-Object Name
+        )
+    } catch {
+        throw "The runtime Release Set membership is unreadable: $ReleaseRoot"
+    }
+    $ValidMembership = $ActualMembers.Count -eq $ExpectedMembers.Count
+    if ($ValidMembership) {
+        foreach ($ExpectedMember in $ExpectedMembers) {
+            if ($ActualMembers -cnotcontains $ExpectedMember) {
+                $ValidMembership = $false
+                break
+            }
+        }
+    }
+    if (-not $ValidMembership) {
+        throw "The runtime Release Set directory membership is invalid: $ReleaseRoot"
+    }
     $ManifestPath = Join-Path $ReleaseRoot 'manifest.json'
+    $ManifestItem = Get-Item `
+        -LiteralPath $ManifestPath `
+        -Force `
+        -ErrorAction SilentlyContinue
+    if ($null -eq $ManifestItem -or $ManifestItem.PSIsContainer -or
+        ($ManifestItem.Attributes -band
+            [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+        $ManifestItem.Length -le 0 -or
+        $ManifestItem.Length -gt $script:ProjRuntimeReleaseMaxManifestBytes) {
+        throw "The runtime Release Set manifest is invalid: $ManifestPath"
+    }
     try {
         $Manifest = [IO.File]::ReadAllText(
             $ManifestPath,
@@ -208,12 +253,16 @@ function Read-ProjRuntimeReleaseSet {
             throw "The runtime Release Set artifact is missing: $Path"
         }
         $Item = Get-Item -LiteralPath $Path
-        $Hash = Get-ProjDevFileSha256 -Path $Path
         if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
             [long]$Record.length -le 0 -or
+            [long]$Record.length -gt $script:ProjRuntimeReleaseMaxArtifactBytes -or
+            [long]$Item.Length -gt $script:ProjRuntimeReleaseMaxArtifactBytes -or
             [long]$Record.length -ne [long]$Item.Length -or
-            [string]$Record.sha256 -cnotmatch '^[a-f0-9]{64}$' -or
-            [string]$Record.sha256 -cne $Hash) {
+            [string]$Record.sha256 -cnotmatch '^[a-f0-9]{64}$') {
+            throw "The runtime Release Set artifact is corrupt: $Path"
+        }
+        $Hash = Get-ProjDevFileSha256 -Path $Path
+        if ([string]$Record.sha256 -cne $Hash) {
             throw "The runtime Release Set artifact is corrupt: $Path"
         }
         $Artifacts.Add([pscustomobject][ordered]@{
@@ -224,9 +273,10 @@ function Read-ProjRuntimeReleaseSet {
         })
     }
     $Names = [string[]]@($Artifacts | ForEach-Object Name | Sort-Object)
-    if ($Names.Count -ne 3 -or
+    if ($Names.Count -ne 4 -or
         $Names -cnotcontains 'swawkit-proj.exe' -or
         $Names -cnotcontains 'swawkit-proj-host.exe' -or
+        $Names -cnotcontains 'swawkit-proj-module.exe' -or
         $Names -cnotcontains 'swawkit-proj-toolchain.exe') {
         throw "The runtime Release Set has invalid membership: $ManifestPath"
     }

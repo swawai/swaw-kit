@@ -6,6 +6,12 @@ $script:ProjRuntimeFixtureRepoRoot = [IO.Path]::GetFullPath(
 . (Join-Path $script:ProjRuntimeFixtureRepoRoot (
     '_lib\proj\_toolchain\bootstrap-layout.ps1'
 ))
+. (Join-Path $script:ProjRuntimeFixtureRepoRoot (
+    '_lib\proj\_toolchain\runtime.ps1'
+))
+. (Join-Path $script:ProjRuntimeFixtureRepoRoot (
+    '_lib\proj\_toolchain\_lib\runtime-release.ps1'
+))
 
 function Assert-ProjCandidateRuntimeFixtureRoot {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -51,7 +57,7 @@ function Add-ProjFixtureCommandManifest {
 
     [void][IO.Directory]::CreateDirectory($CommandRoot)
     $Manifest = [ordered]@{
-        schema = 'swawkit.command-module/v8'
+        schema = 'swawkit.command-module/v9'
         requires = @()
         provides = @()
     }
@@ -67,12 +73,14 @@ function Resolve-ProjCandidateRuntimeArtifacts {
         [string]$LauncherPath = '',
         [string]$CorePath = '',
         [string]$HostPath = '',
+        [string]$ModulePath = '',
         [string]$ToolchainPath = ''
     )
 
     $BuildDefaults = [string]::IsNullOrWhiteSpace($LauncherPath) -or
         [string]::IsNullOrWhiteSpace($CorePath) -or
         [string]::IsNullOrWhiteSpace($HostPath) -or
+        [string]::IsNullOrWhiteSpace($ModulePath) -or
         [string]::IsNullOrWhiteSpace($ToolchainPath)
     $Layout = Get-ProjBootstrapLayout
     if ([string]::IsNullOrWhiteSpace($LauncherPath)) {
@@ -89,6 +97,9 @@ function Resolve-ProjCandidateRuntimeArtifacts {
             'release\swawkit-proj-toolchain.exe'
         )
     }
+    if ([string]::IsNullOrWhiteSpace($ModulePath)) {
+        $ModulePath = $Layout.ModuleCandidatePath
+    }
     if ($BuildDefaults) {
         & (Join-Path $script:ProjRuntimeFixtureRepoRoot (
             '_lib\proj\build.ps1'
@@ -98,11 +109,13 @@ function Resolve-ProjCandidateRuntimeArtifacts {
     $LauncherPath = [IO.Path]::GetFullPath($LauncherPath)
     $CorePath = [IO.Path]::GetFullPath($CorePath)
     $HostPath = [IO.Path]::GetFullPath($HostPath)
+    $ModulePath = [IO.Path]::GetFullPath($ModulePath)
     $ToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
     foreach ($RequiredFile in @(
         $LauncherPath,
         $CorePath,
         $HostPath,
+        $ModulePath,
         $ToolchainPath
     )) {
         if (-not [IO.File]::Exists($RequiredFile)) {
@@ -114,6 +127,7 @@ function Resolve-ProjCandidateRuntimeArtifacts {
         LauncherPath = $LauncherPath
         CorePath = $CorePath
         HostPath = $HostPath
+        ModulePath = $ModulePath
         ToolchainPath = $ToolchainPath
     }
 }
@@ -124,6 +138,7 @@ function New-ProjCandidateRuntimeFixture {
         [Parameter(Mandatory = $true)][string]$LauncherPath,
         [Parameter(Mandatory = $true)][string]$CorePath,
         [Parameter(Mandatory = $true)][string]$HostPath,
+        [Parameter(Mandatory = $true)][string]$ModulePath,
         [Parameter(Mandatory = $true)][string]$ToolchainPath
     )
 
@@ -135,31 +150,18 @@ function New-ProjCandidateRuntimeFixture {
         -Path (Split-Path -Path $RuntimeHome -Parent))
     $KernelRoot = Join-Path $RuntimeHome '_lib\proj'
     $RuntimeBin = Join-Path $KernelRoot '_bin'
-    $ReleaseId = 'a' * 64
-    $RuntimeRelease = Join-Path (
-        Join-Path $RuntimeBin 'releases'
-    ) $ReleaseId
-    [void][IO.Directory]::CreateDirectory($RuntimeRelease)
-    [IO.File]::Copy(
-        $CorePath,
-        (Join-Path $RuntimeRelease 'swawkit-proj.exe'),
-        $false
-    )
-    [IO.File]::Copy(
-        $HostPath,
-        (Join-Path $RuntimeRelease 'swawkit-proj-host.exe'),
-        $false
-    )
-    [IO.File]::Copy(
-        $ToolchainPath,
-        (Join-Path $RuntimeRelease 'swawkit-proj-toolchain.exe'),
-        $false
-    )
-    [IO.File]::WriteAllText(
-        (Join-Path $RuntimeBin 'current'),
-        ($ReleaseId + "`n"),
-        [Text.UTF8Encoding]::new($false)
-    )
+    [void][IO.Directory]::CreateDirectory($KernelRoot)
+    $ReleaseSet = New-ProjRuntimeReleaseSetFromFiles -Artifacts ([ordered]@{
+        'swawkit-proj.exe' = $CorePath
+        'swawkit-proj-host.exe' = $HostPath
+        'swawkit-proj-module.exe' = $ModulePath
+        'swawkit-proj-toolchain.exe' = $ToolchainPath
+    })
+    $Published = Publish-ProjRuntimeReleaseSet `
+        -ReleaseSet $ReleaseSet `
+        -ProjHome $RuntimeHome `
+        -CacheDataRoot (Join-Path $RuntimeHome 'data\proj_cache')
+    $RuntimeRelease = [string]$Published.Root
 
     foreach ($RelativeDirectory in @(
         'system',
@@ -182,6 +184,7 @@ function New-ProjCandidateRuntimeFixture {
         KernelRoot = $KernelRoot
         RuntimeBin = $RuntimeBin
         RuntimeRelease = $RuntimeRelease
+        ReleaseId = [string]$Published.ReleaseId
         LauncherPath = [IO.Path]::GetFullPath($LauncherPath)
     }
 }

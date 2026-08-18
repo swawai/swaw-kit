@@ -17,6 +17,7 @@ use swawkit_proj::{
     host_restart::HostRestartRequest,
     host_runtime::HostRuntimeLocator,
     launch::{LaunchMode, LaunchRequest, clear_inherited_swawkit_environment},
+    runtime_release,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
 
@@ -48,6 +49,7 @@ fn run(request: LaunchRequest, restart: Option<HostRestartRequest>) -> Result<()
     // SAFETY: this is the Host composition root and no thread exists yet.
     unsafe { clear_inherited_swawkit_environment() };
     let context = EntryContext::from_host_launch(&request)?;
+    runtime_release::validate_running_release(&context)?;
     if let Some(restart) = restart {
         return restart.complete(&context).map_err(Into::into);
     }

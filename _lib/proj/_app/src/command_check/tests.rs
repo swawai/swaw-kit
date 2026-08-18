@@ -354,6 +354,7 @@ fn command(
         entry: Some("run.exe".to_owned()),
         adapter: Some("exe".to_owned()),
         handler: None,
+        product: None,
         module: Some(CommandModuleContract {
             schema: MODULE_CONTRACT_PROTOCOL.to_owned(),
             execution: None,

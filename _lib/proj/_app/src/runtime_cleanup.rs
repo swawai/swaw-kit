@@ -1,14 +1,12 @@
 use std::io::Write;
-use std::os::windows::fs::MetadataExt;
 use std::os::windows::process::CommandExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde::{Deserialize, Serialize};
-use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
-use crate::context::EntryContext;
+use crate::{context::EntryContext, runtime_release};
 
 pub const RUNTIME_CLEANUP_PROTOCOL: &str = "swawkit.runtime-cleanup/v1";
 const MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
@@ -188,19 +186,12 @@ fn cleanup_command(context: &EntryContext, apply: bool, format: &str) -> Result<
 }
 
 fn validate_toolchain(path: &Path) -> Result<(), String> {
-    let metadata = std::fs::symlink_metadata(path).map_err(|error| {
+    runtime_release::validate_product(path).map_err(|error| {
         format!(
-            "the Runtime Release Toolchain is unavailable at '{}': {error}",
+            "the Runtime Release Toolchain failed validation at '{}': {error}",
             path.display()
         )
-    })?;
-    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        return Err(format!(
-            "the Runtime Release Toolchain is not a regular file: '{}'",
-            path.display()
-        ));
-    }
-    Ok(())
+    })
 }
 
 pub fn write_json(
@@ -213,3 +204,6 @@ pub fn write_json(
         .write_all(b"\n")
         .map_err(|error| format!("cannot write Runtime cleanup document: {error}"))
 }
+
+#[cfg(test)]
+mod tests;

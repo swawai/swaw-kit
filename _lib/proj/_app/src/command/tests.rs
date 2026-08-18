@@ -17,6 +17,7 @@ use super::{
     CommandExecutionContext, CommandExecutor, CommandProcessMode, Invocation, ProcessEnvironment,
     ResolvedCommand,
     process::{AdapterLaunch, run_process},
+    validate_module_executable, validate_toolchain_executable,
 };
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -82,6 +83,8 @@ impl Fixture {
         }
         fs::write(root.join("swawkit-proj-toolchain.exe"), "fixture")
             .expect("write Toolchain fixture");
+        fs::write(root.join("swawkit-proj-module.exe"), "fixture")
+            .expect("write module Runtime Component fixture");
         Self {
             root,
             command_root,
@@ -98,7 +101,7 @@ impl Fixture {
         fs::create_dir_all(&directory).expect("create command directory");
         fs::write(
             directory.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v8"}"#,
+            r#"{"schema":"swawkit.command-module/v9"}"#,
         )
         .expect("write command manifest");
         fs::write(directory.join("run.ps1"), script).expect("write command entry");
@@ -179,6 +182,7 @@ impl Fixture {
             entry_file: self.root.join("fixture.exe"),
             invocation_directory: self.target_project_root.clone(),
             toolchain_executable: self.root.join("swawkit-proj-toolchain.exe"),
+            module_executable: self.root.join("swawkit-proj-module.exe"),
             profile,
             environment_input_revision,
             profile_revision: format!("sha256-{}", "0".repeat(64)),
@@ -303,17 +307,32 @@ fn process_environment_is_declarative() {
 }
 
 #[test]
-fn process_environment_rejects_a_missing_runtime_toolchain() {
+fn runtime_toolchain_validation_rejects_a_missing_product() {
     let fixture = Fixture::new();
     fixture.command(".tool", "exit 0");
-    let command = ResolvedCommand::from_catalog(&fixture.catalog(), ".tool").unwrap();
     let context = fixture.context();
     fs::remove_file(&context.toolchain_executable).expect("remove Toolchain fixture");
 
-    let error = ProcessEnvironment::for_command(&context, &command)
+    let error = validate_toolchain_executable(&context.toolchain_executable)
         .expect_err("missing Toolchain must reject command execution");
 
     assert!(error.to_string().contains("Toolchain is unavailable"));
+}
+
+#[test]
+fn runtime_component_rejects_a_missing_module_product() {
+    let fixture = Fixture::new();
+    let context = fixture.context();
+    fs::remove_file(&context.module_executable).expect("remove module product fixture");
+
+    let error = validate_module_executable(&context.module_executable)
+        .expect_err("missing module product must reject Runtime execution");
+
+    assert!(
+        error
+            .to_string()
+            .contains("Runtime Component product 'module' is unavailable")
+    );
 }
 
 #[test]
@@ -324,14 +343,14 @@ fn command_data_roots_are_isolated_by_structured_identity() {
     fs::create_dir_all(&control).unwrap();
     fs::write(
         control.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v8","execution":{"type":"core","handler":"entry.profile"}}"#,
+        r#"{"schema":"swawkit.command-module/v9","execution":{"type":"core","handler":"entry.profile"}}"#,
     )
     .unwrap();
     let action = fixture.project_module_root.join("build");
     fs::create_dir_all(&action).unwrap();
     fs::write(
         action.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v8"}"#,
+        r#"{"schema":"swawkit.command-module/v9"}"#,
     )
     .unwrap();
     fs::write(action.join("run.ps1"), "exit 0").unwrap();
@@ -440,7 +459,7 @@ fn cmd_adapter_allows_only_one_standalone_help_selector() {
     fs::create_dir_all(&directory).unwrap();
     fs::write(
         directory.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v8"}"#,
+        r#"{"schema":"swawkit.command-module/v9"}"#,
     )
     .unwrap();
     fs::write(

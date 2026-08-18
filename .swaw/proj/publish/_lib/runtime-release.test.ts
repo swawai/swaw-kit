@@ -29,6 +29,7 @@ test("atomically selects a new runtime while the previous release remains mapped
   const previous = await publishFixtureRelease(fixture, {
     "swawkit-proj.exe": systemExecutable("cmd.exe"),
     "swawkit-proj-host.exe": systemExecutable("where.exe"),
+    "swawkit-proj-module.exe": systemExecutable("hostname.exe"),
     "swawkit-proj-toolchain.exe": systemExecutable("whoami.exe"),
   });
   const running = Bun.spawn(
@@ -47,6 +48,7 @@ test("atomically selects a new runtime while the previous release remains mapped
     const current = await publishFixtureRelease(fixture, {
       "swawkit-proj.exe": systemExecutable("where.exe"),
       "swawkit-proj-host.exe": systemExecutable("whoami.exe"),
+      "swawkit-proj-module.exe": systemExecutable("cmd.exe"),
       "swawkit-proj-toolchain.exe": systemExecutable("hostname.exe"),
     });
     expect(current).not.toBe(previous);
@@ -54,7 +56,12 @@ test("atomically selects a new runtime while the previous release remains mapped
     expect(await readFile(join(fixture.runtimeRoot, "current"), "utf8")).toBe(`${current}\n`);
     expect(await readFile(join(fixture.runtimeRoot, "releases", current, "manifest.json"), "utf8"))
       .toContain(current);
-    for (const name of ["swawkit-proj.exe", "swawkit-proj-host.exe", "swawkit-proj-toolchain.exe"]) {
+    for (const name of [
+      "swawkit-proj.exe",
+      "swawkit-proj-host.exe",
+      "swawkit-proj-module.exe",
+      "swawkit-proj-toolchain.exe",
+    ]) {
       await expect(lstat(join(fixture.runtimeRoot, name))).rejects.toMatchObject({ code: "ENOENT" });
     }
 
@@ -66,6 +73,13 @@ test("atomically selects a new runtime while the previous release remains mapped
     expect(await readFile(join(fixture.runtimeRoot, "current"), "utf8")).toBe(`${current}\n`);
     expect((await lstat(releaseRoot)).birthtimeMs).toBe(before);
     expect((await readdir(fixture.runtimeRoot)).filter((name) => name.startsWith("."))).toEqual([]);
+
+    const unexpected = join(releaseRoot, "unexpected.bin");
+    await writeFile(unexpected, "unexpected");
+    expect(publishRuntimeReleaseSet(fixture.home, fixture.cacheRoot, selected)).rejects.toThrow(
+      "directory membership is invalid",
+    );
+    await rm(unexpected);
 
     await writeFile(join(releaseRoot, "swawkit-proj-host.exe"), "coherently-tampered-host");
     expect(publishRuntimeReleaseSet(fixture.home, fixture.cacheRoot, selected)).rejects.toThrow(
@@ -86,6 +100,7 @@ test("rejects a runtime releases parent junction", async () => {
   const release = await buildFixtureRelease(fixture, {
     "swawkit-proj.exe": systemExecutable("where.exe"),
     "swawkit-proj-host.exe": systemExecutable("whoami.exe"),
+    "swawkit-proj-module.exe": systemExecutable("cmd.exe"),
     "swawkit-proj-toolchain.exe": systemExecutable("hostname.exe"),
   });
 
@@ -97,7 +112,10 @@ test("rejects a runtime releases parent junction", async () => {
 
 type Fixture = Awaited<ReturnType<typeof runtimeFixture>>;
 type Candidates = Record<
-  "swawkit-proj.exe" | "swawkit-proj-host.exe" | "swawkit-proj-toolchain.exe",
+  | "swawkit-proj.exe"
+  | "swawkit-proj-host.exe"
+  | "swawkit-proj-module.exe"
+  | "swawkit-proj-toolchain.exe",
   string
 >;
 
