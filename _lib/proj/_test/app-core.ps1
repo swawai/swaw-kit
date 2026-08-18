@@ -16,7 +16,7 @@ $RustProjects = @(
     },
     @{
         Name = 'Module manager'
-        ManifestPath = Join-Path $ProjRoot 'system\module\_app\Cargo.toml'
+        ManifestPath = Join-Path $ProjRoot 'system\module\Cargo.toml'
         TargetName = 'module-test'
     },
     @{

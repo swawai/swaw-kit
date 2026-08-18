@@ -42,7 +42,7 @@ Assert-ProjBootstrapContractTest `
             [StringComparison]::OrdinalIgnoreCase
         ) -and
         [IO.Path]::GetFullPath($Layout.ModuleManifestPath).Equals(
-            (Join-Path $RepoRoot '_lib\proj\system\module\_app\Cargo.toml'),
+            (Join-Path $RepoRoot '_lib\proj\system\module\Cargo.toml'),
             [StringComparison]::OrdinalIgnoreCase
         ) -and
         [IO.Path]::GetFullPath($Layout.ModuleCandidatePath).Equals(

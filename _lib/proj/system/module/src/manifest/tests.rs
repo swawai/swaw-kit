@@ -3,15 +3,15 @@ use crate::filesystem::unique_token;
 
 const VALID_FULL: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../../_protocol/tests/fixtures/command-module/valid-full.json"
+    "/../../_protocol/tests/fixtures/command-module/valid-full.json"
 ));
 const INVALID_FACET: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../../_protocol/tests/fixtures/command-module/invalid-facet.json"
+    "/../../_protocol/tests/fixtures/command-module/invalid-facet.json"
 ));
 const INVALID_SUBJECT_KIND: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../../_protocol/tests/fixtures/command-module/invalid-subject-kind.json"
+    "/../../_protocol/tests/fixtures/command-module/invalid-subject-kind.json"
 ));
 
 struct Fixture(PathBuf);

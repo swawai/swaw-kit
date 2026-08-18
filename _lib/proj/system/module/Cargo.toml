@@ -10,4 +10,4 @@ name = "swawkit-proj-module"
 path = "src/main.rs"
 
 [dependencies]
-swawkit-proj-protocol = { path = "../../../_protocol" }
+swawkit-proj-protocol = { path = "../../_protocol" }

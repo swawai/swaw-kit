@@ -24,7 +24,7 @@ Entry Launcher
 
 Entry 是薄原生 Launcher。它负责确定自身身份、读取 `_lib/proj/_bin/current`、选择不可变 Core Release Set，并原样传递 argv。若共享 Core 尚不存在，Launcher 才调用 `_lib/proj/bootstrap.ps1`。
 
-冷 Bootstrap 只构建和原子发布四个必备产品制品：`swawkit-proj.exe`、`swawkit-proj-host.exe`、`swawkit-proj-module.exe` 与 `swawkit-proj-toolchain.exe`。其中 Module manager 是位于 `system/module/_app/` 的独立 Cargo 项目，只依赖一个很小的共享协议 crate，不静态依赖 Core。Bootstrap 不扫描、编译或链接领域 Module，因此增加或修改 `swaw/context` 等原生领域不会扩大产品 Runtime 的 Rust 编译集合。
+冷 Bootstrap 只构建和原子发布四个必备产品制品：`swawkit-proj.exe`、`swawkit-proj-host.exe`、`swawkit-proj-module.exe` 与 `swawkit-proj-toolchain.exe`。其中 Module manager 直接以 `system/module/` 为独立 Cargo 根，只依赖一个很小的共享协议 crate，不静态依赖 Core。Bootstrap 不扫描、编译或链接领域 Module，因此增加或修改 `swaw/context` 等原生领域不会扩大产品 Runtime 的 Rust 编译集合。
 
 这里有两个不能混为一谈的发布平面：产品 Runtime Release Set v2 严格包含上述四件并共用 `_bin/current`；领域 Native Command Release v2 位于各 owner DataRoot，由 `.module/instantiate` 单独发布并拥有自己的 selector。Module manager 属于前者，因为 fresh install 必须先有管理器才能实例化任何领域；`swaw/context` 属于后者，不能再加入产品 Runtime，否则会出现两个 selector 争夺同一事实源。
 
@@ -108,7 +108,7 @@ Profile 中的外部挂载形如：
 
 System 是框架自带的稳定命名空间，不等于 Core。Entry Profile、DataRoot claim、Host 生命周期等需要进程内状态所有权或特权协调的行为才进入 Core；开发工具链操作可以进入 Toolchain；必须先于任意领域实例化而可用、但不需要 Core 内状态的控制面可以成为独立 Runtime Component。普通业务领域不得仅因“官方内置”而进入这三个产品边界。
 
-`.module/instantiate` 与 `.module/status` 由 `product: "module"` 的独立 `swawkit-proj-module.exe` 提供。它随四制品 Runtime Release Set 一起升级、回滚和校验，但源码、依赖和测试位于 `system/module/_app/`。Core 只根据 Catalog 中的 product ID 路由到同一已选择 Release 中的兄弟制品，不内置 `.module` 的构建与发布实现。
+`.module/instantiate` 与 `.module/status` 由 `product: "module"` 的独立 `swawkit-proj-module.exe` 提供。它随四制品 Runtime Release Set 一起升级、回滚和校验，源码、依赖和测试则直接位于标准 Cargo 根 `system/module/`。Core 只根据 Catalog 中的 product ID 路由到同一已选择 Release 中的兄弟制品，不内置 `.module` 的构建与发布实现。
 
 Core recovery/control 命令可能在 DataRoot 建立前直接 dispatch，因此不消费模块 Export，Manifest v9 明确禁止 `execution.core` 与 `requires` 组合。需要依赖 Export 的 System 命令应使用受统一依赖断言保护的普通 `run.*`、`execution.toolchain` 或 `execution.runtime`，不能在 control dispatch 中另加一条时序不同的特殊门禁。
 

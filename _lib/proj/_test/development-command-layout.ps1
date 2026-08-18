@@ -163,11 +163,12 @@ Assert-ProjDevelopmentCommandLayout `
         $StatusRequires.Count -eq 0) `
     -Message '.module/status Runtime Component manifest is invalid'
 
-$ModuleProductRoot = Join-Path $SystemRoot 'module\_app'
+$ModuleProductRoot = Join-Path $SystemRoot 'module'
 Assert-ProjDevelopmentCommandLayout `
     -Condition ([IO.File]::Exists((Join-Path $ModuleProductRoot 'Cargo.toml')) -and
         [IO.File]::Exists((Join-Path $ModuleProductRoot 'Cargo.lock')) -and
-        [IO.File]::Exists((Join-Path $ModuleProductRoot 'src\main.rs'))) `
+        [IO.File]::Exists((Join-Path $ModuleProductRoot 'src\main.rs')) -and
+        -not [IO.Directory]::Exists((Join-Path $ModuleProductRoot '_app'))) `
     -Message '.module does not own an independent locked Rust Runtime Component'
 
 Assert-ProjDevelopmentCommandLayout `

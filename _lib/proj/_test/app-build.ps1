@@ -17,7 +17,7 @@ function Assert-ProjAppBuildTest {
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 . (Join-Path $RepoRoot '_lib\proj\_toolchain\bootstrap.ps1')
 $BuildScript = Join-Path $RepoRoot '_lib\proj\_app\build.ps1'
-$ModuleManifest = Join-Path $RepoRoot '_lib\proj\system\module\_app\Cargo.toml'
+$ModuleManifest = Join-Path $RepoRoot '_lib\proj\system\module\Cargo.toml'
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-app-build-$([Guid]::NewGuid().ToString('N'))"
 )
