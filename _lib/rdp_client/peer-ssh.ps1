@@ -291,3 +291,43 @@ function Invoke-RdpClientPeerSshCopy {
         } `
         -TimeoutBudget $TimeoutBudget
 }
+
+function Invoke-RdpClientPeerSshDownload {
+    param(
+        [Parameter(Mandatory = $true)][string]$SshEntryPath,
+        [Parameter(Mandatory = $true)][string]$RemoteName,
+        [Parameter(Mandatory = $true)][string]$DestinationPath,
+        [ValidateRange(1, 1800)][int]$TimeoutSeconds = 120,
+        [AllowNull()][pscustomobject]$TimeoutBudget
+    )
+
+    if ($RemoteName -notmatch '^[A-Za-z0-9._-]+$') {
+        throw 'SSH download remote name contains unsupported characters.'
+    }
+    $ResolvedDestination = [IO.Path]::GetFullPath($DestinationPath)
+    if ([IO.File]::Exists($ResolvedDestination) -or
+        [IO.Directory]::Exists($ResolvedDestination)) {
+        throw "SSH download destination already exists: $ResolvedDestination"
+    }
+    [IO.Directory]::CreateDirectory(
+        [IO.Path]::GetDirectoryName($ResolvedDestination)
+    ) | Out-Null
+
+    if ($null -eq $TimeoutBudget) {
+        $TimeoutBudget = New-RdpClientTimeoutBudget `
+            -TimeoutSeconds $TimeoutSeconds
+    }
+    return Invoke-RdpClientPeerSshProcess `
+        -SshEntryPath $SshEntryPath `
+        -Arguments (
+            '/d /s /c ""%RDP_CLIENT_PEER_SSH_ENTRY%" copy ' +
+            '":%RDP_CLIENT_PEER_COPY_NAME%" ' +
+            '"%RDP_CLIENT_PEER_COPY_DESTINATION%""'
+        ) `
+        -Operation download `
+        -EnvironmentVariables @{
+            RDP_CLIENT_PEER_COPY_NAME        = $RemoteName
+            RDP_CLIENT_PEER_COPY_DESTINATION = $ResolvedDestination
+        } `
+        -TimeoutBudget $TimeoutBudget
+}

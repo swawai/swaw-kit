@@ -91,7 +91,10 @@ try {
             "$EntryCommand .2 screenshot --display",
             "$EntryCommand .2 pixel 640 360",
             "$EntryCommand .2 click 640 360",
-            "$EntryCommand .2 script workflow.ps1",
+            "$EntryCommand .project create paint-star",
+            "$EntryCommand .project info",
+            "$EntryCommand .project prompt paint-star",
+            "$EntryCommand .2 exec paint-star",
             '--timeout 60s',
             '.peer psexec add',
             'RDP_PEER_SSH_ENTRY',
@@ -143,6 +146,9 @@ try {
         }
         if ($Output.Contains("$EntryCommand .console")) {
             throw "Help should not advertise ordinary-RDP .console.`n$Output"
+        }
+        if ($Output.Contains("$EntryCommand .2 script")) {
+            throw "Help should not advertise the removed desktop DSL.`n$Output"
         }
         foreach ($RemovedHelpName in @(
             'RDP_REMOTE_HOST',

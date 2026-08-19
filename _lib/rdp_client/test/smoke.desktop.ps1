@@ -16,9 +16,6 @@ $Entry = Join-Path $ScratchRoot 'account.rdp.cmd'
 $SshEntry = Join-Path $ScratchRoot 'peer.ssh.cmd'
 $OutputPath = Join-Path $ScratchRoot 'capture.png'
 $ExistingOutputPath = Join-Path $ScratchRoot 'existing.png'
-$WorkflowPath = Join-Path $ScratchRoot 'workflow.ps1'
-$WorkflowBeforePath = Join-Path $ScratchRoot 'workflow-before.png'
-$WorkflowAfterPath = Join-Path $ScratchRoot 'workflow-after.png'
 $CloseCapture = Join-Path $ScratchRoot 'display-closed.txt'
 $TimeoutCapture = Join-Path $ScratchRoot 'timeout-budget.txt'
 $BootstrapRuntime = Join-Path $ScratchRoot 'bootstrap-runtime'
@@ -36,22 +33,6 @@ function Assert-DesktopSourceParses {
     )
     if ($Errors.Count -gt 0) {
         throw "$Path does not parse: $($Errors[0].Message)"
-    }
-}
-
-function Assert-DesktopScriptRejected {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Expected
-    )
-
-    try {
-        Read-RdpClientDesktopScript -Path $Path | Out-Null
-        throw "Expected desktop script failure containing '$Expected'."
-    } catch {
-        if (-not $_.Exception.Message.Contains($Expected)) {
-            throw
-        }
     }
 }
 
@@ -103,14 +84,6 @@ function New-FakeDesktopResultPayload {
         ))
         if ($Action -eq 'screenshot') {
             $Result.ImageBase64 = $Png
-        } elseif ($Action -eq 'script') {
-            $Result.Steps = @(
-                [ordered]@{ Index = 1; Action = 'screenshot'; ImageBase64 = $Png },
-                [ordered]@{ Index = 2; Action = 'pixel'; X = 640; Y = 360; Color = '#123456' },
-                [ordered]@{ Index = 3; Action = 'click'; X = 380; Y = 155 },
-                [ordered]@{ Index = 4; Action = 'wait'; Milliseconds = 5 },
-                [ordered]@{ Index = 5; Action = 'screenshot'; ImageBase64 = $Png }
-            )
         } else {
             $Result.X = 640
             $Result.Y = 360
@@ -131,7 +104,6 @@ function New-FakeDesktopResultPayload {
 try {
     foreach ($Name in @(
         'desktop.ps1',
-        'desktop-script.ps1',
         'desktop-task.remote.ps1',
         'session-display.ps1',
         'psexec.remote.ps1',
@@ -158,9 +130,7 @@ try {
         'RDP_CLIENT_DESKTOP_RESULT_V1:',
         'SESSION_CHANGED',
         'DESKTOP_NOT_INTERACTIVE',
-        'COORDINATE_OUT_OF_RANGE',
-        'WORKFLOW_STEP_FAILED',
-        'Start-Sleep -Milliseconds'
+        'COORDINATE_OUT_OF_RANGE'
     )) {
         if (-not $TaskSource.Contains($Expected)) {
             throw "The desktop worker is missing '$Expected'."
@@ -239,7 +209,6 @@ try {
     [IO.Directory]::CreateDirectory($Runtime) | Out-Null
     foreach ($Name in @(
         'desktop.ps1',
-        'desktop-script.ps1',
         'helper.ps1',
         'process-job.ps1',
         'psexec-lib.remote.ps1'
@@ -264,42 +233,6 @@ try {
     )
     [IO.File]::WriteAllText($Entry, "entry`r`n")
     [IO.File]::WriteAllText($SshEntry, "ssh`r`n")
-    [IO.File]::WriteAllLines(
-        $WorkflowPath,
-        @(
-            "Screenshot 'workflow-before.png'",
-            'Pixel 640 360',
-            'Click 380 155',
-            'Wait-Desktop 5',
-            "Screenshot 'workflow-after.png'"
-        ),
-        (New-Object Text.UTF8Encoding($false))
-    )
-    . (Join-Path $Runtime 'desktop-script.ps1')
-    $ParsedWorkflow = Read-RdpClientDesktopScript -Path $WorkflowPath
-    if ($ParsedWorkflow.Steps.Count -ne 5 -or
-        $ParsedWorkflow.Steps[0].OutputPath -ne $WorkflowBeforePath -or
-        $ParsedWorkflow.Steps[4].OutputPath -ne $WorkflowAfterPath) {
-        throw 'The desktop script parser did not preserve ordered actions or paths.'
-    }
-    $InvalidWorkflowPath = Join-Path $ScratchRoot 'invalid-workflow.ps1'
-    [IO.File]::WriteAllText(
-        $InvalidWorkflowPath,
-        'Get-Process',
-        (New-Object Text.UTF8Encoding($false))
-    )
-    Assert-DesktopScriptRejected `
-        -Path $InvalidWorkflowPath `
-        -Expected "unsupported action 'Get-Process'"
-    [IO.File]::WriteAllLines(
-        $InvalidWorkflowPath,
-        @('trap { continue }', "Screenshot 'hidden-trap.png'"),
-        (New-Object Text.UTF8Encoding($false))
-    )
-    Assert-DesktopScriptRejected `
-        -Path $InvalidWorkflowPath `
-        -Expected 'only accepts direct desktop action statements'
-
     $FakeEntry = @'
 function Read-RdpClientEntryDocument {
     return [pscustomobject]@{
@@ -499,37 +432,6 @@ function Close-RdpClientSessionDisplayLease {
         throw "The existing-display screenshot path failed.`n$Output"
     }
 
-    $env:RDP_DESKTOP_FAKE_RESULT = New-FakeDesktopResultPayload `
-        -Action script `
-        -Success
-    $Output = Invoke-DesktopTestCommand `
-        -Arguments @(
-            '-Action', 'script',
-            '-EntryFile', $Entry,
-            '-SshEntryFile', $SshEntry,
-            '-SessionId', '2',
-            '-ScriptPath', $WorkflowPath,
-            '-CommandName', 'rdp-test'
-        ) `
-        -ExpectedExitCode 0
-    if (-not [IO.File]::Exists($WorkflowBeforePath) -or
-        -not [IO.File]::Exists($WorkflowAfterPath) -or
-        -not $Output.Contains('Step 2: pixel (640, 360) #123456') -or
-        -not $Output.Contains('Step 3: click (380, 155)') -or
-        -not $Output.Contains('Step 4: wait 5ms') -or
-        $Output -notmatch
-            'RDP_CLIENT_DESKTOP_OUTPUT_V1:(?<Payload>[A-Za-z0-9+/=]+)') {
-        throw "The ordered desktop script path failed.`n$Output"
-    }
-    $PublicWorkflowJson = [Text.Encoding]::UTF8.GetString(
-        [Convert]::FromBase64String($Matches.Payload)
-    )
-    $PublicWorkflow = $PublicWorkflowJson | ConvertFrom-Json
-    if ($PublicWorkflow.Action -ne 'script' -or
-        @($PublicWorkflow.Steps).Count -ne 5 -or
-        $PublicWorkflowJson.Contains('ImageBase64')) {
-        throw 'The public workflow result is invalid or leaked screenshot payloads.'
-    }
     $env:RDP_DESKTOP_FAKE_RESULT = New-FakeDesktopResultPayload `
         -Action screenshot `
         -Success
