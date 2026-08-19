@@ -197,18 +197,6 @@ export function createExplorerView({
       toggleIcon.textContent = "›";
       toggleIcon.setAttribute("aria-hidden", "true");
       toggle.append(toggleIcon);
-      toggle.addEventListener("click", (event) => {
-        if (terminal) {
-          return;
-        }
-        event.preventDefault();
-        expandedCommandMenuAddress = command.address;
-        selectCommand(command.address, depth, {
-          focusMenuToggle: true,
-          history: "push",
-          menu: "open",
-        });
-      });
       item.append(toggle, createCommandFacetMenu(command, depth, facets));
     }
     return item;
@@ -369,7 +357,6 @@ export function createExplorerView({
     focusKey = null,
     focusDetail = false,
     focusMenu = false,
-    focusMenuToggle = false,
   } = {}) {
     const scrollOffsets = captureColumnScrollOffsets(columns);
     columns.replaceChildren(createRootColumn());
@@ -392,8 +379,6 @@ export function createExplorerView({
         : null;
       if (focusMenu) {
         // showExpandedCommandMenu moved focus into the floating menu.
-      } else if (focusMenuToggle) {
-        commandMenuToggleFor(columns, focusKey)?.focus({ preventScroll: true });
       } else if (focusDetail) {
         detailPanel.focus({ preventScroll: true });
         detailPanel.scrollIntoView({ block: "nearest", inline: "nearest" });
@@ -426,7 +411,6 @@ export function createExplorerView({
       focusKey: address,
       focusDetail: options.focusDetail === true && !isCollectionFacet(command, facet),
       focusMenu: options.focusMenu === true,
-      focusMenuToggle: options.focusMenuToggle === true,
     });
     return true;
   }

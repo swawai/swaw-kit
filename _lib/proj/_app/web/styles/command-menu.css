@@ -1,20 +1,19 @@
-.command-row[data-expandable="true"] {
-  padding-right: 38px;
+.command-row[data-expandable="true"] .row-name {
+  padding-right: 60px;
 }
 
 .command-menu-toggle {
   width: 28px;
+  height: 18px;
   position: absolute;
   z-index: 1;
   top: 5px;
-  right: 4px;
-  bottom: 5px;
+  right: 36px;
   display: grid;
   place-items: center;
   padding: 0;
-  border: 0;
-  border-left: 1px solid var(--ui-border);
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   color: var(--ui-text-muted);
   background: transparent;
   cursor: pointer;
@@ -22,6 +21,7 @@
 
 .command-menu-toggle:hover,
 .command-menu-toggle[aria-expanded="true"] {
+  border-color: var(--ui-border-strong);
   color: var(--ui-text);
   background: var(--ui-surface-pressed);
 }
@@ -32,7 +32,7 @@
 }
 
 .command-menu-toggle[data-selected="true"] {
-  border-left-color: rgb(255 255 255 / 35%);
+  border-color: rgb(255 255 255 / 35%);
   color: var(--ui-selection-text);
 }
 
@@ -42,7 +42,7 @@
 }
 
 .command-menu-toggle-icon {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   transition: transform 120ms ease;
 }
@@ -52,8 +52,8 @@
 }
 
 .command-facet-popover {
-  width: min(190px, calc(100vw - 16px));
-  min-width: 160px;
+  width: max-content;
+  min-width: 128px;
   position: fixed;
   inset: auto;
   margin: 0;
@@ -79,7 +79,7 @@
 
 .command-facet-row {
   min-height: 31px;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, max-content);
   gap: 6px;
   padding: 3px 6px;
   color: var(--ui-text-muted);
