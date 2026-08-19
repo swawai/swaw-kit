@@ -136,8 +136,8 @@ try {
         -NoNewWindow `
         -RedirectStandardOutput $StdOutPath `
         -RedirectStandardError $StdErrPath `
+        -Wait `
         -PassThru
-    $Child.WaitForExit()
     $ExitCode = [int]$Child.ExitCode
     Write-RdpClientExecResult -Result ([ordered]@{
         Version   = 1

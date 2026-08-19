@@ -102,16 +102,30 @@ function Remove-RdpClientExecRemoteTransfersBestEffort {
         $Source = (
             '$u=New-Object Text.UTF8Encoding($false);' +
             '$j=$u.GetString([Convert]::FromBase64String(''' + $Payload + '''));' +
-            'foreach($n in @($j|ConvertFrom-Json)){' +
+            '$d=$j|ConvertFrom-Json;' +
+            '$p=@();' +
+            'foreach($n in $d){' +
             'if([string]$n -notmatch ''^\.swaw-kit-rdp-exec-(?:input|output)-[a-f0-9]{32}\.zip$'')' +
             '{throw ''Invalid transfer cleanup name.''};' +
-            'Remove-Item -LiteralPath (Join-Path $HOME ([string]$n)) ' +
-            '-Force -ErrorAction SilentlyContinue}'
+            '$p+=Join-Path $env:USERPROFILE ([string]$n)};' +
+            'for($a=0;$a-lt 5;$a++){' +
+            '$r=@($p|Where-Object{Test-Path -LiteralPath $_});' +
+            'if($r.Count-eq 0){break};' +
+            'foreach($x in $r){try{Remove-Item -LiteralPath $x -Force -ErrorAction Stop}catch{}};' +
+            'if($a-lt 4){Start-Sleep -Milliseconds 250}};' +
+            '$r=@($p|Where-Object{Test-Path -LiteralPath $_});' +
+            'if($r.Count-ne 0){throw ''Remote transfer cleanup left files behind.''}'
         )
-        $null = Invoke-RdpClientPeerSshEncodedCommand `
+        $Cleanup = Invoke-RdpClientPeerSshEncodedCommand `
             -SshEntryPath $SshEntryPath `
             -EncodedCommand (ConvertTo-RdpClientEncodedCommand -Source $Source) `
             -TimeoutSeconds 10
+        if ($Cleanup.ExitCode -ne 0) {
+            throw (
+                "Remote cleanup exited with $($Cleanup.ExitCode). " +
+                ($Cleanup.Output -join ' ')
+            )
+        }
     } catch {
         [Console]::Error.WriteLine(
             "[WARN] Could not remove peer transfers: $($_.Exception.Message)"

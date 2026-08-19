@@ -18,6 +18,7 @@ $SshEntry = Join-Path $ScratchRoot 'peer.ssh.cmd'
 $Project = Join-Path $ScratchRoot 'project'
 $ArtifactSource = Join-Path $ScratchRoot 'fake-artifacts'
 $Capture = Join-Path $ScratchRoot 'request.json'
+$CleanupCapture = Join-Path $ScratchRoot 'cleanup-source.ps1'
 
 function Invoke-ExecTestCommand {
     param([string[]]$Arguments, [int]$ExpectedExitCode)
@@ -134,7 +135,11 @@ function Invoke-RdpClientPeerSshDownload {
         -ArchivePath $DestinationPath
     return [pscustomobject]@{ ExitCode = 0; Output = @() }
 }
-function ConvertTo-RdpClientEncodedCommand { param([string]$Source); return 'unused' }
+function ConvertTo-RdpClientEncodedCommand {
+    param([string]$Source)
+    [IO.File]::WriteAllText($env:RDP_EXEC_FAKE_CLEANUP_CAPTURE, $Source)
+    return 'unused'
+}
 function Invoke-RdpClientPeerSshEncodedCommand {
     return [pscustomobject]@{ ExitCode = 0; Output = @() }
 }
@@ -181,6 +186,7 @@ function Close-RdpClientSessionDisplayLease {}
 
     $env:RDP_EXEC_FAKE_CAPTURE = $Capture
     $env:RDP_EXEC_FAKE_ARTIFACT_SOURCE = $ArtifactSource
+    $env:RDP_EXEC_FAKE_CLEANUP_CAPTURE = $CleanupCapture
     $env:RDP_EXEC_ARG_1 = '--size'
     $env:RDP_EXEC_ARG_2 = '800 x 600'
     $Output = Invoke-ExecTestCommand `
@@ -212,6 +218,36 @@ function Close-RdpClientSessionDisplayLease {}
     $ArtifactPath = $ArtifactLine.Substring($ArtifactLine.IndexOf(':') + 1).Trim()
     if ([IO.File]::ReadAllText((Join-Path $ArtifactPath 'result.txt')) -ne 'artifact') {
         throw 'The downloaded project artifact was not extracted.'
+    }
+
+    $CleanupSource = [IO.File]::ReadAllText($CleanupCapture)
+    if ($CleanupSource -notmatch "FromBase64String\('(?<Payload>[A-Za-z0-9+/=]+)'\)") {
+        throw 'The remote transfer cleanup source did not contain its file payload.'
+    }
+    $CleanupDocument = $Utf8.GetString(
+        [Convert]::FromBase64String($Matches.Payload)
+    ) | ConvertFrom-Json
+    $CleanupNames = @($CleanupDocument)
+    if ($CleanupNames.Count -ne 2) {
+        throw 'The remote transfer cleanup did not receive both archive names.'
+    }
+    $FakeRemoteHome = Join-Path $ScratchRoot 'remote-home'
+    [IO.Directory]::CreateDirectory($FakeRemoteHome) | Out-Null
+    foreach ($CleanupName in $CleanupNames) {
+        [IO.File]::WriteAllText(
+            (Join-Path $FakeRemoteHome ([string]$CleanupName)),
+            'transfer'
+        )
+    }
+    $PreviousUserProfile = $env:USERPROFILE
+    try {
+        $env:USERPROFILE = $FakeRemoteHome
+        Invoke-Expression $CleanupSource
+    } finally { $env:USERPROFILE = $PreviousUserProfile }
+    foreach ($CleanupName in $CleanupNames) {
+        if ([IO.File]::Exists((Join-Path $FakeRemoteHome ([string]$CleanupName)))) {
+            throw "The remote transfer cleanup left '$CleanupName' behind."
+        }
     }
 
     $WorkerRoot = Join-Path $ScratchRoot 'worker'
@@ -265,6 +301,39 @@ Write-Output "worker stdout: $Value"
         throw 'The target-user worker did not capture stdout.'
     }
 
+    [IO.File]::WriteAllText(
+        (Join-Path $WorkerInput 'run.ps1'),
+        "throw 'expected project failure'",
+        $Utf8
+    )
+    $FailedWorkerResultPath = Join-Path $WorkerRoot 'failed-result.txt'
+    $FailedWorkerIdentityPath = Join-Path $WorkerRoot 'failed-identity.json'
+    $FailedWorkerOutput = (& PowerShell.exe `
+        -NoLogo -NoProfile -ExecutionPolicy Bypass `
+        -File (Join-Path $RuntimeRoot 'exec-task.remote.ps1') `
+        -RequestBase64 ([Convert]::ToBase64String($Utf8.GetBytes($WorkerRequestJson))) `
+        -ResultPath $FailedWorkerResultPath `
+        -ProcessIdentityPath $FailedWorkerIdentityPath 2>&1 | Out-String)
+    $FailedWorkerExitCode = $LASTEXITCODE
+    $FailedMarker = [IO.File]::ReadAllText($FailedWorkerResultPath).Trim()
+    if ($FailedMarker -notmatch '^RDP_CLIENT_EXEC_RESULT_V1:(?<Payload>[A-Za-z0-9+/=]+)$') {
+        throw 'The failed target-user worker returned an invalid result marker.'
+    }
+    $FailedResult = $Utf8.GetString(
+        [Convert]::FromBase64String($Matches.Payload)
+    ) | ConvertFrom-Json
+    if ($FailedWorkerExitCode -ne 1) {
+        throw (
+            'A failed project was not propagated by the target-user worker. ' +
+            "workerExit=$FailedWorkerExitCode resultExit=$($FailedResult.ExitCode) " +
+            "success=$($FailedResult.Success).`n$FailedWorkerOutput"
+        )
+    }
+    if ([bool]$FailedResult.Success -or [int]$FailedResult.ExitCode -eq 0 -or
+        [string]$FailedResult.ErrorCode -ne 'PROJECT_FAILED') {
+        throw 'The target-user worker reported a failed project as successful.'
+    }
+
     $RemoteSource = [IO.File]::ReadAllText(
         (Join-Path $RuntimeRoot 'exec.remote.ps1'),
         [Text.Encoding]::UTF8
@@ -287,6 +356,7 @@ Write-Output "worker stdout: $Value"
     foreach ($Name in @(
         'RDP_EXEC_FAKE_CAPTURE',
         'RDP_EXEC_FAKE_ARTIFACT_SOURCE',
+        'RDP_EXEC_FAKE_CLEANUP_CAPTURE',
         'RDP_EXEC_ARG_1',
         'RDP_EXEC_ARG_2'
     )) { Remove-Item "Env:$Name" -ErrorAction SilentlyContinue }
