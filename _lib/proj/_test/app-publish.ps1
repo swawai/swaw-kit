@@ -15,8 +15,7 @@ function Assert-ProjAppPublishTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-. (Join-Path $RepoRoot '_lib\proj\_toolchain\runtime.ps1')
-. (Join-Path $RepoRoot '_lib\proj\_toolchain\_lib\runtime-release.ps1')
+. (Join-Path $RepoRoot '_lib\proj\_runtime\release.ps1')
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-app-publish-$([Guid]::NewGuid().ToString('N'))"
 )

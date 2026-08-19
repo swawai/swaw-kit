@@ -28,7 +28,7 @@ $ToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
 if (-not [IO.File]::Exists($ToolchainPath)) {
     throw "Proj Toolchain candidate is missing: $ToolchainPath"
 }
-. (Join-Path $RepoRoot '_lib\proj\_toolchain\runtime.ps1')
+. (Join-Path $RepoRoot '_lib\proj\system\dev\_lib\runtime.ps1')
 . (Join-Path $RepoRoot '_lib\proj\_toolchain\_lib\event.ps1')
 . (Join-Path $RepoRoot '_lib\proj\_toolchain\_lib\artifact.ps1')
 

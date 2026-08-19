@@ -1,6 +1,9 @@
 Set-StrictMode -Version 2.0
 
-. (Join-Path $PSScriptRoot '_lib\runtime.ps1')
+$SharedToolchainRoot = [IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot '..\..\..\_toolchain')
+)
+. (Join-Path $SharedToolchainRoot '_lib\runtime.ps1')
 
 foreach ($File in @(
     'event.ps1',
@@ -9,10 +12,10 @@ foreach ($File in @(
     'install.ps1',
     'environment.ps1'
 )) {
-    . (Join-Path (Join-Path $PSScriptRoot '_lib') $File)
+    . (Join-Path (Join-Path $SharedToolchainRoot '_lib') $File)
 }
 
-$ModuleRoot = Join-Path $PSScriptRoot '_modules'
+$ModuleRoot = Join-Path $SharedToolchainRoot '_modules'
 foreach ($File in @(
     'bun\module.ps1',
     'bun\release.ps1',

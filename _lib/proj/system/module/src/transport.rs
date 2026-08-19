@@ -15,6 +15,7 @@ pub(crate) struct Invocation {
 }
 
 pub(crate) struct CommandContext {
+    pub(crate) swawkit_home: PathBuf,
     pub(crate) data_root: PathBuf,
     pub(crate) system_root: PathBuf,
     pub(crate) module_roots: BTreeMap<String, PathBuf>,
@@ -56,6 +57,7 @@ impl Invocation {
             required(&mut environment, "SWAWKIT_PROJ_DATA_ROOT")?,
             "DataRoot",
         )?;
+        let swawkit_home = absolute(required(&mut environment, "SWAWKIT_HOME")?, "Swaw Kit Home")?;
         let system_root = absolute(
             required(&mut environment, "SWAWKIT_PROJ_SYSTEM_ROOT")?,
             "System command root",
@@ -63,9 +65,6 @@ impl Invocation {
         let roots_text = required(&mut environment, "SWAWKIT_PROJ_MODULE_ROOTS")?;
         let module_roots: BTreeMap<String, PathBuf> = serde_json::from_str(&roots_text)
             .map_err(|error| format!("invalid Module root map: {error}"))?;
-        if module_roots.is_empty() {
-            return Err("Module root map cannot be empty".to_owned());
-        }
         for (namespace, root) in &module_roots {
             if !valid_module_namespace(namespace) {
                 return Err(format!("invalid Module namespace '{namespace}'"));
@@ -82,6 +81,7 @@ impl Invocation {
             address,
             arguments: arguments.collect(),
             context: CommandContext {
+                swawkit_home,
                 data_root,
                 system_root,
                 module_roots,
@@ -143,6 +143,7 @@ mod tests {
             "SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL" => Some("2".into()),
             "SWAWKIT_PROJ_CORE_COMMAND_ADDRESS" => Some(".module/status".into()),
             "SWAWKIT_PROJ_DATA_ROOT" => Some(r"C:\data".into()),
+            "SWAWKIT_HOME" => Some(r"C:\home".into()),
             "SWAWKIT_PROJ_SYSTEM_ROOT" => Some(r"C:\system".into()),
             "SWAWKIT_PROJ_MODULE_ROOTS" => Some(r#"{"swaw":"C:\\modules"}"#.into()),
             "SWAWKIT_PROJ_ENTRY_COMMAND" => Some("fixture".into()),
@@ -159,6 +160,7 @@ mod tests {
         .unwrap();
         assert_eq!(invocation.address, ".module/status");
         assert_eq!(invocation.arguments, [OsString::from("swaw/context")]);
+        assert_eq!(invocation.context.swawkit_home, PathBuf::from(r"C:\home"));
         assert_eq!(invocation.context.system_root, PathBuf::from(r"C:\system"));
     }
 
@@ -177,5 +179,21 @@ mod tests {
         .err()
         .unwrap();
         assert!(error.contains("expected '2'"), "{error}");
+    }
+
+    #[test]
+    fn system_native_commands_do_not_require_a_module_mount() {
+        let invocation = Invocation::from_sources(
+            ["command-v1", ".module/status", ".context"].map(OsString::from),
+            |name| {
+                if name == "SWAWKIT_PROJ_MODULE_ROOTS" {
+                    Some("{}".into())
+                } else {
+                    environment(name)
+                }
+            },
+        )
+        .unwrap();
+        assert!(invocation.context.module_roots.is_empty());
     }
 }

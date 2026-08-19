@@ -3,6 +3,7 @@
 #[cfg(not(windows))]
 compile_error!("The Swaw Kit Module manager supports Windows only.");
 
+mod builder_environment;
 mod filesystem;
 mod instantiate;
 mod manifest;

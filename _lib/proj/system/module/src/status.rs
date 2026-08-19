@@ -159,6 +159,7 @@ mod tests {
 
         fn context(&self) -> CommandContext {
             CommandContext {
+                swawkit_home: self.root.clone(),
                 data_root: self.data.clone(),
                 system_root: self.system.clone(),
                 module_roots: BTreeMap::from([("swaw".to_owned(), self.modules.clone())]),

@@ -4,13 +4,13 @@ $script:ProjRuntimeFixtureRepoRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..\..\..')
 )
 . (Join-Path $script:ProjRuntimeFixtureRepoRoot (
-    '_lib\proj\_toolchain\bootstrap-layout.ps1'
+    '_lib\proj\_bootstrap\layout.ps1'
 ))
 . (Join-Path $script:ProjRuntimeFixtureRepoRoot (
-    '_lib\proj\_toolchain\runtime.ps1'
+    '_lib\proj\system\dev\_lib\runtime.ps1'
 ))
 . (Join-Path $script:ProjRuntimeFixtureRepoRoot (
-    '_lib\proj\_toolchain\_lib\runtime-release.ps1'
+    '_lib\proj\_runtime\release.ps1'
 ))
 
 function Assert-ProjCandidateRuntimeFixtureRoot {
@@ -176,7 +176,6 @@ function New-ProjCandidateRuntimeFixture {
             -Recurse `
             -Force
     }
-    [void][IO.Directory]::CreateDirectory((Join-Path $KernelRoot 'modules'))
     [void][IO.Directory]::CreateDirectory((Join-Path $RuntimeHome '.swaw'))
 
     return [pscustomobject][ordered]@{

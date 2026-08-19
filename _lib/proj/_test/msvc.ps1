@@ -8,7 +8,7 @@ Set-StrictMode -Version 2.0
 Add-Type -AssemblyName System.IO.Compression
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\setup.ps1')
+. (Join-Path $ProjRoot 'system\dev\_lib\setup.ps1')
 
 function Assert-ProjMsvcTest {
     param(

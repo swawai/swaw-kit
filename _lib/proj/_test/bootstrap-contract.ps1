@@ -16,7 +16,7 @@ function Assert-ProjBootstrapContractTest {
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 $ProjRoot = Join-Path $RepoRoot '_lib\proj'
-. (Join-Path $ProjRoot '_toolchain\bootstrap-layout.ps1')
+. (Join-Path $ProjRoot '_bootstrap\layout.ps1')
 
 $Layout = Get-ProjBootstrapLayout
 $Contract = Read-ProjBootstrapContract
@@ -71,12 +71,24 @@ Assert-ProjBootstrapContractTest `
             (Join-Path $RepoRoot '_lib\proj\_launcher\build.ps1'),
             [StringComparison]::OrdinalIgnoreCase
         ) -and
+        [IO.Path]::GetFullPath($Layout.RuntimePublishPath).Equals(
+            (Join-Path $RepoRoot '_lib\proj\_runtime\publish.ps1'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
         [IO.Path]::GetFullPath($Layout.ContractPath).Equals(
             (Join-Path $RepoRoot '_lib\proj\bootstrap.json'),
             [StringComparison]::OrdinalIgnoreCase
         ) -and
         [IO.Path]::GetFullPath($Layout.BootstrapEntryPath).Equals(
             (Join-Path $RepoRoot '_lib\proj\bootstrap.ps1'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.BootstrapSetupPath).Equals(
+            (Join-Path $RepoRoot '_lib\proj\_bootstrap\setup.ps1'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.EnvironmentPath).Equals(
+            (Join-Path $RepoRoot 'data\proj_cache\bootstrap\environment.json'),
             [StringComparison]::OrdinalIgnoreCase
         )
     ) `
@@ -113,22 +125,74 @@ Assert-ProjBootstrapContractTest `
     -Message 'the cold Bootstrap entry still builds the Launcher'
 
 $BootstrapToolchain = [IO.File]::ReadAllText(
-    (Join-Path $ProjRoot '_toolchain\bootstrap.ps1')
+    (Join-Path $ProjRoot '_bootstrap\toolchain.ps1')
 )
 Assert-ProjBootstrapContractTest `
     -Condition (
         -not $BootstrapToolchain.Contains('.dev\setup') -and
+        -not $BootstrapToolchain.Contains('system\dev') -and
         -not $BootstrapToolchain.Contains(
             'SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_'
         ) -and
         $BootstrapToolchain.Contains(
             'SWAWKIT_PROJ_TOOLCHAIN_BOOTSTRAP_ENVIRONMENT_REVISION'
         ) -and
+        $BootstrapToolchain.Contains('Publish-ProjBootstrapEnvironment') -and
         -not $BootstrapToolchain.Contains(
             'Set-ProjBootstrapToolchainDeclarations'
         )
     ) `
     -Message 'the Bootstrap toolchain still depends on development setup'
+
+$PrivateLayoutChecks = @(
+    [IO.File]::Exists((Join-Path $ProjRoot '_bootstrap\layout.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot '_bootstrap\toolchain.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot '_bootstrap\environment.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot '_bootstrap\setup.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot '_runtime\release.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot '_runtime\publish.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\_lib\runtime.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\_lib\setup.ps1'))
+    (-not [IO.File]::Exists((Join-Path $ProjRoot (
+        '_toolchain\bootstrap.ps1'
+    ))))
+    (-not [IO.File]::Exists((Join-Path $ProjRoot (
+        '_toolchain\runtime.ps1'
+    ))))
+    (-not [IO.File]::Exists((Join-Path $ProjRoot (
+        '_toolchain\setup.ps1'
+    ))))
+    (-not [IO.File]::Exists((Join-Path $ProjRoot (
+        '_toolchain\_lib\runtime-release.ps1'
+    ))))
+    (-not [IO.File]::Exists((Join-Path $ProjRoot '_app\publish.ps1')))
+)
+Assert-ProjBootstrapContractTest `
+    -Condition ($PrivateLayoutChecks -notcontains $false) `
+    -Message 'Bootstrap, Runtime publication, and development ownership are mixed'
+
+$BootstrapSetup = [IO.File]::ReadAllText($Layout.BootstrapSetupPath)
+Assert-ProjBootstrapContractTest `
+    -Condition (
+        $BootstrapSetup.Contains('Invoke-ProjBootstrapToolchain') -and
+        -not $BootstrapSetup.Contains('Invoke-ProjBootstrapAppBuild') -and
+        -not $BootstrapSetup.Contains('Publish-ProjRuntimeReleaseSet') -and
+        -not $BootstrapSetup.Contains('.dev/setup')
+    ) `
+    -Message 'the Bootstrap environment repair path owns product build or publication'
+
+$BootstrapEnvironment = [IO.File]::ReadAllText(
+    (Join-Path $ProjRoot '_bootstrap\environment.ps1')
+)
+Assert-ProjBootstrapContractTest `
+    -Condition (
+        $BootstrapEnvironment.Contains(
+            'swawkit.proj-bootstrap-environment/v1'
+        ) -and
+        $BootstrapEnvironment.Contains('ContractPath') -and
+        $BootstrapEnvironment.Contains('contractRevision')
+    ) `
+    -Message 'the Bootstrap Native builder projection has no explicit contract'
 
 Assert-ProjBootstrapContractTest `
     -Condition (-not [IO.Directory]::Exists((Join-Path $RepoRoot (

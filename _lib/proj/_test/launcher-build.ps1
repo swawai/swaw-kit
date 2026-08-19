@@ -80,7 +80,7 @@ function Test-ProjLauncherBuildFileUnchanged {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-. (Join-Path $RepoRoot '_lib\proj\_toolchain\bootstrap-layout.ps1')
+. (Join-Path $RepoRoot '_lib\proj\_bootstrap\layout.ps1')
 $Layout = Get-ProjBootstrapLayout
 $BuildPath = Join-Path $RepoRoot '_lib\proj\build.ps1'
 $CandidatePath = $Layout.LauncherCandidatePath

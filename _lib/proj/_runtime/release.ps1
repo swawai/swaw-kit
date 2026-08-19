@@ -1,5 +1,11 @@
 Set-StrictMode -Version 2.0
 
+$SharedToolchainLibrary = [IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot '..\_toolchain\_lib')
+)
+. (Join-Path $SharedToolchainLibrary 'foundation.ps1')
+. (Join-Path $SharedToolchainLibrary 'controlled-path.ps1')
+
 $script:ProjRuntimeReleaseManifestSchema = 'swawkit.proj-release-set/v2'
 $script:ProjRuntimeReleaseMaxManifestBytes = 1MB
 $script:ProjRuntimeReleaseMaxArtifactBytes = 512MB

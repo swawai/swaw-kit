@@ -5,8 +5,8 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
-. (Join-Path $PSScriptRoot '_toolchain\bootstrap.ps1')
-. (Join-Path $PSScriptRoot '_toolchain\_lib\runtime-release.ps1')
+. (Join-Path $PSScriptRoot '_bootstrap\toolchain.ps1')
+. (Join-Path $PSScriptRoot '_runtime\release.ps1')
 $Layout = Get-ProjBootstrapLayout
 function Test-ProjBootstrapRuntime {
     param([Parameter(Mandatory = $true)][object]$BuildLayout)
@@ -81,7 +81,7 @@ try {
             } finally {
                 $ModuleBuildLock.Dispose()
             }
-            & $BuildLayout.AppPublishPath `
+            & $BuildLayout.RuntimePublishPath `
                 -CandidateCorePath (Join-Path $TargetDirectory (
                     'release\swawkit-proj.exe'
                 )) `

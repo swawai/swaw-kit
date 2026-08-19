@@ -46,6 +46,9 @@ Assert-ProjDevelopmentCommandLayout `
     -Message 'the removed generic _module.json marker remains in a command root'
 
 foreach ($ManifestRoot in @($SystemRoot, $OfficialModuleRoot, $ProjectModuleRoot)) {
+    if (-not [IO.Directory]::Exists($ManifestRoot)) {
+        continue
+    }
     $CanonicalRoot = [IO.Path]::GetFullPath($ManifestRoot).TrimEnd('\')
     $RootManifests = Get-ChildItem -LiteralPath $CanonicalRoot `
         -Recurse -File -Filter 'swawkit.module.json'
@@ -139,10 +142,7 @@ Assert-ProjDevelopmentCommandLayout `
     -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v10' -and
         $InstantiateContract.execution.type -ceq 'runtime' -and
         $InstantiateContract.execution.product -ceq 'module' -and
-        @($InstantiateContract.requires).Count -eq 1 -and
-        $InstantiateContract.requires[0].provider -ceq '.dev/setup' -and
-        $InstantiateContract.requires[0].export -ceq 'environment' -and
-        $InstantiateContract.requires[0].contract -ceq 'swawkit.proj.dev-setup/v2') `
+        $null -eq $InstantiateContract.PSObject.Properties['requires']) `
     -Message '.module/instantiate Runtime Component manifest is invalid'
 
 $StatusManifest = Join-Path $SystemRoot 'module\status\swawkit.module.json'
@@ -360,10 +360,17 @@ $DependencyContracts = @(
         PathType = 'Leaf'
     },
     @{
+        Name = '.dev/cmd development environment runtime'
+        Script = 'dev\cmd\run.ps1'
+        Relative = '..\_lib\runtime.ps1'
+        SourceMarker = '_lib\runtime.ps1'
+        PathType = 'Leaf'
+    },
+    @{
         Name = '.dev/exec development environment runtime'
         Script = 'dev\exec\run.ps1'
-        Relative = '..\..\..\_toolchain\runtime.ps1'
-        SourceMarker = '_toolchain\runtime.ps1'
+        Relative = '..\_lib\runtime.ps1'
+        SourceMarker = '_lib\runtime.ps1'
         PathType = 'Leaf'
     }
 )

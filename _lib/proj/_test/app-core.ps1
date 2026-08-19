@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\bootstrap.ps1')
+. (Join-Path $ProjRoot '_bootstrap\toolchain.ps1')
 
 $Toolchain = Initialize-ProjBootstrapToolchain
 $RustProjects = @(

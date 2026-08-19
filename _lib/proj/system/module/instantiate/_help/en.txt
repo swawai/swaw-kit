@@ -2,4 +2,4 @@ Build a System or Module command declaring execution.native as an independent ru
 
 Usage: {{INVOCATION}} <native-command-or-logical-port-address>
 
-Normal command execution never compiles source. Run this command again after a source change; a failed build does not replace the current Release.
+Normal command execution never compiles source. This command consumes the product builder environment pinned by bootstrap.json and published by the physical `_bootstrap/setup.ps1`; it does not depend on `.dev/setup`. Run this command again after a source change; a failed build does not replace the current Release.

@@ -93,10 +93,15 @@ impl CommandExecutionContext {
         process_mode: CommandProcessMode,
     ) -> Self {
         let binding = profile.binding();
-        let mut module_roots = BTreeMap::from([
-            ("swaw".to_owned(), entry.swaw_module_root()),
-            ("project".to_owned(), binding.project_module_root()),
-        ]);
+        let mut module_roots = BTreeMap::new();
+        for (namespace, root) in [
+            ("swaw", entry.swaw_module_root()),
+            ("project", binding.project_module_root()),
+        ] {
+            if root.is_dir() {
+                module_roots.insert(namespace.to_owned(), root);
+            }
+        }
         module_roots.extend(
             binding
                 .external_module_mounts()

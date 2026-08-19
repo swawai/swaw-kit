@@ -1,7 +1,11 @@
 Set-StrictMode -Version 2.0
 
-. (Join-Path $PSScriptRoot 'bootstrap-layout.ps1')
-. (Join-Path $PSScriptRoot '_lib\runtime.ps1')
+. (Join-Path $PSScriptRoot 'layout.ps1')
+. (Join-Path $PSScriptRoot 'environment.ps1')
+$SharedToolchainRoot = [IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot '..\_toolchain')
+)
+. (Join-Path $SharedToolchainRoot '_lib\runtime.ps1')
 foreach ($File in @(
     'event.ps1',
     'artifact.ps1',
@@ -9,9 +13,9 @@ foreach ($File in @(
     'install.ps1',
     'environment.ps1'
 )) {
-    . (Join-Path (Join-Path $PSScriptRoot '_lib') $File)
+    . (Join-Path (Join-Path $SharedToolchainRoot '_lib') $File)
 }
-$ModuleRoot = Join-Path $PSScriptRoot '_modules'
+$ModuleRoot = Join-Path $SharedToolchainRoot '_modules'
 foreach ($File in @(
     'msvc\module.ps1',
     'msvc\payload.ps1',
@@ -45,7 +49,7 @@ function New-ProjBootstrapToolchainContext {
         DataRoot = $DataRoot
         CacheDataRoot = $CacheRoot
         EnvironmentRoot = $ToolchainRoot
-        EnvironmentRepairInvocation = $Layout.BootstrapEntryPath
+        EnvironmentRepairInvocation = $Layout.BootstrapSetupPath
         EnvCmdPath = Join-Path $ToolchainRoot 'env.cmd'
         EnvPs1Path = Join-Path $ToolchainRoot 'env.ps1'
         CacheRoot = Join-Path $CacheRoot 'downloads'
@@ -151,12 +155,6 @@ function Initialize-ProjBootstrapToolchain {
         [void](Publish-ProjDevEnvironmentScripts `
             -Context $Context `
             -Scripts $Scripts)
-        Write-ProjBootstrapToolchainState `
-            -Context $Context `
-            -Contract $Contract `
-            -MsvcDefinition $MsvcDefinition `
-            -RustDefinition $RustDefinition `
-            -Revision ([string]$Scripts.Revision)
     } finally {
         $SetupLock.Dispose()
     }
@@ -206,6 +204,20 @@ function Initialize-ProjBootstrapToolchain {
     $LinkerPath = Resolve-ProjBootstrapMsvcExecutable `
         -Name 'link.exe' `
         -ManagedRoot $MsvcRoot
+    Write-ProjBootstrapToolchainState `
+        -Context $Context `
+        -Contract $Contract `
+        -MsvcDefinition $MsvcDefinition `
+        -RustDefinition $RustDefinition `
+        -Revision ([string]$Scripts.Revision)
+    Publish-ProjBootstrapEnvironment `
+        -Context $Context `
+        -Contract $Contract `
+        -Plan $Plan `
+        -Scripts $Scripts `
+        -CargoPath $CargoPath `
+        -CompilerPath $CompilerPath `
+        -LinkerPath $LinkerPath
     return [pscustomobject][ordered]@{
         Context = $Context
         Contract = $Contract
@@ -214,6 +226,7 @@ function Initialize-ProjBootstrapToolchain {
         CargoPath = $CargoPath
         CompilerPath = $CompilerPath
         LinkerPath = $LinkerPath
+        EnvironmentRevision = [string]$Scripts.Revision
     }
 }
 

@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 
 & (Join-Path $PSScriptRoot 'launcher-build.ps1')
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-. (Join-Path $RepoRoot '_lib\proj\_toolchain\bootstrap-layout.ps1')
+. (Join-Path $RepoRoot '_lib\proj\_bootstrap\layout.ps1')
 $Layout = Get-ProjBootstrapLayout
 $CandidateArguments = @{
     LauncherPath = $Layout.LauncherCandidatePath
@@ -25,6 +25,8 @@ $CandidateArguments = @{
 & (Join-Path $PSScriptRoot 'development-declaration.ps1')
 & (Join-Path $PSScriptRoot 'development-command-layout.ps1')
 & (Join-Path $PSScriptRoot 'context-modules.ps1')
+& (Join-Path $PSScriptRoot 'module-instantiate.ps1') `
+    -ModulePath $CandidateArguments.ModulePath
 & (Join-Path $PSScriptRoot 'command-export.ps1')
 & (Join-Path $PSScriptRoot 'provider-state.ps1')
 & (Join-Path $PSScriptRoot 'provider-activation.ps1')

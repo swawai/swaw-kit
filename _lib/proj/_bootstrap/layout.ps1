@@ -13,11 +13,12 @@ function Get-ProjBootstrapLayout {
     return [pscustomobject][ordered]@{
         ContractPath = Join-Path $KernelRoot 'bootstrap.json'
         BootstrapEntryPath = Join-Path $KernelRoot 'bootstrap.ps1'
+        BootstrapSetupPath = Join-Path $KernelRoot '_bootstrap\setup.ps1'
         KernelRoot = $KernelRoot
         ProjHome = $ProjHome
         AppRoot = Join-Path $KernelRoot '_app'
         AppBuildPath = Join-Path $KernelRoot '_app\build.ps1'
-        AppPublishPath = Join-Path $KernelRoot '_app\publish.ps1'
+        RuntimePublishPath = Join-Path $KernelRoot '_runtime\publish.ps1'
         ModuleManifestPath = Join-Path $ModuleProductRoot 'Cargo.toml'
         ModuleBuildRoot = $ModuleBuildRoot
         ModuleCandidatePath = Join-Path $ModuleBuildRoot (
@@ -39,6 +40,7 @@ function Get-ProjBootstrapLayout {
         BuildRoot = Join-Path $BootstrapDataRoot 'build\app'
         LockRoot = Join-Path $BootstrapDataRoot '_locks'
         StatePath = Join-Path $BootstrapDataRoot 'state.json'
+        EnvironmentPath = Join-Path $BootstrapDataRoot 'environment.json'
     }
 }
 

@@ -3,6 +3,7 @@ use std::env;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
+use swawkit_proj_protocol::valid_module_namespace;
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 const REVISION_PREFIX: &str = "sha256-";
@@ -37,12 +38,7 @@ impl CommandContext {
         let module_roots: BTreeMap<String, PathBuf> =
             serde_json::from_str(&required("SWAWKIT_PROJ_MODULE_ROOTS")?)
                 .map_err(|error| format!("invalid Module mount root map: {error}"))?;
-        if !module_roots.contains_key("swaw") || !module_roots.contains_key("project") {
-            return Err("Module mount roots must contain 'swaw' and 'project'".to_owned());
-        }
-        for (namespace, root) in &module_roots {
-            regular_directory(root, &format!("Module mount '{namespace}'"))?;
-        }
+        validate_module_roots(&module_roots)?;
         let entry_command = required("SWAWKIT_PROJ_ENTRY_COMMAND")?;
         let environment_input_revision =
             required("SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION")?;
@@ -95,6 +91,16 @@ fn required(name: &str) -> Result<String, String> {
         return Err(format!("required environment variable is invalid: {name}"));
     }
     Ok(value)
+}
+
+fn validate_module_roots(module_roots: &BTreeMap<String, PathBuf>) -> Result<(), String> {
+    for (namespace, root) in module_roots {
+        if !valid_module_namespace(namespace) {
+            return Err(format!("invalid Module namespace '{namespace}'"));
+        }
+        regular_directory(root, &format!("Module mount '{namespace}'"))?;
+    }
+    Ok(())
 }
 
 fn require_exact(name: &str, expected: &str) -> Result<(), String> {
@@ -172,11 +178,18 @@ fn is_revision(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_command_protocol;
+    use std::collections::BTreeMap;
+
+    use super::{validate_command_protocol, validate_module_roots};
 
     #[test]
     fn command_environment_protocol_hard_cut_accepts_only_v2() {
         assert_eq!(validate_command_protocol("2"), Ok(()));
         assert!(validate_command_protocol("1").is_err());
+    }
+
+    #[test]
+    fn command_environment_allows_no_module_mounts() {
+        assert_eq!(validate_module_roots(&BTreeMap::new()), Ok(()));
     }
 }

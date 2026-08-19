@@ -13,8 +13,7 @@ Set-StrictMode -Version 2.0
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
 $KernelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $KernelRoot '_toolchain\runtime.ps1')
-. (Join-Path $KernelRoot '_toolchain\_lib\runtime-release.ps1')
+. (Join-Path $PSScriptRoot 'release.ps1')
 
 $CandidateCorePath = Assert-ProjDevPathInsideDataRoot `
     -Path $CandidateCorePath `

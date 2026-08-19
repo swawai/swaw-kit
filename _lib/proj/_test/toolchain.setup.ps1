@@ -75,7 +75,6 @@ try {
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $RepoRoot
         SWAWKIT_PROJ_MODULE_ROOTS = (@{
-            swaw = Join-Path $RepoRoot '_lib\proj\modules'
             project = Join-Path $RepoRoot '.swaw'
         } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_ENTRY_COMMAND = 'fixture'

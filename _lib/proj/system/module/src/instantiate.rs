@@ -1,4 +1,3 @@
-use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
@@ -12,6 +11,7 @@ use swawkit_proj_protocol::CommandRelease;
 use swawkit_proj_protocol::serde::{self, Deserialize};
 use swawkit_proj_protocol::serde_json;
 
+use crate::builder_environment::BuilderEnvironment;
 use crate::filesystem::{
     ExclusiveFileLock, ensure_directory, read_regular_file, regular_directory,
 };
@@ -34,6 +34,7 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
         .to_str()
         .ok_or_else(|| "native command address must be valid Unicode".to_owned())?;
     let initial = discover_native_domain(&context.system_root, &context.module_roots, address)?;
+    let builder = BuilderEnvironment::load(&context.swawkit_home)?;
     let native_root = prepare_native_root(&context.data_root, &initial.owner_identity)?;
     let locks = ensure_directory(&native_root, ["locks"], "native command locks")?;
     let _lock =
@@ -57,8 +58,7 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
         ["work", "cargo-target"],
         "native command Cargo target",
     )?;
-    let cargo = managed_cargo()?;
-    let candidate = build_candidate(&before_domain.owner_directory, &work, &cargo)?;
+    let candidate = build_candidate(&before_domain.owner_directory, &work, &builder)?;
     let executable =
         read_regular_file(&candidate, "compiled native command", MAX_EXECUTABLE_BYTES)?;
     if executable.is_empty() {
@@ -115,30 +115,11 @@ pub(crate) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<()
     Ok(())
 }
 
-fn managed_cargo() -> Result<PathBuf, String> {
-    let rustc = env::var_os("RUSTC")
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            "managed Rust is unavailable; enable it and publish .dev/setup first".to_owned()
-        })?;
-    let rustc = PathBuf::from(rustc);
-    if !rustc.is_absolute() || rustc.file_name().and_then(|name| name.to_str()) != Some("rustc.exe")
-    {
-        return Err(format!(
-            "managed RUSTC must be an absolute rustc.exe path: {}",
-            rustc.display()
-        ));
-    }
-    read_regular_file(&rustc, "managed Rust compiler", MAX_EXECUTABLE_BYTES)?;
-    let cargo = rustc
-        .parent()
-        .ok_or_else(|| "managed RUSTC has no parent directory".to_owned())?
-        .join("cargo.exe");
-    read_regular_file(&cargo, "managed Cargo", MAX_EXECUTABLE_BYTES)?;
-    Ok(cargo)
-}
-
-fn build_candidate(owner: &Path, target: &Path, cargo: &Path) -> Result<PathBuf, String> {
+fn build_candidate(
+    owner: &Path,
+    target: &Path,
+    builder: &BuilderEnvironment,
+) -> Result<PathBuf, String> {
     regular_directory(owner, "native owner source directory")?;
     regular_directory(target, "native command Cargo target")?;
     let manifest = owner.join("Cargo.toml");
@@ -156,14 +137,15 @@ fn build_candidate(owner: &Path, target: &Path, cargo: &Path) -> Result<PathBuf,
     }
     let candidate = release_directory.join("run.exe");
     remove_stale_candidate(&candidate)?;
-    let status = Command::new(cargo)
+    let mut command = builder.cargo_command()?;
+    let status = command
         .args(["build", "--locked", "--release", "--manifest-path"])
         .arg(&manifest)
         .arg("--target-dir")
         .arg(target)
         .current_dir(owner)
         .status()
-        .map_err(|error| format!("cannot start managed Cargo '{}': {error}", cargo.display()))?;
+        .map_err(|error| format!("cannot start Bootstrap Cargo: {error}"))?;
     if !status.success() {
         return Err(format!(
             "native command compilation failed with exit code {}",

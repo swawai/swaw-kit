@@ -11,7 +11,7 @@ if ([string]::IsNullOrWhiteSpace($CommandText)) {
 }
 
 $KernelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-. (Join-Path $KernelRoot '_toolchain\runtime.ps1')
+. (Join-Path $PSScriptRoot '..\_lib\runtime.ps1')
 . (Join-Path $KernelRoot '_shell\runtime.ps1')
 
 $Context = New-ProjDevContextFromEnvironment

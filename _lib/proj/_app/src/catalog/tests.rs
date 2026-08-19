@@ -258,7 +258,7 @@ fn module_runtime_component_is_exact_and_has_no_handler() {
     fixture.file(
         &fixture.system,
         "module/instantiate/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v10","execution":{"type":"runtime","product":"module"},"requires":[{"provider":".dev/setup","export":"environment","contract":"swawkit.proj.dev-setup/v2"}]}"#,
+        r#"{"schema":"swawkit.command-module/v10","execution":{"type":"runtime","product":"module"}}"#,
     );
     fixture.file(
         &fixture.system,
@@ -289,23 +289,16 @@ fn module_runtime_component_is_exact_and_has_no_handler() {
         assert_eq!(command.product.as_deref(), Some("module"));
         assert_eq!(command.handler, None);
     }
-    assert_eq!(
-        node(&snapshot, ".module/instantiate")
-            .module
-            .as_ref()
-            .expect("instantiate contract")
-            .requires
-            .len(),
-        1
-    );
-    assert!(
-        node(&snapshot, ".module/status")
-            .module
-            .as_ref()
-            .expect("status contract")
-            .requires
-            .is_empty()
-    );
+    for address in [".module/instantiate", ".module/status"] {
+        assert!(
+            node(&snapshot, address)
+                .module
+                .as_ref()
+                .expect("module manager contract")
+                .requires
+                .is_empty()
+        );
+    }
     for address in [
         ".wrong-runtime",
         "swaw/wrong-runtime",

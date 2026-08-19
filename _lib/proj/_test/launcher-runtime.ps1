@@ -80,7 +80,7 @@ if ([string]::IsNullOrWhiteSpace($LauncherPath) -or
     [string]::IsNullOrWhiteSpace($ModulePath) -or
     [string]::IsNullOrWhiteSpace($ToolchainPath)) {
     . (Join-Path $RepoRoot (
-        '_lib\proj\_toolchain\bootstrap-layout.ps1'
+        '_lib\proj\_bootstrap\layout.ps1'
     ))
     $Layout = Get-ProjBootstrapLayout
     if ([string]::IsNullOrWhiteSpace($LauncherPath)) {
