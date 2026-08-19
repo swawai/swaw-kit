@@ -1,5 +1,5 @@
 {
-  "schema": "swawkit.command-module/v10",
+  "schema": "swawkit.command-module/v11",
   "execution": { "type": "core", "handler": "meta.runs" },
   "facets": [
     {

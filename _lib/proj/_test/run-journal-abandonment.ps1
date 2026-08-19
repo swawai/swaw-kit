@@ -4,7 +4,7 @@ param(
     [string]$CorePath = '',
     [string]$HostPath = '',
     [string]$ModulePath = '',
-    [string]$ToolchainPath = ''
+    [string]$DevPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -194,7 +194,7 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -CorePath $CorePath `
     -HostPath $HostPath `
     -ModulePath $ModulePath `
-    -ToolchainPath $ToolchainPath
+    -DevPath $DevPath
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-journal-abandon-$([Guid]::NewGuid().ToString('N'))"
 )
@@ -209,7 +209,7 @@ try {
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
         -ModulePath $Artifacts.ModulePath `
-        -ToolchainPath $Artifacts.ToolchainPath
+        -DevPath $Artifacts.DevPath
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"

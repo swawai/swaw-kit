@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use sha2::{Digest, Sha256};
 use swawkit_proj::context::EntryContext;
 use swawkit_proj::data_root::{
     ClaimApprovalError, DataRootClaim, ResolveDataRootRequest, read_entry_record, resolve_data_root,
@@ -16,6 +17,100 @@ mod control;
 mod runs;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+fn write_runtime_fixture(root: &Path) -> String {
+    let bootstrap = root.join("data/proj_cache/bootstrap");
+    let tool_root = bootstrap.join("fixture-tools");
+    fs::create_dir_all(&tool_root).expect("create Framework Command Runtime tools");
+    let tools = [("bun", "1.2.15", "bun.exe"), ("pwsh", "7.6.4", "pwsh.exe")]
+        .into_iter()
+        .map(|(name, version, file)| {
+            let bytes = name.as_bytes();
+            fs::write(tool_root.join(file), bytes).expect("write Framework Command Runtime tool");
+            serde_json::json!({
+                "name": name,
+                "version": version,
+                "path": format!("fixture-tools/{file}"),
+                "length": bytes.len(),
+                "sha256": format!("{:x}", Sha256::digest(bytes)),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut command_identity = vec!["swawkit.proj-command-runtime/v1".to_owned()];
+    for tool in &tools {
+        command_identity.extend([
+            tool["name"].as_str().unwrap().to_owned(),
+            tool["version"].as_str().unwrap().to_owned(),
+            tool["path"].as_str().unwrap().to_owned(),
+            tool["length"].as_u64().unwrap().to_string(),
+            tool["sha256"].as_str().unwrap().to_owned(),
+        ]);
+    }
+    let command_runtime_id = format!(
+        "{:x}",
+        Sha256::digest(command_identity.join("\n").as_bytes())
+    );
+    let command_release = bootstrap
+        .join("command-runtimes/releases")
+        .join(&command_runtime_id);
+    fs::create_dir_all(&command_release).expect("create Framework Command Runtime release");
+    fs::write(
+        command_release.join("manifest.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema": "swawkit.proj-command-runtime/v1",
+            "runtimeId": command_runtime_id,
+            "tools": tools,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let artifacts = [
+        ("swawkit-proj-dev.exe", b"dev".as_slice()),
+        ("swawkit-proj-host.exe", b"host".as_slice()),
+        ("swawkit-proj-module.exe", b"module".as_slice()),
+        ("swawkit-proj.exe", b"core".as_slice()),
+    ];
+    let records = artifacts
+        .iter()
+        .map(|(name, bytes)| {
+            serde_json::json!({
+                "name": name,
+                "length": bytes.len(),
+                "sha256": format!("{:x}", Sha256::digest(bytes)),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut identity = vec![
+        "swawkit.proj-release-set/v4".to_owned(),
+        command_runtime_id.clone(),
+    ];
+    for record in &records {
+        identity.extend([
+            record["name"].as_str().unwrap().to_owned(),
+            record["length"].as_u64().unwrap().to_string(),
+            record["sha256"].as_str().unwrap().to_owned(),
+        ]);
+    }
+    let release_id = format!("{:x}", Sha256::digest(identity.join("\n").as_bytes()));
+    let release = root.join("_lib/proj/_bin/releases").join(&release_id);
+    fs::create_dir_all(&release).expect("create Runtime release");
+    for (name, bytes) in artifacts {
+        fs::write(release.join(name), bytes).expect("write Runtime artifact");
+    }
+    fs::write(
+        release.join("manifest.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema": "swawkit.proj-release-set/v4",
+            "releaseId": release_id,
+            "commandRuntimeId": command_runtime_id,
+            "artifacts": records,
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    release_id
+}
 
 struct Fixture {
     root: PathBuf,
@@ -49,23 +144,16 @@ impl Fixture {
             fs::create_dir_all(directory).expect("create fixture directory");
         }
         fs::write(&entry_file, "fixture").expect("write entry file");
-        let release_id = "f".repeat(64);
+        let release_id = write_runtime_fixture(&root);
         let product_executable = root
             .join("_lib/proj/_bin/releases")
             .join(&release_id)
             .join("swawkit-proj.exe");
-        fs::create_dir_all(product_executable.parent().unwrap())
-            .expect("create Runtime Release fixture");
         fs::write(
             root.join("_lib/proj/_bin/current"),
             format!("{release_id}\n"),
         )
         .expect("write Runtime selector fixture");
-        fs::write(
-            product_executable.with_file_name("swawkit-proj-toolchain.exe"),
-            "fixture",
-        )
-        .expect("write Toolchain fixture");
         let context = EntryContext {
             swawkit_home: root.clone(),
             entry_file,
@@ -114,7 +202,7 @@ impl Fixture {
                 fs::create_dir_all(&directory).expect("create command directory");
                 let manifest = directory.join("swawkit.module.json");
                 if !manifest.exists() {
-                    fs::write(manifest, r#"{"schema":"swawkit.command-module/v10"}"#)
+                    fs::write(manifest, r#"{"schema":"swawkit.command-module/v11"}"#)
                         .expect("write command manifest");
                 }
             }
@@ -129,7 +217,7 @@ impl Fixture {
             address,
             "swawkit.module.json",
             &format!(
-                "{{\"schema\":\"swawkit.command-module/v10\",\"execution\":{{\"type\":\"core\",\"handler\":\"{handler}\"}}}}"
+                "{{\"schema\":\"swawkit.command-module/v11\",\"execution\":{{\"type\":\"core\",\"handler\":\"{handler}\"}}}}"
             ),
         )
     }
@@ -166,9 +254,9 @@ fn protocol_help_initializes_the_entry_without_requiring_an_entry_profile() {
 }
 
 #[test]
-fn local_help_is_read_only_but_command_owned_help_obeys_adapter_readiness() {
+fn local_help_is_read_only_but_command_owned_help_obeys_command_exit_status() {
     let fixture = Fixture::new();
-    let local = fixture.command(".local", "run.ps1", "exit 99");
+    let local = fixture.command(".local", "run.cmd", "@exit /b 99\r\n");
     fs::create_dir_all(local.join("_help")).unwrap();
     fs::write(local.join("_help/zh-CN.txt"), "Local help").unwrap();
     fixture.command(
@@ -189,17 +277,13 @@ fn local_help_is_read_only_but_command_owned_help_obeys_adapter_readiness() {
         0
     );
     fixture.bind();
-    let profile_gated = run_with_approver(
+    let exit_code = run_with_approver(
         &fixture.context,
         &argv(&[".local", "--help"]),
         &mut unexpected,
     )
-    .unwrap_err();
-    assert!(
-        profile_gated
-            .to_string()
-            .contains("development environment is not ready")
-    );
+    .unwrap();
+    assert_eq!(exit_code, 99);
     assert_eq!(
         run_with_approver(
             &fixture.context,

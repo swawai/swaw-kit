@@ -169,7 +169,7 @@ try {
             @($ReadyJson.exports).Count -eq 1 -and
             [string]$ReadyJson.exports[0].id -ceq 'environment' -and
             [string]$ReadyJson.exports[0].contract -ceq
-                'swawkit.proj.dev-setup/v2' -and
+                'swawkit.proj.dev-setup/v3' -and
             $ReadyNames -cnotcontains 'exportRevision' -and
             $ReadyNames -cnotcontains 'projectRoot' -and
             $ReadyNames -cnotcontains 'declarations'

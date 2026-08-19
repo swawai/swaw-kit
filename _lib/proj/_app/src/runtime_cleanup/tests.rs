@@ -19,19 +19,26 @@ impl Fixture {
             "swawkit-runtime-cleanup-launch-{}-{sequence}",
             std::process::id()
         ));
+        let releases = root.join("_lib/proj/_bin/releases");
         let artifacts = [
             ("swawkit-proj.exe", b"core".as_slice()),
             ("swawkit-proj-host.exe", b"host".as_slice()),
             ("swawkit-proj-module.exe", b"module".as_slice()),
-            ("swawkit-proj-toolchain.exe", b"toolchain".as_slice()),
+            ("swawkit-proj-dev.exe", b"dev".as_slice()),
         ];
-        let release_id = write_release(&root, &artifacts);
+        let release_id = write_release(&releases, &artifacts);
+        fs::write(
+            root.join("_lib/proj/_bin/current"),
+            format!("{release_id}\n"),
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("data")).unwrap();
         let context = EntryContext {
             swawkit_home: root.clone(),
             entry_file: root.join("swawkit.exe"),
             entry_name: "swawkit".to_owned(),
             invocation_directory: root.clone(),
-            product_executable: root.join(&release_id).join("swawkit-proj.exe"),
+            product_executable: releases.join(&release_id).join("swawkit-proj.exe"),
             release_id,
         };
         Self { root, context }
@@ -45,14 +52,9 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn cleanup_rejects_an_equal_length_tampered_toolchain_before_launch() {
+fn cleanup_json_runs_in_process_without_a_runtime_sibling_product() {
     let fixture = Fixture::new();
-    let toolchain = fixture
-        .context
-        .sibling_product_executable("swawkit-proj-toolchain.exe");
-    fs::write(&toolchain, b"t00lchain").expect("tamper Toolchain without changing its length");
-
-    let error = cleanup_command(&fixture.context, false, "json")
-        .expect_err("tampered Toolchain must not reach process launch");
-    assert!(error.contains("SHA-256"), "{error}");
+    let document = execute_json(&fixture.context, false).expect("preview Runtime cleanup");
+    assert_eq!(document.protocol, RUNTIME_CLEANUP_PROTOCOL);
+    assert_eq!(document.action, RuntimeCleanupAction::Preview);
 }

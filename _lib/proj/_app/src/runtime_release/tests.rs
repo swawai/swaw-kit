@@ -94,18 +94,45 @@ fn bounded_reader_rejects_a_file_that_grows_after_initial_metadata() {
 }
 
 #[test]
-fn accepts_an_exact_four_member_v2_release() {
+fn accepts_an_exact_four_member_v4_release() {
     let fixture = Fixture::new();
     let artifacts = [
         ("swawkit-proj.exe", b"core".as_slice()),
         ("swawkit-proj-host.exe", b"host".as_slice()),
         ("swawkit-proj-module.exe", b"module".as_slice()),
-        ("swawkit-proj-toolchain.exe", b"toolchain".as_slice()),
+        ("swawkit-proj-dev.exe", b"dev".as_slice()),
     ];
-    let release_id = write_release(&fixture.root, &artifacts);
+    let releases = fixture.root.join("_lib/proj/_bin/releases");
+    let release_id = write_release(&releases, &artifacts);
 
-    validate_release(&fixture.root.join(&release_id), &release_id)
+    validate_release(&releases.join(&release_id), &release_id, &fixture.root)
         .expect("validate exact Runtime Release membership");
+}
+
+#[test]
+fn release_identity_is_canonical_by_artifact_name() {
+    let fixture = Fixture::new();
+    let forward = [
+        ("swawkit-proj.exe", b"core".as_slice()),
+        ("swawkit-proj-dev.exe", b"dev".as_slice()),
+        ("swawkit-proj-host.exe", b"host".as_slice()),
+        ("swawkit-proj-module.exe", b"module".as_slice()),
+    ];
+    let reverse = [
+        ("swawkit-proj-module.exe", b"module".as_slice()),
+        ("swawkit-proj-host.exe", b"host".as_slice()),
+        ("swawkit-proj-dev.exe", b"dev".as_slice()),
+        ("swawkit-proj.exe", b"core".as_slice()),
+    ];
+
+    let releases = fixture.root.join("_lib/proj/_bin/releases");
+    let forward_id = write_release(&releases, &forward);
+    fs::remove_dir_all(releases.join(&forward_id)).unwrap();
+    let reverse_id = write_release(&releases, &reverse);
+
+    assert_eq!(forward_id, reverse_id);
+    validate_release(&releases.join(&reverse_id), &reverse_id, &fixture.root)
+        .expect("validate a manifest whose records are not in identity order");
 }
 
 #[test]
@@ -115,7 +142,7 @@ fn running_release_structure_does_not_follow_the_current_selector() {
         ("swawkit-proj.exe", b"core".as_slice()),
         ("swawkit-proj-host.exe", b"host".as_slice()),
         ("swawkit-proj-module.exe", b"module".as_slice()),
-        ("swawkit-proj-toolchain.exe", b"toolchain".as_slice()),
+        ("swawkit-proj-dev.exe", b"dev".as_slice()),
     ];
     let releases = fixture.root.join("_lib/proj/_bin/releases");
     let release_id = write_release(&releases, &artifacts);
@@ -139,7 +166,7 @@ fn running_release_rejects_legacy_or_incomplete_membership() {
     fs::write(release.join("swawkit-proj-host.exe"), b"host").unwrap();
     fs::write(
         release.join("manifest.json"),
-        br#"{"schema":"swawkit.proj-release-set/v1","releaseId":"invalid","artifacts":[]}"#,
+        br#"{"schema":"swawkit.proj-release-set/v2","releaseId":"invalid","artifacts":[]}"#,
     )
     .unwrap();
 
@@ -153,10 +180,11 @@ fn validates_only_the_runtime_product_that_will_be_started() {
         ("swawkit-proj.exe", b"core".as_slice()),
         ("swawkit-proj-host.exe", b"host".as_slice()),
         ("swawkit-proj-module.exe", b"module".as_slice()),
-        ("swawkit-proj-toolchain.exe", b"toolchain".as_slice()),
+        ("swawkit-proj-dev.exe", b"dev".as_slice()),
     ];
-    let release_id = write_release(&fixture.root, &artifacts);
-    let host = fixture.root.join(&release_id).join("swawkit-proj-host.exe");
+    let releases = fixture.root.join("_lib/proj/_bin/releases");
+    let release_id = write_release(&releases, &artifacts);
+    let host = releases.join(&release_id).join("swawkit-proj-host.exe");
     validate_product(&host).expect("validate selected product artifact");
 
     fs::write(&host, b"h0st").unwrap();
@@ -164,15 +192,18 @@ fn validates_only_the_runtime_product_that_will_be_started() {
 }
 
 #[test]
-fn rejects_a_v2_release_without_the_module_artifact() {
+fn rejects_a_v4_release_without_the_module_artifact() {
     let fixture = Fixture::new();
     let release_id = "c".repeat(64);
-    let release = fixture.root.join(&release_id);
+    let release = fixture
+        .root
+        .join("_lib/proj/_bin/releases")
+        .join(&release_id);
     fs::create_dir_all(&release).expect("create incomplete Runtime Release");
     let artifacts = [
         ("swawkit-proj.exe", b"core".as_slice()),
         ("swawkit-proj-host.exe", b"host".as_slice()),
-        ("swawkit-proj-toolchain.exe", b"toolchain".as_slice()),
+        ("swawkit-proj-dev.exe", b"dev".as_slice()),
     ];
     let records = artifacts
         .iter()
@@ -190,16 +221,20 @@ fn rejects_a_v2_release_without_the_module_artifact() {
         serde_json::to_vec(&serde_json::json!({
             "schema": RUNTIME_RELEASE_SCHEMA,
             "releaseId": release_id,
+            "commandRuntimeId": "d".repeat(64),
             "artifacts": records,
         }))
         .expect("serialize incomplete manifest"),
     )
     .expect("write incomplete manifest");
 
-    assert!(validate_release(&release, &release_id).is_err());
+    assert!(validate_release(&release, &release_id, &fixture.root).is_err());
 }
 
 pub(crate) fn write_release(root: &Path, artifacts: &[(&str, &[u8])]) -> String {
+    let command_runtime_id = infer_swawkit_home(root)
+        .map(|home| write_command_runtime(&home))
+        .unwrap_or_else(|| "d".repeat(64));
     let records = artifacts
         .iter()
         .map(|(name, bytes)| {
@@ -214,8 +249,13 @@ pub(crate) fn write_release(root: &Path, artifacts: &[(&str, &[u8])]) -> String 
             )
         })
         .collect::<Vec<_>>();
-    let mut identity = vec![RUNTIME_RELEASE_SCHEMA.to_owned()];
-    for (_, fields) in &records {
+    let mut identity = vec![
+        RUNTIME_RELEASE_SCHEMA.to_owned(),
+        command_runtime_id.clone(),
+    ];
+    let mut identity_records = records.iter().collect::<Vec<_>>();
+    identity_records.sort_by(|left, right| left.1[0].cmp(&right.1[0]));
+    for (_, fields) in identity_records {
         identity.extend(fields.iter().cloned());
     }
     let release_id = format!("{:x}", Sha256::digest(identity.join("\n").as_bytes()));
@@ -229,10 +269,78 @@ pub(crate) fn write_release(root: &Path, artifacts: &[(&str, &[u8])]) -> String 
         serde_json::to_vec(&serde_json::json!({
             "schema": RUNTIME_RELEASE_SCHEMA,
             "releaseId": release_id,
+            "commandRuntimeId": command_runtime_id,
             "artifacts": records.into_iter().map(|(record, _)| record).collect::<Vec<_>>(),
         }))
         .expect("serialize Runtime manifest"),
     )
     .expect("write Runtime manifest");
     release_id
+}
+
+fn infer_swawkit_home(releases: &Path) -> Option<PathBuf> {
+    (releases.file_name()? == "releases")
+        .then_some(())
+        .and_then(|()| releases.parent())
+        .filter(|path| path.file_name().is_some_and(|name| name == "_bin"))
+        .and_then(Path::parent)
+        .filter(|path| path.file_name().is_some_and(|name| name == "proj"))
+        .and_then(Path::parent)
+        .filter(|path| path.file_name().is_some_and(|name| name == "_lib"))
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+}
+
+pub(crate) fn write_command_runtime(home: &Path) -> String {
+    let bootstrap = home.join("data/proj_cache/bootstrap");
+    let tool_root = bootstrap.join("fixture-tools");
+    fs::create_dir_all(&tool_root).expect("create Command Runtime fixture tools");
+    let tools = [
+        ("bun", "1.2.15", "fixture-tools/bun.exe", b"bun".as_slice()),
+        (
+            "pwsh",
+            "7.6.4",
+            "fixture-tools/pwsh.exe",
+            b"pwsh".as_slice(),
+        ),
+    ];
+    let records = tools
+        .iter()
+        .map(|(name, version, relative, bytes)| {
+            fs::write(bootstrap.join(relative), bytes).expect("write Command Runtime tool");
+            serde_json::json!({
+                "name": name,
+                "version": version,
+                "path": relative,
+                "length": bytes.len(),
+                "sha256": format!("{:x}", Sha256::digest(bytes)),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut identity = vec![crate::command_runtime::COMMAND_RUNTIME_SCHEMA.to_owned()];
+    for record in &records {
+        identity.extend([
+            record["name"].as_str().unwrap().to_owned(),
+            record["version"].as_str().unwrap().to_owned(),
+            record["path"].as_str().unwrap().to_owned(),
+            record["length"].as_u64().unwrap().to_string(),
+            record["sha256"].as_str().unwrap().to_owned(),
+        ]);
+    }
+    let runtime_id = format!("{:x}", Sha256::digest(identity.join("\n").as_bytes()));
+    let release = bootstrap
+        .join("command-runtimes/releases")
+        .join(&runtime_id);
+    fs::create_dir_all(&release).expect("create Command Runtime fixture release");
+    fs::write(
+        release.join("manifest.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "schema": crate::command_runtime::COMMAND_RUNTIME_SCHEMA,
+            "runtimeId": runtime_id,
+            "tools": records,
+        }))
+        .expect("serialize Command Runtime fixture"),
+    )
+    .expect("write Command Runtime fixture");
+    runtime_id
 }

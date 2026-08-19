@@ -15,7 +15,7 @@ function Assert-ProjAppPublishTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-. (Join-Path $RepoRoot '_lib\proj\_runtime\release.ps1')
+. (Join-Path $PSScriptRoot '_lib\runtime-fixture.ps1')
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-app-publish-$([Guid]::NewGuid().ToString('N'))"
 )
@@ -26,14 +26,14 @@ $JunctionPath = Join-Path $TemporaryRoot 'junction-runtime\releases'
 $PreviousCore = Join-Path $TemporaryRoot 'previous\swawkit-proj.exe'
 $PreviousHost = Join-Path $TemporaryRoot 'previous\swawkit-proj-host.exe'
 $PreviousModule = Join-Path $TemporaryRoot 'previous\swawkit-proj-module.exe'
-$PreviousToolchain = Join-Path $TemporaryRoot (
-    'previous\swawkit-proj-toolchain.exe'
+$PreviousDev = Join-Path $TemporaryRoot (
+    'previous\swawkit-proj-dev.exe'
 )
 $CoreCandidate = Join-Path $TemporaryRoot 'candidate\swawkit-proj.exe'
 $HostCandidate = Join-Path $TemporaryRoot 'candidate\swawkit-proj-host.exe'
 $ModuleCandidate = Join-Path $TemporaryRoot 'candidate\swawkit-proj-module.exe'
-$ToolchainCandidate = Join-Path $TemporaryRoot (
-    'candidate\swawkit-proj-toolchain.exe'
+$DevCandidate = Join-Path $TemporaryRoot (
+    'candidate\swawkit-proj-dev.exe'
 )
 $Running = $null
 
@@ -46,17 +46,19 @@ try {
     )) {
         [void][IO.Directory]::CreateDirectory($Directory)
     }
+    $CommandRuntimeId = Copy-ProjFixtureCommandRuntime -RuntimeHome $ProjHome
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\cmd.exe'), $PreviousCore)
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\where.exe'), $PreviousHost)
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\hostname.exe'), $PreviousModule)
-    [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\whoami.exe'), $PreviousToolchain)
+    [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\whoami.exe'), $PreviousDev)
     $PreviousSet = New-ProjRuntimeReleaseSetFromFiles `
         -Artifacts ([ordered]@{
             'swawkit-proj.exe' = $PreviousCore
             'swawkit-proj-host.exe' = $PreviousHost
             'swawkit-proj-module.exe' = $PreviousModule
-            'swawkit-proj-toolchain.exe' = $PreviousToolchain
-        })
+            'swawkit-proj-dev.exe' = $PreviousDev
+        }) `
+        -CommandRuntimeId $CommandRuntimeId
     $PreviousRelease = Publish-ProjRuntimeReleaseSet `
         -ReleaseSet $PreviousSet `
         -ProjHome $ProjHome `
@@ -72,7 +74,7 @@ try {
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\where.exe'), $CoreCandidate)
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\whoami.exe'), $HostCandidate)
     [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\cmd.exe'), $ModuleCandidate)
-    [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\hostname.exe'), $ToolchainCandidate)
+    [IO.File]::Copy((Join-Path $env:SystemRoot 'System32\hostname.exe'), $DevCandidate)
     $OversizedCandidate = Join-Path $TemporaryRoot 'candidate\oversized.exe'
     $OversizedStream = [IO.File]::Open(
         $OversizedCandidate,
@@ -91,8 +93,9 @@ try {
                 'swawkit-proj.exe' = $OversizedCandidate
                 'swawkit-proj-host.exe' = $HostCandidate
                 'swawkit-proj-module.exe' = $ModuleCandidate
-                'swawkit-proj-toolchain.exe' = $ToolchainCandidate
-            }) |
+                'swawkit-proj-dev.exe' = $DevCandidate
+            }) `
+            -CommandRuntimeId $CommandRuntimeId |
             Out-Null
         throw 'an oversized runtime artifact unexpectedly passed validation'
     } catch {
@@ -109,8 +112,9 @@ try {
             'swawkit-proj.exe' = $CoreCandidate
             'swawkit-proj-host.exe' = $HostCandidate
             'swawkit-proj-module.exe' = $ModuleCandidate
-            'swawkit-proj-toolchain.exe' = $ToolchainCandidate
-        })
+            'swawkit-proj-dev.exe' = $DevCandidate
+        }) `
+        -CommandRuntimeId $CommandRuntimeId
     $Published = Publish-ProjRuntimeReleaseSet `
         -ReleaseSet $ReleaseSet `
         -ProjHome $ProjHome `
@@ -128,7 +132,7 @@ try {
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj.exe')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-host.exe')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-module.exe')) -and
-            -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-toolchain.exe'))
+            -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-dev.exe'))
         ) `
         -Message 'a complete Release Set was not atomically selected beside a running old release'
     $Selected = Read-ProjSelectedRuntimeReleaseSet -RuntimeRoot $RuntimeRoot

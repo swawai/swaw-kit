@@ -278,7 +278,8 @@ pub(super) async fn prepare_run(
             profile,
             &data_root_path,
             CommandProcessMode::NoWindow,
-        );
+        )
+        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
         Ok(PreparedRun {
             working_directory: profile.binding().target_project_root().to_path_buf(),
             module_data_root: command_data_root(&execution_context, &command)

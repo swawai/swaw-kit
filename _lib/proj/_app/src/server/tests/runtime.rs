@@ -26,8 +26,8 @@ async fn runtime_status_is_one_typed_control_document() {
     )
     .expect("Runtime status JSON");
     assert_eq!(document["protocol"], "swawkit.runtime-status/v1");
-    assert_eq!(document["selectedReleaseId"], "1".repeat(64));
-    assert_eq!(document["releaseCount"], 0);
+    assert_eq!(document["selectedReleaseId"], fixture.release_id);
+    assert_eq!(document["releaseCount"], 1);
     assert_eq!(document["host"]["protocol"], "swawkit.host-status/v1");
     assert_eq!(document["host"]["updateAvailable"], false);
 }

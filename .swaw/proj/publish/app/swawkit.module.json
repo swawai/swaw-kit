@@ -1,15 +1,10 @@
 {
-  "schema": "swawkit.command-module/v10",
+  "schema": "swawkit.command-module/v11",
   "requires": [
-    {
-      "provider": ".dev/setup",
-      "export": "environment",
-      "contract": "swawkit.proj.dev-setup/v2"
-    },
     {
       "provider": "project/proj/build/app",
       "export": "runtime-release",
-      "contract": "swawkit.proj-build-app/v4"
+      "contract": "swawkit.proj-build-app/v6"
     }
   ]
 }

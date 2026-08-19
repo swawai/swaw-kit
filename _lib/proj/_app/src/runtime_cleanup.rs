@@ -1,15 +1,9 @@
-use std::io::Write;
-use std::os::windows::process::CommandExt;
-use std::path::Path;
-use std::process::{Command, Stdio};
-
 use serde::{Deserialize, Serialize};
-use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
+use std::io::Write;
 
-use crate::{context::EntryContext, runtime_release};
+use crate::{context::EntryContext, runtime_cleanup_engine};
 
 pub const RUNTIME_CLEANUP_PROTOCOL: &str = "swawkit.runtime-cleanup/v1";
-const MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -130,68 +124,13 @@ impl RuntimeCleanupDocument {
 }
 
 pub fn execute_text(context: &EntryContext, apply: bool) -> Result<i32, String> {
-    let mut command = cleanup_command(context, apply, "text")?;
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
-    let status = command
-        .status()
-        .map_err(|error| format!("cannot start Runtime cleanup Toolchain: {error}"))?;
-    Ok(status.code().unwrap_or(1))
+    let document = runtime_cleanup_engine::run(&context.swawkit_home, apply)?;
+    println!("{}", document.render_text());
+    Ok(0)
 }
 
 pub fn execute_json(context: &EntryContext, apply: bool) -> Result<RuntimeCleanupDocument, String> {
-    let mut command = cleanup_command(context, apply, "json")?;
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .creation_flags(CREATE_NO_WINDOW);
-    let output = command
-        .output()
-        .map_err(|error| format!("cannot start Runtime cleanup Toolchain: {error}"))?;
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        return Err(if error.is_empty() {
-            format!(
-                "Runtime cleanup Toolchain failed with exit code {}",
-                output.status.code().unwrap_or(1)
-            )
-        } else {
-            error
-        });
-    }
-    if output.stdout.len() > MAX_DOCUMENT_BYTES {
-        return Err("Runtime cleanup document exceeds the 4 MiB safety limit".to_owned());
-    }
-    serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("Runtime cleanup Toolchain returned invalid JSON: {error}"))
-}
-
-fn cleanup_command(context: &EntryContext, apply: bool, format: &str) -> Result<Command, String> {
-    let executable = context.sibling_product_executable("swawkit-proj-toolchain.exe");
-    validate_toolchain(&executable)?;
-    let mut command = Command::new(executable);
-    command.args([
-        "runtime-cleanup-v1",
-        context
-            .swawkit_home
-            .to_str()
-            .ok_or_else(|| "Swaw Kit Home must be valid Unicode".to_owned())?,
-        if apply { "apply" } else { "preview" },
-        format,
-    ]);
-    Ok(command)
-}
-
-fn validate_toolchain(path: &Path) -> Result<(), String> {
-    runtime_release::validate_product(path).map_err(|error| {
-        format!(
-            "the Runtime Release Toolchain failed validation at '{}': {error}",
-            path.display()
-        )
-    })
+    runtime_cleanup_engine::run(&context.swawkit_home, apply)
 }
 
 pub fn write_json(

@@ -6,4 +6,4 @@ Usage:
 
 This command only reads the Catalog, swawkit.module.json, Provider State, and Export root. It never runs the target command or installs, builds, or repairs anything. Exit code 0 means the command entry and every declared inbound dependency are ready; exit code 1 means the command cannot execute now.
 
-swawkit.module.json uses swawkit.command-module/v10. Consumers declare Provider commands, named Exports, and contracts through requires. The check does not judge the target's own provides; inspect the real Consumer to determine whether a Provider output can be consumed. JSON output uses swawkit.command-check/v1.
+swawkit.module.json uses swawkit.command-module/v11. Consumers declare Provider commands, named Exports, and contracts through requires. The check does not judge the target's own provides; inspect the real Consumer to determine whether a Provider output can be consumed. JSON output uses swawkit.command-check/v1.

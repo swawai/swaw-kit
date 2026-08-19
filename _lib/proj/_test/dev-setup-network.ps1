@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ToolchainPath,
+    [Parameter(Mandatory = $true)][string]$DevPath,
     [switch]$PublicNetwork
 )
 
@@ -46,7 +46,7 @@ function Invoke-ProjNetworkSetup {
     )
     $Info = [Diagnostics.ProcessStartInfo]::new()
     $Info.FileName = $Executable
-    $Info.Arguments = 'command-v1 dev.setup'
+    $Info.Arguments = 'command-v1 .dev/setup'
     $Info.UseShellExecute = $false
     $Info.CreateNoWindow = $true
     $Info.RedirectStandardOutput = $true
@@ -90,7 +90,7 @@ function Invoke-ProjNetworkSetup {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-$Executable = [IO.Path]::GetFullPath($ToolchainPath)
+$Executable = [IO.Path]::GetFullPath($DevPath)
 $TemporaryRoot = Assert-ProjSetupNetworkTemporaryRoot `
     -RepositoryRoot $RepoRoot `
     -Path (Join-Path $RepoRoot (

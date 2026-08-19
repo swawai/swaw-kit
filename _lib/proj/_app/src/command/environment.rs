@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::env;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,7 +12,6 @@ use crate::{
     catalog::{CommandNode, CommandSpace},
     command_event::{COMMAND_EVENT_FRAME_PROTOCOL, COMMAND_EVENT_PROTOCOL_ENV},
     context::EntryContext,
-    development::setup::environment::EnvironmentPlan,
     launch::{ENTRY_FILE_ENV, LAUNCH_MODE_ENV},
     profile::{EntryProfile, EntryProfileRecord},
 };
@@ -31,34 +29,6 @@ const COMMAND_OWNER_ENVIRONMENT: [&str; 3] = [
     "SWAWKIT_PROJ_CORE_COMMAND_OWNER_DIR",
     "SWAWKIT_PROJ_CORE_COMMAND_OWNER_DATA_ROOT",
 ];
-const DEVELOPMENT_ENVIRONMENT_VARIABLES: &[&str] = &[
-    "CARGO_BUILD_RUSTC",
-    "CARGO_BUILD_RUSTDOC",
-    "CARGO_HOME",
-    "INCLUDE",
-    "LIB",
-    "RUSTC",
-    "RUSTDOC",
-    "RUSTUP_DIST_ROOT",
-    "RUSTUP_DIST_SERVER",
-    "RUSTUP_HOME",
-    "RUSTUP_TOOLCHAIN",
-    "RUSTUP_TOOLCHAIN_SOURCE",
-    "RUSTUP_UPDATE_ROOT",
-    "RUSTUP_VERSION",
-    "UCRTVersion",
-    "UniversalCRTSdkDir",
-    "VCINSTALLDIR",
-    "VCToolsInstallDir",
-    "VCToolsVersion",
-    "VSCMD_ARG_HOST_ARCH",
-    "VSCMD_ARG_TGT_ARCH",
-    "WindowsSDKVersion",
-    "WindowsSdkBinPath",
-    "WindowsSdkVerBinPath",
-];
-const DEVELOPMENT_METADATA_PREFIX: &str = "SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandExecutionContext {
     pub swawkit_home: PathBuf,
@@ -70,8 +40,9 @@ pub struct CommandExecutionContext {
     pub entry_name: String,
     pub entry_file: PathBuf,
     pub invocation_directory: PathBuf,
-    pub toolchain_executable: PathBuf,
+    pub dev_executable: PathBuf,
     pub module_executable: PathBuf,
+    pub command_runtime_id: String,
     pub profile: EntryProfileRecord,
     pub environment_input_revision: String,
     pub profile_revision: String,
@@ -91,7 +62,7 @@ impl CommandExecutionContext {
         profile: &EntryProfile,
         data_root: impl Into<PathBuf>,
         process_mode: CommandProcessMode,
-    ) -> Self {
+    ) -> CommandResult<Self> {
         let binding = profile.binding();
         let mut module_roots = BTreeMap::new();
         for (namespace, root) in [
@@ -108,7 +79,10 @@ impl CommandExecutionContext {
                 .iter()
                 .map(|mount| (mount.namespace().to_owned(), mount.root().to_owned())),
         );
-        Self {
+        let command_runtime_id = crate::runtime_release::command_runtime(entry)
+            .map_err(|error| CommandError::new(format!("Command Runtime is invalid: {error}")))?
+            .runtime_id;
+        Ok(Self {
             swawkit_home: entry.swawkit_home.clone(),
             command_root: entry.command_root(),
             system_root: entry.system_root(),
@@ -118,13 +92,14 @@ impl CommandExecutionContext {
             entry_name: entry.entry_name.clone(),
             entry_file: entry.entry_file.clone(),
             invocation_directory: entry.invocation_directory.clone(),
-            toolchain_executable: entry.sibling_product_executable("swawkit-proj-toolchain.exe"),
+            dev_executable: entry.sibling_product_executable("swawkit-proj-dev.exe"),
             module_executable: entry.sibling_product_executable("swawkit-proj-module.exe"),
+            command_runtime_id,
             profile: profile.record().clone(),
             environment_input_revision: profile.environment_input_revision().to_owned(),
             profile_revision: profile.profile_revision().to_owned(),
             process_mode,
-        }
+        })
     }
 }
 
@@ -186,11 +161,12 @@ impl ProcessEnvironment {
         environment.set("SWAWKIT_PROJ_MODULE_ROOTS", module_roots);
         environment.set("SWAWKIT_PROJ_DATA_ROOT", &context.data_root);
         environment.set("SWAWKIT_PROJ_ENTRY_COMMAND", &context.entry_name);
-        environment.set("SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE", &context.entry_file);
         environment.set(
-            "SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE",
-            &context.toolchain_executable,
+            "SWAWKIT_PROJ_CORE_COMMAND_RUNTIME_ID",
+            &context.command_runtime_id,
         );
+        environment.set("SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE", &context.entry_file);
+        environment.set("SWAWKIT_PROJ_CORE_DEV_EXECUTABLE", &context.dev_executable);
         environment.set(
             "SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION",
             &context.environment_input_revision,
@@ -217,54 +193,6 @@ impl ProcessEnvironment {
                 self.set(name, value);
             }
         }
-    }
-
-    pub(crate) fn apply_development_environment(
-        &mut self,
-        plan: &EnvironmentPlan,
-        managed_root: &Path,
-    ) -> CommandResult<()> {
-        for name in DEVELOPMENT_ENVIRONMENT_VARIABLES {
-            self.remove(name);
-        }
-        for (name, _) in env::vars_os() {
-            if name
-                .to_str()
-                .is_some_and(|name| has_ascii_prefix(name, DEVELOPMENT_METADATA_PREFIX))
-            {
-                self.remove(name);
-            }
-        }
-        for (name, value) in plan.variables() {
-            match value {
-                Some(value) => self.set(name, value),
-                None => self.remove(name),
-            }
-        }
-        self.prepend_paths(plan.paths(), Some(managed_root))
-    }
-
-    fn prepend_paths(
-        &mut self,
-        directories: &[PathBuf],
-        excluded_inherited_root: Option<&Path>,
-    ) -> CommandResult<()> {
-        let mut paths = directories.to_vec();
-        if let Some(inherited) = env::var_os("PATH") {
-            paths.extend(env::split_paths(&inherited).filter(|path| {
-                excluded_inherited_root.is_none_or(|root| !path_is_within_windows(path, root))
-            }));
-        }
-        let value = env::join_paths(paths).map_err(|error| {
-            CommandError::new(format!(
-                "cannot publish the Entry tool path '{}': {error}",
-                directories
-                    .first()
-                    .map_or_else(|| "<empty>".into(), |path| path.display().to_string())
-            ))
-        })?;
-        self.set("PATH", value);
-        Ok(())
     }
 
     fn set(&mut self, name: impl Into<OsString>, value: impl AsRef<OsStr>) {
@@ -305,40 +233,23 @@ impl ProcessEnvironment {
     }
 }
 
-fn has_ascii_prefix(value: &str, prefix: &str) -> bool {
-    value
-        .get(..prefix.len())
-        .is_some_and(|candidate| candidate.eq_ignore_ascii_case(prefix))
-}
-
-fn path_is_within_windows(path: &Path, root: &Path) -> bool {
-    let path = path.to_string_lossy();
-    let root = root.to_string_lossy();
-    path.eq_ignore_ascii_case(&root)
-        || path
-            .get(..root.len())
-            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&root))
-            && path
-                .as_bytes()
-                .get(root.len())
-                .is_some_and(|byte| *byte == b'\\' || *byte == b'/')
-}
-
-pub(crate) fn validate_toolchain_executable(path: &Path) -> CommandResult<()> {
+pub(crate) fn validate_dev_executable(path: &Path) -> CommandResult<()> {
     let metadata = std::fs::symlink_metadata(path).map_err(|error| {
         CommandError::new(format!(
-            "the Runtime Release Toolchain is unavailable at '{}': {error}",
+            "the Runtime Component product 'dev' is unavailable at '{}': {error}",
             path.display()
         ))
     })?;
     if !metadata.is_file() {
         return Err(CommandError::new(format!(
-            "the Runtime Release Toolchain is not a regular file: '{}'",
+            "the Runtime Component product 'dev' is not a regular file: '{}'",
             path.display()
         )));
     }
     crate::runtime_release::validate_product(path).map_err(|error| {
-        CommandError::new(format!("the Runtime Release Toolchain is invalid: {error}"))
+        CommandError::new(format!(
+            "the Runtime Component product 'dev' is invalid: {error}"
+        ))
     })
 }
 

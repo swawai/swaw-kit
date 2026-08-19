@@ -35,12 +35,33 @@ Invoke-ProjBootstrapToolchain -Action {
         -ControlledRoot $Toolchain.Context.DataRoot `
         -TimeoutSeconds 1800
     try {
-        Invoke-ProjBootstrapModuleBuild `
+        Invoke-ProjBootstrapRustProductBuild `
+            -ProductName 'Module' `
+            -CandidateName 'swawkit-proj-module.exe' `
             -CargoPath ([string]$Toolchain.CargoPath) `
             -ManifestPath $Layout.ModuleManifestPath `
             -TargetDirectory $ModuleTarget | Out-Host
     } finally {
         $ModuleLock.Dispose()
+    }
+
+    $DevTarget = Assert-ProjDevPathInsideDataRoot `
+        -Path $Layout.DevBuildRoot `
+        -DataRoot $Toolchain.Context.DataRoot `
+        -Activity 'building the Bootstrap Dev runtime'
+    $DevLock = Enter-ProjDevFileLock `
+        -Path (Join-Path $Layout.LockRoot 'dev-build.lock') `
+        -ControlledRoot $Toolchain.Context.DataRoot `
+        -TimeoutSeconds 1800
+    try {
+        Invoke-ProjBootstrapRustProductBuild `
+            -ProductName 'Dev' `
+            -CandidateName 'swawkit-proj-dev.exe' `
+            -CargoPath ([string]$Toolchain.CargoPath) `
+            -ManifestPath $Layout.DevManifestPath `
+            -TargetDirectory $DevTarget | Out-Host
+    } finally {
+        $DevLock.Dispose()
     }
 
     $LauncherRoot = Assert-ProjDevPathInsideDataRoot `

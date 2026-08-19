@@ -40,7 +40,7 @@ use subject_kind::resolve_subject_kinds;
 use view::read_local_web_view;
 pub use view::{ChildrenColumnView, ColumnWidth, CommandView, RunOperationView, RunView};
 
-pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v18";
+pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v19";
 
 pub const HELP_ADDRESS: &str = ".help";
 pub const HELP_MARKERS: [&str; 3] = [HELP_ADDRESS, "-h", "--help"];
@@ -74,19 +74,11 @@ impl CatalogSnapshot {
                     .map(|mount| ModuleRoot::new(mount.namespace(), mount.root().to_owned())),
             );
         }
-        let pwsh = match profile {
-            Some(profile) if profile.record().development.pwsh.mode == "disabled" => {
-                PwshAvailability::Disabled
-            }
-            Some(_) => PwshAvailability::Enabled,
-            None => PwshAvailability::ProfileUnavailable,
-        };
         let language = profile.map(EntryProfile::language).unwrap_or_default();
         Self::discover_optional_roots(
             &context.system_root(),
             &module_roots,
             &context.entry_name,
-            pwsh,
             language,
         )
     }
@@ -105,7 +97,6 @@ impl CatalogSnapshot {
             system_root,
             &module_roots,
             entry_name,
-            PwshAvailability::Enabled,
             EntryLanguage::default(),
         )
     }
@@ -123,7 +114,6 @@ impl CatalogSnapshot {
             system_root,
             &module_roots,
             entry_name,
-            PwshAvailability::Enabled,
             EntryLanguage::default(),
         )
     }
@@ -140,20 +130,13 @@ impl CatalogSnapshot {
             ModuleRoot::new("swaw", swaw_module_root.to_owned()),
             ModuleRoot::new("project", project_module_root.to_owned()),
         ];
-        Self::discover_optional_roots(
-            system_root,
-            &module_roots,
-            entry_name,
-            PwshAvailability::Enabled,
-            language,
-        )
+        Self::discover_optional_roots(system_root, &module_roots, entry_name, language)
     }
 
     fn discover_optional_roots(
         system_root: &Path,
         module_roots: &[ModuleRoot],
         entry_name: &str,
-        pwsh: PwshAvailability,
         language: EntryLanguage,
     ) -> io::Result<Self> {
         assert_command_root(system_root)?;
@@ -177,7 +160,7 @@ impl CatalogSnapshot {
 
         let mut commands = Vec::new();
         while let Some(current) = pending.pop_front() {
-            commands.push(scan_node(&current, entry_name, pwsh, language));
+            commands.push(scan_node(&current, entry_name, language));
 
             for child in child_directories(&current.path)? {
                 let Some(child_command) = child_address(&current, &child.name) else {
@@ -300,19 +283,7 @@ struct ChildCommand {
     id: CommandId,
 }
 
-#[derive(Clone, Copy)]
-enum PwshAvailability {
-    Enabled,
-    Disabled,
-    ProfileUnavailable,
-}
-
-fn scan_node(
-    pending: &PendingDirectory,
-    entry_name: &str,
-    pwsh: PwshAvailability,
-    language: EntryLanguage,
-) -> CommandNode {
+fn scan_node(pending: &PendingDirectory, entry_name: &str, language: EntryLanguage) -> CommandNode {
     let address = pending.id.address();
     let mut diagnostics = Vec::new();
     let (module, module_valid) = match &pending.module {
@@ -342,11 +313,6 @@ fn scan_node(
         }
         (None, Some(ModuleExecution::Core { handler })) => Some(ResolvedEntry::declared(
             CommandAdapter::Core,
-            Some(handler.clone()),
-            None,
-        )),
-        (None, Some(ModuleExecution::Toolchain { handler })) => Some(ResolvedEntry::declared(
-            CommandAdapter::Toolchain,
             Some(handler.clone()),
             None,
         )),
@@ -382,27 +348,8 @@ fn scan_node(
         }
         Some(entry) if entry.adapter == CommandAdapter::Python => {
             diagnostics.push(
-                "run.py is not runnable until managed Python is owned and verified by .dev/setup"
+                "run.py is not runnable until Python is part of the Framework Command Runtime"
                     .to_owned(),
-            );
-            None
-        }
-        Some(entry)
-            if entry.adapter == CommandAdapter::Pwsh
-                && matches!(pwsh, PwshAvailability::Disabled) =>
-        {
-            diagnostics.push(
-                "run.ps1 is disabled by the current Entry Profile; run '.dev/pwsh/mode managed' or '.dev/pwsh/mode system', then run .dev/setup"
-                    .to_owned(),
-            );
-            None
-        }
-        Some(entry)
-            if entry.adapter == CommandAdapter::Pwsh
-                && matches!(pwsh, PwshAvailability::ProfileUnavailable) =>
-        {
-            diagnostics.push(
-                "run.ps1 requires a ready Entry Profile with PowerShell 7 enabled".to_owned(),
             );
             None
         }

@@ -4,7 +4,7 @@ param(
     [string]$CorePath = '',
     [string]$HostPath = '',
     [string]$ModulePath = '',
-    [string]$ToolchainPath = ''
+    [string]$DevPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,7 +47,7 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -CorePath $CorePath `
     -HostPath $HostPath `
     -ModulePath $ModulePath `
-    -ToolchainPath $ToolchainPath
+    -DevPath $DevPath
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-host-release-$([Guid]::NewGuid().ToString('N'))"
 )
@@ -62,7 +62,7 @@ try {
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
         -ModulePath $Artifacts.ModulePath `
-        -ToolchainPath $Artifacts.ToolchainPath
+        -DevPath $Artifacts.DevPath
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath 'host-release.exe'
@@ -159,7 +159,7 @@ try {
 
     $RunningReleaseId = [string]$Runtime.ReleaseId
     $SelectedToolchain = Join-Path $TemporaryRoot 'selected-toolchain.exe'
-    [IO.File]::Copy($Artifacts.ToolchainPath, $SelectedToolchain, $false)
+    [IO.File]::Copy($Artifacts.DevPath, $SelectedToolchain, $false)
     $SelectedStream = [IO.File]::Open(
         $SelectedToolchain,
         [IO.FileMode]::Append,
@@ -171,12 +171,14 @@ try {
     } finally {
         $SelectedStream.Dispose()
     }
-    $SelectedSet = New-ProjRuntimeReleaseSetFromFiles -Artifacts ([ordered]@{
-        'swawkit-proj.exe' = $Artifacts.CorePath
-        'swawkit-proj-host.exe' = $Artifacts.HostPath
-        'swawkit-proj-module.exe' = $Artifacts.ModulePath
-        'swawkit-proj-toolchain.exe' = $SelectedToolchain
-    })
+    $SelectedSet = New-ProjRuntimeReleaseSetFromFiles `
+        -Artifacts ([ordered]@{
+            'swawkit-proj.exe' = $Artifacts.CorePath
+            'swawkit-proj-host.exe' = $Artifacts.HostPath
+            'swawkit-proj-module.exe' = $Artifacts.ModulePath
+            'swawkit-proj-dev.exe' = $SelectedToolchain
+        }) `
+        -CommandRuntimeId ([string]$Runtime.CommandRuntimeId)
     $SelectedPublication = Publish-ProjRuntimeReleaseSet `
         -ReleaseSet $SelectedSet `
         -ProjHome $Runtime.Home `

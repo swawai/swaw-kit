@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { copyFile, lstat, mkdir, open, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import {
   type Artifact,
   type BuildReleaseSet,
@@ -13,7 +13,8 @@ import {
   moveFileReplace,
 } from "../../build/_lib/windows-filesystem.ts";
 
-const RUNTIME_SCHEMA = "swawkit.proj-release-set/v2";
+const RUNTIME_SCHEMA = "swawkit.proj-release-set/v4";
+const COMMAND_RUNTIME_SCHEMA = "swawkit.proj-command-runtime/v1";
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
 
@@ -22,9 +23,10 @@ export async function publishRuntimeReleaseSet(
   cacheDataRoot: string,
   release: BuildReleaseSet,
 ): Promise<string> {
-  if (releaseIdentity(release.artifacts) !== release.releaseId) {
+  if (releaseIdentity(release.artifacts, release.commandRuntimeId) !== release.releaseId) {
     throw new Error("the application Release Set ID does not match its artifacts");
   }
+  await validateCommandRuntime(projHome, release.commandRuntimeId);
   const projRoot = await requireControlledDirectory(
     projHome,
     ["_lib", "proj"],
@@ -44,12 +46,15 @@ export async function publishRuntimeReleaseSet(
   return release.releaseId;
 }
 
-function releaseIdentity(artifacts: Artifact[]): string {
+function releaseIdentity(artifacts: Artifact[], commandRuntimeId: string): string {
+  if (!/^[a-f0-9]{64}$/.test(commandRuntimeId)) {
+    throw new Error("the application Command Runtime ID is invalid");
+  }
   const records = new Map(artifacts.map((artifact) => [artifact.name, artifact]));
   if (records.size !== RUNTIME_ARTIFACT_NAMES.length) {
     throw new Error("the application Release Set has invalid membership");
   }
-  const identity = [RUNTIME_SCHEMA];
+  const identity = [RUNTIME_SCHEMA, commandRuntimeId];
   for (const name of RUNTIME_ARTIFACT_NAMES) {
     const artifact = records.get(name);
     if (!artifact) throw new Error("the application Release Set has invalid membership");
@@ -79,6 +84,7 @@ async function publishDirectory(
     await writeFile(join(stage, "manifest.json"), json({
       schema: RUNTIME_SCHEMA,
       releaseId: release.releaseId,
+      commandRuntimeId: release.commandRuntimeId,
       artifacts: release.artifacts.map(({ name, length, sha256 }) => ({ name, length, sha256 })),
     }), { flag: "wx" });
     await validateRuntimeRelease(stage, release, false);
@@ -125,9 +131,11 @@ async function validateRuntimeRelease(
   const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
   if (
     !manifest || typeof manifest !== "object" || Array.isArray(manifest)
-    || Object.keys(manifest).sort().join("\n") !== ["artifacts", "releaseId", "schema"].sort().join("\n")
+    || Object.keys(manifest).sort().join("\n")
+      !== ["artifacts", "commandRuntimeId", "releaseId", "schema"].sort().join("\n")
     || manifest.schema !== RUNTIME_SCHEMA
     || manifest.releaseId !== expected.releaseId
+    || manifest.commandRuntimeId !== expected.commandRuntimeId
     || !Array.isArray(manifest.artifacts)
   ) {
     throw new Error(`runtime Release Set manifest is invalid: ${manifestPath}`);
@@ -163,6 +171,64 @@ async function validateRuntimeRelease(
   }
   if (records.size !== RUNTIME_ARTIFACT_NAMES.length) {
     throw new Error(`runtime Release Set has invalid membership: ${manifestPath}`);
+  }
+}
+
+async function validateCommandRuntime(projHome: string, id: string): Promise<void> {
+  if (!/^[a-f0-9]{64}$/.test(id)) throw new Error("Command Runtime ID is invalid");
+  const bootstrapRoot = resolve(projHome, "data", "proj_cache", "bootstrap");
+  const root = resolve(bootstrapRoot, "command-runtimes", "releases", id);
+  const rootMetadata = await lstat(root);
+  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) {
+    throw new Error(`Command Runtime release is unsafe: ${root}`);
+  }
+  if ((await readdir(root)).sort().join("\n") !== "manifest.json") {
+    throw new Error(`Command Runtime release membership is invalid: ${root}`);
+  }
+  const manifestPath = join(root, "manifest.json");
+  const metadata = await lstat(manifestPath);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > 64 * 1024) {
+    throw new Error(`Command Runtime manifest is invalid: ${manifestPath}`);
+  }
+  const document = JSON.parse(await readFile(manifestPath, "utf8"));
+  if (
+    !document || typeof document !== "object" || Array.isArray(document)
+    || Object.keys(document).sort().join("\n") !== ["runtimeId", "schema", "tools"].join("\n")
+    || document.schema !== COMMAND_RUNTIME_SCHEMA || document.runtimeId !== id
+    || !Array.isArray(document.tools) || document.tools.length !== 2
+  ) throw new Error(`Command Runtime manifest is invalid: ${manifestPath}`);
+  const identity = [COMMAND_RUNTIME_SCHEMA];
+  const names = new Set<string>();
+  for (const tool of [...document.tools].sort((left, right) =>
+    String(left.name) < String(right.name) ? -1 : String(left.name) > String(right.name) ? 1 : 0
+  )) {
+    if (
+      !tool || typeof tool !== "object" || Array.isArray(tool)
+      || Object.keys(tool).sort().join("\n") !== ["length", "name", "path", "sha256", "version"].join("\n")
+      || typeof tool.name !== "string" || !["bun", "pwsh"].includes(tool.name)
+      || names.has(tool.name)
+      || typeof tool.version !== "string" || !/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(tool.version)
+      || typeof tool.path !== "string" || !/^[A-Za-z0-9._+-]+(?:\/[A-Za-z0-9._+ -]+)*$/.test(tool.path)
+      || !Number.isSafeInteger(tool.length) || tool.length <= 0 || tool.length > MAX_ARTIFACT_BYTES
+      || typeof tool.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(tool.sha256)
+    ) throw new Error(`Command Runtime tool record is invalid: ${manifestPath}`);
+    names.add(tool.name);
+    const path = resolve(bootstrapRoot, ...tool.path.split("/"));
+    const child = relative(bootstrapRoot, path);
+    if (!child || child.startsWith("..") || isAbsolute(child)) {
+      throw new Error(`Command Runtime tool escaped its root: ${path}`);
+    }
+    const item = await lstat(path);
+    const bytes = await readFile(path);
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    if (!item.isFile() || item.isSymbolicLink() || item.size !== tool.length || hash !== tool.sha256) {
+      throw new Error(`Command Runtime tool is corrupt: ${path}`);
+    }
+    identity.push(tool.name, tool.version, tool.path, String(tool.length), tool.sha256);
+  }
+  if (names.size !== 2 || !names.has("bun") || !names.has("pwsh")
+    || createHash("sha256").update(identity.join("\n")).digest("hex") !== id) {
+    throw new Error(`Command Runtime identity is invalid: ${manifestPath}`);
   }
 }
 

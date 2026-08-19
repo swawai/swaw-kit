@@ -13,18 +13,18 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { moveFileReplace } from "./windows-filesystem.ts";
 
-const BUILD_SCHEMA = "swawkit.proj-build-release-set/v2";
-const RUNTIME_SCHEMA = "swawkit.proj-release-set/v2";
+const BUILD_SCHEMA = "swawkit.proj-build-release-set/v4";
+const RUNTIME_SCHEMA = "swawkit.proj-release-set/v4";
 const STATE_SCHEMA = "swawkit.command-provider-state/v2";
 const MAX_MANIFEST_BYTES = 1024 * 1024;
 const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
-export const PRODUCER_CONTRACT = "swawkit.proj-build-app/v4";
+export const PRODUCER_CONTRACT = "swawkit.proj-build-app/v6";
 export const PRODUCER_EXPORT = "runtime-release";
 export const RUNTIME_ARTIFACT_NAMES = [
-  "swawkit-proj.exe",
+  "swawkit-proj-dev.exe",
   "swawkit-proj-host.exe",
   "swawkit-proj-module.exe",
-  "swawkit-proj-toolchain.exe",
+  "swawkit-proj.exe",
 ] as const;
 type RuntimeArtifactName = typeof RUNTIME_ARTIFACT_NAMES[number];
 
@@ -37,6 +37,7 @@ export type Artifact = {
 
 export type BuildReleaseSet = {
   releaseId: string;
+  commandRuntimeId: string;
   root: string;
   artifacts: Artifact[];
 };
@@ -66,12 +67,15 @@ async function fileRecord(name: string, path: string): Promise<Artifact> {
   };
 }
 
-function releaseId(artifacts: Artifact[]): string {
+function releaseId(artifacts: Artifact[], commandRuntimeId: string): string {
+  if (!/^[a-f0-9]{64}$/.test(commandRuntimeId)) {
+    throw new Error("the App build Command Runtime ID is invalid");
+  }
   const records = new Map(artifacts.map((artifact) => [artifact.name, artifact]));
   if (records.size !== RUNTIME_ARTIFACT_NAMES.length) {
     throw new Error("the App build Release Set has the wrong artifact membership");
   }
-  const identity = [RUNTIME_SCHEMA];
+  const identity = [RUNTIME_SCHEMA, commandRuntimeId];
   for (const name of RUNTIME_ARTIFACT_NAMES) {
     const artifact = records.get(name);
     if (!artifact) {
@@ -171,7 +175,7 @@ export async function readBuildReleaseDirectory(
   root: string,
   expectedId: string,
   expectedNames: readonly string[],
-): Promise<Artifact[]> {
+): Promise<BuildReleaseSet> {
   await regularDirectory(root, "build Release Set");
   const members = (await readdir(root)).sort();
   const expectedMembers = [...expectedNames, "manifest.json"].sort();
@@ -192,10 +196,12 @@ export async function readBuildReleaseDirectory(
   if (
     !manifest || typeof manifest !== "object" || Array.isArray(manifest)
     || Object.keys(manifest).sort().join("\n")
-      !== ["artifacts", "releaseId", "runtimeSchema", "schema"].sort().join("\n")
+      !== ["artifacts", "commandRuntimeId", "releaseId", "runtimeSchema", "schema"].sort().join("\n")
     || manifest.schema !== BUILD_SCHEMA
     || manifest.runtimeSchema !== RUNTIME_SCHEMA
     || manifest.releaseId !== expectedId
+    || typeof manifest.commandRuntimeId !== "string"
+    || !/^[a-f0-9]{64}$/.test(manifest.commandRuntimeId)
     || !Array.isArray(manifest.artifacts)
   ) {
     throw new Error(`build Release Set manifest is invalid: ${root}`);
@@ -219,15 +225,24 @@ export async function readBuildReleaseDirectory(
     records.push(record);
   }
   const names = records.map(({ name }) => name).sort();
-  if (names.join("\n") !== [...expectedNames].sort().join("\n") || releaseId(records) !== expectedId) {
+  if (
+    names.join("\n") !== [...expectedNames].sort().join("\n")
+    || releaseId(records, manifest.commandRuntimeId) !== expectedId
+  ) {
     throw new Error(`build Release Set identity is invalid: ${root}`);
   }
-  return records;
+  return {
+    releaseId: expectedId,
+    commandRuntimeId: manifest.commandRuntimeId,
+    root,
+    artifacts: records,
+  };
 }
 
 export async function publishBuildReleaseSet(
   commandDataRoot: string,
   candidates: Record<RuntimeArtifactName, string>,
+  commandRuntimeId: string,
 ): Promise<string> {
   const names = Object.keys(candidates).sort();
   const expectedNames = [...RUNTIME_ARTIFACT_NAMES].sort();
@@ -242,7 +257,7 @@ export async function publishBuildReleaseSet(
       fileRecord(name, controlledPath(commandDataRoot, path, "build candidate"))
     ),
   );
-  const id = releaseId(artifacts);
+  const id = releaseId(artifacts, commandRuntimeId);
   const inputRevision = `sha256-${id}`;
   const token = randomUUID().replaceAll("-", "").toLowerCase();
   const statePath = join(commandDataRoot, "_state.json");
@@ -277,6 +292,7 @@ export async function publishBuildReleaseSet(
         schema: BUILD_SCHEMA,
         runtimeSchema: RUNTIME_SCHEMA,
         releaseId: id,
+        commandRuntimeId,
         artifacts: artifacts.map(({ name, length, sha256 }) => ({ name, length, sha256 })),
       }), { encoding: "utf8", flag: "wx" });
       try {

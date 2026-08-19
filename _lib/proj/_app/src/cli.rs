@@ -127,7 +127,8 @@ fn run_with_dependencies(
         }
     };
     let execution_context =
-        CommandExecutionContext::new(context, &profile, resolved.path(), process_mode);
+        CommandExecutionContext::new(context, &profile, resolved.path(), process_mode)
+            .map_err(|error| CliError::new(error.to_string()))?;
     let executor = CommandExecutor::new(&execution_context, &snapshot);
     match process_mode {
         CommandProcessMode::InheritConsole => match cancellation {

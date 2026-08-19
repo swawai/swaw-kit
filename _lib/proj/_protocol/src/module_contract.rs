@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CommandIdentity, ProtocolError, ProtocolResult};
 
-pub const COMMAND_MODULE_SCHEMA: &str = "swawkit.command-module/v10";
+pub const COMMAND_MODULE_SCHEMA: &str = "swawkit.command-module/v11";
 pub const MAX_MODULE_REQUIREMENTS: usize = 64;
 pub const MAX_MODULE_PROVISIONS: usize = 64;
 

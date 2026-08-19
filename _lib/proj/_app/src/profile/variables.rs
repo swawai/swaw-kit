@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
 
-use super::{EntryProfileRecord, ProfileError};
 #[cfg(test)]
-use crate::development::setup::declaration::provider_input_names;
-use crate::development::setup::declaration::{InputNormalization, provider_input_normalization};
+use swawkit_proj_protocol::dev_provider_input_names;
+use swawkit_proj_protocol::{DevInputNormalization, dev_provider_input_normalization};
+
+use super::{EntryProfileRecord, ProfileError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VariablePublication {
@@ -179,11 +180,11 @@ impl EntryProfileRecord {
         VARIABLE_SPECS
             .iter()
             .filter_map(|spec| {
-                let normalization = provider_input_normalization(spec.name)?;
+                let normalization = dev_provider_input_normalization(spec.name)?;
                 let value = values[spec.name].clone();
                 let value = match normalization {
-                    InputNormalization::Exact => value,
-                    InputNormalization::Lowercase => value.to_lowercase(),
+                    DevInputNormalization::Exact => value,
+                    DevInputNormalization::Lowercase => value.to_lowercase(),
                 };
                 Some((spec.name, value))
             })
@@ -202,7 +203,7 @@ impl EntryProfileRecord {
 
     #[cfg(test)]
     pub(crate) fn dev_setup_input_variable_names() -> Vec<&'static str> {
-        provider_input_names()
+        dev_provider_input_names()
     }
 }
 

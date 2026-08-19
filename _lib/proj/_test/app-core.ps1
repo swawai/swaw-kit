@@ -20,6 +20,11 @@ $RustProjects = @(
         TargetName = 'module-test'
     },
     @{
+        Name = 'Dev environment manager'
+        ManifestPath = Join-Path $ProjRoot 'system\dev\Cargo.toml'
+        TargetName = 'dev-test'
+    },
+    @{
         Name = 'Core'
         ManifestPath = Join-Path $ProjRoot '_app\Cargo.toml'
         TargetName = 'app-test'

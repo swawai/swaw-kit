@@ -1,7 +1,6 @@
 import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  type Artifact,
   type BuildReleaseSet,
   PRODUCER_CONTRACT,
   PRODUCER_EXPORT,
@@ -53,7 +52,7 @@ async function readUnchecked(dataRoot: string, entryCommand: string): Promise<Bu
     ["releases", id],
     "project/proj/build/app release",
   );
-  const artifacts: Artifact[] = await readBuildReleaseDirectory(
+  const release = await readBuildReleaseDirectory(
     root,
     id,
     RUNTIME_ARTIFACT_NAMES,
@@ -63,7 +62,7 @@ async function readUnchecked(dataRoot: string, entryCommand: string): Promise<Bu
   if (!sameState(final, initial) || finalId !== id) {
     throw repairError(entryCommand, "it changed while being read");
   }
-  return { releaseId: id, root, artifacts };
+  return release;
 }
 
 async function readReadyState(path: string, entryCommand: string): Promise<ReadyProviderState> {

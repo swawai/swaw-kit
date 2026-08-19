@@ -1,6 +1,7 @@
 mod command_identity;
 mod command_module;
 mod command_module_validation;
+mod dev_environment;
 mod digest;
 mod execution_contract;
 mod module_contract;
@@ -21,6 +22,11 @@ pub use command_module::{
     CommandModuleSubjectKindRef, CommandModuleSubjectRef, parse_command_module,
 };
 pub use command_module_validation::validate_command_module;
+pub use dev_environment::{
+    DEV_ENVIRONMENT_EXPORT_NAME, DEV_ENVIRONMENT_SCHEMA, DEV_SETUP_CONTRACT, DevEnvironmentExport,
+    DevEnvironmentVariable, DevInputNormalization, dev_provider_input_names,
+    dev_provider_input_normalization, parse_dev_environment, validate_dev_environment,
+};
 pub use digest::{REVISION_PREFIX, RevisionBuilder, is_revision, is_sha256, revision, sha256_hex};
 pub use execution_contract::{
     EXECUTION_CONTRACT_SCHEMA, ExecutionContract, ExecutionContractCommand, ExecutionSemantics,

@@ -4,4 +4,4 @@ Usage:
   {{INVOCATION}}
   {{INVOCATION}} --apply
 
-The default is a preview. --apply removes only releases that are not selected, are not used by a Core, Host, or Toolchain process, and pass manifest, membership, length, and SHA-256 verification. Unverifiable or unsafe directories are retained and reported.
+The default is a preview. --apply removes only releases that are not selected, are not used by a Core, Host, Module, or Dev process, and pass manifest, membership, length, and SHA-256 verification. Unverifiable or unsafe directories are retained and reported.

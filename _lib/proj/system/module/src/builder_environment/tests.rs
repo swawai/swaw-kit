@@ -40,7 +40,7 @@ impl Fixture {
             fs::create_dir_all(path).unwrap();
         }
 
-        let contract = br#"{"schema":"swawkit.proj-bootstrap/v1","rustToolchain":"fixture","msvcChannel":"fixture"}"#.to_vec();
+        let contract = br#"{"schema":"swawkit.proj-bootstrap/v2","rustToolchain":"fixture","msvcChannel":"fixture","commandRuntime":{"bunVersion":"1.2.15","bunSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pwshVersion":"7.6.4","pwshSha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}"#.to_vec();
         fs::write(proj.join("bootstrap.json"), &contract).unwrap();
         let cargo = tool(&rust_bin, "cargo.exe", b"cargo");
         let rustc = tool(&rust_bin, "rustc.exe", b"rustc");
@@ -76,9 +76,15 @@ impl Fixture {
             serde_json::to_vec_pretty(&serde_json::json!({
                 "schema": ENVIRONMENT_SCHEMA,
                 "contract": {
-                    "schema": "swawkit.proj-bootstrap/v1",
+                    "schema": "swawkit.proj-bootstrap/v2",
                     "rustToolchain": "fixture",
-                    "msvcChannel": "fixture"
+                    "msvcChannel": "fixture",
+                    "commandRuntime": {
+                        "bunVersion": "1.2.15",
+                        "bunSha256": "a".repeat(64),
+                        "pwshVersion": "7.6.4",
+                        "pwshSha256": "b".repeat(64)
+                    }
                 },
                 "contractRevision": revision(&contract),
                 "environmentRevision": "0123456789abcdef",

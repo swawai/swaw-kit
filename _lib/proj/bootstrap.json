@@ -1,5 +1,11 @@
 {
-  "schema": "swawkit.proj-bootstrap/v1",
+  "schema": "swawkit.proj-bootstrap/v2",
   "rustToolchain": "1.97.1",
-  "msvcChannel": "17"
+  "msvcChannel": "17",
+  "commandRuntime": {
+    "bunVersion": "1.2.15",
+    "bunSha256": "3cbfc2668aebd86718b9414fd4a4b4b1ec34a21ca544517310833563a937272f",
+    "pwshVersion": "7.6.4",
+    "pwshSha256": "80832551c52809301e6071c8bac977beb5a2f1ec953eb4db9f94deb953333793"
+  }
 }

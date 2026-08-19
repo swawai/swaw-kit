@@ -2,6 +2,7 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSpace};
+use crate::command_runtime::CommandRuntime;
 use crate::native_command;
 use crate::run_journal::{RunJournal, RunJournalPhase, RunJournalSource, StartRunJournal};
 
@@ -9,12 +10,8 @@ use super::{
     CommandError, CommandExecutionContext, CommandResult, ConsoleCancellation, Invocation,
     ProcessEnvironment, ResolvedCommand, command_data_root,
     process::{AdapterLaunch, run_process, run_process_journaled, validate_adapter},
-    resolve_entry_development, validate_module_executable, validate_toolchain_executable,
+    validate_dev_executable, validate_module_executable,
 };
-
-const DEVELOPMENT_ENVIRONMENT_PROVIDER: &str = ".dev/setup";
-const DEVELOPMENT_ENVIRONMENT_EXPORT: &str = "environment";
-const DEVELOPMENT_ENVIRONMENT_CONTRACT: &str = "swawkit.proj.dev-setup/v2";
 
 pub struct CommandExecutor<'a> {
     context: &'a CommandExecutionContext,
@@ -57,10 +54,6 @@ impl<'a> CommandExecutor<'a> {
     ) -> CommandResult<i32> {
         let invocation = Invocation::resolve(self.catalog, argv)?;
         self.assert_dependencies_ready(&invocation)?;
-        if invocation.command.handler.as_deref() == Some("dev.setup") {
-            crate::development::setup::provider::migrate_legacy_layout(&self.context.data_root)
-                .map_err(CommandError::new)?;
-        }
         let journal = RunJournal::start(StartRunJournal {
             module_data_root: command_data_root(self.context, &invocation.command)?,
             address: invocation.command.address.clone(),
@@ -112,56 +105,33 @@ impl<'a> CommandExecutor<'a> {
         journal: Option<&RunJournal>,
     ) -> CommandResult<i32> {
         validate_command_adapter(&invocation.command)?;
-        let mut development_environment = self
-            .requires_development_environment(&invocation.command)
-            .then(|| resolve_entry_development(self.context).map(|resolved| resolved.environment))
-            .transpose()?;
         let mut native_resolution = None;
         let adapter_launch = match invocation.command.adapter {
-            CommandAdapter::Bun => {
-                let resolved = resolve_entry_development(self.context)?;
-                development_environment = Some(resolved.environment);
-                AdapterLaunch::Bun(resolved.bun_executable.ok_or_else(|| {
-                    CommandError::new(format!(
-                        "Bun is disabled for this Entry. Run '{} .dev/bun/mode managed', then '{} .dev/setup'",
-                        self.context.entry_name, self.context.entry_name
-                    ))
-                })?)
-            }
-            CommandAdapter::Pwsh => {
-                let resolved = resolve_entry_development(self.context)?;
-                development_environment = Some(resolved.environment);
-                AdapterLaunch::Pwsh(resolved.pwsh_executable.ok_or_else(|| {
-                    CommandError::new(format!(
-                        "PowerShell 7 is disabled for this Entry. Run '{} .dev/pwsh/mode managed', then '{} .dev/setup'",
-                        self.context.entry_name, self.context.entry_name
-                    ))
-                })?)
-            }
-            CommandAdapter::Toolchain => {
-                validate_toolchain_executable(&self.context.toolchain_executable)?;
-                let handler = invocation.command.handler.clone().ok_or_else(|| {
-                    CommandError::new("Catalog invariant failed: Toolchain command has no handler")
-                })?;
-                AdapterLaunch::Toolchain {
-                    executable: self.context.toolchain_executable.clone(),
-                    handler,
-                }
-            }
+            CommandAdapter::Bun => AdapterLaunch::Bun(self.command_runtime_tool("bun")?),
+            CommandAdapter::Pwsh => AdapterLaunch::Pwsh(self.command_runtime_tool("pwsh")?),
             CommandAdapter::Runtime => {
                 let product = invocation.command.product.as_deref().ok_or_else(|| {
                     CommandError::new(
                         "Catalog invariant failed: Runtime Component command has no product",
                     )
                 })?;
-                if product != "module" {
-                    return Err(CommandError::new(format!(
-                        "unsupported Runtime Component product '{product}'"
-                    )));
-                }
-                validate_module_executable(&self.context.module_executable)?;
+                let executable = match product {
+                    "module" => {
+                        validate_module_executable(&self.context.module_executable)?;
+                        self.context.module_executable.clone()
+                    }
+                    "dev" => {
+                        validate_dev_executable(&self.context.dev_executable)?;
+                        self.context.dev_executable.clone()
+                    }
+                    _ => {
+                        return Err(CommandError::new(format!(
+                            "unsupported Runtime Component product '{product}'"
+                        )));
+                    }
+                };
                 AdapterLaunch::Runtime {
-                    executable: self.context.module_executable.clone(),
+                    executable,
                     address: invocation.command.address.clone(),
                 }
             }
@@ -185,15 +155,6 @@ impl<'a> CommandExecutor<'a> {
             _ => AdapterLaunch::Direct,
         };
         let mut environment = ProcessEnvironment::for_command(self.context, &invocation.command)?;
-        if let Some(plan) = &development_environment {
-            environment.apply_development_environment(
-                plan,
-                &self
-                    .context
-                    .data_root
-                    .join("modules/system/dev/setup/export"),
-            )?;
-        }
         if let Some(resolution) = &native_resolution {
             environment.apply_native_owner(
                 &resolution.owner_address,
@@ -213,25 +174,16 @@ impl<'a> CommandExecutor<'a> {
         )
     }
 
-    fn requires_development_environment(&self, command: &ResolvedCommand) -> bool {
-        self.catalog
-            .commands
-            .iter()
-            .find(|candidate| candidate.address == command.address)
-            .and_then(|candidate| candidate.module.as_ref())
-            .is_some_and(|module| {
-                module
-                    .requires
-                    .iter()
-                    .any(is_development_environment_requirement)
-            })
+    fn command_runtime_tool(&self, name: &str) -> CommandResult<std::path::PathBuf> {
+        let runtime =
+            CommandRuntime::open(&self.context.swawkit_home, &self.context.command_runtime_id)
+                .map_err(|error| {
+                    CommandError::new(format!("Command Runtime is invalid: {error}"))
+                })?;
+        runtime
+            .tool(&self.context.swawkit_home, name)
+            .map_err(|error| CommandError::new(format!("Command Runtime tool is invalid: {error}")))
     }
-}
-
-fn is_development_environment_requirement(requirement: &crate::catalog::ModuleRequirement) -> bool {
-    requirement.provider == DEVELOPMENT_ENVIRONMENT_PROVIDER
-        && requirement.export == DEVELOPMENT_ENVIRONMENT_EXPORT
-        && requirement.contract == DEVELOPMENT_ENVIRONMENT_CONTRACT
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -271,11 +223,6 @@ fn run(
 
 fn validate_command_adapter(command: &ResolvedCommand) -> CommandResult<()> {
     validate_adapter(command.adapter)?;
-    if command.adapter == CommandAdapter::Toolchain && command.handler.is_none() {
-        return Err(CommandError::new(
-            "Catalog invariant failed: Toolchain command has no handler",
-        ));
-    }
     if command.adapter == CommandAdapter::Runtime && command.product.is_none() {
         return Err(CommandError::new(
             "Catalog invariant failed: Runtime Component command has no product",
@@ -293,12 +240,6 @@ fn validate_command_adapter(command: &ResolvedCommand) -> CommandResult<()> {
             command.address
         )));
     }
-    if command.adapter == CommandAdapter::Toolchain && command.space != CommandSpace::System {
-        return Err(CommandError::new(format!(
-            "toolchain execution is only supported for System commands; '{}' has an invalid owner",
-            command.address
-        )));
-    }
     if command.adapter == CommandAdapter::Runtime && command.space != CommandSpace::System {
         return Err(CommandError::new(format!(
             "Runtime Component execution is only supported for System commands; '{}' has an invalid owner",
@@ -306,38 +247,4 @@ fn validate_command_adapter(command: &ResolvedCommand) -> CommandResult<()> {
         )));
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::catalog::ModuleRequirement;
-
-    use super::is_development_environment_requirement;
-
-    #[test]
-    fn development_environment_is_selected_only_by_the_exact_requirement() {
-        let exact = ModuleRequirement {
-            provider: ".dev/setup".to_owned(),
-            export: "environment".to_owned(),
-            contract: "swawkit.proj.dev-setup/v2".to_owned(),
-        };
-        assert!(is_development_environment_requirement(&exact));
-
-        for requirement in [
-            ModuleRequirement {
-                provider: ".module/instantiate".to_owned(),
-                ..exact.clone()
-            },
-            ModuleRequirement {
-                export: "toolchain".to_owned(),
-                ..exact.clone()
-            },
-            ModuleRequirement {
-                contract: "swawkit.proj.dev-setup/v1".to_owned(),
-                ..exact
-            },
-        ] {
-            assert!(!is_development_environment_requirement(&requirement));
-        }
-    }
 }

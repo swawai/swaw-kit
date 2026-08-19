@@ -12,9 +12,7 @@ $CandidateArguments = @{
     CorePath = Join-Path $Layout.BuildRoot 'release\swawkit-proj.exe'
     HostPath = Join-Path $Layout.BuildRoot 'release\swawkit-proj-host.exe'
     ModulePath = $Layout.ModuleCandidatePath
-    ToolchainPath = Join-Path $Layout.BuildRoot (
-        'release\swawkit-proj-toolchain.exe'
-    )
+    DevPath = $Layout.DevCandidatePath
 }
 & (Join-Path $PSScriptRoot 'launcher-runtime.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'smoke-entry.ps1') @CandidateArguments
@@ -55,21 +53,21 @@ if ($LASTEXITCODE -ne 0) {
 & (Join-Path $PSScriptRoot 'app-publish.ps1')
 & (Join-Path $PSScriptRoot 'app-core.ps1')
 & (Join-Path $PSScriptRoot 'toolchain.ps1') `
-    -ToolchainPath $CandidateArguments.ToolchainPath
+    -DevPath $CandidateArguments.DevPath
 & (Join-Path $PSScriptRoot 'toolchain.setup.ps1') `
-    -ToolchainPath $CandidateArguments.ToolchainPath
+    -DevPath $CandidateArguments.DevPath
 & (Join-Path $PSScriptRoot 'dev-setup-network.ps1') `
-    -ToolchainPath $CandidateArguments.ToolchainPath
+    -DevPath $CandidateArguments.DevPath
 & (Join-Path $PSScriptRoot 'web.ps1')
 & (Join-Path $PSScriptRoot 'bootstrap-contract.ps1')
 & (Join-Path $PSScriptRoot 'shell.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'install-recovery.ps1')
 & (Join-Path $PSScriptRoot 'command-event.ps1')
 & (Join-Path $PSScriptRoot 'bun.ps1') `
-    -ToolchainPath $CandidateArguments.ToolchainPath
+    -DevPath $CandidateArguments.DevPath
 & (Join-Path $PSScriptRoot 'pwsh.ps1')
 & (Join-Path $PSScriptRoot 'msvc.ps1') `
-    -ToolchainPath $CandidateArguments.ToolchainPath
+    -DevPath $CandidateArguments.DevPath
 & (Join-Path $PSScriptRoot 'msvc.command.ps1')
 & (Join-Path $PSScriptRoot 'msvc.cache.ps1')
 & (Join-Path $PSScriptRoot 'rust.ps1')

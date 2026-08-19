@@ -14,6 +14,10 @@ Invoke-ProjBootstrapToolchain -Action {
         '[READY] Bootstrap Native builder environment {0}' -f
         $Toolchain.EnvironmentRevision
     ) -ForegroundColor Green
+    Write-Host (
+        '[READY] Framework Command Runtime {0}' -f
+        $Toolchain.CommandRuntimeId
+    ) -ForegroundColor Green
 }
 
 $global:LASTEXITCODE = 0

@@ -18,10 +18,6 @@ pub(crate) enum AdapterLaunch {
     Direct,
     Bun(PathBuf),
     Pwsh(PathBuf),
-    Toolchain {
-        executable: PathBuf,
-        handler: String,
-    },
     Runtime {
         executable: PathBuf,
         address: String,
@@ -126,7 +122,6 @@ fn prepare_command(
             native_command(adapter_launch, arguments)?
         }
         CommandAdapter::Bun => bun_command(adapter_launch, entry_path, arguments)?,
-        CommandAdapter::Toolchain => toolchain_command(adapter_launch, arguments)?,
         CommandAdapter::Runtime => runtime_command(adapter_launch, arguments)?,
         CommandAdapter::Pwsh => pwsh_command(adapter_launch, entry_path, arguments)?,
         CommandAdapter::Cmd => cmd_command(entry_path, arguments)?,
@@ -152,7 +147,6 @@ pub(crate) fn validate_adapter(adapter: CommandAdapter) -> CommandResult<()> {
             | CommandAdapter::Native
             | CommandAdapter::Delegate
             | CommandAdapter::Bun
-            | CommandAdapter::Toolchain
             | CommandAdapter::Runtime
             | CommandAdapter::Pwsh
             | CommandAdapter::Cmd
@@ -190,25 +184,6 @@ fn bun_command(
     let mut command = Command::new(executable);
     remove_inherited_adapter_environment(&mut command);
     command.arg(entry_path).args(arguments);
-    Ok(command)
-}
-
-fn toolchain_command(
-    adapter_launch: &AdapterLaunch,
-    arguments: &[OsString],
-) -> CommandResult<Command> {
-    let AdapterLaunch::Toolchain {
-        executable,
-        handler,
-    } = adapter_launch
-    else {
-        return Err(CommandError::new(
-            "toolchain execution requires a resolved Toolchain handler",
-        ));
-    };
-    let mut command = Command::new(executable);
-    remove_inherited_adapter_environment(&mut command);
-    command.arg("command-v1").arg(handler).args(arguments);
     Ok(command)
 }
 
@@ -335,22 +310,22 @@ mod tests {
     }
 
     #[test]
-    fn toolchain_launch_pins_the_protocol_and_manifest_handler_before_user_arguments() {
-        let executable = PathBuf::from(r"C:\runtime\swawkit-proj-toolchain.exe");
-        let launch = AdapterLaunch::Toolchain {
+    fn runtime_dev_launch_pins_the_protocol_and_canonical_address_before_user_arguments() {
+        let executable = PathBuf::from(r"C:\runtime\swawkit-proj-dev.exe");
+        let launch = AdapterLaunch::Runtime {
             executable: executable.clone(),
-            handler: "dev.status".to_owned(),
+            address: ".dev/status".to_owned(),
         };
-        let command = toolchain_command(
+        let command = runtime_command(
             &launch,
             &[OsString::from("first"), OsString::from("two words")],
         )
-        .expect("Toolchain command");
+        .expect("Dev Runtime Component command");
 
         assert_eq!(command.get_program(), executable.as_os_str());
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
-            ["command-v1", "dev.status", "first", "two words"]
+            ["command-v1", ".dev/status", "first", "two words"]
                 .map(OsStr::new)
                 .to_vec()
         );

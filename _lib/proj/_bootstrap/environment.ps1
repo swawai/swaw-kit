@@ -60,6 +60,12 @@ function Publish-ProjBootstrapEnvironment {
             schema = [string]$Contract.Schema
             rustToolchain = [string]$Contract.RustToolchain
             msvcChannel = [string]$Contract.MsvcChannel
+            commandRuntime = [ordered]@{
+                bunVersion = [string]$Contract.BunVersion
+                bunSha256 = [string]$Contract.BunSha256
+                pwshVersion = [string]$Contract.PwshVersion
+                pwshSha256 = [string]$Contract.PwshSha256
+            }
         }
         contractRevision = $ContractRevision
         environmentRevision = [string]$Scripts.Revision

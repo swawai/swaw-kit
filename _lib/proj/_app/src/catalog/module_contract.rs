@@ -126,7 +126,6 @@ pub(super) fn read_local_module_contract(
 fn project_execution(execution: WireExecution) -> ModuleExecution {
     match execution {
         WireExecution::Core { handler } => ModuleExecution::Core { handler },
-        WireExecution::Toolchain { handler } => ModuleExecution::Toolchain { handler },
         WireExecution::Runtime { product } => ModuleExecution::Runtime { product },
         WireExecution::Native => ModuleExecution::Native,
         WireExecution::Delegate { owner } => ModuleExecution::Delegate {

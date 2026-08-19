@@ -15,14 +15,14 @@ fn dependency_readiness_stops_execution_before_journal_or_command_side_effects()
     write_json(
         &provider.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v10",
+            "schema": "swawkit.command-module/v11",
             "provides": [{ "id": "fixture", "contract": CONTRACT }]
         }),
     );
     write_json(
         &consumer.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v10",
+            "schema": "swawkit.command-module/v11",
             "requires": [{
                 "provider": ".provider",
                 "export": "fixture",
@@ -63,14 +63,14 @@ fn dependency_readiness_allows_a_matching_ready_publication() {
     write_json(
         &provider.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v10",
+            "schema": "swawkit.command-module/v11",
             "provides": [{ "id": "fixture", "contract": CONTRACT }]
         }),
     );
     write_json(
         &consumer.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v10",
+            "schema": "swawkit.command-module/v11",
             "requires": [{
                 "provider": ".provider",
                 "export": "fixture",
@@ -111,14 +111,14 @@ fn dependency_readiness_rejects_a_stale_provider_export_set() {
     write_json(
         &provider.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v10",
+            "schema": "swawkit.command-module/v11",
             "provides": [{ "id": "fixture", "contract": CONTRACT }]
         }),
     );
     write_json(
         &consumer.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v10",
+            "schema": "swawkit.command-module/v11",
             "requires": [{
                 "provider": ".provider",
                 "export": "fixture",

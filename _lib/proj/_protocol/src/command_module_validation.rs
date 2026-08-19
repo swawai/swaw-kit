@@ -37,10 +37,9 @@ pub fn validate_command_module(manifest: &CommandModuleManifest) -> ProtocolResu
 
 fn validate_execution(manifest: &CommandModuleManifest) -> ProtocolResult<()> {
     match &manifest.execution {
-        Some(
-            CommandModuleExecution::Core { handler }
-            | CommandModuleExecution::Toolchain { handler },
-        ) => validate_text(handler, 128, "execution handler")?,
+        Some(CommandModuleExecution::Core { handler }) => {
+            validate_text(handler, 128, "execution handler")?
+        }
         Some(CommandModuleExecution::Runtime { product }) => {
             validate_text(product, 64, "Runtime Component product")?
         }

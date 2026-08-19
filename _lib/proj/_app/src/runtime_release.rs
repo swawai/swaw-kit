@@ -10,14 +10,15 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
 };
 
+use crate::command_runtime::CommandRuntime;
 use crate::context::EntryContext;
 
-pub const RUNTIME_RELEASE_SCHEMA: &str = "swawkit.proj-release-set/v2";
+pub const RUNTIME_RELEASE_SCHEMA: &str = "swawkit.proj-release-set/v4";
 pub const RUNTIME_ARTIFACT_NAMES: [&str; 4] = [
-    "swawkit-proj.exe",
+    "swawkit-proj-dev.exe",
     "swawkit-proj-host.exe",
     "swawkit-proj-module.exe",
-    "swawkit-proj-toolchain.exe",
+    "swawkit-proj.exe",
 ];
 const SELECTOR_BYTES: u64 = 65;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
@@ -33,6 +34,7 @@ pub struct RuntimeReleaseStore {
 pub struct ValidatedRuntimeRelease {
     pub release_id: String,
     pub root: PathBuf,
+    pub command_runtime_id: String,
 }
 
 #[derive(Deserialize)]
@@ -41,7 +43,14 @@ struct Manifest {
     schema: String,
     #[serde(rename = "releaseId")]
     release_id: String,
+    #[serde(rename = "commandRuntimeId")]
+    command_runtime_id: String,
     artifacts: Vec<ArtifactRecord>,
+}
+
+struct InspectedRelease {
+    command_runtime_id: String,
+    records: BTreeMap<String, ArtifactRecord>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -82,10 +91,11 @@ impl RuntimeReleaseStore {
             return Err(invalid_data("Runtime Release ID is invalid"));
         }
         let root = self.releases_root.join(release_id);
-        validate_release(&root, release_id)?;
+        let inspected = validate_release(&root, release_id, &swawkit_home_from_root(&root)?)?;
         Ok(ValidatedRuntimeRelease {
             release_id: release_id.to_owned(),
             root,
+            command_runtime_id: inspected.command_runtime_id,
         })
     }
 }
@@ -118,13 +128,23 @@ pub fn validate_running_release(context: &EntryContext) -> io::Result<()> {
         .and_then(|value| value.to_str())
         .filter(|value| RUNTIME_ARTIFACT_NAMES.contains(value))
         .ok_or_else(|| invalid_data("running Runtime product name is invalid"))?;
-    let records = inspect_release(root, &context.release_id)?;
-    if !records.contains_key(name) {
+    let inspected = inspect_release(root, &context.release_id)?;
+    if !inspected.records.contains_key(name) {
         return Err(invalid_data(
             "running Runtime product is absent from its Release",
         ));
     }
+    CommandRuntime::open(&context.swawkit_home, &inspected.command_runtime_id)?;
     Ok(())
+}
+
+pub fn command_runtime(context: &EntryContext) -> io::Result<CommandRuntime> {
+    let root = context
+        .product_executable
+        .parent()
+        .ok_or_else(|| invalid_data("Runtime product executable has no Release directory"))?;
+    let inspected = inspect_release(root, &context.release_id)?;
+    CommandRuntime::open(&context.swawkit_home, &inspected.command_runtime_id)
 }
 
 /// Validates the one sibling Runtime artifact immediately before it is
@@ -147,8 +167,11 @@ pub fn validate_product(path: &Path) -> io::Result<()> {
     if root.join(name) != path {
         return Err(invalid_data("Runtime product path is not canonical"));
     }
-    let records = inspect_release(root, release_id)?;
-    let record = records.get(name).expect("validated Runtime membership");
+    let inspected = inspect_release(root, release_id)?;
+    let record = inspected
+        .records
+        .get(name)
+        .expect("validated Runtime membership");
     let actual = digest_regular_file(path, record.length)?;
     if actual != record.sha256 {
         return Err(invalid_data(format!(
@@ -175,10 +198,14 @@ fn read_selector(path: &Path) -> io::Result<String> {
         .map_err(|_| invalid_data("Runtime selector is not UTF-8"))
 }
 
-fn validate_release(root: &Path, expected_id: &str) -> io::Result<()> {
-    let records = inspect_release(root, expected_id)?;
+fn validate_release(
+    root: &Path,
+    expected_id: &str,
+    swawkit_home: &Path,
+) -> io::Result<InspectedRelease> {
+    let inspected = inspect_release(root, expected_id)?;
     for name in RUNTIME_ARTIFACT_NAMES {
-        let record = records.get(name).expect("validated membership");
+        let record = inspected.records.get(name).expect("validated membership");
         let path = root.join(name);
         let actual = digest_regular_file(&path, record.length)?;
         if actual != record.sha256 {
@@ -188,10 +215,11 @@ fn validate_release(root: &Path, expected_id: &str) -> io::Result<()> {
             )));
         }
     }
-    Ok(())
+    CommandRuntime::open(swawkit_home, &inspected.command_runtime_id)?;
+    Ok(inspected)
 }
 
-fn inspect_release(root: &Path, expected_id: &str) -> io::Result<BTreeMap<String, ArtifactRecord>> {
+fn inspect_release(root: &Path, expected_id: &str) -> io::Result<InspectedRelease> {
     if !is_release_id(expected_id.as_bytes()) {
         return Err(invalid_data("Runtime Release ID is invalid"));
     }
@@ -208,7 +236,10 @@ fn inspect_release(root: &Path, expected_id: &str) -> io::Result<BTreeMap<String
             manifest_path.display()
         ))
     })?;
-    if manifest.schema != RUNTIME_RELEASE_SCHEMA || manifest.release_id != expected_id {
+    if manifest.schema != RUNTIME_RELEASE_SCHEMA
+        || manifest.release_id != expected_id
+        || !is_sha256(&manifest.command_runtime_id)
+    {
         return Err(invalid_data(format!(
             "Runtime Release manifest identity is invalid: {}",
             manifest_path.display()
@@ -267,9 +298,11 @@ fn inspect_release(root: &Path, expected_id: &str) -> io::Result<BTreeMap<String
         )));
     }
 
-    let mut identity = vec![RUNTIME_RELEASE_SCHEMA.to_owned()];
-    for name in RUNTIME_ARTIFACT_NAMES {
-        let record = records.get(name).expect("validated membership");
+    let mut identity = vec![
+        RUNTIME_RELEASE_SCHEMA.to_owned(),
+        manifest.command_runtime_id.clone(),
+    ];
+    for (name, record) in &records {
         let path = root.join(name);
         let file = open_regular_file(&path, "Runtime Release artifact", MAX_ARTIFACT_BYTES)?;
         if file.metadata()?.len() != record.length {
@@ -291,7 +324,33 @@ fn inspect_release(root: &Path, expected_id: &str) -> io::Result<BTreeMap<String
             root.display()
         )));
     }
-    Ok(records)
+    Ok(InspectedRelease {
+        command_runtime_id: manifest.command_runtime_id,
+        records,
+    })
+}
+
+fn swawkit_home_from_root(release_root: &Path) -> io::Result<PathBuf> {
+    let releases_root = release_root
+        .parent()
+        .filter(|path| path.file_name().is_some_and(|name| name == "releases"))
+        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))?;
+    let runtime_root = releases_root
+        .parent()
+        .filter(|path| path.file_name().is_some_and(|name| name == "_bin"))
+        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))?;
+    let proj_root = runtime_root
+        .parent()
+        .filter(|path| path.file_name().is_some_and(|name| name == "proj"))
+        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))?;
+    let library_root = proj_root
+        .parent()
+        .filter(|path| path.file_name().is_some_and(|name| name == "_lib"))
+        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))?;
+    library_root
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))
 }
 
 fn digest_regular_file(path: &Path, expected_length: u64) -> io::Result<String> {

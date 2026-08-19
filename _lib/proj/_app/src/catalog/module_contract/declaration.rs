@@ -39,7 +39,6 @@ pub(crate) enum ModuleFacetResolver {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ModuleExecution {
     Core { handler: String },
-    Toolchain { handler: String },
     Runtime { product: String },
     Native,
     Delegate { owner: SubjectRef },

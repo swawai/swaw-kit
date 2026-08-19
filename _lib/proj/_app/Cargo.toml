@@ -13,10 +13,6 @@ path = "src/main.rs"
 name = "swawkit-proj-host"
 path = "src/host/main.rs"
 
-[[bin]]
-name = "swawkit-proj-toolchain"
-path = "src/toolchain/main.rs"
-
 [dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 percent-encoding = "2.3.2"

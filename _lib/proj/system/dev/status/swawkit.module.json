@@ -1,4 +1,4 @@
 {
-  "schema": "swawkit.command-module/v10",
-  "execution": { "type": "toolchain", "handler": "dev.status" }
+  "schema": "swawkit.command-module/v11",
+  "execution": { "type": "runtime", "product": "dev" }
 }

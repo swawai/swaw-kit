@@ -39,7 +39,7 @@ impl Fixture {
         }
         fs::write(
             owner_root.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v10","execution":{"type":"native"}}"#,
+            r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
         )
         .expect("write owner manifest");
         Self {
@@ -164,7 +164,7 @@ fn execution_contract_drift_blocks_an_old_selected_release() {
     fs::create_dir_all(&port).unwrap();
     fs::write(
         port.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v10","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/fixture"}}}"#,
+        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/fixture"}}}"#,
     )
     .unwrap();
     let error = fixture.resolve().unwrap_err().to_string();

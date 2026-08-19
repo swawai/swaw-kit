@@ -33,7 +33,7 @@ foreach ($ModuleManifest in $ModuleManifests) {
     $ModuleDocument = Get-Content -LiteralPath $ModuleManifest.FullName -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v10') `
+        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v11') `
         -Message "legacy module contract remains: $($ModuleManifest.FullName)"
 }
 $LegacyModuleManifests = @(
@@ -123,14 +123,15 @@ $SetupManifest = Join-Path $SetupRoot 'swawkit.module.json'
 Assert-ProjDevelopmentCommandLayout `
     -Condition ([IO.File]::Exists($SetupManifest) -and
         -not [IO.File]::Exists((Join-Path $SetupRoot 'run.ps1'))) `
-    -Message '.dev/setup did not converge to one native Toolchain entry'
+    -Message '.dev/setup did not converge to one Dev Runtime Component entry'
 $SetupContract = Get-Content -LiteralPath $SetupManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v10' -and
-        $SetupContract.execution.type -ceq 'toolchain' -and
-        $SetupContract.execution.handler -ceq 'dev.setup') `
-    -Message '.dev/setup Toolchain manifest is invalid'
+    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v11' -and
+        $SetupContract.execution.type -ceq 'runtime' -and
+        $SetupContract.execution.product -ceq 'dev' -and
+        $null -eq $SetupContract.execution.PSObject.Properties['handler']) `
+    -Message '.dev/setup Dev Runtime Component manifest is invalid'
 
 $InstantiateManifest = Join-Path $SystemRoot 'module\instantiate\swawkit.module.json'
 Assert-ProjDevelopmentCommandLayout `
@@ -139,7 +140,7 @@ Assert-ProjDevelopmentCommandLayout `
 $InstantiateContract = Get-Content -LiteralPath $InstantiateManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v10' -and
+    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v11' -and
         $InstantiateContract.execution.type -ceq 'runtime' -and
         $InstantiateContract.execution.product -ceq 'module' -and
         $null -eq $InstantiateContract.PSObject.Properties['requires']) `
@@ -157,7 +158,7 @@ $StatusRequires = @(if (
     $StatusContract.requires
 })
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($StatusContract.schema -ceq 'swawkit.command-module/v10' -and
+    -Condition ($StatusContract.schema -ceq 'swawkit.command-module/v11' -and
         $StatusContract.execution.type -ceq 'runtime' -and
         $StatusContract.execution.product -ceq 'module' -and
         $StatusRequires.Count -eq 0) `
@@ -189,7 +190,7 @@ foreach ($RuntimeContract in $RuntimeContracts) {
     $RuntimeDocument = Get-Content -LiteralPath $RuntimeManifest -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v10' -and
+        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v11' -and
             $RuntimeDocument.execution.type -ceq 'core' -and
             $RuntimeDocument.execution.handler -ceq $RuntimeContract.Handler) `
         -Message "Runtime System manifest is invalid: $($RuntimeContract.Path)"
@@ -229,7 +230,7 @@ foreach ($ContextCommand in $ContextCommands) {
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
         -Condition ([IO.File]::Exists($ContextManifestPath) -and
-            $ContextManifest.schema -ceq 'swawkit.command-module/v10' -and
+            $ContextManifest.schema -ceq 'swawkit.command-module/v11' -and
             $ContextManifest.execution.type -ceq 'delegate' -and
             $ContextManifest.execution.owner.type -ceq 'command' -and
             $ContextManifest.execution.owner.space -ceq 'system' -and
@@ -258,7 +259,7 @@ $ContextOverviewFacet = @($ContextSubjectKind.facets) |
     Where-Object { $_.id -ceq 'overview' } |
     Select-Object -First 1
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v10' -and
+    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v11' -and
         $ContextModule.execution.type -ceq 'native' -and
         @($ContextModule.facets).Count -eq 1 -and
         $ContextFacet.id -ceq 'contexts' -and
@@ -299,7 +300,7 @@ $RunOpenFacet = @($RunSubjectKind.facets) |
     Where-Object { $_.id -ceq 'open' } |
     Select-Object -First 1
 $RunsContractChecks = @(
-    ($RunsModule.schema -ceq 'swawkit.command-module/v10')
+    ($RunsModule.schema -ceq 'swawkit.command-module/v11')
     (@($RunsModule.facets).Count -eq 1)
     ($AllRunsFacet.id -ceq 'all')
     ($AllRunsFacet.kind -ceq 'collection')
@@ -327,83 +328,55 @@ Assert-ProjDevelopmentCommandLayout `
     -Condition ($RunsContractChecks -notcontains $false) `
     -Message '.runs Run collection facet declaration is invalid'
 
-$DependencyContracts = @(
-    @{
-        Name = '.dev/bun toolchain root'
-        Script = 'dev\bun\_lib\runtime.ps1'
-        Relative = '..\..\..\..\_toolchain'
-        PathType = 'Container'
-    },
-    @{
-        Name = '.dev/rust/cargo runtime'
-        Script = 'dev\rust\cargo\run.ps1'
-        Relative = '..\..\..\..\_toolchain\_modules\rust\runtime.ps1'
-        PathType = 'Leaf'
-    },
-    @{
-        Name = '.dev/msvc/cl runtime'
-        Script = 'dev\msvc\cl\run.ps1'
-        Relative = '..\..\..\..\_toolchain\_modules\msvc\runtime.ps1'
-        PathType = 'Leaf'
-    },
-    @{
-        Name = '.dev/rust/rustc runtime'
-        Script = 'dev\rust\rustc\run.ps1'
-        Relative = '..\..\..\..\_toolchain\_modules\rust\runtime.ps1'
-        PathType = 'Leaf'
-    },
-    @{
-        Name = '.dev/cmd shell runtime'
-        Script = 'dev\cmd\run.ps1'
-        Relative = '..\..\..\_shell\runtime.ps1'
-        SourceMarker = '_shell\runtime.ps1'
-        PathType = 'Leaf'
-    },
-    @{
-        Name = '.dev/cmd development environment runtime'
-        Script = 'dev\cmd\run.ps1'
-        Relative = '..\_lib\runtime.ps1'
-        SourceMarker = '_lib\runtime.ps1'
-        PathType = 'Leaf'
-    },
-    @{
-        Name = '.dev/exec development environment runtime'
-        Script = 'dev\exec\run.ps1'
-        Relative = '..\_lib\runtime.ps1'
-        SourceMarker = '_lib\runtime.ps1'
-        PathType = 'Leaf'
-    }
+$ProcessContracts = @(
+    @{ Name = '.dev/bun'; Script = 'dev\bun\run.ps1'; Relative = '..\_lib\process.ps1' },
+    @{ Name = '.dev/cmd'; Script = 'dev\cmd\run.ps1'; Relative = '..\_lib\process.ps1' },
+    @{ Name = '.dev/exec'; Script = 'dev\exec\run.ps1'; Relative = '..\_lib\process.ps1' },
+    @{ Name = '.dev/msvc/cl'; Script = 'dev\msvc\cl\run.ps1'; Relative = '..\..\_lib\process.ps1' },
+    @{ Name = '.dev/pwsh'; Script = 'dev\pwsh\run.ps1'; Relative = '..\_lib\process.ps1' },
+    @{ Name = '.dev/rust/cargo'; Script = 'dev\rust\cargo\run.ps1'; Relative = '..\..\_lib\process.ps1' },
+    @{ Name = '.dev/rust/rustc'; Script = 'dev\rust\rustc\run.ps1'; Relative = '..\..\_lib\process.ps1' }
 )
-foreach ($Contract in $DependencyContracts) {
+foreach ($Contract in $ProcessContracts) {
     $ScriptPath = Join-Path $SystemRoot $Contract.Script
     $Source = [IO.File]::ReadAllText($ScriptPath)
     $TargetPath = [IO.Path]::GetFullPath((Join-Path `
         (Split-Path -Parent $ScriptPath) `
         $Contract.Relative
     ))
-    $SourceMarker = if ($Contract.ContainsKey('SourceMarker')) {
-        [string]$Contract.SourceMarker
-    } else {
-        [string]$Contract.Relative
-    }
 
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($Source.Contains($SourceMarker)) `
+        -Condition ($Source.Contains([string]$Contract.Relative)) `
         -Message "$($Contract.Name) no longer declares its expected relative path"
     Assert-ProjDevelopmentCommandLayout `
         -Condition (Test-Path `
             -LiteralPath $TargetPath `
-            -PathType $Contract.PathType) `
+            -PathType Leaf) `
         -Message "$($Contract.Name) resolves to a missing target"
+    Assert-ProjDevelopmentCommandLayout `
+        -Condition ($Source.Contains('Import-ProjDevTargetEnvironment') -and
+            -not $Source.Contains('_toolchain') -and
+            -not $Source.Contains('_bootstrap')) `
+        -Message "$($Contract.Name) does not explicitly consume the target Dev environment"
 }
 
 $PwshEntry = Join-Path $SystemRoot 'dev\pwsh\run.ps1'
 $PwshSource = [IO.File]::ReadAllText($PwshEntry)
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($PwshSource.Contains('PSEdition') -and
-        $PwshSource.Contains('PSVersionTable') -and
+    -Condition ($PwshSource.Contains('accepts only -File or -Command') -and
+        $PwshSource.Contains("-Application 'pwsh.exe'") -and
         -not [IO.File]::Exists((Join-Path $SystemRoot 'dev\ps\run.ps1'))) `
-    -Message '.dev/pwsh does not own the PowerShell 7-only shell contract'
+    -Message '.dev/pwsh does not explicitly launch the target PowerShell environment'
+
+$DevProcessLibrary = [IO.File]::ReadAllText((
+    Join-Path $SystemRoot 'dev\_lib\process.ps1'
+))
+Assert-ProjDevelopmentCommandLayout `
+    -Condition ($DevProcessLibrary.Contains('swawkit.command-provider-state/v2') -and
+        $DevProcessLibrary.Contains('swawkit.proj.dev-setup/v3') -and
+        $DevProcessLibrary.Contains('swawkit.proj-dev-environment/v1') -and
+        $DevProcessLibrary.Contains('Import-ProjDevTargetEnvironment')) `
+    -Message 'the explicit target Dev environment consumer contract is incomplete'
 
 Write-Host '[PASS] Proj development command layout test' `
     -ForegroundColor Green

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ToolchainPath
+    [Parameter(Mandatory = $true)][string]$DevPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -8,7 +8,7 @@ Set-StrictMode -Version 2.0
 Add-Type -AssemblyName System.IO.Compression
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot 'system\dev\_lib\setup.ps1')
+. (Join-Path $PSScriptRoot '_lib\stage0-toolchain.ps1')
 
 function Assert-ProjMsvcTest {
     param(
@@ -126,7 +126,6 @@ $RuntimeEnvironmentNames = @(
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
     'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
     'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
-    'SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE',
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256'
@@ -155,9 +154,9 @@ $TestTemporaryBase = [IO.Path]::GetFullPath(
 $TemporaryRoot = Join-Path $TestTemporaryBase (
     "swawkit-proj-msvc-$([Guid]::NewGuid().ToString('N'))"
 )
-$ResolvedToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
-if (-not [IO.File]::Exists($ResolvedToolchainPath)) {
-    throw "Toolchain test candidate is missing: $ResolvedToolchainPath"
+$ResolvedDevPath = [IO.Path]::GetFullPath($DevPath)
+if (-not [IO.File]::Exists($ResolvedDevPath)) {
+    throw "Toolchain test candidate is missing: $ResolvedDevPath"
 }
 
 try {
@@ -430,7 +429,6 @@ try {
     $env:SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $ProjectRoot
     $env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = $InputRevision
     $env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $ProfileRevision
-    $env:SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE = $ResolvedToolchainPath
     foreach ($Name in [string[]]@(
         [Environment]::GetEnvironmentVariables('Process').Keys
     )) {

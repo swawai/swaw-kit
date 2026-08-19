@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$CandidateCorePath,
     [Parameter(Mandatory = $true)][string]$CandidateHostPath,
     [Parameter(Mandatory = $true)][string]$CandidateModulePath,
-    [Parameter(Mandatory = $true)][string]$CandidateToolchainPath,
+    [Parameter(Mandatory = $true)][string]$CandidateDevPath,
+    [Parameter(Mandatory = $true)][string]$CommandRuntimeId,
     [Parameter(Mandatory = $true)][string]$ProjHome,
     [Parameter(Mandatory = $true)][string]$CandidateRoot
 )
@@ -27,17 +28,18 @@ $CandidateModulePath = Assert-ProjDevPathInsideDataRoot `
     -Path $CandidateModulePath `
     -DataRoot $CandidateRoot `
     -Activity 'publishing the Bootstrap Module executable'
-$CandidateToolchainPath = Assert-ProjDevPathInsideDataRoot `
-    -Path $CandidateToolchainPath `
+$CandidateDevPath = Assert-ProjDevPathInsideDataRoot `
+    -Path $CandidateDevPath `
     -DataRoot $CandidateRoot `
-    -Activity 'publishing the Bootstrap Toolchain'
+    -Activity 'publishing the Bootstrap Dev runtime'
 $ReleaseSet = New-ProjRuntimeReleaseSetFromFiles `
     -Artifacts ([ordered]@{
         'swawkit-proj.exe' = $CandidateCorePath
         'swawkit-proj-host.exe' = $CandidateHostPath
         'swawkit-proj-module.exe' = $CandidateModulePath
-        'swawkit-proj-toolchain.exe' = $CandidateToolchainPath
-    })
+        'swawkit-proj-dev.exe' = $CandidateDevPath
+    }) `
+    -CommandRuntimeId $CommandRuntimeId
 Publish-ProjRuntimeReleaseSet `
     -ReleaseSet $ReleaseSet `
     -ProjHome $ProjHome `

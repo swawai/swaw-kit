@@ -1,5 +1,4 @@
 mod console_cancel;
-mod development;
 mod environment;
 mod execute;
 mod invocation;
@@ -7,16 +6,12 @@ mod process;
 mod resolve;
 
 pub use console_cancel::ConsoleCancellation;
-#[cfg(test)]
-pub(crate) use development::resolve_entry_bun;
-pub(crate) use development::resolve_entry_development;
 pub use environment::{
     CommandExecutionContext, CommandProcessMode, catalog_command_data_root,
     catalog_command_data_root_from_roots,
 };
 pub(crate) use environment::{
-    ProcessEnvironment, command_data_root, validate_module_executable,
-    validate_toolchain_executable,
+    ProcessEnvironment, command_data_root, validate_dev_executable, validate_module_executable,
 };
 pub use execute::CommandExecutor;
 pub(crate) use invocation::Invocation;
@@ -48,7 +43,5 @@ impl fmt::Display for CommandError {
 
 impl Error for CommandError {}
 
-#[cfg(test)]
-mod development_tests;
 #[cfg(test)]
 mod tests;

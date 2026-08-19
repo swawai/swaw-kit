@@ -22,9 +22,13 @@ $Layout = Get-ProjBootstrapLayout
 $Contract = Read-ProjBootstrapContract
 Assert-ProjBootstrapContractTest `
     -Condition (
-        [string]$Contract.Schema -ceq 'swawkit.proj-bootstrap/v1' -and
+        [string]$Contract.Schema -ceq 'swawkit.proj-bootstrap/v2' -and
         [string]$Contract.RustToolchain -cmatch '^\d+\.\d+\.\d+$' -and
-        [string]$Contract.MsvcChannel -cmatch '^\d+$'
+        [string]$Contract.MsvcChannel -cmatch '^\d+$' -and
+        [string]$Contract.BunVersion -cmatch '^\d+\.\d+\.\d+$' -and
+        [string]$Contract.BunSha256 -cmatch '^[a-f0-9]{64}$' -and
+        [string]$Contract.PwshVersion -cmatch '^\d+\.\d+\.\d+$' -and
+        [string]$Contract.PwshSha256 -cmatch '^[a-f0-9]{64}$'
     ) `
     -Message 'the Bootstrap contract does not pin a valid product toolchain'
 Assert-ProjBootstrapContractTest `
@@ -90,6 +94,10 @@ Assert-ProjBootstrapContractTest `
         [IO.Path]::GetFullPath($Layout.EnvironmentPath).Equals(
             (Join-Path $RepoRoot 'data\proj_cache\bootstrap\environment.json'),
             [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.CommandRuntimeRoot).Equals(
+            (Join-Path $RepoRoot 'data\proj_cache\bootstrap\command-runtimes'),
+            [StringComparison]::OrdinalIgnoreCase
         )
     ) `
     -Message 'the Bootstrap generated state escaped the shared Proj cache'
@@ -119,8 +127,9 @@ $BootstrapEntry = [IO.File]::ReadAllText($Layout.BootstrapEntryPath)
 Assert-ProjBootstrapContractTest `
     -Condition (
         -not $BootstrapEntry.Contains('LauncherBuild') -and
-        $BootstrapEntry.Contains('Invoke-ProjBootstrapModuleBuild') -and
-        $BootstrapEntry.Contains('CandidateModulePath')
+        $BootstrapEntry.Contains('Invoke-ProjBootstrapRustProductBuild') -and
+        $BootstrapEntry.Contains('CandidateModulePath') -and
+        $BootstrapEntry.Contains('CandidateDevPath')
     ) `
     -Message 'the cold Bootstrap entry still builds the Launcher'
 
@@ -138,6 +147,7 @@ Assert-ProjBootstrapContractTest `
             'SWAWKIT_PROJ_TOOLCHAIN_BOOTSTRAP_ENVIRONMENT_REVISION'
         ) -and
         $BootstrapToolchain.Contains('Publish-ProjBootstrapEnvironment') -and
+        $BootstrapToolchain.Contains('Publish-ProjBootstrapCommandRuntime') -and
         -not $BootstrapToolchain.Contains(
             'Set-ProjBootstrapToolchainDeclarations'
         )
@@ -151,8 +161,15 @@ $PrivateLayoutChecks = @(
     [IO.File]::Exists((Join-Path $ProjRoot '_bootstrap\setup.ps1'))
     [IO.File]::Exists((Join-Path $ProjRoot '_runtime\release.ps1'))
     [IO.File]::Exists((Join-Path $ProjRoot '_runtime\publish.ps1'))
-    [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\_lib\runtime.ps1'))
-    [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\_lib\setup.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\_lib\process.ps1'))
+    (-not [IO.File]::Exists((Join-Path $ProjRoot (
+        'system\dev\_lib\runtime.ps1'
+    ))))
+    (-not [IO.File]::Exists((Join-Path $ProjRoot (
+        'system\dev\_lib\setup.ps1'
+    ))))
+    [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\Cargo.toml'))
+    [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\src\main.rs'))
     (-not [IO.File]::Exists((Join-Path $ProjRoot (
         '_toolchain\bootstrap.ps1'
     ))))

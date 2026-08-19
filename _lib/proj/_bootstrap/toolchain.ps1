@@ -2,6 +2,7 @@ Set-StrictMode -Version 2.0
 
 . (Join-Path $PSScriptRoot 'layout.ps1')
 . (Join-Path $PSScriptRoot 'environment.ps1')
+. (Join-Path $PSScriptRoot '..\_runtime\command-runtime.ps1')
 $SharedToolchainRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\_toolchain')
 )
@@ -17,6 +18,14 @@ foreach ($File in @(
 }
 $ModuleRoot = Join-Path $SharedToolchainRoot '_modules'
 foreach ($File in @(
+    'bun\module.ps1',
+    'bun\release.ps1',
+    'bun\selection.ps1',
+    'bun\install.ps1',
+    'pwsh\module.ps1',
+    'pwsh\release.ps1',
+    'pwsh\selection.ps1',
+    'pwsh\install.ps1',
     'msvc\module.ps1',
     'msvc\payload.ps1',
     'msvc\manifest.ps1',
@@ -87,6 +96,12 @@ function Write-ProjBootstrapToolchainState {
             schema = [string]$Contract.Schema
             rustToolchain = [string]$Contract.RustToolchain
             msvcChannel = [string]$Contract.MsvcChannel
+            commandRuntime = [ordered]@{
+                bunVersion = [string]$Contract.BunVersion
+                bunSha256 = [string]$Contract.BunSha256
+                pwshVersion = [string]$Contract.PwshVersion
+                pwshSha256 = [string]$Contract.PwshSha256
+            }
         }
         environmentRevision = $Revision
         rust = [ordered]@{
@@ -128,6 +143,14 @@ function Initialize-ProjBootstrapToolchain {
         -Toolchain ([string]$Contract.RustToolchain) `
         -Profile 'minimal' `
         -HostTriple 'x86_64-pc-windows-msvc'
+    $CommandRuntimeDefinitions = `
+        New-ProjBootstrapCommandRuntimeDefinitions -Contract $Contract
+    Use-ProjBootstrapCachedCommandRuntimeSource `
+        -Context $Context `
+        -Definition $CommandRuntimeDefinitions.Bun
+    Use-ProjBootstrapCachedCommandRuntimeSource `
+        -Context $Context `
+        -Definition $CommandRuntimeDefinitions.Pwsh
 
     $SetupLock = Enter-ProjDevFileLock `
         -Path $Context.SetupLockPath `
@@ -140,6 +163,12 @@ function Initialize-ProjBootstrapToolchain {
         [void](Install-ProjDevRust `
             -Context $Context `
             -Definition $RustDefinition)
+        [void](Install-ProjDevBun `
+            -Context $Context `
+            -Definition $CommandRuntimeDefinitions.Bun)
+        [void](Install-ProjDevPwsh `
+            -Context $Context `
+            -Definition $CommandRuntimeDefinitions.Pwsh)
         $Plan = New-ProjDevEnvironmentPlan
         Add-ProjDevMsvcEnvironment `
             -Context $Context `
@@ -218,6 +247,10 @@ function Initialize-ProjBootstrapToolchain {
         -CargoPath $CargoPath `
         -CompilerPath $CompilerPath `
         -LinkerPath $LinkerPath
+    $CommandRuntime = Publish-ProjBootstrapCommandRuntime `
+        -Context $Context `
+        -Definitions $CommandRuntimeDefinitions `
+        -CommandRuntimeRoot (Get-ProjBootstrapLayout).CommandRuntimeRoot
     return [pscustomobject][ordered]@{
         Context = $Context
         Contract = $Contract
@@ -227,6 +260,7 @@ function Initialize-ProjBootstrapToolchain {
         CompilerPath = $CompilerPath
         LinkerPath = $LinkerPath
         EnvironmentRevision = [string]$Scripts.Revision
+        CommandRuntimeId = [string]$CommandRuntime.RuntimeId
     }
 }
 
@@ -255,8 +289,10 @@ function Resolve-ProjBootstrapMsvcExecutable {
     return $ExecutablePath
 }
 
-function Invoke-ProjBootstrapModuleBuild {
+function Invoke-ProjBootstrapRustProductBuild {
     param(
+        [Parameter(Mandatory = $true)][string]$ProductName,
+        [Parameter(Mandatory = $true)][string]$CandidateName,
         [Parameter(Mandatory = $true)][string]$CargoPath,
         [Parameter(Mandatory = $true)][string]$ManifestPath,
         [Parameter(Mandatory = $true)][string]$TargetDirectory
@@ -264,17 +300,17 @@ function Invoke-ProjBootstrapModuleBuild {
 
     foreach ($Path in @($CargoPath, $ManifestPath, $TargetDirectory)) {
         if (-not [IO.Path]::IsPathRooted($Path)) {
-            throw "The Module build path must be absolute: $Path"
+            throw "The $ProductName build path must be absolute: $Path"
         }
     }
     $CargoPath = [IO.Path]::GetFullPath($CargoPath)
     $ManifestPath = [IO.Path]::GetFullPath($ManifestPath)
     $TargetDirectory = [IO.Path]::GetFullPath($TargetDirectory)
     if (-not [IO.File]::Exists($CargoPath)) {
-        throw "The Module Cargo executable is missing: $CargoPath"
+        throw "The $ProductName Cargo executable is missing: $CargoPath"
     }
     if (-not [IO.File]::Exists($ManifestPath)) {
-        throw "The Module Cargo manifest is missing: $ManifestPath"
+        throw "The $ProductName Cargo manifest is missing: $ManifestPath"
     }
 
     $Arguments = @(
@@ -290,21 +326,19 @@ function Invoke-ProjBootstrapModuleBuild {
     try {
         & $CargoPath @Arguments
         if ($LASTEXITCODE -ne 0) {
-            throw "Module Cargo failed with exit code $LASTEXITCODE."
+            throw "$ProductName Cargo failed with exit code $LASTEXITCODE."
         }
     } finally {
         Pop-Location
     }
 
-    $Candidate = Join-Path $TargetDirectory (
-        'release\swawkit-proj-module.exe'
-    )
+    $Candidate = Join-Path $TargetDirectory (Join-Path 'release' $CandidateName)
     $Item = Get-Item -LiteralPath $Candidate -ErrorAction SilentlyContinue
     if ($null -eq $Item -or
         -not [IO.File]::Exists($Candidate) -or
         $Item.Length -le 0 -or
         ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw "Cargo reported success but the Module executable is invalid: $Candidate"
+        throw "Cargo reported success but the $ProductName executable is invalid: $Candidate"
     }
     Write-Host "[BUILT] $Candidate ($($Item.Length) bytes)" -ForegroundColor Green
     Write-Output $Candidate

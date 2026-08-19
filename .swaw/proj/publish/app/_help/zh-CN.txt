@@ -9,7 +9,7 @@
 发布先完整写入不可变目录：
   _lib/proj/_bin/releases/<release-id>/
 
-确认 Core、Host、Toolchain、Manifest 的长度与 SHA-256 后，只原子更新：
+确认 Core、Host、Module、Dev、Manifest 的长度与 SHA-256 后，只原子更新：
   _lib/proj/_bin/current
 
 正在运行的旧 Host 会继续使用旧 Release Set；新调用读取 current。_bin 根目录不再保留

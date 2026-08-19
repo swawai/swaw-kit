@@ -6,6 +6,12 @@ if ($args.Count -ne 0) {
     throw 'demo.managed-msvc does not accept dynamic arguments.'
 }
 
+$DevLibrary = Join-Path `
+    ([string]$env:SWAWKIT_HOME) `
+    '_lib\proj\system\dev\_lib\process.ps1'
+. $DevLibrary
+Import-ProjDevTargetEnvironment
+
 if ([string]$env:SWAWKIT_PROJ_MSVC_MODE -cne 'managed') {
     throw (
         'demo.managed-msvc requires the project-managed MSVC environment. ' +
@@ -15,7 +21,7 @@ if ([string]$env:SWAWKIT_PROJ_MSVC_MODE -cne 'managed') {
 }
 
 if ([string]::IsNullOrWhiteSpace([string]$env:VCToolsInstallDir)) {
-    throw 'Core did not publish the managed MSVC installation environment.'
+    throw '.dev/setup did not publish the managed MSVC installation environment.'
 }
 $ManagedRoot = [IO.Path]::GetFullPath(
     [string]$env:VCToolsInstallDir

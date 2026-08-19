@@ -63,29 +63,22 @@ impl ResolvedEntry {
             CommandAdapter::Core if !self.has_valid_core_owner(space, address) => {
                 Some("core execution is restricted to its exact System command owner")
             }
-            CommandAdapter::Toolchain if !self.has_valid_toolchain_owner(space, address) => {
-                Some("toolchain execution is restricted to its exact System command owner")
-            }
             CommandAdapter::Runtime if !self.has_valid_runtime_owner(space, address) => Some(
-                "Runtime Component execution is restricted to product 'module' at exact System owners .module/instantiate and .module/status",
+                "Runtime Component execution is restricted to exact declared System product owners",
             ),
             _ => None,
         }
     }
 
-    fn has_valid_toolchain_owner(&self, space: CommandSpace, address: &str) -> bool {
-        space == CommandSpace::System
-            && matches!(
-                (address, self.handler.as_deref()),
-                (".dev/setup", Some("dev.setup")) | (".dev/status", Some("dev.status"))
-            )
-    }
-
     fn has_valid_runtime_owner(&self, space: CommandSpace, address: &str) -> bool {
-        space == CommandSpace::System
-            && self.handler.is_none()
-            && self.product.as_deref() == Some("module")
-            && matches!(address, ".module/instantiate" | ".module/status")
+        if space != CommandSpace::System || self.handler.is_some() {
+            return false;
+        }
+        match self.product.as_deref() {
+            Some("module") => matches!(address, ".module/instantiate" | ".module/status"),
+            Some("dev") => matches!(address, ".dev/setup" | ".dev/status"),
+            _ => false,
+        }
     }
 }
 
@@ -165,7 +158,6 @@ pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CommandAdapter {
     Core,
-    Toolchain,
     Runtime,
     Native,
     Delegate,
@@ -180,7 +172,6 @@ impl CommandAdapter {
     pub(crate) fn from_name(value: &str) -> Option<Self> {
         match value {
             "core" => Some(Self::Core),
-            "toolchain" => Some(Self::Toolchain),
             "runtime" => Some(Self::Runtime),
             "native" => Some(Self::Native),
             "delegate" => Some(Self::Delegate),
@@ -196,7 +187,6 @@ impl CommandAdapter {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Core => "core",
-            Self::Toolchain => "toolchain",
             Self::Runtime => "runtime",
             Self::Native => "native",
             Self::Delegate => "delegate",

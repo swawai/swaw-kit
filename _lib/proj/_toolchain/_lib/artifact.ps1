@@ -137,8 +137,8 @@ function Invoke-ProjDevDownload {
         return
     }
 
-    # Cold Bootstrap fallback: the native Toolchain does not exist until the
-    # first Rust/MSVC bootstrap build has completed.
+    # Stage-0 and legacy shell modules deliberately use the native PowerShell
+    # path. Rich managed setup belongs to the independent Dev runtime product.
     try {
         if (Test-ProjDevCommandEventProtocol) {
             Write-ProjDevProgressEvent `

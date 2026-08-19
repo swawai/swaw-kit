@@ -245,7 +245,7 @@ mod tests {
             ("swawkit-proj.exe", b"core".as_slice()),
             ("swawkit-proj-host.exe", b"host".as_slice()),
             ("swawkit-proj-module.exe", b"module".as_slice()),
-            ("swawkit-proj-toolchain.exe", b"toolchain".as_slice()),
+            ("swawkit-proj-dev.exe", b"dev".as_slice()),
         ];
         let release_id = write_release(&root, &artifacts);
         let host = root.join(&release_id).join("swawkit-proj-host.exe");

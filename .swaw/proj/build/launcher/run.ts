@@ -5,17 +5,18 @@ import { isAbsolute, join, resolve } from "node:path";
 import { ensureControlledDirectory } from "../_lib/release-set.ts";
 import { acquireExclusiveFileLock, moveFileReplace } from "../_lib/windows-filesystem.ts";
 import { publishBuildArtifact } from "./_lib/artifact.ts";
+import { loadBootstrapBuildEnvironment } from "../_lib/bootstrap-environment.ts";
 
 if (Bun.argv.length !== 2) throw new Error("project/proj/build/launcher does not accept dynamic arguments.");
 
 const commandRoot = requiredAbsolute("SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT");
 const projHome = requiredAbsolute("SWAWKIT_HOME");
+const builder = await loadBootstrapBuildEnvironment(projHome);
 const launcherRoot = join(projHome, "_lib", "proj", "_launcher");
 const source = await regularFile(join(launcherRoot, "launcher.c"), "Launcher source");
 const contract = await readContract(join(launcherRoot, "build.json"));
-const tools = join(requiredAbsolute("VCToolsInstallDir"), "bin", "Hostx64", "x64");
-const compiler = await regularFile(join(tools, "cl.exe"), "managed C compiler");
-const linker = await regularFile(join(tools, "link.exe"), "managed linker");
+const compiler = builder.tools.compiler;
+const linker = builder.tools.linker;
 const locks = await ensureControlledDirectory(commandRoot, ["locks"], "Launcher build locks");
 const work = await ensureControlledDirectory(commandRoot, ["work", "launcher"], "Launcher build work");
 const release = await ensureControlledDirectory(work, ["release"], "Launcher build release");
@@ -60,6 +61,7 @@ async function run(executable: string, arguments_: string[]): Promise<void> {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
+    env: builder.environment,
     windowsHide: true,
   });
   const code = await child.exited;

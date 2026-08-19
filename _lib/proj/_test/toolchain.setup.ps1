@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory = $true)][string]$ToolchainPath)
+param([Parameter(Mandatory = $true)][string]$DevPath)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
@@ -22,7 +22,7 @@ function Invoke-ProjNativeSetup {
     )
     $Info = [Diagnostics.ProcessStartInfo]::new()
     $Info.FileName = $Executable
-    $Info.Arguments = [string]::Join(' ', @('command-v1', 'dev.setup') + $Arguments)
+    $Info.Arguments = [string]::Join(' ', @('command-v1', '.dev/setup') + $Arguments)
     $Info.UseShellExecute = $false
     $Info.CreateNoWindow = $true
     $Info.RedirectStandardOutput = $true
@@ -53,7 +53,7 @@ function Invoke-ProjNativeSetup {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-$Executable = [IO.Path]::GetFullPath($ToolchainPath)
+$Executable = [IO.Path]::GetFullPath($DevPath)
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-native-setup-$([Guid]::NewGuid().ToString('N'))"
 )
@@ -106,6 +106,9 @@ try {
         -Message "the native handler published no provider state: $($Ready.Output)"
     $State = Get-Content -LiteralPath $StatePath `
         -Raw | ConvertFrom-Json
+    $EnvironmentExport = Get-Content `
+        -LiteralPath (Join-Path $SetupRoot 'export\environment.json') `
+        -Raw | ConvertFrom-Json
     Assert-ProjNativeSetup `
         -Condition ($Ready.ExitCode -eq 0 -and
             $Ready.Output.Contains(
@@ -115,7 +118,11 @@ try {
             @($State.exports).Count -eq 1 -and
             [string]$State.exports[0].id -ceq 'environment' -and
             [string]$State.exports[0].contract -ceq
-                'swawkit.proj.dev-setup/v2' -and
+                'swawkit.proj.dev-setup/v3' -and
+            $EnvironmentExport.schema -ceq
+                'swawkit.proj-dev-environment/v1' -and
+            $EnvironmentExport.inputRevision -ceq $State.inputRevision -and
+            $EnvironmentExport.publicationToken -ceq $State.token -and
             [IO.File]::Exists((Join-Path $SetupRoot 'export\env.cmd')) -and
             [IO.File]::Exists((Join-Path $SetupRoot 'export\env.ps1')) -and
             -not [IO.File]::Exists($Legacy)) `

@@ -9,7 +9,7 @@ use swawkit_proj_protocol::{is_sha256, revision, serde_json, sha256_hex};
 use crate::filesystem::{checked_directory, read_regular_file, regular_directory};
 
 const ENVIRONMENT_SCHEMA: &str = "swawkit.proj-bootstrap-environment/v1";
-const BOOTSTRAP_CONTRACT_SCHEMA: &str = "swawkit.proj-bootstrap/v1";
+const BOOTSTRAP_CONTRACT_SCHEMA: &str = "swawkit.proj-bootstrap/v2";
 const MAX_DOCUMENT_BYTES: u64 = 1024 * 1024;
 const MAX_TOOL_BYTES: u64 = 512 * 1024 * 1024;
 const ENVIRONMENT_VARIABLES: [&str; 25] = [
@@ -327,6 +327,16 @@ struct BootstrapContract {
     schema: String,
     rust_toolchain: String,
     msvc_channel: String,
+    command_runtime: CommandRuntimeContract,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(crate = "serde", deny_unknown_fields, rename_all = "camelCase")]
+struct CommandRuntimeContract {
+    bun_version: String,
+    bun_sha256: String,
+    pwsh_version: String,
+    pwsh_sha256: String,
 }
 
 #[derive(Deserialize)]

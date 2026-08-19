@@ -24,7 +24,6 @@ pub struct CommandModuleManifest {
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum CommandModuleExecution {
     Core { handler: String },
-    Toolchain { handler: String },
     Runtime { product: String },
     Native,
     Delegate { owner: CommandModuleSubjectRef },

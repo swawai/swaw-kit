@@ -4,7 +4,7 @@ param(
     [string]$CorePath = '',
     [string]$HostPath = '',
     [string]$ModulePath = '',
-    [string]$ToolchainPath = ''
+    [string]$DevPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -95,7 +95,7 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -CorePath $CorePath `
     -HostPath $HostPath `
     -ModulePath $ModulePath `
-    -ToolchainPath $ToolchainPath
+    -DevPath $DevPath
 $EntryName = "test-shell-$([Guid]::NewGuid().ToString('N'))"
 $TestRoot = Join-Path $RepoRoot 'data\_test'
 $TemporaryRoot = Join-Path $TestRoot (
@@ -123,11 +123,10 @@ try {
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
         -ModulePath $Artifacts.ModulePath `
-        -ToolchainPath $Artifacts.ToolchainPath
+        -DevPath $Artifacts.DevPath
     $script:ProjShellEntry = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
-    $RuntimeBin = $Runtime.RuntimeBin
     $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
 
     foreach ($Name in $PoisonedAdapterEnvironment.Keys) {
@@ -193,6 +192,18 @@ try {
         -Condition ($DevelopmentSetup.ExitCode -eq 0) `
         -Message "Native development setup failed: $($DevelopmentSetup.Text)"
 
+    $DisabledBun = Invoke-ProjShellTest `
+        -Address '.dev/bun' `
+        -Arguments @('--version')
+    Assert-ProjShellTest `
+        -Condition (
+            $DisabledBun.ExitCode -eq 1 -and
+            $DisabledBun.Text.Contains(
+                'Bun is unavailable in the current Entry development environment'
+            )
+        ) `
+        -Message "disabled Bun fell back to the host PATH: $($DisabledBun.Text)"
+
     $CmdCommand = [string]::Join(' & ', @(
         'echo SHELL_KIND=cmd'
         'echo ENTRY_NAME=%SWAWKIT_PROJ_ENTRY_COMMAND%'
@@ -224,7 +235,7 @@ try {
         'GIT_ID_NAME=Shell Fixture',
         "PROJ_HOME=$($Runtime.Home)",
         "DATA_ROOT=$DataRoot",
-        "PATH_VALUE=$RuntimeBin;",
+        "PATH_VALUE=$ManagedPwshRoot;",
         "WORKING_DIR=$($Runtime.Home)",
         'CMD_SPECIAL=left&right',
         'DELAYED=!SWAWKIT_PROJ_ENTRY_COMMAND!'
@@ -448,10 +459,13 @@ exit 33
             '-Command',
             'Write-Output (''SYSTEM_PS_HOME='' + $PSHOME); exit 34'
         )
+    $SystemPwshHome = "SYSTEM_PS_HOME=$SystemPwshRoot"
+    $SystemPwshExtendedHome = "SYSTEM_PS_HOME=\\?\$SystemPwshRoot"
     Assert-ProjShellTest `
         -Condition (
             $SystemPowerShell.ExitCode -eq 34 -and
-            $SystemPowerShell.Text.Contains("SYSTEM_PS_HOME=$SystemPwshRoot")
+            ($SystemPowerShell.Text.Contains($SystemPwshHome) -or
+                $SystemPowerShell.Text.Contains($SystemPwshExtendedHome))
         ) `
         -Message "system PowerShell execution failed: $($SystemPowerShell.Text)"
 
@@ -476,7 +490,9 @@ exit 33
     Assert-ProjShellTest `
         -Condition (
             $DisabledPowerShell.ExitCode -eq 1 -and
-            $DisabledPowerShell.Text.Contains('run.ps1 is disabled')
+            $DisabledPowerShell.Text.Contains(
+                'PowerShell 7 is unavailable in the current Entry development environment'
+            )
         ) `
         -Message "disabled PowerShell remained runnable: $($DisabledPowerShell.Text)"
 

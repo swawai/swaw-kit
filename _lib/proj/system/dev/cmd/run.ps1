@@ -10,13 +10,11 @@ if ([string]::IsNullOrWhiteSpace($CommandText)) {
     throw '.dev/cmd requires non-empty command text.'
 }
 
-$KernelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-. (Join-Path $PSScriptRoot '..\_lib\runtime.ps1')
-. (Join-Path $KernelRoot '_shell\runtime.ps1')
+. (Join-Path $PSScriptRoot '..\_lib\process.ps1')
+Import-ProjDevTargetEnvironment
 
-$Context = New-ProjDevContextFromEnvironment
-[void](Import-ProjDevOptionalGeneratedEnvironment -Context $Context)
-Add-ProjShellRuntimePath -KernelRoot $KernelRoot
-$CmdPath = Get-ProjSystemCmdPath
+$CmdPath = Resolve-ProjDevApplication `
+    -Application 'cmd.exe' `
+    -DisplayName 'Windows Command Prompt'
 & $CmdPath /d /s /v:off /c $CommandText
 exit ([int]$LASTEXITCODE)

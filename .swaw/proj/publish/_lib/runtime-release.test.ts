@@ -30,7 +30,7 @@ test("atomically selects a new runtime while the previous release remains mapped
     "swawkit-proj.exe": systemExecutable("cmd.exe"),
     "swawkit-proj-host.exe": systemExecutable("where.exe"),
     "swawkit-proj-module.exe": systemExecutable("hostname.exe"),
-    "swawkit-proj-toolchain.exe": systemExecutable("whoami.exe"),
+    "swawkit-proj-dev.exe": systemExecutable("whoami.exe"),
   });
   const running = Bun.spawn(
     [
@@ -49,7 +49,7 @@ test("atomically selects a new runtime while the previous release remains mapped
       "swawkit-proj.exe": systemExecutable("where.exe"),
       "swawkit-proj-host.exe": systemExecutable("whoami.exe"),
       "swawkit-proj-module.exe": systemExecutable("cmd.exe"),
-      "swawkit-proj-toolchain.exe": systemExecutable("hostname.exe"),
+      "swawkit-proj-dev.exe": systemExecutable("hostname.exe"),
     });
     expect(current).not.toBe(previous);
     expect(running.exitCode).toBeNull();
@@ -60,7 +60,7 @@ test("atomically selects a new runtime while the previous release remains mapped
       "swawkit-proj.exe",
       "swawkit-proj-host.exe",
       "swawkit-proj-module.exe",
-      "swawkit-proj-toolchain.exe",
+      "swawkit-proj-dev.exe",
     ]) {
       await expect(lstat(join(fixture.runtimeRoot, name))).rejects.toMatchObject({ code: "ENOENT" });
     }
@@ -101,7 +101,7 @@ test("rejects a runtime releases parent junction", async () => {
     "swawkit-proj.exe": systemExecutable("where.exe"),
     "swawkit-proj-host.exe": systemExecutable("whoami.exe"),
     "swawkit-proj-module.exe": systemExecutable("cmd.exe"),
-    "swawkit-proj-toolchain.exe": systemExecutable("hostname.exe"),
+    "swawkit-proj-dev.exe": systemExecutable("hostname.exe"),
   });
 
   expect(publishRuntimeReleaseSet(fixture.home, fixture.cacheRoot, release)).rejects.toThrow(
@@ -115,7 +115,7 @@ type Candidates = Record<
   | "swawkit-proj.exe"
   | "swawkit-proj-host.exe"
   | "swawkit-proj-module.exe"
-  | "swawkit-proj-toolchain.exe",
+  | "swawkit-proj-dev.exe",
   string
 >;
 
@@ -129,7 +129,17 @@ async function runtimeFixture() {
   const runtimeRoot = join(home, "_lib", "proj", "_bin");
   await mkdir(join(home, "_lib", "proj"), { recursive: true });
   await mkdir(cacheRoot, { recursive: true });
-  return { root, home, dataRoot, commandRoot, cacheRoot, runtimeRoot, generation: 0 };
+  const commandRuntimeId = await writeCommandRuntime(home);
+  return {
+    root,
+    home,
+    dataRoot,
+    commandRoot,
+    cacheRoot,
+    runtimeRoot,
+    commandRuntimeId,
+    generation: 0,
+  };
 }
 
 async function publishFixtureRelease(fixture: Fixture, sources: Candidates): Promise<string> {
@@ -146,8 +156,43 @@ async function buildFixtureRelease(fixture: Fixture, sources: Candidates) {
     await copyFile(source, destination);
     candidates[name as keyof Candidates] = destination;
   }
-  await publishBuildReleaseSet(fixture.commandRoot, candidates);
+  await publishBuildReleaseSet(fixture.commandRoot, candidates, fixture.commandRuntimeId);
   return readReadyBuildReleaseSet(fixture.dataRoot, "fixture");
+}
+
+async function writeCommandRuntime(home: string): Promise<string> {
+  const bootstrap = join(home, "data", "proj_cache", "bootstrap");
+  const toolRoot = join(bootstrap, "fixture-tools");
+  await mkdir(toolRoot, { recursive: true });
+  const tools = [];
+  for (const [name, version, file, content] of [
+    ["bun", "1.2.15", "bun.exe", "bun"],
+    ["pwsh", "7.6.4", "pwsh.exe", "pwsh"],
+  ] as const) {
+    const path = join(toolRoot, file);
+    await writeFile(path, content);
+    const bytes = await readFile(path);
+    tools.push({
+      name,
+      version,
+      path: `fixture-tools/${file}`,
+      length: bytes.length,
+      sha256: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+    });
+  }
+  const identity = ["swawkit.proj-command-runtime/v1"];
+  for (const tool of tools) {
+    identity.push(tool.name, tool.version, tool.path, String(tool.length), tool.sha256);
+  }
+  const runtimeId = new Bun.CryptoHasher("sha256").update(identity.join("\n")).digest("hex");
+  const release = join(bootstrap, "command-runtimes", "releases", runtimeId);
+  await mkdir(release, { recursive: true });
+  await writeFile(join(release, "manifest.json"), JSON.stringify({
+    schema: "swawkit.proj-command-runtime/v1",
+    runtimeId,
+    tools,
+  }));
+  return runtimeId;
 }
 
 function systemExecutable(name: string): string {

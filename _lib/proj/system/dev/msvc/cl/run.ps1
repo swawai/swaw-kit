@@ -2,12 +2,12 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
-. (Join-Path $PSScriptRoot (
-    '..\..\..\..\_toolchain\_modules\msvc\runtime.ps1'
-))
+. (Join-Path $PSScriptRoot '..\..\_lib\process.ps1')
+Import-ProjDevTargetEnvironment
 
 [string[]]$CompilerArguments = @($args)
-$ExitCode = Invoke-ProjDevMsvcCommand `
-    -ExecutableName 'cl.exe' `
-    -Arguments $CompilerArguments
-exit ([int]$ExitCode)
+$CompilerExecutable = Resolve-ProjDevApplication `
+    -Application 'cl.exe' `
+    -DisplayName 'MSVC cl.exe'
+& $CompilerExecutable @CompilerArguments
+exit ([int]$LASTEXITCODE)

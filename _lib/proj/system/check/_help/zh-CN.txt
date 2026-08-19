@@ -8,7 +8,7 @@
 不会运行目标命令，也不会安装、编译或修复任何内容。退出码 0 表示命令入口和
 所有已声明输入依赖均 Ready；退出码 1 表示当前不能执行。
 
-swawkit.module.json 使用 swawkit.command-module/v10，消费方通过 requires 声明
+swawkit.module.json 使用 swawkit.command-module/v11，消费方通过 requires 声明
 Provider 命令、具名 Export 与 contract。检查不评价目标自身的 provides；要确认某个
 Provider 的产物能否消费，应检查实际 Consumer。--json 输出
 swawkit.command-check/v1，适合 Agent、脚本和可视化消费。

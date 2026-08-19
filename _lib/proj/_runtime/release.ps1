@@ -5,21 +5,38 @@ $SharedToolchainLibrary = [IO.Path]::GetFullPath(
 )
 . (Join-Path $SharedToolchainLibrary 'foundation.ps1')
 . (Join-Path $SharedToolchainLibrary 'controlled-path.ps1')
+. (Join-Path $PSScriptRoot 'command-runtime.ps1')
 
-$script:ProjRuntimeReleaseManifestSchema = 'swawkit.proj-release-set/v2'
+$script:ProjRuntimeReleaseManifestSchema = 'swawkit.proj-release-set/v4'
 $script:ProjRuntimeReleaseMaxManifestBytes = 1MB
 $script:ProjRuntimeReleaseMaxArtifactBytes = 512MB
+
+function Get-ProjRuntimeOrdinalNames {
+    param([Parameter(Mandatory = $true)][string[]]$Names)
+
+    [string[]]$Sorted = @($Names)
+    [Array]::Sort($Sorted, [StringComparer]::Ordinal)
+    return $Sorted
+}
 
 function New-ProjRuntimeReleaseSetFromFiles {
     param(
         [Parameter(Mandatory = $true)]
-        [Collections.IDictionary]$Artifacts
+        [Collections.IDictionary]$Artifacts,
+        [Parameter(Mandatory = $true)][string]$CommandRuntimeId
     )
+
+    if ($CommandRuntimeId -cnotmatch '^[a-f0-9]{64}$') {
+        throw 'The application Command Runtime ID is invalid.'
+    }
 
     $Records = [Collections.Generic.List[object]]::new()
     $Identity = [Collections.Generic.List[string]]::new()
     $Identity.Add($script:ProjRuntimeReleaseManifestSchema)
-    foreach ($Name in [string[]]@($Artifacts.Keys | Sort-Object)) {
+    $Identity.Add($CommandRuntimeId)
+    [string[]]$ArtifactNames = Get-ProjRuntimeOrdinalNames `
+        -Names ([string[]]@($Artifacts.Keys))
+    foreach ($Name in $ArtifactNames) {
         if ($Name -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._+-]*$') {
             throw "Invalid runtime Release Set artifact name: '$Name'"
         }
@@ -51,15 +68,16 @@ function New-ProjRuntimeReleaseSetFromFiles {
         $Names -cnotcontains 'swawkit-proj.exe' -or
         $Names -cnotcontains 'swawkit-proj-host.exe' -or
         $Names -cnotcontains 'swawkit-proj-module.exe' -or
-        $Names -cnotcontains 'swawkit-proj-toolchain.exe') {
+        $Names -cnotcontains 'swawkit-proj-dev.exe') {
         throw (
             'The application Release Set must contain exactly Core, Host, ' +
-            'Module, and Toolchain.'
+            'Module, and Dev.'
         )
     }
     return [pscustomobject][ordered]@{
         ReleaseId = Get-ProjDevSha256Text `
             -Value ([string]::Join("`n", $Identity))
+        CommandRuntimeId = $CommandRuntimeId
         Artifacts = [object[]]$Records
     }
 }
@@ -80,7 +98,8 @@ function Publish-ProjRuntimeReleaseSet {
         $ArtifactPaths[$Name] = [string]$Artifact.Path
     }
     $VerifiedReleaseSet = New-ProjRuntimeReleaseSetFromFiles `
-        -Artifacts $ArtifactPaths
+        -Artifacts $ArtifactPaths `
+        -CommandRuntimeId ([string]$ReleaseSet.CommandRuntimeId)
     $ReleaseId = [string]$ReleaseSet.ReleaseId
     if ($ReleaseId -cnotmatch '^[a-f0-9]{64}$') {
         throw 'The application Release Set ID is invalid.'
@@ -90,6 +109,9 @@ function Publish-ProjRuntimeReleaseSet {
     }
     $ReleaseSet = $VerifiedReleaseSet
     $ProjHome = Get-ProjDevFullPath -Path $ProjHome
+    [void](Read-ProjCommandRuntime `
+        -BootstrapDataRoot (Join-Path $ProjHome 'data\proj_cache\bootstrap') `
+        -RuntimeId ([string]$VerifiedReleaseSet.CommandRuntimeId))
     $CacheDataRoot = Assert-ProjDevControlledRoot `
         -Root $CacheDataRoot `
         -Description 'shared project cache data root'
@@ -155,6 +177,7 @@ function Publish-ProjRuntimeReleaseDirectory {
         $Manifest = [ordered]@{
             schema = $script:ProjRuntimeReleaseManifestSchema
             releaseId = [string]$ReleaseSet.ReleaseId
+            commandRuntimeId = [string]$ReleaseSet.CommandRuntimeId
             artifacts = [object[]]$ManifestArtifacts
         }
         [IO.File]::WriteAllText(
@@ -192,7 +215,7 @@ function Read-ProjRuntimeReleaseSet {
         'swawkit-proj.exe',
         'swawkit-proj-host.exe',
         'swawkit-proj-module.exe',
-        'swawkit-proj-toolchain.exe'
+        'swawkit-proj-dev.exe'
     )
     try {
         $ActualMembers = [string[]]@(
@@ -235,12 +258,14 @@ function Read-ProjRuntimeReleaseSet {
         throw "The runtime Release Set manifest is invalid: $ManifestPath"
     }
     $Fields = [string[]]@($Manifest.PSObject.Properties.Name)
-    if ($Fields.Count -ne 3 -or
+    if ($Fields.Count -ne 4 -or
         $Fields -cnotcontains 'schema' -or
         $Fields -cnotcontains 'releaseId' -or
+        $Fields -cnotcontains 'commandRuntimeId' -or
         $Fields -cnotcontains 'artifacts' -or
         [string]$Manifest.schema -cne $script:ProjRuntimeReleaseManifestSchema -or
-        [string]$Manifest.releaseId -cne $ReleaseId) {
+        [string]$Manifest.releaseId -cne $ReleaseId -or
+        [string]$Manifest.commandRuntimeId -cnotmatch '^[a-f0-9]{64}$') {
         throw "The runtime Release Set manifest is invalid: $ManifestPath"
     }
     $Artifacts = [Collections.Generic.List[object]]::new()
@@ -283,12 +308,17 @@ function Read-ProjRuntimeReleaseSet {
         $Names -cnotcontains 'swawkit-proj.exe' -or
         $Names -cnotcontains 'swawkit-proj-host.exe' -or
         $Names -cnotcontains 'swawkit-proj-module.exe' -or
-        $Names -cnotcontains 'swawkit-proj-toolchain.exe') {
+        $Names -cnotcontains 'swawkit-proj-dev.exe') {
         throw "The runtime Release Set has invalid membership: $ManifestPath"
     }
     $Identity = [Collections.Generic.List[string]]::new()
     $Identity.Add($script:ProjRuntimeReleaseManifestSchema)
-    foreach ($Artifact in @($Artifacts | Sort-Object Name)) {
+    $Identity.Add([string]$Manifest.commandRuntimeId)
+    [string[]]$IdentityNames = Get-ProjRuntimeOrdinalNames -Names $Names
+    foreach ($Name in $IdentityNames) {
+        $Artifact = @($Artifacts | Where-Object {
+            [string]$_.Name -ceq $Name
+        })[0]
         $Identity.Add([string]$Artifact.Name)
         $Identity.Add(([long]$Artifact.Length).ToString(
             [Globalization.CultureInfo]::InvariantCulture
@@ -300,8 +330,15 @@ function Read-ProjRuntimeReleaseSet {
     if ($ComputedId -cne $ReleaseId) {
         throw "The runtime Release Set ID does not match its artifacts: $ManifestPath"
     }
+    $ProjRoot = Split-Path $RuntimeRoot -Parent
+    $LibraryRoot = Split-Path $ProjRoot -Parent
+    $ProjHome = Split-Path $LibraryRoot -Parent
+    [void](Read-ProjCommandRuntime `
+        -BootstrapDataRoot (Join-Path $ProjHome 'data\proj_cache\bootstrap') `
+        -RuntimeId ([string]$Manifest.commandRuntimeId))
     return [pscustomobject][ordered]@{
         ReleaseId = $ReleaseId
+        CommandRuntimeId = [string]$Manifest.commandRuntimeId
         Root = $ReleaseRoot
         ManifestPath = $ManifestPath
         Artifacts = [object[]]$Artifacts

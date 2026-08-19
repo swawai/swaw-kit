@@ -1,10 +1,10 @@
 {
-  "schema": "swawkit.command-module/v10",
-  "execution": { "type": "toolchain", "handler": "dev.setup" },
+  "schema": "swawkit.command-module/v11",
+  "execution": { "type": "runtime", "product": "dev" },
   "provides": [
     {
       "id": "environment",
-      "contract": "swawkit.proj.dev-setup/v2"
+      "contract": "swawkit.proj.dev-setup/v3"
     }
   ]
 }

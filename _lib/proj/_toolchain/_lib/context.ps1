@@ -107,8 +107,7 @@ function New-ProjDevContextFromEnvironment {
         -InvocationDirectory $InvocationDirectory `
         -EnvironmentInputRevision (Get-ProjDevCommandEnvironmentInputRevision) `
         -CommandProfileRevision (Get-ProjDevCommandProfileRevision) `
-        -ToolchainExecutable (Get-ProjDevRequiredEnvironmentValue `
-            -Name 'SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE')
+        -ToolchainExecutable $null
 }
 
 function Get-ProjDevToolchainExecutable {
