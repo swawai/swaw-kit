@@ -9,6 +9,7 @@ import {
   requestRuntimeCleanup,
   runtimeRootPresentation,
 } from "./runtime-control.js";
+import { RuntimeGenerationError } from "./runtime-generation.js";
 
 function hostStatus(updateAvailable = true) {
   return {
@@ -205,6 +206,51 @@ describe("Runtime control client", () => {
       });
       expect(result).toEqual(document);
     }
+  });
+
+  test("preserves Runtime generation errors from cleanup responses", async () => {
+    for (const [status, code] of [
+      [409, "runtimeUpdateRequired"],
+      [503, "runtimeGenerationUnavailable"],
+    ]) {
+      const promise = requestRuntimeCleanup(false, async () => ({
+        ok: false,
+        status,
+        json: async () => ({ code, error: "server detail" }),
+      }));
+
+      await expect(promise).rejects.toMatchObject({
+        code,
+        status,
+        name: "RuntimeGenerationError",
+      });
+    }
+  });
+
+  test("refreshes Runtime state when stale generation blocks cleanup", async () => {
+    const elements = runtimeElements();
+    let updateNotifications = 0;
+    const view = createRuntimeControlView(elements, {
+      onRuntimeUpdateRequired(error) {
+        expect(error).toBeInstanceOf(RuntimeGenerationError);
+        updateNotifications += 1;
+      },
+      fetchImpl: async () => ({
+        ok: false,
+        status: 409,
+        json: async () => ({
+          code: "runtimeUpdateRequired",
+          error: "server detail",
+        }),
+      }),
+    });
+
+    await view.cleanup(false);
+
+    expect(updateNotifications).toBe(1);
+    expect(elements.runtimeCleanupFeedback.textContent).toContain("Runtime 已更新");
+    expect(elements.runtimeCleanupPreview.disabled).toBe(false);
+    expect(elements.runtimeCleanupApply.disabled).toBe(false);
   });
 
   test("rejects cleanup documents with impossible item semantics", async () => {

@@ -1,0 +1,6 @@
+Show the current provider-owned Dev Settings document.
+
+Usage:
+  {{INVOCATION}}
+
+Missing settings resolve to the defined v1 defaults without writing a file. Invalid stored settings fail closed for Dev setup, status, checks, and setters.

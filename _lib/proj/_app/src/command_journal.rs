@@ -13,8 +13,6 @@ use windows_sys::Win32::UI::{
 use crate::{
     catalog::CatalogSnapshot,
     command::catalog_command_data_root,
-    context::EntryContext,
-    profile::EntryProfileState,
     run_journal::{read_run, read_run_directory, read_run_history},
 };
 
@@ -73,7 +71,6 @@ impl fmt::Display for CommandLocator {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandJournalAccessError {
     InvalidLocator(String),
-    ProfileRequired,
     CommandNotFound,
     CatalogInvariant(String),
 }
@@ -84,8 +81,6 @@ impl fmt::Display for CommandJournalAccessError {
             Self::InvalidLocator(message) | Self::CatalogInvariant(message) => {
                 formatter.write_str(message)
             }
-            Self::ProfileRequired => formatter
-                .write_str("a ready Entry Profile is required to locate mounted Module journals"),
             Self::CommandNotFound => formatter.write_str("command not found"),
         }
     }
@@ -101,19 +96,16 @@ pub struct CommandJournalAccess {
 
 impl CommandJournalAccess {
     pub fn resolve(
-        context: &EntryContext,
         data_root: &Path,
-        profile_state: &EntryProfileState,
         catalog: &CatalogSnapshot,
         locator: CommandLocator,
     ) -> Result<Self, CommandJournalAccessError> {
-        let binding = profile_state.ready().map(|profile| profile.binding());
         let command = catalog
             .commands
             .iter()
             .find(|command| command.address == locator.address)
             .ok_or(CommandJournalAccessError::CommandNotFound)?;
-        let module_data_root = catalog_command_data_root(context, data_root, binding, command)
+        let module_data_root = catalog_command_data_root(data_root, command)
             .map_err(|error| CommandJournalAccessError::CatalogInvariant(error.to_string()))?;
         Ok(Self {
             address: locator.address,

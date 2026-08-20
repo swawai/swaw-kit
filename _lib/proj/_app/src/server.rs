@@ -19,8 +19,8 @@ use crate::{
     catalog_reader::CatalogReader,
     context::EntryContext,
     data_root::DataRootSession,
+    entry_config::{EntryConfigDocument, EntryConfigStore, EntryConfigUpdateError},
     host_runtime::{HostRuntimeDocument, HostRuntimeIdentity},
-    profile::{EntryProfileDocument, EntryProfileStore, ProfileUpdateError},
     runtime_service::RuntimeService,
     web_assets,
 };
@@ -182,7 +182,7 @@ fn router_with_runtime_service(
             "/api/v2/facet-resolutions",
             axum::routing::post(facet_resolution::post_facet_resolution),
         )
-        .route("/api/v2/profile", get(get_profile))
+        .route("/api/v2/entry-config", get(get_entry_config))
         .route("/api/v2/host", get(host_control::get_host))
         .route("/api/v2/runtime", get(runtime_control::get_runtime))
         .route(
@@ -206,8 +206,8 @@ fn router_with_runtime_service(
             get(command_run::get_command_run).delete(command_run::delete_command_run),
         )
         .route(
-            "/api/v2/profile/settings/{address}",
-            axum::routing::put(put_profile_setting),
+            "/api/v2/entry-config/settings/{address}",
+            axum::routing::put(put_entry_config_setting),
         )
         .route("/healthz", get(host_control::health));
     if let Some(routes) = manager_routes {
@@ -268,8 +268,8 @@ async fn security_headers(request: Request, next: Next) -> Response {
 async fn get_catalog(
     State(state): State<ServerState>,
 ) -> Result<Json<CatalogSnapshot>, (StatusCode, Json<ApiError>)> {
-    let profile_store = ready_profile_store(&state).await?;
-    CatalogReader::new(state.context, profile_store)
+    let config_store = entry_config_store(&state);
+    CatalogReader::new(state.context, config_store)
         .read()
         .await
         .map(Json)
@@ -289,59 +289,66 @@ struct ApiError {
     code: Option<&'static str>,
 }
 
-async fn get_profile(State(state): State<ServerState>) -> Response {
-    let profile_store = match ready_profile_store(&state).await {
-        Ok(profile_store) => profile_store,
-        Err(error) => return error.into_response(),
-    };
-    let document = match tokio::task::spawn_blocking(move || profile_store.document()).await {
+async fn get_entry_config(State(state): State<ServerState>) -> Response {
+    let config_store = entry_config_store(&state);
+    let document = match tokio::task::spawn_blocking(move || config_store.document()).await {
         Ok(document) => document,
         Err(error) => {
             return api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                format!("entry profile worker failed: {error}"),
+                format!("Entry Config worker failed: {error}"),
             )
             .into_response();
         }
     };
-    profile_response(document)
+    entry_config_response(document)
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProfileSettingUpdate {
-    value: String,
+struct EntryConfigSettingUpdate {
+    value: serde_json::Value,
 }
 
-async fn put_profile_setting(
+async fn put_entry_config_setting(
     State(state): State<ServerState>,
     Path(address): Path<String>,
     headers: HeaderMap,
-    Json(update): Json<ProfileSettingUpdate>,
+    Json(update): Json<EntryConfigSettingUpdate>,
 ) -> Result<Response, (StatusCode, Json<ApiError>)> {
-    let expected_revision = expected_revision(&headers, "entry profile")?.to_owned();
+    let expected_revision = expected_revision(&headers, "Entry Config")?.to_owned();
+    let value = match update.value {
+        serde_json::Value::String(value) => Some(value),
+        serde_json::Value::Null => None,
+        _ => {
+            return Err(api_error(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Entry Config setting value must be a string or null",
+            ));
+        }
+    };
     state
         .runtime_service
         .require_current_generation()
         .map_err(command_run::runtime_service_error)?;
-    let profile_store = ready_profile_store(&state).await?;
+    let config_store = entry_config_store(&state);
     let update = tokio::task::spawn_blocking(move || {
-        profile_store.update_setting_if_revision(&expected_revision, &address, update.value)
+        config_store.update_setting_if_revision(&expected_revision, &address, value)
     })
     .await
     .map_err(|error| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("entry profile worker failed: {error}"),
+            format!("Entry Config worker failed: {error}"),
         )
     })?;
     match update {
-        Ok(document) => Ok(profile_response(document)),
-        Err(ProfileUpdateError::Conflict { .. }) => Err(api_error(
+        Ok(document) => Ok(entry_config_response(document)),
+        Err(EntryConfigUpdateError::Conflict { .. }) => Err(api_error(
             StatusCode::CONFLICT,
-            "entry profile changed since it was loaded; reload before saving again",
+            "Entry Config changed since it was loaded; reload before saving again",
         )),
-        Err(ProfileUpdateError::Profile(error)) => Err(api_error(
+        Err(EntryConfigUpdateError::Config(error)) => Err(api_error(
             StatusCode::UNPROCESSABLE_ENTITY,
             error.to_string(),
         )),
@@ -376,9 +383,9 @@ fn expected_revision<'a>(
         })
 }
 
-fn profile_response(document: EntryProfileDocument) -> Response {
+fn entry_config_response(document: EntryConfigDocument) -> Response {
     let etag = HeaderValue::from_str(&format!("\"{}\"", document.revision))
-        .expect("profile revisions are valid entity tags");
+        .expect("Entry Config revisions are valid entity tags");
     ([(ETAG, etag)], Json(document)).into_response()
 }
 
@@ -400,14 +407,9 @@ fn coded_api_error(
     )
 }
 
-async fn ready_profile_store(
-    state: &ServerState,
-) -> Result<EntryProfileStore, (StatusCode, Json<ApiError>)> {
+fn entry_config_store(state: &ServerState) -> EntryConfigStore {
     let resolved = state.data_root.resolved();
-    Ok(EntryProfileStore::new(
-        &state.context.swawkit_home,
-        resolved.path(),
-    ))
+    EntryConfigStore::new(&state.context.swawkit_home, resolved.path())
 }
 
 #[cfg(test)]

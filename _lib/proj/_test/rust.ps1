@@ -42,11 +42,10 @@ function New-ProjRustTestContext {
         [Parameter(Mandatory = $true)][string]$CacheDataRoot
     )
 
-    return New-ProjDevContext `
+    return New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
-        -CacheDataRoot $CacheDataRoot `
-        -EnvironmentInputRevision ('sha256-' + ('a' * 64))
+        -CacheDataRoot $CacheDataRoot
 }
 
 $EnvironmentSnapshot = @{}
@@ -280,16 +279,6 @@ try {
         -Context $Context `
         -Definition $Definition `
         -Plan $Plan
-    $ProfilePath = Join-Path $Context.DataRoot '_profile.json'
-    [IO.File]::WriteAllText($ProfilePath, '{}')
-    $Context.CommandProfileRevision = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $ProfilePath
-    )
-    $Attempt = Start-ProjDevSetupProviderPublication -Context $Context
-    Set-ProjDevEnvironmentVariable `
-        -Plan $Plan `
-        -Name (Get-ProjDevSetupPublicationTokenVariable) `
-        -Value ([string]$Attempt.Token)
     $Scripts = ConvertTo-ProjDevEnvironmentScripts -Plan $Plan
     $DuplicateRustVariables = @($Plan.Variables.Keys | Where-Object {
         ([string]$_).StartsWith(
@@ -333,12 +322,7 @@ try {
             -Context $Context `
             -Scripts $Scripts) `
         -Message 'Rust environment scripts were not published'
-    Complete-ProjDevSetupProviderPublication `
-        -Context $Context `
-        -Attempt $Attempt
-    $env:SWAWKIT_PROJ_BUN_MODE = 'managed'
-    $env:SWAWKIT_PROJ_BUN_VERSION = '9.9.9'
-    [void](Import-ProjDevGeneratedEnvironment -Context $Context)
+    . $Context.EnvPs1Path
     $OriginalRustMetadataValidator = (
         Get-Command Get-ProjDevRustValidMetadata -CommandType Function
     ).ScriptBlock
@@ -374,7 +358,7 @@ try {
     Assert-ProjRustTest `
         -Condition ([string]$env:RUSTUP_TOOLCHAIN -ceq
             [string]$Definition.ToolchainName) `
-        -Message 'an unrelated Bun declaration change blocked Rust activation'
+        -Message 'the generated Rust toolchain was not retained'
     foreach ($Name in Get-ProjDevRustAmbientOverrideNames) {
         [Environment]::SetEnvironmentVariable(
             $Name,

@@ -1,10 +1,10 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use swawkit_proj_protocol::DevSettings;
 
 use super::*;
 use crate::development::archive_tool::install::InstallOutcome;
@@ -17,7 +17,6 @@ struct Fixture {
     root: PathBuf,
     data_root: PathBuf,
     cache_root: PathBuf,
-    profile_revision: String,
     input_revision: String,
 }
 
@@ -33,25 +32,18 @@ impl Fixture {
         let cache_root = root.join("cache");
         fs::create_dir_all(&data_root).unwrap();
         fs::create_dir_all(&cache_root).unwrap();
-        let profile = b"{\"fixture\":true}\r\n";
-        fs::write(data_root.join("_profile.json"), profile).unwrap();
+        let input_revision =
+            crate::development::setup::settings::current_input_revision(&data_root).unwrap();
         Self {
             root,
             data_root,
             cache_root,
-            profile_revision: format!("sha256-{:x}", Sha256::digest(profile)),
-            input_revision: format!("sha256-{}", "b".repeat(64)),
+            input_revision,
         }
     }
 
     fn context(&self) -> NativeSetupContext {
-        NativeSetupContext::new(
-            &self.data_root,
-            &self.cache_root,
-            &self.profile_revision,
-            &self.input_revision,
-        )
-        .unwrap()
+        NativeSetupContext::new(&self.data_root, &self.cache_root, &self.input_revision).unwrap()
     }
 
     fn publish_install(&self, tool: &'static ArchiveToolContract, version: &str) -> PathBuf {
@@ -223,14 +215,11 @@ fn native_setup_is_offline_and_publishes_one_ready_environment() {
     let fixture = Fixture::new();
     let bun = fixture.publish_install(&BUN, "1.2.15");
     let pwsh = fixture.publish_install(&PWSH, "7.6.4");
-    let declarations = declarations(&[
-        ("SWAWKIT_PROJ_BUN_MODE", "managed"),
-        ("SWAWKIT_PROJ_BUN_VERSION", "1.2.15"),
-        ("SWAWKIT_PROJ_BUN_SHA256", ""),
-        ("SWAWKIT_PROJ_PWSH_MODE", "managed"),
-        ("SWAWKIT_PROJ_PWSH_VERSION", "7.6.4"),
-        ("SWAWKIT_PROJ_PWSH_SHA256", ""),
-    ]);
+    let declarations = declarations(|settings| {
+        settings.bun.mode = "managed".to_owned();
+        settings.pwsh.mode = "managed".to_owned();
+        settings.pwsh.version = "7.6.4".to_owned();
+    });
     let mut progress = Vec::new();
 
     let result = run_native(
@@ -291,16 +280,14 @@ fn native_setup_is_offline_and_publishes_one_ready_environment() {
 #[test]
 fn invalid_rust_declaration_leaves_the_provider_unavailable() {
     let fixture = Fixture::new();
-    let declarations = declarations(&[
-        ("SWAWKIT_PROJ_RUST_MODE", "rustup"),
-        ("SWAWKIT_PROJ_RUST_TOOLCHAIN", "invalid/toolchain"),
-        ("SWAWKIT_PROJ_RUST_PROFILE", "minimal"),
-        ("SWAWKIT_PROJ_RUST_HOST", "x86_64-pc-windows-msvc"),
-    ]);
+    let declarations = declarations(|settings| {
+        settings.rust.mode = "rustup".to_owned();
+        settings.rust.toolchain = "invalid/toolchain".to_owned();
+    });
 
     let error = run_native(&fixture.context(), &declarations, &mut |_, _, _| {}).unwrap_err();
 
-    assert!(error.contains("RUST_TOOLCHAIN"), "{error}");
+    assert!(error.contains(".dev/rust/toolchain"), "{error}");
     assert!(read_ready(&fixture.data_root, &fixture.input_revision).is_err());
     let state: Value = serde_json::from_slice(
         &fs::read(
@@ -323,12 +310,9 @@ fn invalid_rust_declaration_leaves_the_provider_unavailable() {
 #[test]
 fn rust_requires_msvc_before_any_source_is_touched() {
     let fixture = Fixture::new();
-    let declarations = declarations(&[
-        ("SWAWKIT_PROJ_RUST_MODE", "rustup"),
-        ("SWAWKIT_PROJ_RUST_TOOLCHAIN", "stable"),
-        ("SWAWKIT_PROJ_RUST_PROFILE", "minimal"),
-        ("SWAWKIT_PROJ_RUST_HOST", "x86_64-pc-windows-msvc"),
-    ]);
+    let declarations = declarations(|settings| {
+        settings.rust.mode = "rustup".to_owned();
+    });
 
     let error = run_native(&fixture.context(), &declarations, &mut |_, _, _| {
         panic!("invalid cross-domain declarations must remain offline")
@@ -347,14 +331,10 @@ fn ready_rust_joins_the_shared_environment_and_provider_transaction() {
     let fixture = Fixture::new();
     let root = fixture.publish_rust();
     fixture.publish_msvc();
-    let declarations = declarations(&[
-        ("SWAWKIT_PROJ_MSVC_MODE", "managed"),
-        ("SWAWKIT_PROJ_MSVC_CHANNEL", "17"),
-        ("SWAWKIT_PROJ_RUST_MODE", "rustup"),
-        ("SWAWKIT_PROJ_RUST_TOOLCHAIN", "stable"),
-        ("SWAWKIT_PROJ_RUST_PROFILE", "minimal"),
-        ("SWAWKIT_PROJ_RUST_HOST", "x86_64-pc-windows-msvc"),
-    ]);
+    let declarations = declarations(|settings| {
+        settings.msvc.mode = "managed".to_owned();
+        settings.rust.mode = "rustup".to_owned();
+    });
 
     let result = run_native(&fixture.context(), &declarations, &mut |_, _, _| {
         panic!("ready Rust must remain offline")
@@ -383,13 +363,11 @@ fn ready_rust_joins_the_shared_environment_and_provider_transaction() {
 fn every_enabled_definition_is_preflighted_before_any_tool_is_touched() {
     let fixture = Fixture::new();
     fixture.publish_install(&BUN, "1.2.15");
-    let declarations = declarations(&[
-        ("SWAWKIT_PROJ_BUN_MODE", "managed"),
-        ("SWAWKIT_PROJ_BUN_VERSION", "1.2.15"),
-        ("SWAWKIT_PROJ_BUN_SHA256", ""),
-        ("SWAWKIT_PROJ_MSVC_MODE", "managed"),
-        ("SWAWKIT_PROJ_MSVC_CHANNEL", "invalid"),
-    ]);
+    let declarations = declarations(|settings| {
+        settings.bun.mode = "managed".to_owned();
+        settings.msvc.mode = "managed".to_owned();
+        settings.msvc.channel = "invalid".to_owned();
+    });
     let env = fixture
         .data_root
         .join("modules/system/dev/setup/export/env.cmd");
@@ -408,16 +386,12 @@ fn ready_msvc_joins_the_same_provider_and_environment_transaction() {
     fixture.publish_install(&BUN, "1.2.15");
     fixture.publish_install(&PWSH, "7.6.4");
     let root = fixture.publish_msvc();
-    let declarations = declarations(&[
-        ("SWAWKIT_PROJ_BUN_MODE", "managed"),
-        ("SWAWKIT_PROJ_BUN_VERSION", "1.2.15"),
-        ("SWAWKIT_PROJ_BUN_SHA256", ""),
-        ("SWAWKIT_PROJ_PWSH_MODE", "managed"),
-        ("SWAWKIT_PROJ_PWSH_VERSION", "7.6.4"),
-        ("SWAWKIT_PROJ_PWSH_SHA256", ""),
-        ("SWAWKIT_PROJ_MSVC_MODE", "managed"),
-        ("SWAWKIT_PROJ_MSVC_CHANNEL", "17"),
-    ]);
+    let declarations = declarations(|settings| {
+        settings.bun.mode = "managed".to_owned();
+        settings.pwsh.mode = "managed".to_owned();
+        settings.pwsh.version = "7.6.4".to_owned();
+        settings.msvc.mode = "managed".to_owned();
+    });
     let mut progress = Vec::new();
 
     let result = run_native(
@@ -454,11 +428,14 @@ fn ready_msvc_joins_the_same_provider_and_environment_transaction() {
     assert!(bun < pwsh && pwsh < msvc, "{cmd}");
 }
 
-fn declarations(values: &[(&'static str, &'static str)]) -> DeclarationSnapshot {
-    let values = values.iter().copied().collect::<BTreeMap<_, _>>();
-    crate::development::setup::declaration::snapshot(|name| {
-        values.get(name).map(|value| (*value).to_owned())
-    })
+fn declarations(configure: impl FnOnce(&mut DevSettings)) -> DeclarationSnapshot {
+    let mut settings = DevSettings::default();
+    settings.bun.mode = "disabled".to_owned();
+    settings.pwsh.mode = "disabled".to_owned();
+    settings.msvc.mode = "disabled".to_owned();
+    settings.rust.mode = "disabled".to_owned();
+    configure(&mut settings);
+    crate::development::setup::declaration::snapshot_from_settings(&settings)
 }
 
 fn sha256(content: &[u8]) -> String {

@@ -1,3 +1,7 @@
-设置目标项目根目录；可使用 ${SWAWKIT_HOME} 占位符。
+设置可选的项目根目录绑定；可使用 ${SWAWKIT_HOME} 占位符。
 
-用法：{{INVOCATION}} <value>
+用法：
+  {{INVOCATION}} <value>
+  {{INVOCATION}} --clear
+
+项目目录当前不可用时，配置与 System/swaw 命令仍然有效，但 project 命名空间不会挂载。

@@ -6,27 +6,25 @@ use std::os::windows::fs::MetadataExt;
 use swawkit_proj_dev::development::archive_tool::install::InstallOutcome;
 use swawkit_proj_dev::development::msvc::MsvcInstallOutcome;
 use swawkit_proj_dev::development::rust::RustInstallOutcome;
-use swawkit_proj_dev::development::setup::declaration::snapshot_from_environment;
+use swawkit_proj_dev::development::setup::declaration::snapshot_from_settings;
 use swawkit_proj_dev::development::setup::native::{
     NativeSetupContext, NativeSetupResult, run_native,
 };
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
-use super::{CommandContext, context::SetupCommandContext};
+use super::CommandContext;
 use crate::event;
 
 pub(super) fn run(context: &CommandContext, arguments: &[OsString]) -> Result<(), String> {
     if !arguments.is_empty() {
         return Err(".dev/setup does not accept dynamic arguments".to_owned());
     }
-    let setup_context = SetupCommandContext::from_environment()?;
     let setup = NativeSetupContext::new(
         &context.data_root,
-        &setup_context.cache_data_root,
-        &setup_context.profile_revision,
-        &context.environment_input_revision,
+        &context.cache_data_root,
+        context.input_revision(),
     )?;
-    let declarations = snapshot_from_environment();
+    let declarations = snapshot_from_settings(context.settings.settings());
     let mut progress = Progress::default();
     let result = run_native(&setup, &declarations, &mut |tool, current, total| {
         progress.update(tool, current, total);

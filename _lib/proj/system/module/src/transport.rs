@@ -3,10 +3,9 @@ use std::env;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use swawkit_proj_protocol::{serde_json, valid_module_namespace};
+use swawkit_proj_protocol::{COMMAND_ENVIRONMENT_PROTOCOL, serde_json, valid_module_namespace};
 
 const TRANSPORT: &str = "command-v1";
-const COMMAND_PROTOCOL: &str = "2";
 
 pub(crate) struct Invocation {
     pub(crate) address: String,
@@ -46,7 +45,7 @@ impl Invocation {
         require_exact(
             &mut environment,
             "SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL",
-            COMMAND_PROTOCOL,
+            COMMAND_ENVIRONMENT_PROTOCOL,
         )?;
         require_exact(
             &mut environment,
@@ -140,7 +139,7 @@ mod tests {
 
     fn environment(name: &str) -> Option<OsString> {
         match name {
-            "SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL" => Some("2".into()),
+            "SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL" => Some(COMMAND_ENVIRONMENT_PROTOCOL.into()),
             "SWAWKIT_PROJ_CORE_COMMAND_ADDRESS" => Some(".module/status".into()),
             "SWAWKIT_PROJ_DATA_ROOT" => Some(r"C:\data".into()),
             "SWAWKIT_HOME" => Some(r"C:\home".into()),
@@ -178,7 +177,10 @@ mod tests {
         )
         .err()
         .unwrap();
-        assert!(error.contains("expected '2'"), "{error}");
+        assert!(
+            error.contains(&format!("expected '{COMMAND_ENVIRONMENT_PROTOCOL}'")),
+            "{error}"
+        );
     }
 
     #[test]

@@ -115,7 +115,7 @@ fn command_check_rejects_ambiguous_arguments() {
 }
 
 #[test]
-fn directory_check_is_read_only_and_does_not_require_a_profile() {
+fn directory_check_is_read_only_and_does_not_require_entry_config() {
     let fixture = Fixture::new();
     fixture.core_command(".check/dir/exists", "meta.check.dir.exists");
     let provider = fixture.command(".provider", "run.exe", "fixture");

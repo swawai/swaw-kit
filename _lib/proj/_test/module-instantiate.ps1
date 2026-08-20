@@ -33,7 +33,7 @@ function Invoke-ProjModuleManager {
     $Info.RedirectStandardError = $true
     $null = $Info.EnvironmentVariables
     $Environment = @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
         SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = $Address
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $RepoRoot

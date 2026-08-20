@@ -20,6 +20,26 @@ $RepoRoot = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..'))
 $SystemRoot = Join-Path $ProjRoot 'system'
 $OfficialModuleRoot = Join-Path $ProjRoot 'modules'
 $ProjectModuleRoot = Join-Path $RepoRoot '.swaw'
+$RemovedStage0Paths = @(
+    '_toolchain\_lib\provider-state.ps1',
+    '_toolchain\_lib\command-export.ps1',
+    '_toolchain\_lib\context.ps1',
+    '_toolchain\_lib\activation.ps1',
+    '_toolchain\_lib\declaration.ps1',
+    '_toolchain\_lib\console-process.ps1',
+    '_toolchain\_modules\rust\command.ps1',
+    '_toolchain\_modules\rust\runtime.ps1',
+    '_toolchain\_modules\msvc\command.ps1',
+    '_toolchain\_modules\msvc\runtime.ps1',
+    '_toolchain\_modules\go\module.psd1',
+    '_toolchain\_modules\python\module.psd1',
+    '_toolchain\_modules\uv\module.psd1'
+)
+Assert-ProjDevelopmentCommandLayout `
+    -Condition (@($RemovedStage0Paths | Where-Object {
+        Test-Path -LiteralPath (Join-Path $ProjRoot $_)
+    }).Count -eq 0) `
+    -Message 'the removed Profile/provider Stage-0 island still exists'
 Assert-ProjDevelopmentCommandLayout `
     -Condition (-not [IO.Directory]::Exists((Join-Path $ProjRoot '_global'))) `
     -Message 'the removed no-op global guard directory still exists'
@@ -319,7 +339,7 @@ $RunsContractChecks = @(
     ($RunOverviewFacet.resolver.address -ceq '.runs')
     ($RunOverviewFacet.resolver.arguments[0] -ceq '--run')
     ($RunOverviewFacet.resolver.arguments[1].bind -ceq 'subject.id')
-    ($RunOverviewFacet.resolver.returns -ceq 'swawkit.command-run-journal/v2')
+    ($RunOverviewFacet.resolver.returns -ceq 'swawkit.command-run-journal/v3')
     ($RunOpenFacet.resolver.address -ceq '.runs')
     ($RunOpenFacet.resolver.arguments[0] -ceq '--open')
     ($RunOpenFacet.resolver.arguments[1].bind -ceq 'subject.id')
@@ -373,7 +393,7 @@ $DevProcessLibrary = [IO.File]::ReadAllText((
 ))
 Assert-ProjDevelopmentCommandLayout `
     -Condition ($DevProcessLibrary.Contains('swawkit.command-provider-state/v2') -and
-        $DevProcessLibrary.Contains('swawkit.proj.dev-setup/v3') -and
+        $DevProcessLibrary.Contains('swawkit.proj.dev-setup/v4') -and
         $DevProcessLibrary.Contains('swawkit.proj-dev-environment/v1') -and
         $DevProcessLibrary.Contains('Import-ProjDevTargetEnvironment')) `
     -Message 'the explicit target Dev environment consumer contract is incomplete'

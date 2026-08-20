@@ -4,8 +4,6 @@ use std::io;
 #[derive(Debug)]
 pub(crate) enum RuntimeServiceError {
     InvalidRequest(&'static str),
-    ProfileSetupRequired,
-    ProfileInvalid(String),
     CatalogDiscovery,
     CommandNotFound,
     CommandInvalid(String),
@@ -37,12 +35,6 @@ impl fmt::Display for RuntimeServiceError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidRequest(error) => formatter.write_str(error),
-            Self::ProfileSetupRequired => {
-                formatter.write_str("entry profile setup is required before running commands")
-            }
-            Self::ProfileInvalid(error) => {
-                write!(formatter, "entry profile is invalid: {error}")
-            }
             Self::CatalogDiscovery => formatter.write_str("catalog discovery failed"),
             Self::CommandNotFound => formatter.write_str("command not found"),
             Self::CommandInvalid(error)

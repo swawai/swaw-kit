@@ -2,6 +2,7 @@ pub mod declaration;
 pub mod environment;
 pub mod native;
 pub mod provider;
+pub mod settings;
 
 pub(crate) mod storage;
 

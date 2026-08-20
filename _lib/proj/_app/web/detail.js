@@ -21,7 +21,7 @@ export function createDetailView(elements) {
   function render(catalog, command) {
     copyVersion += 1;
     resetCopyFeedback();
-    elements.entryProfileDetail.hidden = true;
+    elements.entryConfigDetail.hidden = true;
 
     const group = isGroup(catalog, command);
     const issue = command.issue;

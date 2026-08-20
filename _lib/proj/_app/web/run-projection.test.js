@@ -50,7 +50,6 @@ describe("Run projection renderer", () => {
       exitCode: 0,
       error: null,
       argumentCount: 0,
-      profileRevision: "sha256-fixture",
       nextCursor: 1,
       events: [{
         sequence: 1,

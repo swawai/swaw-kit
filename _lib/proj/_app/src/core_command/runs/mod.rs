@@ -3,8 +3,6 @@ use std::path::Path;
 
 use crate::catalog::{CatalogSnapshot, CommandSpace};
 use crate::command_journal::{CommandJournalAccess, CommandLocator};
-use crate::context::EntryContext;
-use crate::profile::EntryProfileState;
 
 use super::{CoreCommandError, CoreCommandOutcome};
 
@@ -20,9 +18,7 @@ const RUN_KIND: &str = "run";
 pub fn execute(
     snapshot: &CatalogSnapshot,
     argv: &[OsString],
-    context: &EntryContext,
     data_root: &Path,
-    profile_state: &EntryProfileState,
 ) -> Result<Option<CoreCommandOutcome>, CoreCommandError> {
     let Some(address) = argv.first().and_then(|value| value.to_str()) else {
         return Ok(None);
@@ -33,32 +29,20 @@ pub fn execute(
     require_runs_command(snapshot)?;
 
     let output = match argv.get(1..) {
-        Some([]) => render::global_history(&query::run_collection(
-            snapshot,
-            context,
-            data_root,
-            profile_state,
-        )?)?,
-        Some([option]) if option == "--json" => render::json(&query::run_collection(
-            snapshot,
-            context,
-            data_root,
-            profile_state,
-        )?)?,
+        Some([]) => render::global_history(&query::run_collection(snapshot, data_root)?)?,
+        Some([option]) if option == "--json" => {
+            render::json(&query::run_collection(snapshot, data_root)?)?
+        }
         Some([option, target]) if option == "--json" => {
             render::json(&query::command_run_collection(
                 snapshot,
-                context,
                 data_root,
-                profile_state,
                 unicode_argument(target, "command locator")?,
             )?)?
         }
         Some([option, id]) if option == "--run" => render::json(&query::global_run(
             snapshot,
-            context,
             data_root,
-            profile_state,
             unicode_argument(id, "run id")?,
             0,
         )?)?,
@@ -67,22 +51,20 @@ pub fn execute(
         {
             render::json(&query::global_run(
                 snapshot,
-                context,
                 data_root,
-                profile_state,
                 unicode_argument(id, "run id")?,
                 render::parse_after_cursor(cursor)?,
             )?)?
         }
         Some([option, id]) if option == "--open" => {
             let id = unicode_argument(id, "run id")?;
-            query::global_run_access(snapshot, context, data_root, profile_state, id)?
+            query::global_run_access(snapshot, data_root, id)?
                 .open_run_directory(id)
                 .map_err(|error| CoreCommandError::io("cannot open command journal", error))?
                 .display()
                 .to_string()
         }
-        _ => return execute_for_command(snapshot, argv, context, data_root, profile_state),
+        _ => return execute_for_command(snapshot, argv, data_root),
     };
     Ok(Some(CoreCommandOutcome::success(format!("{output}\n"))))
 }
@@ -90,9 +72,7 @@ pub fn execute(
 fn execute_for_command(
     snapshot: &CatalogSnapshot,
     argv: &[OsString],
-    context: &EntryContext,
     data_root: &Path,
-    profile_state: &EntryProfileState,
 ) -> Result<Option<CoreCommandOutcome>, CoreCommandError> {
     let target = argv
         .get(1)
@@ -100,9 +80,8 @@ fn execute_for_command(
         .and_then(|value| unicode_argument(value, "command address"))?;
     let locator = CommandLocator::from_cli_target(snapshot, target)
         .map_err(|error| CoreCommandError::domain(error.to_string()))?;
-    let journal =
-        CommandJournalAccess::resolve(context, data_root, profile_state, snapshot, locator)
-            .map_err(|error| CoreCommandError::domain(error.to_string()))?;
+    let journal = CommandJournalAccess::resolve(data_root, snapshot, locator)
+        .map_err(|error| CoreCommandError::domain(error.to_string()))?;
 
     let output = match argv.get(2..) {
         Some([]) => render::numbered_history(&journal.history().map_err(query::journal_error)?)?,

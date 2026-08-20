@@ -9,7 +9,7 @@ import { createContextTrayView } from "./context-tray.js";
 import { createDetailView } from "./detail.js";
 import { createDocumentProjectionView } from "./document-projection.js";
 import { createExplorerView } from "./explorer.js";
-import { createEntryProfileView } from "./entry-profile.js";
+import { createEntryConfigView } from "./entry-config.js";
 import { setLanguage, t } from "./i18n.js";
 import { createCommandCheckProjectionRenderer } from "./command-check-projection.js";
 import { createRuntimeControlView } from "./runtime-control.js";
@@ -121,12 +121,12 @@ const elements = {
   propertyAddress: document.querySelector("#property-address"),
   propertyEntry: document.querySelector("#property-entry"),
   propertyEntryRow: document.querySelector("#property-entry-row"),
-  profileFeedback: document.querySelector("#profile-feedback"),
-  profileForm: document.querySelector("#profile-form"),
-  profileSaveButton: document.querySelector("#profile-save-button"),
-  profileState: document.querySelector("#profile-state"),
-  profileValue: document.querySelector("#profile-value"),
-  profileSettingAddress: document.querySelector("#profile-setting-address"),
+  configFeedback: document.querySelector("#config-feedback"),
+  configForm: document.querySelector("#config-form"),
+  configSaveButton: document.querySelector("#config-save-button"),
+  configState: document.querySelector("#config-state"),
+  configValue: document.querySelector("#config-value"),
+  configSettingAddress: document.querySelector("#config-setting-address"),
   retryButton: document.querySelector("#retry-button"),
   runtimeCleanupApply: document.querySelector("#runtime-cleanup-apply"),
   runtimeCleanupFeedback: document.querySelector("#runtime-cleanup-feedback"),
@@ -159,9 +159,9 @@ const elements = {
   runProjectionTitle: document.querySelector("#run-projection-title"),
   runProjectionTruncated: document.querySelector("#run-projection-truncated"),
   selectionStatus: document.querySelector("#selection-status"),
-  entryProfileDetail: document.querySelector("#entry-profile-detail"),
-  entryProfileSummary: document.querySelector("#entry-profile-summary"),
-  entryProfileTitle: document.querySelector("#entry-profile-title"),
+  entryConfigDetail: document.querySelector("#entry-config-detail"),
+  entryConfigSummary: document.querySelector("#entry-config-summary"),
+  entryConfigTitle: document.querySelector("#entry-config-title"),
   workspace: document.querySelector("#workspace"),
   catalogCanvas: document.querySelector("#catalog-canvas"),
   entryManagerNavigation: document.querySelector("#entry-manager-navigation"),
@@ -234,11 +234,10 @@ async function resolveRuntimeFacet(...arguments_) {
     throw error;
   }
 }
-const entryProfile = createEntryProfileView(elements, {
-  async onProfileChanged(document) {
-    setLanguage(document.profile.language);
+const entryConfig = createEntryConfigView(elements, {
+  async onConfigChanged(document) {
+    setLanguage(document.config.language);
     void runtimeControl?.load();
-    explorer.setSetupRequired(!document.requiredComplete);
     await loadCatalog();
   },
   onRuntimeUpdateRequired() {
@@ -259,7 +258,7 @@ const explorer = createExplorerView({
     selectedSubjectFacet = null;
     subjectFacet.select(null);
     contextTray?.selectCommand(command);
-    entryProfile.render(command);
+    entryConfig.render(command);
     detail.render(catalog, command);
     runtimeControl?.select(command);
     const selection = commandFacet.select(command, { facet: options.facet });
@@ -303,7 +302,7 @@ const explorer = createExplorerView({
   onSelectSubject(subject, options = {}) {
     selectedSubject = subject;
     const owner = catalog.commandByAddress.get(subject.owner);
-    entryProfile.render(null);
+    entryConfig.render(null);
     runtimeControl?.select(null);
     contextTray?.selectCommand(null);
     commandFacet.select(owner, { facet: subject.collectionFacet });
@@ -401,6 +400,9 @@ runtimeControl = createRuntimeControlView(elements, {
   onRuntimeState(state) {
     explorer.setCommandState(".runtime", state);
   },
+  onRuntimeUpdateRequired() {
+    void runtimeControl?.load();
+  },
 });
 const entryManager = createEntryManagerView(elements, {
   onRuntimeUpdateRequired() {
@@ -469,10 +471,8 @@ async function refreshSelectedSubjectCollection() {
   }
 }
 
-async function applyCatalogRoute(document, mode = "replace") {
-  const routed = commandAtPath(catalog, window.location.pathname, {
-    allowMissing: !document.requiredComplete,
-  });
+async function applyCatalogRoute(mode = "replace") {
+  const routed = commandAtPath(catalog, window.location.pathname);
   const route = parseCommandSelection(window.location.search);
   if (route.subject && !routed) {
     throw new Error(t("Subject URL 缺少命令所有者。", "A Subject URL requires its command owner."));
@@ -512,8 +512,8 @@ async function loadCatalog() {
     }
 
     catalog = createCatalog(await response.json());
-    const document = await entryProfile.loadProfile();
-    await applyCatalogRoute(document);
+    await entryConfig.loadConfig();
+    await applyCatalogRoute();
     await contextTray.restore();
     await entryManager.activate(catalog.entryName);
     setLoadState("ready");
@@ -528,11 +528,10 @@ async function loadCatalog() {
 async function loadApplication() {
   setLoadState("loading");
   try {
-    const document = await entryProfile.loadProfile();
-    setLanguage(document.profile.language);
+    const document = await entryConfig.loadConfig();
+    setLanguage(document.config.language);
     void commandRun.restore();
     void runtimeControl.load();
-    explorer.setSetupRequired(!document.requiredComplete);
     const response = await fetch("/api/v2/catalog", {
       cache: "no-store",
       headers: { Accept: "application/json" },
@@ -541,7 +540,7 @@ async function loadApplication() {
       throw new Error(t(`Host 返回 HTTP ${response.status}`, `Host returned HTTP ${response.status}`));
     }
     catalog = createCatalog(await response.json());
-    await applyCatalogRoute(document);
+    await applyCatalogRoute();
     await contextTray.restore();
     await entryManager.activate(catalog.entryName);
     setLoadState("ready");
@@ -557,9 +556,9 @@ async function loadApplication() {
 }
 
 elements.copyButton.addEventListener("click", detail.copyInvocation);
-elements.profileForm.addEventListener("submit", (event) => {
+elements.configForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  entryProfile.saveProfile();
+  entryConfig.saveConfig();
 });
 elements.finderColumns.addEventListener("keydown", explorer.handleKeyboard);
 elements.retryButton.addEventListener("click", startApplication);

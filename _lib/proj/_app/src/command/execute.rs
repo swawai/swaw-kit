@@ -55,7 +55,6 @@ impl<'a> CommandExecutor<'a> {
             address: plan.command().address.clone(),
             source: RunJournalSource::Cli,
             argument_count: plan.argument_count(),
-            profile_revision: self.context.profile_revision.clone(),
         })
         .map_err(|error| CommandError::new(format!("cannot start command journal: {error}")))?;
         // Keep the existing side-effect boundary: adapter/runtime/native and
@@ -175,11 +174,22 @@ impl<'a> CommandExecutor<'a> {
                 &resolution.owner_data_root,
             );
         }
+        let working_directory = if invocation.command.space == CommandSpace::Module
+            && invocation.command.namespace.as_deref() == Some("project")
+        {
+            self.context.project_root.clone().ok_or_else(|| {
+                CommandError::new(
+                    "Catalog invariant failed: project command has no bound project root",
+                )
+            })?
+        } else {
+            self.context.working_directory.clone()
+        };
         Ok(PreparedCommand::new(
             invocation.command.adapter,
             invocation.command.entry_path,
             invocation.arguments,
-            self.context.target_project_root.clone(),
+            working_directory,
             adapter_launch,
             environment,
             self.context.process_mode,

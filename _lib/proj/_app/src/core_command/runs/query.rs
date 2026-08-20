@@ -4,8 +4,6 @@ use std::path::Path;
 
 use crate::catalog::{CatalogSnapshot, CommandSpace};
 use crate::command_journal::{CommandJournalAccess, CommandLocator, RunJournalDocument};
-use crate::context::EntryContext;
-use crate::profile::EntryProfileState;
 use crate::subject::{SUBJECT_COLLECTION_PROTOCOL, SubjectCollection, SubjectRef, SubjectSummary};
 
 use super::{ALL_RUNS_FACET, RUN_KIND, RUNS_ADDRESS, RUNS_FACET};
@@ -13,13 +11,11 @@ use crate::core_command::CoreCommandError;
 
 pub(super) fn run_collection(
     snapshot: &CatalogSnapshot,
-    context: &EntryContext,
     data_root: &Path,
-    profile_state: &EntryProfileState,
 ) -> Result<SubjectCollection, CoreCommandError> {
     let facet_ids = run_facet_ids(snapshot)?;
     let mut runs = Vec::new();
-    for (locator, journal) in all_journals(snapshot, context, data_root, profile_state)? {
+    for (locator, journal) in all_journals(snapshot, data_root)? {
         for run in journal.subject_runs().map_err(journal_error)? {
             runs.push((run.started_at_unix_ms, locator.clone(), run));
         }
@@ -67,9 +63,7 @@ pub(super) fn run_collection(
 
 pub(super) fn command_run_collection(
     snapshot: &CatalogSnapshot,
-    context: &EntryContext,
     data_root: &Path,
-    profile_state: &EntryProfileState,
     target: &str,
 ) -> Result<SubjectCollection, CoreCommandError> {
     let facet_ids = run_facet_ids(snapshot)?;
@@ -86,9 +80,8 @@ pub(super) fn command_run_collection(
         address: locator.address().to_owned(),
     };
     let locator_label = locator.to_string();
-    let journal =
-        CommandJournalAccess::resolve(context, data_root, profile_state, snapshot, locator)
-            .map_err(|error| CoreCommandError::domain(error.to_string()))?;
+    let journal = CommandJournalAccess::resolve(data_root, snapshot, locator)
+        .map_err(|error| CoreCommandError::domain(error.to_string()))?;
     let subjects = journal
         .subject_runs()
         .map_err(journal_error)?
@@ -114,26 +107,22 @@ pub(super) fn command_run_collection(
 
 pub(super) fn global_run(
     snapshot: &CatalogSnapshot,
-    context: &EntryContext,
     data_root: &Path,
-    profile_state: &EntryProfileState,
     id: &str,
     after: u64,
 ) -> Result<RunJournalDocument, CoreCommandError> {
-    global_run_access(snapshot, context, data_root, profile_state, id)?
+    global_run_access(snapshot, data_root, id)?
         .run(id, after)
         .map_err(journal_error)
 }
 
 pub(super) fn global_run_access(
     snapshot: &CatalogSnapshot,
-    context: &EntryContext,
     data_root: &Path,
-    profile_state: &EntryProfileState,
     id: &str,
 ) -> Result<CommandJournalAccess, CoreCommandError> {
     let mut found = None;
-    for (_, journal) in all_journals(snapshot, context, data_root, profile_state)? {
+    for (_, journal) in all_journals(snapshot, data_root)? {
         match journal.run_directory(id) {
             Ok(_) if found.is_some() => {
                 return Err(CoreCommandError::domain(format!(
@@ -173,9 +162,7 @@ fn run_facet_ids(snapshot: &CatalogSnapshot) -> Result<Vec<String>, CoreCommandE
 
 fn all_journals(
     snapshot: &CatalogSnapshot,
-    context: &EntryContext,
     data_root: &Path,
-    profile_state: &EntryProfileState,
 ) -> Result<Vec<(String, CommandJournalAccess)>, CoreCommandError> {
     snapshot
         .commands
@@ -186,9 +173,7 @@ fn all_journals(
         .map(|command| {
             let locator = command.address.clone();
             let journal = CommandJournalAccess::resolve(
-                context,
                 data_root,
-                profile_state,
                 snapshot,
                 CommandLocator::parse(&locator)
                     .map_err(|error| CoreCommandError::domain(error.to_string()))?,

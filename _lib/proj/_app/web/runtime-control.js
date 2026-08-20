@@ -1,4 +1,8 @@
 import { t } from "./i18n.js";
+import {
+  RuntimeGenerationError,
+  runtimeGenerationMessage,
+} from "./runtime-generation.js";
 
 const RUNTIME_STATUS_PROTOCOL = "swawkit.runtime-status/v3";
 const HOST_STATUS_PROTOCOL = "swawkit.host-status/v3";
@@ -192,6 +196,18 @@ export async function requestRuntimeCleanup(apply, fetchImpl = fetch) {
     },
   });
   if (!response.ok) {
+    try {
+      const document = await response.json();
+      const message = runtimeGenerationMessage(document?.code);
+      if (message) {
+        throw new RuntimeGenerationError(message, response.status, document.code);
+      }
+    } catch (error) {
+      if (error instanceof RuntimeGenerationError) {
+        throw error;
+      }
+      // The status remains authoritative when the response is not JSON.
+    }
     throw new RuntimeControlError(t(
       `Runtime 清理返回 HTTP ${response.status}`,
       `Runtime cleanup returned HTTP ${response.status}`,
@@ -256,6 +272,7 @@ export function createRuntimeControlView(
     confirmRestart = (message) => window.confirm(message),
     confirmCleanup = (message) => window.confirm(message),
     onRuntimeState = () => {},
+    onRuntimeUpdateRequired = () => {},
   } = {},
 ) {
   let selectedHandler = null;
@@ -478,6 +495,9 @@ export function createRuntimeControlView(
         await load();
       }
     } catch (error) {
+      if (error instanceof RuntimeGenerationError) {
+        onRuntimeUpdateRequired(error);
+      }
       elements.runtimeCleanupFeedback.textContent = error instanceof Error
         ? error.message
         : t("Runtime 清理失败", "Runtime cleanup failed");

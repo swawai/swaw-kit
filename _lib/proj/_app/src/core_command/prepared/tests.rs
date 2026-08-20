@@ -4,14 +4,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::catalog::{CATALOG_PROTOCOL, CatalogSnapshot, CommandAdapter, CommandSpace};
 use crate::command::ResolvedCommand;
 use crate::context::EntryContext;
-use crate::profile::{EntryProfileState, EntryProfileStore};
 
 use super::*;
 
 #[test]
 fn runtime_preparation_rejects_lifecycle_and_unknown_core_handlers() {
     let fixture = Fixture::new();
-    let lifecycle = fixture.command(".entry/language", "entry.profile.set");
+    let lifecycle = fixture.command(".entry/language", "entry.config.set");
     let error = match fixture.prepare(&lifecycle) {
         Ok(_) => panic!("lifecycle command unexpectedly prepared"),
         Err(error) => error,
@@ -69,30 +68,12 @@ fn runtime_preparation_is_explicit_for_every_supported_handler() {
         (".check", "meta.check"),
         (".check/dir/exists", "meta.check.dir.exists"),
         (".runs", "meta.runs"),
-        (".dev/bun/mode", "entry.profile.set"),
     ] {
         let command = fixture.command(address, handler);
         fixture
             .prepare(&command)
             .unwrap_or_else(|error| panic!("{address}: {error}"));
     }
-}
-
-#[test]
-fn runtime_preparation_defers_profile_arguments_and_mutation_until_execute() {
-    let fixture = Fixture::new();
-    let command = fixture.command(".dev/bun/mode", "entry.profile.set");
-    let profile_path = fixture.data_root.join("_profile.json");
-
-    let prepared = fixture
-        .prepare_with_argv(&command, vec![command.address.clone().into()])
-        .expect("prepare malformed profile invocation without parsing it");
-    assert!(!profile_path.exists());
-
-    let error = prepared.execute().unwrap_err();
-    assert!(matches!(error, CoreCommandError::Arguments { .. }));
-    assert_eq!(error.to_string(), "usage: .dev/bun/mode <value>");
-    assert!(!profile_path.exists());
 }
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -168,10 +149,6 @@ impl Fixture {
             },
             self.context.clone(),
             self.data_root.clone(),
-            EntryProfileState::Missing {
-                path: self.data_root.join("_profile.json"),
-            },
-            EntryProfileStore::new(&self.context.swawkit_home, &self.data_root),
         )
     }
 }

@@ -131,30 +131,60 @@ pub(crate) fn read_replaceable_bounded(
     subject: &str,
     maximum: u64,
 ) -> io::Result<Vec<u8>> {
-    let mut file = OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || is_reparse(&metadata) {
+    read_replaceable_bounded_from_file(file, path, subject, maximum, |_| Ok(()))
+}
+
+fn read_replaceable_bounded_from_file(
+    mut file: File,
+    path: &Path,
+    subject: &str,
+    maximum: u64,
+    before_read: impl FnOnce(&File) -> io::Result<()>,
+) -> io::Result<Vec<u8>> {
+    let initial_metadata = file.metadata()?;
+    if !initial_metadata.is_file() || is_reparse(&initial_metadata) {
         return Err(unsafe_path(subject, path));
     }
-    if metadata.len() > maximum {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("{subject} exceeds its size limit"),
-        ));
+    if initial_metadata.len() > maximum {
+        return Err(size_limit_exceeded(subject));
     }
-    let mut content = Vec::with_capacity(metadata.len() as usize);
-    file.read_to_end(&mut content)?;
+
+    let initial_length = initial_metadata.len();
+    before_read(&file)?;
+    let mut content = Vec::with_capacity(initial_length as usize);
+    file.by_ref()
+        .take(maximum.saturating_add(1))
+        .read_to_end(&mut content)?;
     if content.len() as u64 > maximum {
+        return Err(size_limit_exceeded(subject));
+    }
+
+    let final_metadata = file.metadata()?;
+    if !final_metadata.is_file() || is_reparse(&final_metadata) {
+        return Err(unsafe_path(subject, path));
+    }
+    if final_metadata.len() > maximum {
+        return Err(size_limit_exceeded(subject));
+    }
+    if final_metadata.len() != initial_length || content.len() as u64 != initial_length {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("{subject} exceeds its size limit"),
+            format!("{subject} changed while being read"),
         ));
     }
     Ok(content)
+}
+
+fn size_limit_exceeded(subject: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("{subject} exceeds its size limit"),
+    )
 }
 
 pub(super) fn regular_file_length(path: &Path, subject: &str) -> io::Result<u64> {
@@ -186,4 +216,90 @@ fn is_lock_contention(error: &io::Error) -> bool {
         error.raw_os_error(),
         Some(code) if code == ERROR_SHARING_VIOLATION as i32 || code == ERROR_LOCK_VIOLATION as i32
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use super::*;
+
+    static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+    struct Fixture {
+        root: PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "swawkit-proj-dev-storage-{}-{sequence}",
+                std::process::id()
+            ));
+            fs::create_dir_all(&root).expect("create storage fixture");
+            Self { root }
+        }
+
+        fn file(&self, name: &str, content: &[u8]) -> PathBuf {
+            let path = self.root.join(name);
+            fs::write(&path, content).expect("write storage fixture");
+            path
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    fn read_with_length_change(
+        path: &Path,
+        maximum: u64,
+        changed_length: u64,
+    ) -> io::Result<Vec<u8>> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)?;
+        read_replaceable_bounded_from_file(file, path, "Dev Settings", maximum, |file| {
+            file.set_len(changed_length)
+        })
+    }
+
+    #[test]
+    fn rejects_a_file_that_grows_within_the_bound_after_initial_metadata() {
+        let fixture = Fixture::new();
+        let path = fixture.file("growing.json", b"{}");
+
+        let error = read_with_length_change(&path, 16, 3).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "Dev Settings changed while being read");
+    }
+
+    #[test]
+    fn bounded_reader_rejects_growth_beyond_the_limit() {
+        let fixture = Fixture::new();
+        let path = fixture.file("oversized-growth.json", b"{}");
+
+        let error = read_with_length_change(&path, 16, 17).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "Dev Settings exceeds its size limit");
+    }
+
+    #[test]
+    fn rejects_a_file_that_is_truncated_after_initial_metadata() {
+        let fixture = Fixture::new();
+        let path = fixture.file("truncated.json", b"{}\n");
+
+        let error = read_with_length_change(&path, 16, 2).unwrap_err();
+
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(error.to_string(), "Dev Settings changed while being read");
+    }
 }

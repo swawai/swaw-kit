@@ -128,7 +128,7 @@ impl MsvcDefinition {
         if channel.is_empty() || !channel.bytes().all(|byte| byte.is_ascii_digit()) {
             return Err(error(
                 MsvcErrorKind::InvalidChannel,
-                "SWAWKIT_PROJ_MSVC_CHANNEL must be a numeric VS channel.",
+                ".dev/msvc/channel must be a numeric VS channel.",
             ));
         }
         Ok(Self {

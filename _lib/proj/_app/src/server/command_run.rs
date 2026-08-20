@@ -84,11 +84,9 @@ pub(super) fn runtime_service_error(
 ) -> (StatusCode, Json<super::ApiError>) {
     let status = match &error {
         RuntimeServiceError::InvalidRequest(_)
-        | RuntimeServiceError::ProfileInvalid(_)
         | RuntimeServiceError::CommandInvalid(_)
         | RuntimeServiceError::LifecycleCommandUnsupported => StatusCode::UNPROCESSABLE_ENTITY,
-        RuntimeServiceError::ProfileSetupRequired
-        | RuntimeServiceError::DependenciesNotReady(_)
+        RuntimeServiceError::DependenciesNotReady(_)
         | RuntimeServiceError::RunNotCancelable
         | RuntimeServiceError::RuntimeUpdateRequired { .. } => StatusCode::CONFLICT,
         RuntimeServiceError::CommandNotFound | RuntimeServiceError::RunNotFound => {

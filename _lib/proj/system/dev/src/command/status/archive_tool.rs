@@ -1,5 +1,6 @@
 use swawkit_proj_dev::development::ArchiveToolContract as ArchiveTool;
 use swawkit_proj_dev::development::archive_tool::{ArchiveToolRequest, ArchiveToolStore, Trust};
+use swawkit_proj_dev::development::setup::declaration::DeclarationSnapshot;
 
 use super::CommandContext;
 
@@ -56,9 +57,13 @@ impl ArchiveReport {
 
 pub(super) fn inspect(
     context: &CommandContext,
+    declarations: &DeclarationSnapshot,
     tool: &ArchiveTool,
 ) -> Result<ArchiveReport, String> {
-    let mode = context.environment(tool.mode_variable).to_ascii_lowercase();
+    let settings = declarations
+        .archive_settings(tool)
+        .map_err(|error| error.to_string())?;
+    let mode = settings.mode.as_str();
     if mode.is_empty() || mode == "disabled" {
         return Ok(ArchiveReport::Off);
     }
@@ -77,20 +82,20 @@ pub(super) fn inspect(
         };
         return Err(format!(
             "Unsupported {} value '{mode}'. Expected {expected}.",
-            tool.mode_variable,
+            tool.setting_address("mode"),
         ));
     }
 
-    let requested = context.environment(tool.version_variable);
+    let requested = settings.version.as_str();
     if requested.is_empty() {
         return Err(format!(
             "Enabled {} must declare {}.",
-            tool.display_name, tool.version_variable
+            tool.display_name,
+            tool.setting_address("version")
         ));
     }
-    let request =
-        ArchiveToolRequest::new(tool, &requested, &context.environment(tool.hash_variable))
-            .map_err(|error| error.to_string())?;
+    let request = ArchiveToolRequest::new(tool, requested, &settings.sha256)
+        .map_err(|error| error.to_string())?;
     let store = ArchiveToolStore::new(&context.data_root, tool);
     let Some(resolved) = store.resolve(&request).map_err(|error| error.to_string())? else {
         return Ok(ArchiveReport::LatestUnresolved {

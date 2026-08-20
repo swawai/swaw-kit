@@ -13,9 +13,7 @@ function Get-ProjDevRepairInvocation {
 function Import-ProjDevTargetEnvironment {
     $script:ProjDevTargetEnvironment = $null
     $DataRoot = [string]$env:SWAWKIT_PROJ_DATA_ROOT
-    $ExpectedInputRevision = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION
-    if ([string]::IsNullOrWhiteSpace($DataRoot) -or
-        [string]::IsNullOrWhiteSpace($ExpectedInputRevision)) {
+    if ([string]::IsNullOrWhiteSpace($DataRoot)) {
         throw 'The current Entry development environment context is unavailable.'
     }
     $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
@@ -35,10 +33,12 @@ function Import-ProjDevTargetEnvironment {
         }
     }
     try {
-        $State = [IO.File]::ReadAllText(
-            $StatePath,
-            [Text.Encoding]::UTF8
-        ) | ConvertFrom-Json
+        [byte[]]$StateBytes = [IO.File]::ReadAllBytes($StatePath)
+        if ($StateBytes.Length -le 0 -or $StateBytes.Length -gt 1MB) {
+            throw 'The command provider state changed while it was being read.'
+        }
+        $State = [Text.Encoding]::UTF8.GetString($StateBytes) |
+            ConvertFrom-Json
         $Environment = [IO.File]::ReadAllText(
             $EnvironmentPath,
             [Text.Encoding]::UTF8
@@ -52,13 +52,13 @@ function Import-ProjDevTargetEnvironment {
     $Exports = @($State.exports)
     if ([string]$State.schema -cne 'swawkit.command-provider-state/v2' -or
         [string]$State.status -cne 'ready' -or
-        [string]$State.inputRevision -cne $ExpectedInputRevision -or
+        [string]$State.inputRevision -cnotmatch '^sha256-[a-f0-9]{64}$' -or
         [string]$State.token -cnotmatch '^[a-f0-9]{32}$' -or
         $Exports.Count -ne 1 -or
         [string]$Exports[0].id -cne 'environment' -or
-        [string]$Exports[0].contract -cne 'swawkit.proj.dev-setup/v3' -or
+        [string]$Exports[0].contract -cne 'swawkit.proj.dev-setup/v4' -or
         [string]$Environment.schema -cne 'swawkit.proj-dev-environment/v1' -or
-        [string]$Environment.inputRevision -cne $ExpectedInputRevision -or
+        [string]$Environment.inputRevision -cne [string]$State.inputRevision -or
         [string]$Environment.publicationToken -cne [string]$State.token) {
         throw (
             "The current Entry development environment is outdated. Run " +
@@ -69,6 +69,46 @@ function Import-ProjDevTargetEnvironment {
     if ([string]$env:SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_PUBLICATION_TOKEN -cne
         [string]$State.token) {
         throw 'The development environment script does not match its publication.'
+    }
+    $LatestStateItem = Get-Item `
+        -LiteralPath $StatePath `
+        -Force `
+        -ErrorAction SilentlyContinue
+    if ($null -eq $LatestStateItem -or $LatestStateItem.PSIsContainer -or
+        $LatestStateItem.Length -le 0 -or $LatestStateItem.Length -gt 1MB -or
+        ($LatestStateItem.Attributes -band
+            [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw (
+            "The current Entry development environment changed while it was " +
+            "loading. Run '$(Get-ProjDevRepairInvocation)'."
+        )
+    }
+    try {
+        [byte[]]$LatestStateBytes = [IO.File]::ReadAllBytes($StatePath)
+    } catch {
+        throw (
+            "The current Entry development environment changed while it was " +
+            "loading. Run '$(Get-ProjDevRepairInvocation)'."
+        )
+    }
+    $StateChanged = (
+        $LatestStateBytes.Length -le 0 -or
+        $LatestStateBytes.Length -gt 1MB -or
+        $LatestStateBytes.Length -ne $StateBytes.Length
+    )
+    if (-not $StateChanged) {
+        for ($Index = 0; $Index -lt $StateBytes.Length; $Index++) {
+            if ($LatestStateBytes[$Index] -ne $StateBytes[$Index]) {
+                $StateChanged = $true
+                break
+            }
+        }
+    }
+    if ($StateChanged) {
+        throw (
+            "The current Entry development environment changed while it was " +
+            "loading. Run '$(Get-ProjDevRepairInvocation)'."
+        )
     }
     $script:ProjDevTargetEnvironment = $Environment
 }

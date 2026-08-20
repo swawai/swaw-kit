@@ -7,46 +7,12 @@ use crate::{ProtocolError, ProtocolResult, is_revision};
 
 pub const DEV_ENVIRONMENT_SCHEMA: &str = "swawkit.proj-dev-environment/v1";
 pub const DEV_ENVIRONMENT_EXPORT_NAME: &str = "environment.json";
-pub const DEV_SETUP_CONTRACT: &str = "swawkit.proj.dev-setup/v3";
+pub const DEV_SETUP_CONTRACT: &str = "swawkit.proj.dev-setup/v4";
 
 const MAX_ENVIRONMENT_ITEMS: usize = 128;
 const MAX_ENVIRONMENT_NAME_BYTES: usize = 128;
 const MAX_ENVIRONMENT_VALUE_BYTES: usize = 32 * 1024;
 const MAX_PATH_BYTES: usize = 32 * 1024;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DevInputNormalization {
-    Exact,
-    Lowercase,
-}
-
-const DEV_PROVIDER_INPUTS: &[(&str, DevInputNormalization)] = &[
-    ("SWAWKIT_PROJ_BUN_MODE", DevInputNormalization::Exact),
-    ("SWAWKIT_PROJ_BUN_SHA256", DevInputNormalization::Lowercase),
-    ("SWAWKIT_PROJ_BUN_VERSION", DevInputNormalization::Exact),
-    ("SWAWKIT_PROJ_MSVC_CHANNEL", DevInputNormalization::Exact),
-    ("SWAWKIT_PROJ_MSVC_MODE", DevInputNormalization::Exact),
-    ("SWAWKIT_PROJ_PWSH_MODE", DevInputNormalization::Exact),
-    ("SWAWKIT_PROJ_PWSH_SHA256", DevInputNormalization::Lowercase),
-    ("SWAWKIT_PROJ_PWSH_VERSION", DevInputNormalization::Exact),
-    ("SWAWKIT_PROJ_RUST_HOST", DevInputNormalization::Exact),
-    ("SWAWKIT_PROJ_RUST_MODE", DevInputNormalization::Exact),
-    ("SWAWKIT_PROJ_RUST_PROFILE", DevInputNormalization::Exact),
-    (
-        "SWAWKIT_PROJ_RUST_TOOLCHAIN",
-        DevInputNormalization::Lowercase,
-    ),
-];
-
-pub fn dev_provider_input_normalization(name: &str) -> Option<DevInputNormalization> {
-    DEV_PROVIDER_INPUTS
-        .iter()
-        .find_map(|(candidate, normalization)| (*candidate == name).then_some(*normalization))
-}
-
-pub fn dev_provider_input_names() -> Vec<&'static str> {
-    DEV_PROVIDER_INPUTS.iter().map(|(name, _)| *name).collect()
-}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

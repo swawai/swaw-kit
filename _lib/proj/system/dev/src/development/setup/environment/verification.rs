@@ -179,8 +179,6 @@ mod tests {
     use std::fs;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use sha2::{Digest, Sha256};
-
     use super::*;
     use crate::development::setup::provider::SetupProvider;
 
@@ -241,12 +239,9 @@ mod tests {
             ));
             let data_root = root.join("data/proj.fixture");
             fs::create_dir_all(&data_root).unwrap();
-            let profile_content = b"{}\r\n";
-            fs::write(data_root.join("_profile.json"), profile_content).unwrap();
-            let profile_revision = format!("sha256-{:x}", Sha256::digest(profile_content));
-            let input_revision = format!("sha256-{}", "a".repeat(64));
-            let provider =
-                SetupProvider::new(&data_root, profile_revision, input_revision.clone()).unwrap();
+            let input_revision =
+                crate::development::setup::settings::current_input_revision(&data_root).unwrap();
+            let provider = SetupProvider::new(&data_root, input_revision.clone()).unwrap();
             let publication = provider.start().unwrap();
             let path_entry = data_root.join("modules/system/dev/setup/export/tool/bin");
             fs::create_dir_all(&path_entry).unwrap();

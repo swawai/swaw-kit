@@ -58,6 +58,7 @@ $PoisonedEnvironment = [ordered]@{
     SWAWKIT_HOME = 'C:\foreign-home'
     SWAWKIT_PROJ_PROTOCOL = 'foreign'
     SWAWKIT_PROJ_TARGET_PROJECT_ROOT = 'C:\foreign-project'
+    SWAWKIT_PROJ_PROJECT_ROOT = 'C:\foreign-project'
     SWAWKIT_PROJ_PROJECT_MODULE_ROOT = 'C:\foreign-project\.swaw'
     SWAWKIT_PROJ_DATA_ROOT = 'C:\foreign-data'
     SWAWKIT_PROJ_ENTRY_COMMAND = 'foreign-entry'
@@ -102,8 +103,13 @@ try {
         -Message ".entry --json failed: $($Missing.Text)"
     $MissingDocument = $Missing.Text | ConvertFrom-Json
     Assert-ProjEntrySmoke `
-        -Condition ($MissingDocument.status -ceq 'setupRequired') `
-        -Message 'a fresh Entry did not report setupRequired'
+        -Condition (
+            $MissingDocument.protocol -ceq 'swawkit.entry-config-state/v1' -and
+            $MissingDocument.status -ceq 'default' -and
+            $MissingDocument.config.language -ceq 'zh-CN' -and
+            $null -eq $MissingDocument.config.projectRoot
+        ) `
+        -Message 'a fresh Entry did not expose its valid unbound default config'
 
     $Saved = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
@@ -118,9 +124,33 @@ try {
     Assert-ProjEntrySmoke `
         -Condition (
             $SavedDocument.status -ceq 'ready' -and
-            $SavedDocument.profile.targetProjectRoot -ceq '${SWAWKIT_HOME}'
+            $SavedDocument.config.projectRoot -ceq '${SWAWKIT_HOME}'
         ) `
-        -Message 'the saved Entry Profile is not ready'
+        -Message 'the saved Entry Config is not ready'
+
+    $English = Invoke-ProjEntrySmoke `
+        -EntryPath $EntryPath `
+        -Arguments @('.entry/language', 'en')
+    Assert-ProjEntrySmoke `
+        -Condition ($English.ExitCode -eq 0) `
+        -Message "failed to select English Entry help: $($English.Text)"
+    foreach ($HelpCase in @(
+        @{ Address = '.entry/project'; Expected = 'Maintain the target project' },
+        @{ Address = '.runtime'; Expected = 'Inspect aggregate Host and native Runtime' }
+    )) {
+        $LocalizedHelp = Invoke-ProjEntrySmoke `
+            -EntryPath $EntryPath `
+            -Arguments @([string]$HelpCase.Address, '--help')
+        Assert-ProjEntrySmoke `
+            -Condition (
+                $LocalizedHelp.ExitCode -eq 0 -and
+                $LocalizedHelp.Text.Contains([string]$HelpCase.Expected)
+            ) `
+            -Message (
+                "$($HelpCase.Address) did not use the saved Entry language: " +
+                $LocalizedHelp.Text
+            )
+    }
 
     $Help = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
@@ -204,6 +234,30 @@ try {
             "candidate Toolchain: $($DevelopmentSetup.Text)"
         )
 
+    $ProjectBinding = Invoke-ProjEntrySmoke `
+        -EntryPath $EntryPath `
+        -Arguments @('.entry/project/root', $RepoRoot)
+    Assert-ProjEntrySmoke `
+        -Condition ($ProjectBinding.ExitCode -eq 0) `
+        -Message "failed to bind the smoke project: $($ProjectBinding.Text)"
+    $ProjectEcho = Invoke-ProjEntrySmoke `
+        -EntryPath $EntryPath `
+        -Arguments @('project/demo/echo', 'smoke')
+    $ProjectModuleRoot = Join-Path $RepoRoot '.swaw'
+    Assert-ProjEntrySmoke `
+        -Condition (
+            $ProjectEcho.ExitCode -eq 0 -and
+            $ProjectEcho.Text.Contains('commandAddress=project/demo/echo') -and
+            $ProjectEcho.Text.Contains("projectRoot=$RepoRoot") -and
+            $ProjectEcho.Text.Contains("projectModuleRoot=$ProjectModuleRoot") -and
+            $ProjectEcho.Text.Contains('arg[0]="smoke"') -and
+            -not $ProjectEcho.Text.Contains('C:\foreign-project')
+        ) `
+        -Message (
+            'the project command did not receive the current binding or inherited ' +
+            "the retired parent environment: $($ProjectEcho.Text)"
+        )
+
     $RemovedWeb = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
         -Arguments @('..web')
@@ -215,8 +269,8 @@ try {
         -Message '..web remained a public command after its removal'
 
     Assert-ProjEntrySmoke `
-        -Condition ([IO.File]::Exists((Join-Path $DataRoot '_profile.json'))) `
-        -Message 'the native Entry did not publish its Profile'
+        -Condition ([IO.File]::Exists((Join-Path $DataRoot '_entry-config.json'))) `
+        -Message 'the native Entry did not publish its Entry Config'
 } finally {
     foreach ($Name in $SavedEnvironment.Keys) {
         [Environment]::SetEnvironmentVariable(

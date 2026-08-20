@@ -66,46 +66,6 @@ describe("Catalog v19 model", () => {
       ]);
   });
 
-  test("keeps typed Profile settings and their ancestors available during setup", () => {
-    const catalog = createCatalog(payload([
-      node(".dev"),
-      node(".dev/bun", { parent: ".dev" }),
-      node(".dev/bun/mode", {
-        parent: ".dev/bun",
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "core",
-        handler: "entry.profile.set",
-      }),
-      node(".dev/exec", { parent: ".dev" }),
-    ]));
-
-    expect(catalog.commandByAddress.get(".dev").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".dev/bun").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".dev/bun/mode").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".dev/exec").setupAvailable).toBe(false);
-  });
-
-  test("keeps Profile-independent Core commands available during setup", () => {
-    const core = (address, handler) => node(address, {
-      runnable: true,
-      entry: "swawkit.module.json",
-      adapter: "core",
-      handler,
-    });
-    const catalog = createCatalog(payload([
-      core(".check", "meta.check"),
-      core(".help", "meta.help"),
-      core(".runs", "meta.runs"),
-      core(".other", "other.handler"),
-    ]));
-
-    expect(catalog.commandByAddress.get(".check").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".help").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".runs").setupAvailable).toBe(true);
-    expect(catalog.commandByAddress.get(".other").setupAvailable).toBe(false);
-  });
-
   test("keeps a diagnostic leaf distinct from a command group", () => {
     const catalog = createCatalog(payload([
       node(".broken", { diagnostic: "multiple run entries" }),
@@ -299,7 +259,7 @@ describe("Catalog v19 model", () => {
           type: "command",
           address: ".runs",
           arguments: [{ bind: "subject.id" }],
-          returns: "swawkit.command-run-journal/v2",
+          returns: "swawkit.command-run-journal/v3",
         },
       }],
     };

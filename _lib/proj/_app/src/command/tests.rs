@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -9,19 +9,59 @@ use crate::{
     catalog::{CatalogSnapshot, CommandAdapter},
     command_runtime::{COMMAND_RUNTIME_SCHEMA, CommandRuntime},
     launch::{ENTRY_FILE_ENV, LAUNCH_MODE_ENV},
-    profile::EntryProfileRecord,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use swawkit_proj_protocol::COMMAND_ENVIRONMENT_PROTOCOL;
 
 use super::{
     CommandExecutionContext, CommandExecutor, CommandProcessMode, Invocation, ProcessEnvironment,
     ResolvedCommand,
+    environment::{
+        CONDITIONAL_PROJECT_ENVIRONMENT, RETIRED_COMMAND_ENVIRONMENT, catalog_module_roots,
+    },
     process::{AdapterLaunch, run_process},
     validate_dev_executable, validate_module_executable,
 };
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+const EXPECTED_RETIRED_COMMAND_ENVIRONMENT: [&str; 30] = [
+    "SWAWKIT_PROJ_BUN_MODE",
+    "SWAWKIT_PROJ_BUN_SHA256",
+    "SWAWKIT_PROJ_BUN_VERSION",
+    "SWAWKIT_PROJ_CURSOR_MODE",
+    "SWAWKIT_PROJ_GH_MODE",
+    "SWAWKIT_PROJ_GIT_ID_ACCESS",
+    "SWAWKIT_PROJ_GIT_ID_EMAIL",
+    "SWAWKIT_PROJ_GIT_ID_NAME",
+    "SWAWKIT_PROJ_GO_MODE",
+    "SWAWKIT_PROJ_GO_SHA256",
+    "SWAWKIT_PROJ_GO_VERSION",
+    "SWAWKIT_PROJ_MSVC_CHANNEL",
+    "SWAWKIT_PROJ_MSVC_MODE",
+    "SWAWKIT_PROJ_PWSH_MODE",
+    "SWAWKIT_PROJ_PWSH_SHA256",
+    "SWAWKIT_PROJ_PWSH_VERSION",
+    "SWAWKIT_PROJ_PYTHON_MODE",
+    "SWAWKIT_PROJ_PYTHON_SHA256",
+    "SWAWKIT_PROJ_PYTHON_VERSION",
+    "SWAWKIT_PROJ_RUST_HOST",
+    "SWAWKIT_PROJ_RUST_MODE",
+    "SWAWKIT_PROJ_RUST_PROFILE",
+    "SWAWKIT_PROJ_RUST_TOOLCHAIN",
+    "SWAWKIT_PROJ_TARGET_PROJECT_ROOT",
+    "SWAWKIT_PROJ_UV_MODE",
+    "SWAWKIT_PROJ_UV_SHA256",
+    "SWAWKIT_PROJ_UV_VERSION",
+    "SWAWKIT_PROJ_VSCODE_MODE",
+    "SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION",
+    "SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION",
+];
+const EXPECTED_CONDITIONAL_PROJECT_ENVIRONMENT: [&str; 2] = [
+    "SWAWKIT_PROJ_PROJECT_ROOT",
+    "SWAWKIT_PROJ_PROJECT_MODULE_ROOT",
+];
 
 fn write_json(path: &Path, value: &serde_json::Value) {
     fs::create_dir_all(path.parent().expect("JSON parent")).expect("create JSON parent");
@@ -104,7 +144,7 @@ struct Fixture {
     command_root: PathBuf,
     system_root: PathBuf,
     swaw_module_root: PathBuf,
-    target_project_root: PathBuf,
+    project_root: PathBuf,
     project_module_root: PathBuf,
     data_root: PathBuf,
 }
@@ -122,14 +162,14 @@ impl Fixture {
         let command_root = root.join("_lib/proj");
         let system_root = command_root.join("system");
         let swaw_module_root = command_root.join("modules");
-        let target_project_root = root.join("project");
-        let project_module_root = target_project_root.join(".swaw");
+        let project_root = root.join("project");
+        let project_module_root = project_root.join(".swaw");
         let data_root = root.join("data");
         for directory in [
             &command_root,
             &system_root,
             &swaw_module_root,
-            &target_project_root,
+            &project_root,
             &project_module_root,
             &data_root,
         ] {
@@ -143,7 +183,7 @@ impl Fixture {
             command_root,
             system_root,
             swaw_module_root,
-            target_project_root,
+            project_root,
             project_module_root,
             data_root,
         }
@@ -172,13 +212,6 @@ impl Fixture {
     }
 
     fn context(&self) -> CommandExecutionContext {
-        let mut profile = EntryProfileRecord::default();
-        profile.development.bun.mode = "disabled".to_owned();
-        profile.development.pwsh.mode = "disabled".to_owned();
-        profile.development.pwsh.version = "7.6.4".to_owned();
-        profile.development.msvc.mode = "disabled".to_owned();
-        profile.development.rust.mode = "disabled".to_owned();
-        let environment_input_revision = profile.environment_input_revision();
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .ancestors()
             .nth(3)
@@ -189,21 +222,20 @@ impl Fixture {
             swawkit_home: self.root.clone(),
             command_root: self.command_root.clone(),
             system_root: self.system_root.clone(),
-            target_project_root: self.target_project_root.clone(),
+            project_root: Some(self.project_root.clone()),
             module_roots: BTreeMap::from([
                 ("swaw".to_owned(), self.swaw_module_root.clone()),
                 ("project".to_owned(), self.project_module_root.clone()),
             ]),
             data_root: self.data_root.clone(),
             entry_name: "fixture".to_owned(),
+            language: "zh-CN",
             entry_file: self.root.join("fixture.exe"),
-            invocation_directory: self.target_project_root.clone(),
+            invocation_directory: self.project_root.clone(),
+            working_directory: self.project_root.clone(),
             dev_executable: self.root.join("swawkit-proj-dev.exe"),
             module_executable: self.root.join("swawkit-proj-module.exe"),
             command_runtime_id,
-            profile,
-            environment_input_revision,
-            profile_revision: format!("sha256-{}", "0".repeat(64)),
             process_mode: CommandProcessMode::InheritConsole,
         }
     }
@@ -244,7 +276,7 @@ fn process_environment_is_declarative() {
         ProcessEnvironment::for_command(&context, &command).expect("build run environment");
     assert_eq!(
         run.value("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL"),
-        Some(Some(OsStr::new("2")))
+        Some(Some(OsStr::new(COMMAND_ENVIRONMENT_PROTOCOL)))
     );
     assert_eq!(
         run.value("SWAWKIT_PROJ_CORE_COMMAND_EVENT_PROTOCOL"),
@@ -266,13 +298,26 @@ fn process_environment_is_declarative() {
         Some(Some(context.dev_executable.as_os_str()))
     );
     assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION"),
-        Some(Some(OsStr::new(&context.environment_input_revision)))
+        RETIRED_COMMAND_ENVIRONMENT,
+        EXPECTED_RETIRED_COMMAND_ENVIRONMENT
     );
     assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION"),
-        Some(Some(OsStr::new(&context.profile_revision)))
+        CONDITIONAL_PROJECT_ENVIRONMENT,
+        EXPECTED_CONDITIONAL_PROJECT_ENVIRONMENT
     );
+    let cleared_names = RETIRED_COMMAND_ENVIRONMENT
+        .iter()
+        .chain(CONDITIONAL_PROJECT_ENVIRONMENT.iter())
+        .copied()
+        .collect::<Vec<_>>();
+    assert_eq!(
+        cleared_names.iter().copied().collect::<BTreeSet<_>>().len(),
+        cleared_names.len(),
+        "environment cleanup registry must not contain duplicate names"
+    );
+    for name in EXPECTED_RETIRED_COMMAND_ENVIRONMENT {
+        assert_eq!(run.value(name), Some(None), "{name} must be removed");
+    }
     assert_eq!(
         run.value("SWAWKIT_PROJ_CORE_COMMAND_ADDRESS"),
         Some(Some(OsStr::new(".tool")))
@@ -288,18 +333,12 @@ fn process_environment_is_declarative() {
                 .as_os_str()
         ))
     );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_TARGET_PROJECT_ROOT"),
-        Some(Some(fixture.target_project_root.as_os_str()))
-    );
+    assert_eq!(run.value("SWAWKIT_PROJ_PROJECT_ROOT"), Some(None));
     assert_eq!(
         run.value("SWAWKIT_PROJ_SYSTEM_ROOT"),
         Some(Some(fixture.system_root.as_os_str()))
     );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_PROJECT_MODULE_ROOT"),
-        Some(Some(fixture.project_module_root.as_os_str()))
-    );
+    assert_eq!(run.value("SWAWKIT_PROJ_PROJECT_MODULE_ROOT"), Some(None));
     let module_roots: BTreeMap<String, PathBuf> = serde_json::from_str(
         run.value("SWAWKIT_PROJ_MODULE_ROOTS")
             .flatten()
@@ -317,10 +356,6 @@ fn process_environment_is_declarative() {
     assert_eq!(
         run.value("SWAWKIT_HOME"),
         Some(Some(fixture.root.as_os_str()))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_BUN_VERSION"),
-        Some(Some(OsStr::new("1.2.15")))
     );
     assert_eq!(
         run.value("SWAWKIT_PROJ_LANGUAGE"),
@@ -347,6 +382,26 @@ fn process_environment_is_declarative() {
         run.value("SWAWKIT_PROJ_CORE_COMMAND_OWNER_DATA_ROOT"),
         Some(Some(owner_data_root.as_os_str()))
     );
+}
+
+#[test]
+fn execution_context_omits_an_unsafe_project_module_root() {
+    let fixture = Fixture::new();
+    fs::remove_dir_all(&fixture.project_module_root).expect("remove regular project Module root");
+    let external = fixture.root.join("external-project-modules");
+    fs::create_dir_all(&external).expect("create external project Module root");
+    if std::os::windows::fs::symlink_dir(&external, &fixture.project_module_root).is_err() {
+        return;
+    }
+    let catalog = fixture.catalog();
+    let roots = catalog_module_roots(&catalog);
+
+    assert_eq!(
+        roots.get("swaw").map(PathBuf::as_path),
+        Some(fixture.swaw_module_root.as_path())
+    );
+    assert!(!roots.contains_key("project"));
+    fs::remove_dir(&fixture.project_module_root).expect("remove project Module root reparse point");
 }
 
 #[test]
@@ -390,7 +445,7 @@ fn command_data_roots_are_isolated_by_structured_identity() {
     fs::create_dir_all(&control).unwrap();
     fs::write(
         control.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"core","handler":"entry.profile"}}"#,
+        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"core","handler":"entry.config"}}"#,
     )
     .unwrap();
     let action = fixture.project_module_root.join("build");
@@ -579,7 +634,7 @@ fn exe_adapter_returns_the_exact_child_exit_code() {
         CommandAdapter::Exe,
         Path::new(&comspec),
         &arguments,
-        &fixture.target_project_root,
+        &fixture.project_root,
         &AdapterLaunch::Direct,
         &environment,
         CommandProcessMode::InheritConsole,

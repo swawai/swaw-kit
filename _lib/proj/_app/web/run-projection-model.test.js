@@ -14,7 +14,6 @@ function run(overrides = {}) {
     exitCode: 0,
     error: null,
     argumentCount: 0,
-    profileRevision: "sha256-fixture",
     nextCursor: 1,
     events: [{
       sequence: 1,
@@ -32,8 +31,14 @@ function run(overrides = {}) {
 describe("Run projection model", () => {
   test("rejects the pre-hard-cut Journal document protocol", () => {
     expect(() => createRunProjection(run({
-      protocol: "swawkit.command-run-journal/v1",
+      protocol: "swawkit.command-run-journal/v2",
     }), run().id)).toThrow(RUN_JOURNAL_PROTOCOL);
+  });
+
+  test("rejects the retired profile revision field", () => {
+    expect(() => createRunProjection(run({
+      profileRevision: "sha256-retired",
+    }), run().id)).toThrow("意外字段");
   });
 
   test("validates a Journal against the selected Run", () => {

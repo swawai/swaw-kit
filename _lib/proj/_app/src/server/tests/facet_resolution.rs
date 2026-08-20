@@ -176,9 +176,9 @@ async fn resolves_a_declared_collection_and_projects_subject_facets() {
     let fixture = Fixture::new();
     context_surface(&fixture);
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let documents = context_documents(
         "mycontext01",
         json!([{"space": "system", "address": ".dev/status"}]),
@@ -214,9 +214,9 @@ async fn resolves_an_instance_projection_only_through_its_declared_via_collectio
     let fixture = Fixture::new();
     context_surface(&fixture);
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let documents = context_documents("release-check", json!([]), json!([]), true);
     let app = facet_app(&fixture, documents);
 
@@ -271,9 +271,9 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
     );
     fixture.file("home/_lib/proj/system/tool/run.cmd", "");
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let tool_ref = json!({"type": "command", "space": "system", "address": ".tool"});
     let run_ref = json!({"type": "instance", "kind": "run", "id": "run-01"});
     let collection = json!({
@@ -288,7 +288,7 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
         }]
     });
     let journal = json!({
-        "schema": "swawkit.command-run-journal/v2",
+        "protocol": "swawkit.command-run-journal/v3",
         "id": "run-01"
     });
     let app = facet_app(
@@ -328,7 +328,7 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
         .await
         .expect("Run journal body");
     let document: Value = serde_json::from_slice(&body).expect("Run journal JSON");
-    assert_eq!(document["schema"], "swawkit.command-run-journal/v2");
+    assert_eq!(document["protocol"], "swawkit.command-run-journal/v3");
     assert_eq!(document["id"], "run-01");
 }
 
@@ -337,9 +337,9 @@ async fn resolves_the_runs_commands_all_collection_as_a_distinct_global_scope() 
     let fixture = Fixture::new();
     runs_surface(&fixture);
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let owner = json!({"type": "command", "space": "system", "address": ".runs"});
     let run_ref = json!({"type": "instance", "kind": "run", "id": "run-01"});
     let collection = json!({
@@ -377,9 +377,9 @@ async fn rejects_unknown_facets_and_the_removed_context_specific_routes() {
     let fixture = Fixture::new();
     context_surface(&fixture);
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let app = facet_app(&fixture, BTreeMap::new());
 
     assert_eq!(
@@ -445,9 +445,9 @@ async fn executes_any_declared_query_command_without_a_domain_handler() {
     );
     fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let app = facet_app(
         &fixture,
         BTreeMap::from([(
@@ -488,9 +488,9 @@ async fn stale_host_rejects_executable_facet_queries_with_the_update_code() {
     );
     fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let app = facet_app(
         &fixture,
         BTreeMap::from([(
@@ -524,9 +524,9 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
     let fixture = Fixture::new();
     context_surface(&fixture);
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let summary = json!({
         "ref": context_ref("release-check"),
         "label": "::context/release-check",

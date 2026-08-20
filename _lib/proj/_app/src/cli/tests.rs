@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sha2::{Digest, Sha256};
 use swawkit_proj::context::EntryContext;
 use swawkit_proj::data_root::{ResolveDataRootRequest, resolve_data_root};
-use swawkit_proj::profile::{EntryProfileRecord, EntryProfileStore};
+use swawkit_proj::entry_config::{
+    ENTRY_CONFIG_MAX_BYTES, EntryConfigRecord, EntryConfigState, EntryConfigStore,
+};
 
 use super::*;
 
@@ -122,7 +124,7 @@ fn write_runtime_fixture(root: &Path, runtime_root: &Path) -> String {
 struct Fixture {
     root: PathBuf,
     context: EntryContext,
-    target_project_root: PathBuf,
+    project_root: PathBuf,
 }
 
 impl Fixture {
@@ -172,7 +174,7 @@ impl Fixture {
         Self {
             root,
             context,
-            target_project_root: project_root,
+            project_root,
         }
     }
 
@@ -203,15 +205,16 @@ impl Fixture {
             entry_file: &self.context.entry_file,
         })
         .expect("resolve fixture DataRoot");
-        let mut profile = EntryProfileRecord::default();
-        profile.target_project_root = self
-            .target_project_root
-            .to_str()
-            .expect("Unicode fixture path")
-            .to_owned();
-        EntryProfileStore::new(&self.context.swawkit_home, resolved.path())
-            .save(profile)
-            .expect("save fixture profile");
+        let mut config = EntryConfigRecord::default();
+        config.project_root = Some(
+            self.project_root
+                .to_str()
+                .expect("Unicode fixture path")
+                .to_owned(),
+        );
+        EntryConfigStore::new(&self.context.swawkit_home, resolved.path())
+            .save(config)
+            .expect("save fixture Entry Config");
     }
 
     fn initialize(&self) {
@@ -254,7 +257,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn protocol_help_uses_an_explicitly_initialized_entry_without_requiring_a_profile() {
+fn protocol_help_uses_an_explicitly_initialized_entry_without_entry_config() {
     let fixture = Fixture::new();
     fixture.command("", "run.ps1", "exit 0");
     fs::create_dir_all(fixture.context.system_root().join("_help")).unwrap();

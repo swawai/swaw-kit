@@ -12,7 +12,7 @@ use swawkit_proj::{
     context::EntryContext,
     core_command::{CoreCommandOutcome, check as core_check, help as core_help, runs as core_runs},
     data_root::{ResolveDataRootRequest, ResolvedDataRoot, resolve_data_root},
-    profile::{EntryProfileState, EntryProfileStore},
+    entry_config::EntryConfigStore,
 };
 
 pub fn run_cancelable(
@@ -56,46 +56,33 @@ fn run_with_dependencies(
         return Ok(exit_code);
     }
 
-    let profile_store = EntryProfileStore::new(&context.swawkit_home, resolved.path());
-    let profile_state = profile_store.read();
-    let snapshot = CatalogSnapshot::discover(context, profile_state.ready())
+    let config_store = EntryConfigStore::new(&context.swawkit_home, resolved.path());
+    let config_state = config_store.read();
+    let snapshot = CatalogSnapshot::discover(context, config_state.ready())
         .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
     if let Some(outcome) =
         core_help::execute(&snapshot, argv).map_err(|error| CliError::new(error.to_string()))?
     {
         return complete_core_command(outcome);
     }
-    if let Some(outcome) =
-        core_runs::execute(&snapshot, argv, context, resolved.path(), &profile_state)
-            .map_err(|error| CliError::new(error.to_string()))?
+    if let Some(outcome) = core_runs::execute(&snapshot, argv, resolved.path())
+        .map_err(|error| CliError::new(error.to_string()))?
     {
         return complete_core_command(outcome);
     }
-    if let Some(exit_code) = control::dispatch(&snapshot, argv, context, &profile_store)? {
+    if let Some(exit_code) = control::dispatch(&snapshot, argv, context, &config_store)? {
         return Ok(exit_code);
     }
     CommandExecutor::validate_invocation(&snapshot, argv)
         .map_err(|error| CliError::new(error.to_string()))?;
-    let profile = match profile_state {
-        EntryProfileState::Ready(profile) => profile,
-        EntryProfileState::Missing { path } => {
-            return Err(CliError::new(format!(
-                "this entry has no profile: {}. Run '{} .entry' or launch '{}' without arguments to complete initial setup",
-                path.display(),
-                context.entry_name,
-                context.entry_name,
-            )));
-        }
-        EntryProfileState::Invalid { path, error, .. } => {
-            return Err(CliError::new(format!(
-                "invalid entry profile '{}': {error}",
-                path.display()
-            )));
-        }
-    };
-    let execution_context =
-        CommandExecutionContext::new(context, &profile, resolved.path(), process_mode)
-            .map_err(|error| CliError::new(error.to_string()))?;
+    let execution_context = CommandExecutionContext::for_cli(
+        context,
+        config_state.ready(),
+        &snapshot,
+        resolved.path(),
+        process_mode,
+    )
+    .map_err(|error| CliError::new(error.to_string()))?;
     let executor = CommandExecutor::new(&execution_context, &snapshot);
     match process_mode {
         CommandProcessMode::InheritConsole => match cancellation {
@@ -110,8 +97,8 @@ fn run_with_dependencies(
 fn run_read_only_check(context: &EntryContext, argv: &[OsString]) -> Result<i32, CliError> {
     let resolved = resolve_owned_data_root(context)?;
 
-    let profile_state = EntryProfileStore::new(&context.swawkit_home, resolved.path()).read();
-    let snapshot = CatalogSnapshot::discover(context, profile_state.ready())
+    let config_state = EntryConfigStore::new(&context.swawkit_home, resolved.path()).read();
+    let snapshot = CatalogSnapshot::discover(context, config_state.ready())
         .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
     let outcome = core_check::execute(&snapshot, argv, context, resolved.path())
         .map_err(|error| CliError::new(error.to_string()))?

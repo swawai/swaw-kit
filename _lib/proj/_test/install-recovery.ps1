@@ -48,7 +48,7 @@ try {
     $DataRoot = Join-Path $TemporaryRoot 'data'
     [void][IO.Directory]::CreateDirectory($ProjectRoot)
     [void][IO.Directory]::CreateDirectory($DataRoot)
-    $Context = New-ProjDevContext `
+    $Context = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
         -CacheDataRoot (Join-Path $TemporaryRoot 'shared cache')
@@ -361,7 +361,7 @@ try {
     $BoundaryCacheRoot = Join-Path $TemporaryRoot 'boundary-cache'
     [void][IO.Directory]::CreateDirectory($BoundaryDataRoot)
     [void][IO.Directory]::CreateDirectory($BoundaryCacheRoot)
-    $BoundaryContext = New-ProjDevContext `
+    $BoundaryContext = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $BoundaryDataRoot `
         -CacheDataRoot $BoundaryCacheRoot
@@ -414,7 +414,7 @@ try {
         -Target $ExternalCache)
     $CacheRootJunctionRejected = $false
     try {
-        [void](New-ProjDevContext `
+        [void](New-ProjStage0TestContext `
             -ProjectRoot $ProjectRoot `
             -DataRoot (Join-Path $TemporaryRoot 'cache-boundary-data') `
             -CacheDataRoot $BoundaryCacheLink)

@@ -24,7 +24,9 @@ pub(super) fn evaluate(
             message: "GitHub Release digest",
             warning: Some(format!(
                 "{} {} was verified with the GitHub Release digest; {} is not pinned by this project.",
-                tool.display_name, resolved.version, tool.hash_variable
+                tool.display_name,
+                resolved.version,
+                tool.setting_address("sha256")
             )),
         };
     }
@@ -34,7 +36,9 @@ pub(super) fn evaluate(
             message: "awaiting GitHub Release resolution",
             warning: Some(format!(
                 "{} {} is not pinned by {}; .dev/setup will use the GitHub Release digest when available.",
-                tool.display_name, resolved.version, tool.hash_variable
+                tool.display_name,
+                resolved.version,
+                tool.setting_address("sha256")
             )),
         };
     }

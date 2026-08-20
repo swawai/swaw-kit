@@ -119,7 +119,7 @@ try {
     foreach ($Directory in @($ProjectRoot, $ArchiveRoot)) {
         [void][IO.Directory]::CreateDirectory($Directory)
     }
-    $Context = New-ProjDevContext `
+    $Context = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
         -CacheDataRoot $CacheDataRoot `

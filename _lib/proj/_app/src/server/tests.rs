@@ -15,15 +15,15 @@ use super::*;
 use crate::{
     context::EntryContext,
     data_root::{DataRootSession, ResolveDataRootRequest, resolve_data_root},
-    profile::EntryProfileStore,
+    entry_config::EntryConfigStore,
 };
 
 mod catalog;
 mod command_run;
 mod command_run_native;
+mod entry_config;
 mod entry_manager;
 mod facet_resolution;
-mod profile;
 mod runtime;
 
 const AUTHORITY: &str = "127.0.0.1:43127";
@@ -120,10 +120,10 @@ impl Fixture {
         .expect("pin fixture Entry for DataRoot session")
     }
 
-    fn profile_store(&self) -> EntryProfileStore {
+    fn config_store(&self) -> EntryConfigStore {
         let data_root = self.root.join("home/data/proj.swawkit");
         fs::create_dir_all(&data_root).expect("create fixture DataRoot");
-        EntryProfileStore::new(self.root.join("home"), data_root)
+        EntryConfigStore::new(self.root.join("home"), data_root)
     }
 
     fn select_update(&self) -> String {
@@ -308,6 +308,7 @@ async fn serves_only_the_declared_local_surface() {
     assert!(index_html.contains("class=\"run-projection-output\" id=\"run-projection-output\""));
     assert!(index_html.contains("id=\"command-check-pane\""));
     assert!(index_html.contains("id=\"entry-manager-panel\""));
+    assert!(index_html.contains("id=\"entry-config-detail\""));
 
     for path in [
         "/commands",
@@ -333,10 +334,7 @@ async fn serves_only_the_declared_local_surface() {
         ("/assets/styles/explorer.css", "text/css; charset=utf-8"),
         ("/assets/styles/command-menu.css", "text/css; charset=utf-8"),
         ("/assets/styles/detail.css", "text/css; charset=utf-8"),
-        (
-            "/assets/styles/entry-profile.css",
-            "text/css; charset=utf-8",
-        ),
+        ("/assets/styles/entry-config.css", "text/css; charset=utf-8"),
         (
             "/assets/styles/runtime-control.css",
             "text/css; charset=utf-8",
@@ -390,7 +388,7 @@ async fn serves_only_the_declared_local_surface() {
             "/assets/document-projection.js",
             "text/javascript; charset=utf-8",
         ),
-        ("/assets/entry-profile.js", "text/javascript; charset=utf-8"),
+        ("/assets/entry-config.js", "text/javascript; charset=utf-8"),
         (
             "/assets/runtime-control.js",
             "text/javascript; charset=utf-8",
@@ -517,6 +515,19 @@ async fn serves_only_the_declared_local_surface() {
             .status(),
         StatusCode::NOT_FOUND
     );
+    for retired in [
+        "/api/v2/profile",
+        "/assets/entry-profile.js",
+        "/assets/styles/entry-profile.css",
+    ] {
+        assert_eq!(
+            send(app.clone(), Method::GET, retired, Some(AUTHORITY))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "{retired}"
+        );
+    }
     assert_eq!(
         send(app, Method::GET, "/_lib/proj/run.ps1", Some(AUTHORITY))
             .await

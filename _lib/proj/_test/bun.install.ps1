@@ -20,8 +20,6 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
-    'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
-    'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256',
@@ -74,7 +72,7 @@ try {
     $Definition = New-ProjBunTestDefinition `
         -ArchivePath $ArchivePath `
         -Sha256 (Get-ProjDevFileSha256 -Path $ArchivePath)
-    $Context = New-ProjDevContext `
+    $Context = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
         -CacheDataRoot $CacheDataRoot `
@@ -152,7 +150,7 @@ try {
     $UnpinnedDefinition.ProjectSha256 = ''
     $UnpinnedDefinition.Sha256 = ''
     $UnpinnedDefinition.Verification = 'unverified'
-    $UnpinnedContext = New-ProjDevContext `
+    $UnpinnedContext = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot (Join-Path $TemporaryRoot 'unpinned-data') `
         -CacheDataRoot $CacheDataRoot
@@ -218,7 +216,7 @@ try {
         -Message 'clean artifact retry did not produce a valid installation'
 
     $BadDataRoot = Join-Path $TemporaryRoot 'bad-data'
-    $BadContext = New-ProjDevContext `
+    $BadContext = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $BadDataRoot `
         -CacheDataRoot $CacheDataRoot
@@ -247,7 +245,7 @@ try {
             -Definition $Definition)) `
         -Message 'installed-file corruption was not detected'
     [IO.File]::Delete($ArchivePath)
-    $PeerContext = New-ProjDevContext `
+    $PeerContext = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot (Join-Path $TemporaryRoot 'peer project data') `
         -CacheDataRoot $CacheDataRoot
@@ -283,29 +281,39 @@ try {
 
     $ActionRoot = Join-Path $ProjectRoot '.swaw'
     [void][IO.Directory]::CreateDirectory($ActionRoot)
+    # Stage-0 assertions above retain their frozen contract. The native product
+    # command below starts at the v3 command boundary and reads Dev Settings.
     Set-ProjBunProcessEnvironment -Values @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
         SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_HOME = $ControlHome
-        SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
-        SWAWKIT_PROJ_PROJECT_MODULE_ROOT = $ActionRoot
         SWAWKIT_PROJ_MODULE_ROOTS = (@{
             project = $ActionRoot
         } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_DATA_ROOT = $null
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $InvocationRoot
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = ('sha256-' + ('a' * 64))
-        SWAWKIT_PROJ_BUN_MODE = 'disabled'
-        SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
     }
     $SetupDataRoot = Join-Path $TemporaryRoot 'setup entry data'
     [void][IO.Directory]::CreateDirectory($SetupDataRoot)
-    $SetupProfilePath = Join-Path $SetupDataRoot '_profile.json'
-    [IO.File]::WriteAllText($SetupProfilePath, '{}')
     $env:SWAWKIT_PROJ_DATA_ROOT = $SetupDataRoot
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $SetupProfilePath
+    $SettingsRoot = Join-Path $SetupDataRoot 'modules\system\dev\setup'
+    [void][IO.Directory]::CreateDirectory($SettingsRoot)
+    [IO.File]::WriteAllText(
+        (Join-Path $SettingsRoot '_settings.json'),
+        (@{
+            schema = 'swawkit.proj-dev-settings/v1'
+            bun = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            pwsh = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            msvc = @{ mode = 'disabled'; channel = '' }
+            rust = @{
+                mode = 'disabled'
+                toolchain = ''
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+        } | ConvertTo-Json -Depth 4),
+        [Text.UTF8Encoding]::new($false)
     )
     $LegacyStatePath = Join-Path $SetupDataRoot (
         'modules\system\dev\setup\export\_state.json'

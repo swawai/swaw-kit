@@ -73,6 +73,32 @@ impl Fixture {
             .expect("publish fixture")
     }
 
+    fn publish_with_execution_contract_revision(
+        &self,
+        bytes: &[u8],
+        execution_contract_revision: &str,
+    ) -> PathBuf {
+        let release = CommandRelease::new(
+            OWNER,
+            revision(b"legacy native build input"),
+            execution_contract_revision,
+            Vec::new(),
+            bytes,
+        )
+        .expect("legacy fixture release");
+        let document = command_release_document(&release).expect("legacy release document");
+        let release_id = command_release_id(&document);
+        let command_root = self.owner_data_root.join("_native/export/command");
+        let release_root = command_root.join("releases").join(&release_id);
+        fs::create_dir_all(&release_root).expect("create legacy release root");
+        fs::write(release_root.join("run.exe"), bytes).expect("write legacy executable");
+        fs::write(release_root.join("swawkit.release.json"), document)
+            .expect("write legacy release document");
+        fs::write(command_root.join("current"), format!("{release_id}\n"))
+            .expect("select legacy release");
+        release_root.join("run.exe")
+    }
+
     fn resolve(&self) -> CommandResult<PathBuf> {
         let catalog = self.catalog();
         let owner = catalog
@@ -172,6 +198,26 @@ fn execution_contract_drift_blocks_an_old_selected_release() {
         error.contains("execution contract does not match"),
         "{error}"
     );
+}
+
+#[test]
+fn old_command_environment_contract_is_rejected_before_execution() {
+    let fixture = Fixture::new();
+    let legacy_contract = br#"{"schema":"swawkit.native-command-execution-contract/v2","owner":"swaw/fixture","commands":[{"address":"swaw/fixture","execution":{"type":"native"},"requires":[],"provides":[]}]}"#;
+    let legacy_revision = revision(legacy_contract);
+    fixture.publish_with_execution_contract_revision(
+        b"old command environment executable",
+        &legacy_revision,
+    );
+
+    let error = fixture.resolve().unwrap_err().to_string();
+    assert!(
+        error.contains("execution contract does not match"),
+        "{error}"
+    );
+
+    let current = fixture.publish(b"current command environment executable");
+    assert_eq!(fixture.resolve().unwrap(), current);
 }
 
 #[test]

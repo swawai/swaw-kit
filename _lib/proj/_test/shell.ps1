@@ -89,6 +89,9 @@ function Invoke-ProjShellTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+$InvocationWorkingDirectory = [IO.Path]::GetFullPath(
+    (Get-Location).ProviderPath
+)
 . (Join-Path $PSScriptRoot '_lib\runtime-fixture.ps1')
 $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -LauncherPath $LauncherPath `
@@ -149,7 +152,7 @@ try {
     )
     Assert-ProjShellTest `
         -Condition ($LASTEXITCODE -eq 0) `
-        -Message "Entry Profile setup failed: $SetupOutput"
+        -Message "Entry project binding failed: $SetupOutput"
     foreach ($Group in @('bun', 'msvc', 'rust')) {
         $ModeOutput = @(
             & $script:ProjShellEntry `
@@ -159,7 +162,7 @@ try {
         )
         Assert-ProjShellTest `
             -Condition ($LASTEXITCODE -eq 0) `
-            -Message "Entry Profile setup failed for $Group mode: $ModeOutput"
+            -Message "Dev Settings update failed for $Group mode: $ModeOutput"
     }
     $PwshVersionOutput = @(
         & $script:ProjShellEntry `
@@ -169,7 +172,7 @@ try {
     )
     Assert-ProjShellTest `
         -Condition ($LASTEXITCODE -eq 0) `
-        -Message "Entry Profile setup failed for managed PowerShell: $PwshVersionOutput"
+        -Message "Dev Settings update failed for PowerShell: $PwshVersionOutput"
     $ManagedPwshRoot = Join-Path $DataRoot (
         'modules\system\dev\setup\export\pwsh\installs\7.6.4'
     )
@@ -219,13 +222,13 @@ try {
         'SHELL_KIND=cmd',
         'JOINED_COMMAND=ok',
         "ENTRY_NAME=$EntryName",
-        'COMMAND_PROTOCOL=2',
+        'COMMAND_PROTOCOL=3',
         'COMMAND_ADDRESS=.dev/cmd',
         "COMMAND_DATA_ROOT=$DataRoot\modules\system\dev\cmd",
         "PROJ_HOME=$($Runtime.Home)",
         "DATA_ROOT=$DataRoot",
         "PATH_VALUE=$ManagedPwshRoot;",
-        "WORKING_DIR=$($Runtime.Home)",
+        "WORKING_DIR=$InvocationWorkingDirectory",
         'CMD_SPECIAL=left&right',
         'DELAYED=!SWAWKIT_PROJ_ENTRY_COMMAND!'
     )) {
@@ -265,12 +268,12 @@ try {
         "PS_HOME=$ManagedPwshRoot",
         'POLICY=Bypass',
         "ENTRY_NAME=$EntryName",
-        'COMMAND_PROTOCOL=2',
+        'COMMAND_PROTOCOL=3',
         'COMMAND_ADDRESS=.dev/pwsh',
         "COMMAND_DATA_ROOT=$DataRoot\modules\system\dev\pwsh",
         "PROJ_HOME=$($Runtime.Home)",
         "DATA_ROOT=$DataRoot",
-        "WORKING_DIR=$($Runtime.Home)",
+        "WORKING_DIR=$InvocationWorkingDirectory",
         'COMMAND_TEXT=ampersand&pipe|percent%'
     )) {
         Assert-ProjShellTest `
@@ -327,8 +330,8 @@ exit 33
         $ScriptSource,
         [Text.UTF8Encoding]::new($false)
     )
-    $RelativeScriptPath = $ScriptPath.Substring(
-        $Runtime.Home.TrimEnd('\').Length + 1
+    $RelativeScriptPath = [string](
+        Resolve-Path -LiteralPath $ScriptPath -Relative
     )
     $PowerShellFile = Invoke-ProjShellTest `
         -Address '.dev/pwsh' `
@@ -347,7 +350,7 @@ exit 33
         'FILE_ARGS=hello world|ampersand&value|pipe|percent%',
         'PS_MAJOR=7',
         'POLICY=Bypass',
-        "WORKING_DIR=$($Runtime.Home)",
+        "WORKING_DIR=$InvocationWorkingDirectory",
         'CORE_COMMAND_ADAPTER_INTERNAL_COUNT=0',
         'MODULE_INTERNAL_COUNT=0',
         'UNDEFINED='

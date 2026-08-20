@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CommandIdentity, ModuleProvision, ModuleRequirement, ProtocolError, ProtocolResult, revision,
-    validate_module_provisions, validate_module_requirements,
+    COMMAND_ENVIRONMENT_PROTOCOL, CommandIdentity, ModuleProvision, ModuleRequirement,
+    ProtocolError, ProtocolResult, revision, validate_module_provisions,
+    validate_module_requirements,
 };
 
-pub const EXECUTION_CONTRACT_SCHEMA: &str = "swawkit.native-command-execution-contract/v2";
+pub const EXECUTION_CONTRACT_SCHEMA: &str = "swawkit.native-command-execution-contract/v3";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
@@ -27,6 +28,7 @@ pub struct ExecutionContractCommand {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ExecutionContract {
     schema: String,
+    command_environment_protocol: String,
     owner: String,
     commands: Vec<ExecutionContractCommand>,
 }
@@ -52,6 +54,7 @@ impl ExecutionContract {
         commands.sort_by(|left, right| left.address.cmp(&right.address));
         let contract = Self {
             schema: EXECUTION_CONTRACT_SCHEMA.to_owned(),
+            command_environment_protocol: COMMAND_ENVIRONMENT_PROTOCOL.to_owned(),
             owner,
             commands,
         };
@@ -61,6 +64,10 @@ impl ExecutionContract {
 
     pub fn owner(&self) -> &str {
         &self.owner
+    }
+
+    pub fn command_environment_protocol(&self) -> &str {
+        &self.command_environment_protocol
     }
 
     pub fn commands(&self) -> &[ExecutionContractCommand] {
@@ -91,6 +98,7 @@ impl ExecutionContract {
     fn validate(&self) -> ProtocolResult<()> {
         let owner_identity = CommandIdentity::parse(&self.owner)?;
         if self.schema != EXECUTION_CONTRACT_SCHEMA
+            || self.command_environment_protocol != COMMAND_ENVIRONMENT_PROTOCOL
             || self.commands.is_empty()
             || self
                 .commands
@@ -183,6 +191,36 @@ mod tests {
             right.canonical_bytes().unwrap()
         );
         assert_eq!(left.revision().unwrap(), right.revision().unwrap());
+    }
+
+    #[test]
+    fn contract_revision_binds_the_command_environment_protocol() {
+        let contract = ExecutionContract::new(
+            "swaw/context",
+            vec![member("swaw/context", ExecutionSemantics::Native)],
+        )
+        .unwrap();
+        let document: serde_json::Value =
+            serde_json::from_slice(&contract.canonical_bytes().unwrap()).unwrap();
+
+        assert_eq!(
+            contract.command_environment_protocol(),
+            COMMAND_ENVIRONMENT_PROTOCOL
+        );
+        assert_eq!(
+            document["commandEnvironmentProtocol"],
+            COMMAND_ENVIRONMENT_PROTOCOL
+        );
+
+        let mut without_environment_protocol = document;
+        without_environment_protocol
+            .as_object_mut()
+            .unwrap()
+            .remove("commandEnvironmentProtocol");
+        assert_ne!(
+            contract.revision().unwrap(),
+            revision(&serde_json::to_vec(&without_environment_protocol).unwrap())
+        );
     }
 
     #[test]

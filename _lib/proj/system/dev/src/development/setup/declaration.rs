@@ -1,137 +1,44 @@
-use std::collections::BTreeMap;
 use std::fmt;
 
-pub use swawkit_proj_protocol::DevInputNormalization as InputNormalization;
-use swawkit_proj_protocol::{dev_provider_input_names, dev_provider_input_normalization};
+use swawkit_proj_protocol::{DevArchiveToolSettings, DevSettings};
 
 use crate::development::ArchiveToolContract;
 use crate::development::archive_tool::ArchiveToolRequest;
 use crate::development::msvc::MsvcDefinition;
 use crate::development::rust::RustDefinition;
 
-#[derive(Clone, Copy)]
-enum SnapshotNormalization {
-    Literal,
-    Hash,
-}
-
-#[derive(Clone, Copy)]
-struct Setting {
-    name: &'static str,
-    snapshot: SnapshotNormalization,
-}
-
-#[derive(Clone, Copy)]
-struct Module {
-    name: &'static str,
-    mode: &'static str,
-    settings: &'static [Setting],
-}
-
-const BUN_SETTINGS: &[Setting] = &[
-    input(
-        "SWAWKIT_PROJ_BUN_SHA256",
-        SnapshotNormalization::Hash,
-        InputNormalization::Lowercase,
-    ),
-    input(
-        "SWAWKIT_PROJ_BUN_VERSION",
-        SnapshotNormalization::Literal,
-        InputNormalization::Exact,
-    ),
-];
-const MSVC_SETTINGS: &[Setting] = &[input(
-    "SWAWKIT_PROJ_MSVC_CHANNEL",
-    SnapshotNormalization::Literal,
-    InputNormalization::Exact,
-)];
-const PWSH_SETTINGS: &[Setting] = &[
-    input(
-        "SWAWKIT_PROJ_PWSH_SHA256",
-        SnapshotNormalization::Hash,
-        InputNormalization::Lowercase,
-    ),
-    input(
-        "SWAWKIT_PROJ_PWSH_VERSION",
-        SnapshotNormalization::Literal,
-        InputNormalization::Exact,
-    ),
-];
-const RUST_SETTINGS: &[Setting] = &[
-    input(
-        "SWAWKIT_PROJ_RUST_HOST",
-        SnapshotNormalization::Literal,
-        InputNormalization::Exact,
-    ),
-    input(
-        "SWAWKIT_PROJ_RUST_PROFILE",
-        SnapshotNormalization::Literal,
-        InputNormalization::Exact,
-    ),
-    input(
-        "SWAWKIT_PROJ_RUST_TOOLCHAIN",
-        SnapshotNormalization::Literal,
-        InputNormalization::Lowercase,
-    ),
-];
-const MODULES: &[Module] = &[
-    module("bun", "SWAWKIT_PROJ_BUN_MODE", BUN_SETTINGS),
-    module("msvc", "SWAWKIT_PROJ_MSVC_MODE", MSVC_SETTINGS),
-    module("pwsh", "SWAWKIT_PROJ_PWSH_MODE", PWSH_SETTINGS),
-    module("rust", "SWAWKIT_PROJ_RUST_MODE", RUST_SETTINGS),
-];
-
-const fn module(name: &'static str, mode: &'static str, settings: &'static [Setting]) -> Module {
-    Module {
-        name,
-        mode,
-        settings,
-    }
-}
-
-const fn input(
-    name: &'static str,
-    snapshot: SnapshotNormalization,
-    _input: InputNormalization,
-) -> Setting {
-    Setting { name, snapshot }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeclarationSnapshot {
-    values: BTreeMap<&'static str, String>,
+    settings: DevSettings,
 }
 
 impl DeclarationSnapshot {
-    pub fn values(&self) -> &BTreeMap<&'static str, String> {
-        &self.values
-    }
-
-    pub fn enabled_modules(&self) -> Vec<&'static str> {
-        MODULES
-            .iter()
-            .filter(|module| self.values[module.mode] != "disabled")
-            .map(|module| module.name)
-            .collect()
+    pub fn archive_settings(
+        &self,
+        tool: &ArchiveToolContract,
+    ) -> Result<&DevArchiveToolSettings, DeclarationError> {
+        match tool.name {
+            "bun" => Ok(&self.settings.bun),
+            "pwsh" => Ok(&self.settings.pwsh),
+            _ => Err(DeclarationError(format!(
+                "archive tool '{}' is absent from Dev Settings",
+                tool.name
+            ))),
+        }
     }
 
     pub fn archive_request(
         &self,
         tool: &ArchiveToolContract,
     ) -> Result<Option<ArchiveToolRequest>, DeclarationError> {
-        let mode = self.values.get(tool.mode_variable).ok_or_else(|| {
-            DeclarationError(format!(
-                "archive tool '{}' is absent from the setup declaration registry",
-                tool.name
-            ))
-        })?;
-        if mode == "disabled" {
+        let settings = self.archive_settings(tool)?;
+        if settings.mode == "disabled" {
             return Ok(None);
         }
-        if tool.name == "pwsh" && mode == "system" {
+        if tool.name == "pwsh" && settings.mode == "system" {
             return Ok(None);
         }
-        if mode != "managed" {
+        if settings.mode != "managed" {
             let expected = if tool.name == "pwsh" {
                 "'managed', 'system', or 'disabled'"
             } else {
@@ -139,81 +46,52 @@ impl DeclarationSnapshot {
             };
             return Err(DeclarationError(format!(
                 "unsupported {} value '{}'; expected {expected}",
-                tool.mode_variable, mode,
+                tool.setting_address("mode"),
+                settings.mode,
             )));
         }
-        let version = self.values.get(tool.version_variable).ok_or_else(|| {
-            DeclarationError(format!(
+        if settings.version.is_empty() {
+            return Err(DeclarationError(format!(
                 "enabled {} must declare {}",
-                tool.display_name, tool.version_variable
-            ))
-        })?;
-        let project_sha256 = self.values.get(tool.hash_variable).ok_or_else(|| {
-            DeclarationError(format!(
-                "enabled {} must declare {} as an empty or pinned value",
-                tool.display_name, tool.hash_variable
-            ))
-        })?;
-        ArchiveToolRequest::new(tool, version, project_sha256)
+                tool.display_name,
+                tool.setting_address("version")
+            )));
+        }
+        ArchiveToolRequest::new(tool, &settings.version, &settings.sha256)
             .map(Some)
             .map_err(|error| DeclarationError(error.to_string()))
     }
 
-    pub fn mode(&self, variable: &str) -> Option<&str> {
-        self.values.get(variable).map(String::as_str)
-    }
-
     pub fn msvc_definition(&self) -> Result<Option<MsvcDefinition>, DeclarationError> {
-        let mode = self
-            .values
-            .get("SWAWKIT_PROJ_MSVC_MODE")
-            .ok_or_else(|| DeclarationError("MSVC is absent from the setup registry".to_owned()))?;
-        if mode == "disabled" {
+        let settings = &self.settings.msvc;
+        if settings.mode == "disabled" {
             return Ok(None);
         }
-        if mode != "managed" {
+        if settings.mode != "managed" {
             return Err(DeclarationError(format!(
-                "unsupported SWAWKIT_PROJ_MSVC_MODE value '{mode}'; expected 'managed' or 'disabled'"
+                "unsupported .dev/msvc/mode value '{}'; expected 'managed' or 'disabled'",
+                settings.mode
             )));
         }
-        let channel = self
-            .values
-            .get("SWAWKIT_PROJ_MSVC_CHANNEL")
-            .ok_or_else(|| DeclarationError("enabled MSVC must declare its channel".to_owned()))?;
-        MsvcDefinition::new(channel)
+        MsvcDefinition::new(&settings.channel)
             .map(Some)
             .map_err(|error| DeclarationError(error.to_string()))
     }
 
     pub fn rust_definition(&self) -> Result<Option<RustDefinition>, DeclarationError> {
-        let mode = self.values.get("SWAWKIT_PROJ_RUST_MODE").ok_or_else(|| {
-            DeclarationError("Rust is absent from the setup declaration registry".to_owned())
-        })?;
-        if mode == "disabled" {
+        let settings = &self.settings.rust;
+        if settings.mode == "disabled" {
             return Ok(None);
         }
-        if mode != "rustup" {
+        if settings.mode != "rustup" {
             return Err(DeclarationError(format!(
-                "unsupported SWAWKIT_PROJ_RUST_MODE value '{mode}'; expected 'rustup' or 'disabled'"
+                "unsupported .dev/rust/mode value '{}'; expected 'rustup' or 'disabled'",
+                settings.mode
             )));
         }
-        RustDefinition::new(
-            self.values
-                .get("SWAWKIT_PROJ_RUST_TOOLCHAIN")
-                .ok_or_else(|| {
-                    DeclarationError("enabled Rust must declare a toolchain".to_owned())
-                })?,
-            self.values
-                .get("SWAWKIT_PROJ_RUST_PROFILE")
-                .ok_or_else(|| {
-                    DeclarationError("enabled Rust must declare a profile".to_owned())
-                })?,
-            self.values
-                .get("SWAWKIT_PROJ_RUST_HOST")
-                .ok_or_else(|| DeclarationError("enabled Rust must declare a host".to_owned()))?,
-        )
-        .map(Some)
-        .map_err(|error| DeclarationError(error.to_string()))
+        RustDefinition::new(&settings.toolchain, &settings.profile, &settings.host)
+            .map(Some)
+            .map_err(|error| DeclarationError(error.to_string()))
     }
 }
 
@@ -228,83 +106,43 @@ impl fmt::Display for DeclarationError {
 
 impl std::error::Error for DeclarationError {}
 
-pub fn snapshot_from_environment() -> DeclarationSnapshot {
-    snapshot(|name| std::env::var(name).ok())
-}
-
-pub fn snapshot(mut get: impl FnMut(&str) -> Option<String>) -> DeclarationSnapshot {
-    let mut values = BTreeMap::new();
-    for module in MODULES {
-        let mode = get(module.mode)
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
-        let mode = if mode.is_empty() {
-            "disabled".to_owned()
-        } else {
-            mode
-        };
-        values.insert(module.mode, mode.clone());
-        if mode == "disabled" {
-            continue;
-        }
-        for setting in module.settings {
-            let mut value = get(setting.name).unwrap_or_default().trim().to_owned();
-            if matches!(setting.snapshot, SnapshotNormalization::Hash) {
-                value.make_ascii_lowercase();
-                if let Some(digest) = value.strip_prefix("sha256:") {
-                    value = digest.to_owned();
-                }
-            }
-            values.insert(setting.name, value);
-        }
+pub fn snapshot_from_settings(settings: &DevSettings) -> DeclarationSnapshot {
+    DeclarationSnapshot {
+        settings: settings.clone(),
     }
-    DeclarationSnapshot { values }
-}
-
-pub fn provider_input_normalization(name: &str) -> Option<InputNormalization> {
-    dev_provider_input_normalization(name)
-}
-
-pub fn provider_input_names() -> Vec<&'static str> {
-    dev_provider_input_names()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn snapshot_matches_the_manifest_declaration_contract() {
-        let values = BTreeMap::from([
-            ("SWAWKIT_PROJ_BUN_MODE", " MANAGED "),
-            ("SWAWKIT_PROJ_BUN_VERSION", "1.2.15"),
-            ("SWAWKIT_PROJ_BUN_SHA256", " SHA256:AAAA "),
-        ]);
-        let snapshot = snapshot(|name| values.get(name).map(|value| (*value).to_owned()));
-
-        assert_eq!(snapshot.values()["SWAWKIT_PROJ_BUN_MODE"], "managed");
-        assert_eq!(snapshot.values()["SWAWKIT_PROJ_BUN_SHA256"], "aaaa");
-        assert_eq!(snapshot.enabled_modules(), ["bun"]);
+    fn disabled_settings() -> DevSettings {
+        let mut settings = DevSettings::default();
+        settings.bun.mode = "disabled".to_owned();
+        settings.msvc.mode = "disabled".to_owned();
+        settings.pwsh.mode = "disabled".to_owned();
+        settings.rust.mode = "disabled".to_owned();
+        settings
     }
 
     #[test]
-    fn provider_inputs_have_one_typed_registry() {
-        assert_eq!(provider_input_names().len(), 12);
+    fn snapshot_owns_the_typed_settings() {
+        let settings = DevSettings::default();
+        let snapshot = snapshot_from_settings(&settings);
+
         assert_eq!(
-            provider_input_normalization("SWAWKIT_PROJ_RUST_TOOLCHAIN"),
-            Some(InputNormalization::Lowercase)
+            snapshot.archive_settings(&crate::development::BUN).unwrap(),
+            &settings.bun
         );
     }
 
     #[test]
     fn archive_requests_are_typed() {
-        let values = BTreeMap::from([
-            ("SWAWKIT_PROJ_BUN_MODE", "managed"),
-            ("SWAWKIT_PROJ_BUN_VERSION", "1.2.15"),
-            ("SWAWKIT_PROJ_BUN_SHA256", ""),
-        ]);
-        let snapshot = snapshot(|name| values.get(name).map(|value| (*value).to_owned()));
+        let mut settings = disabled_settings();
+        settings.bun.mode = "managed".to_owned();
+        settings.bun.version = "1.2.15".to_owned();
+        let snapshot = snapshot_from_settings(&settings);
+
         assert_eq!(
             snapshot
                 .archive_request(&crate::development::BUN)
@@ -317,10 +155,10 @@ mod tests {
 
     #[test]
     fn system_powershell_is_enabled_without_an_archive_request() {
-        let values = BTreeMap::from([("SWAWKIT_PROJ_PWSH_MODE", "system")]);
-        let snapshot = snapshot(|name| values.get(name).map(|value| (*value).to_owned()));
+        let mut settings = disabled_settings();
+        settings.pwsh.mode = "system".to_owned();
+        let snapshot = snapshot_from_settings(&settings);
 
-        assert_eq!(snapshot.enabled_modules(), ["pwsh"]);
         assert!(
             snapshot
                 .archive_request(&crate::development::PWSH)
@@ -331,24 +169,14 @@ mod tests {
 
     #[test]
     fn msvc_declarations_are_typed() {
-        let values = BTreeMap::from([
-            ("SWAWKIT_PROJ_MSVC_MODE", "managed"),
-            ("SWAWKIT_PROJ_MSVC_CHANNEL", "17"),
-        ]);
-        let snapshot = snapshot(|name| values.get(name).map(|value| (*value).to_owned()));
+        let snapshot = snapshot_from_settings(&DevSettings::default());
 
         assert_eq!(snapshot.msvc_definition().unwrap().unwrap().channel(), "17");
     }
 
     #[test]
     fn rust_declarations_share_the_domain_definition() {
-        let values = BTreeMap::from([
-            ("SWAWKIT_PROJ_RUST_MODE", "rustup"),
-            ("SWAWKIT_PROJ_RUST_TOOLCHAIN", "stable"),
-            ("SWAWKIT_PROJ_RUST_PROFILE", "minimal"),
-            ("SWAWKIT_PROJ_RUST_HOST", "x86_64-pc-windows-msvc"),
-        ]);
-        let snapshot = snapshot(|name| values.get(name).map(|value| (*value).to_owned()));
+        let snapshot = snapshot_from_settings(&DevSettings::default());
 
         let definition = snapshot.rust_definition().unwrap().unwrap();
 

@@ -49,7 +49,7 @@ fn text_report_prints_the_structured_checker_invocation() {
         dependencies: vec![DependencyCheck {
             provider: ".dev/setup".to_owned(),
             export: "environment".to_owned(),
-            contract: "swawkit.proj.dev-setup/v3".to_owned(),
+            contract: "swawkit.proj.dev-setup/v4".to_owned(),
             ready: false,
             status: "state-missing".to_owned(),
             message: None,

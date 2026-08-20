@@ -1,10 +1,10 @@
 //! Transport-neutral implementations of the small, process-owned Core commands.
 
 pub mod check;
+pub mod config;
 mod error;
 pub mod help;
 mod prepared;
-pub mod profile;
 pub mod runs;
 
 pub use error::CoreCommandError;

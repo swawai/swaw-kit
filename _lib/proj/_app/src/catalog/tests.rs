@@ -123,12 +123,12 @@ fn discovers_system_and_explicit_module_namespaces() {
     fixture.file(
         &fixture.system,
         "entry/swawkit.module.json",
-        &core_manifest("entry.profile"),
+        &core_manifest("entry.config"),
     );
     fixture.file(
         &fixture.system,
         "entry/language/swawkit.module.json",
-        &core_manifest("entry.profile.set"),
+        &core_manifest("entry.config.set"),
     );
     fixture.file(
         &fixture.swaw,
@@ -177,7 +177,7 @@ fn discovers_system_and_explicit_module_namespaces() {
     let entry = node(&snapshot, ".entry");
     assert_eq!(entry.entry.as_deref(), Some("swawkit.module.json"));
     assert_eq!(entry.adapter.as_deref(), Some("core"));
-    assert_eq!(entry.handler.as_deref(), Some("entry.profile"));
+    assert_eq!(entry.handler.as_deref(), Some("entry.config"));
     let setup = node(&snapshot, ".dev/setup");
     assert_eq!(setup.entry.as_deref(), Some("swawkit.module.json"));
     assert_eq!(setup.adapter.as_deref(), Some("runtime"));
@@ -253,102 +253,6 @@ fn core_execution_handlers_remain_exact_and_system_owned() {
                 .diagnostic
                 .as_deref()
                 .is_some_and(|message| message.contains("exact System command owner")),
-            "{address}: {:?}",
-            command.diagnostic
-        );
-    }
-}
-
-#[test]
-fn runtime_components_are_exact_and_have_no_handler() {
-    let fixture = Fixture::new();
-    fixture.file(
-        &fixture.system,
-        "module/swawkit.module.json",
-        module_manifest(),
-    );
-    fixture.file(
-        &fixture.system,
-        "module/instantiate/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"runtime","product":"module"}}"#,
-    );
-    fixture.file(
-        &fixture.system,
-        "module/status/swawkit.module.json",
-        &runtime_manifest("module"),
-    );
-    fixture.file(
-        &fixture.system,
-        "dev/swawkit.module.json",
-        module_manifest(),
-    );
-    fixture.file(
-        &fixture.system,
-        "dev/setup/swawkit.module.json",
-        &runtime_manifest("dev"),
-    );
-    fixture.file(
-        &fixture.system,
-        "dev/status/swawkit.module.json",
-        &runtime_manifest("dev"),
-    );
-    fixture.file(
-        &fixture.system,
-        "dev/setup/check/swawkit.module.json",
-        &runtime_manifest("dev"),
-    );
-    fixture.file(
-        &fixture.system,
-        "wrong-runtime/swawkit.module.json",
-        &runtime_manifest("module"),
-    );
-    fixture.file(
-        &fixture.swaw,
-        "wrong-runtime/swawkit.module.json",
-        &runtime_manifest("module"),
-    );
-    fixture.file(
-        &fixture.system,
-        "module/wrong-product/swawkit.module.json",
-        &runtime_manifest("toolchain"),
-    );
-
-    let snapshot = fixture.discover();
-    for (address, product) in [
-        (".module/instantiate", "module"),
-        (".module/status", "module"),
-        (".dev/setup", "dev"),
-        (".dev/setup/check", "dev"),
-        (".dev/status", "dev"),
-    ] {
-        let command = node(&snapshot, address);
-        assert!(command.runnable, "{address}: {:?}", command.diagnostic);
-        assert_eq!(command.adapter.as_deref(), Some("runtime"));
-        assert_eq!(command.product.as_deref(), Some(product));
-        assert_eq!(command.handler, None);
-    }
-    for address in [".module/instantiate", ".module/status"] {
-        assert!(
-            node(&snapshot, address)
-                .module
-                .as_ref()
-                .expect("module manager contract")
-                .requires
-                .is_empty()
-        );
-    }
-    for address in [
-        ".wrong-runtime",
-        "swaw/wrong-runtime",
-        ".module/wrong-product",
-    ] {
-        let command = node(&snapshot, address);
-        assert!(!command.runnable, "{address}");
-        assert!(
-            command
-                .diagnostic
-                .as_deref()
-                .is_some_and(|message| message.contains("Runtime Component")),
             "{address}: {:?}",
             command.diagnostic
         );
@@ -717,3 +621,4 @@ fn node<'a>(snapshot: &'a CatalogSnapshot, address: &str) -> &'a CommandNode {
 }
 
 mod native_system;
+mod runtime_components;

@@ -47,9 +47,6 @@ impl GithubReleaseContract {
 pub struct ArchiveToolContract {
     pub name: &'static str,
     pub display_name: &'static str,
-    pub mode_variable: &'static str,
-    pub version_variable: &'static str,
-    pub hash_variable: &'static str,
     pub selection_schema: &'static str,
     pub recipe_version: &'static str,
     pub executable: &'static str,
@@ -60,6 +57,10 @@ pub struct ArchiveToolContract {
 }
 
 impl ArchiveToolContract {
+    pub fn setting_address(&self, field: &str) -> String {
+        format!(".dev/{}/{field}", self.name)
+    }
+
     pub fn accepts_exact_version(&self, value: &str) -> bool {
         (self.exact_version)(value)
     }
@@ -109,9 +110,6 @@ impl ArchiveToolContract {
 pub const BUN: ArchiveToolContract = ArchiveToolContract {
     name: "bun",
     display_name: "Bun",
-    mode_variable: "SWAWKIT_PROJ_BUN_MODE",
-    version_variable: "SWAWKIT_PROJ_BUN_VERSION",
-    hash_variable: "SWAWKIT_PROJ_BUN_SHA256",
     selection_schema: "swawkit.proj-dev.bun-selection.v0",
     recipe_version: "2",
     executable: "bun.exe",
@@ -131,9 +129,6 @@ pub const BUN: ArchiveToolContract = ArchiveToolContract {
 pub const PWSH: ArchiveToolContract = ArchiveToolContract {
     name: "pwsh",
     display_name: "PowerShell",
-    mode_variable: "SWAWKIT_PROJ_PWSH_MODE",
-    version_variable: "SWAWKIT_PROJ_PWSH_VERSION",
-    hash_variable: "SWAWKIT_PROJ_PWSH_SHA256",
     selection_schema: "swawkit.proj-dev.pwsh-selection.v0",
     recipe_version: "pwsh-win-x64-zip-v0",
     executable: "pwsh.exe",

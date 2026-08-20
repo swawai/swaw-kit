@@ -52,7 +52,7 @@
             "type": "command",
             "address": ".runs",
             "arguments": ["--run", { "bind": "subject.id" }],
-            "returns": "swawkit.command-run-journal/v2"
+            "returns": "swawkit.command-run-journal/v3"
           }
         },
         {

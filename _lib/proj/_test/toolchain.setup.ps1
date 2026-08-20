@@ -59,18 +59,27 @@ $TemporaryRoot = Join-Path $RepoRoot (
 )
 try {
     $DataRoot = Join-Path $TemporaryRoot 'data root'
-    $Profile = Join-Path $DataRoot '_profile.json'
     [void][IO.Directory]::CreateDirectory($DataRoot)
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
+    [void][IO.Directory]::CreateDirectory($SetupRoot)
     [IO.File]::WriteAllText(
-        $Profile,
-        "{}`r`n",
+        (Join-Path $SetupRoot '_settings.json'),
+        (@{
+            schema = 'swawkit.proj-dev-settings/v1'
+            bun = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            pwsh = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            msvc = @{ mode = 'disabled'; channel = '' }
+            rust = @{
+                mode = 'disabled'
+                toolchain = ''
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+        } | ConvertTo-Json -Depth 4),
         [Text.UTF8Encoding]::new($false)
     )
-    $Revision = 'sha256-' + (
-        Get-FileHash -LiteralPath $Profile -Algorithm SHA256
-    ).Hash.ToLowerInvariant()
     $Environment = @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
         SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $RepoRoot
@@ -78,14 +87,6 @@ try {
             project = Join-Path $RepoRoot '.swaw'
         } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_ENTRY_COMMAND = 'fixture'
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = (
-            'sha256-' + ('b' * 64)
-        )
-        SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $Revision
-        SWAWKIT_PROJ_BUN_MODE = 'disabled'
-        SWAWKIT_PROJ_PWSH_MODE = 'disabled'
-        SWAWKIT_PROJ_MSVC_MODE = 'disabled'
-        SWAWKIT_PROJ_RUST_MODE = 'disabled'
     }
     $Legacy = Join-Path $DataRoot (
         'modules\system\dev\setup\export\_state.json'
@@ -96,7 +97,6 @@ try {
     $Ready = Invoke-ProjNativeSetup `
         -Executable $Executable `
         -Environment $Environment
-    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
     $StatePath = Join-Path $SetupRoot '_state.json'
     Assert-ProjNativeSetup `
         -Condition ($Ready.ExitCode -eq 0 -and [IO.File]::Exists($StatePath)) `
@@ -115,7 +115,7 @@ try {
             @($State.exports).Count -eq 1 -and
             [string]$State.exports[0].id -ceq 'environment' -and
             [string]$State.exports[0].contract -ceq
-                'swawkit.proj.dev-setup/v3' -and
+                'swawkit.proj.dev-setup/v4' -and
             $EnvironmentExport.schema -ceq
                 'swawkit.proj-dev-environment/v1' -and
             $EnvironmentExport.inputRevision -ceq $State.inputRevision -and

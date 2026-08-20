@@ -9,8 +9,8 @@ use serde::Deserialize;
 use crate::{
     catalog::{CatalogSnapshot, CommandNode, CommandSpace},
     command_check::COMMAND_CHECK_PROTOCOL,
+    entry_config::EntryConfigStore,
     facet::{Facet, FacetKind, FacetResolver, valid_facet_id},
-    profile::EntryProfileStore,
     runtime_service::{RuntimeService, RuntimeServiceError},
     subject::{SUBJECT_COLLECTION_PROTOCOL, SubjectCollection, SubjectRef},
 };
@@ -77,8 +77,8 @@ async fn resolution_context(state: &ServerState) -> ApiResult<ResolutionContext>
     let runtime_service = state.runtime_service.clone();
     let data_root = resolved.path().to_path_buf();
     tokio::task::spawn_blocking(move || {
-        let profile_state = EntryProfileStore::new(&entry.swawkit_home, &data_root).read();
-        let catalog = CatalogSnapshot::discover(&entry, profile_state.ready()).map_err(|_| {
+        let config_state = EntryConfigStore::new(&entry.swawkit_home, &data_root).read();
+        let catalog = CatalogSnapshot::discover(&entry, config_state.ready()).map_err(|_| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "catalog discovery failed",

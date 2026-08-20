@@ -4,7 +4,7 @@
   "provides": [
     {
       "id": "environment",
-      "contract": "swawkit.proj.dev-setup/v3"
+      "contract": "swawkit.proj.dev-setup/v4"
     }
   ]
 }

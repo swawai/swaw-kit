@@ -6,30 +6,24 @@ pub const SWAWKIT_HOME_PLACEHOLDER: &str = "${SWAWKIT_HOME}";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectBinding {
-    target_project_root: PathBuf,
+    project_root: PathBuf,
 }
 
 impl ProjectBinding {
     pub(crate) fn resolve(
         swawkit_home: &Path,
-        configured_target_project_root: &str,
+        configured_project_root: &str,
     ) -> Result<Self, BindingError> {
-        let target_project_root = resolve_root(
-            swawkit_home,
-            configured_target_project_root,
-            "targetProjectRoot",
-        )?;
-        Ok(Self {
-            target_project_root,
-        })
+        let project_root = resolve_root(swawkit_home, configured_project_root, "projectRoot")?;
+        Ok(Self { project_root })
     }
 
-    pub fn target_project_root(&self) -> &Path {
-        &self.target_project_root
+    pub fn project_root(&self) -> &Path {
+        &self.project_root
     }
 
     pub fn project_module_root(&self) -> PathBuf {
-        self.target_project_root.join(".swaw")
+        self.project_root.join(".swaw")
     }
 }
 
@@ -38,14 +32,40 @@ fn resolve_root(
     configured: &str,
     label: &str,
 ) -> Result<PathBuf, BindingError> {
+    validate_project_root(configured, label)?;
+
+    let path = if configured == SWAWKIT_HOME_PLACEHOLDER {
+        swawkit_home.to_path_buf()
+    } else if let Some(suffix) = configured.strip_prefix(SWAWKIT_HOME_PLACEHOLDER) {
+        let relative = suffix
+            .strip_prefix(['/', '\\'])
+            .expect("validated SWAWKIT_HOME suffix has a separator");
+        swawkit_home.join(relative)
+    } else {
+        PathBuf::from(configured)
+    };
+
+    let path = std::path::absolute(&path).map_err(|error| {
+        BindingError::new(format!("invalid {label} '{}': {error}", path.display()))
+    })?;
+    if !path.is_dir() {
+        return Err(BindingError::new(format!(
+            "{label} directory does not exist: {}",
+            path.display()
+        )));
+    }
+    Ok(path)
+}
+
+pub(crate) fn validate_project_root(configured: &str, label: &str) -> Result<(), BindingError> {
     if configured.trim() != configured || configured.is_empty() {
         return Err(BindingError::new(format!(
             "{label} cannot be empty or have surrounding whitespace"
         )));
     }
 
-    let path = if configured == SWAWKIT_HOME_PLACEHOLDER {
-        swawkit_home.to_path_buf()
+    if configured == SWAWKIT_HOME_PLACEHOLDER {
+        Ok(())
     } else if let Some(suffix) = configured.strip_prefix(SWAWKIT_HOME_PLACEHOLDER) {
         let Some(relative) = suffix.strip_prefix(['/', '\\']) else {
             return Err(BindingError::new(format!(
@@ -60,7 +80,7 @@ fn resolve_root(
                 )));
             }
         }
-        swawkit_home.join(relative)
+        Ok(())
     } else {
         if configured.contains("${") {
             return Err(BindingError::new(format!(
@@ -73,19 +93,8 @@ fn resolve_root(
                 "{label} must be absolute or start with {SWAWKIT_HOME_PLACEHOLDER}"
             )));
         }
-        path
-    };
-
-    let path = std::path::absolute(&path).map_err(|error| {
-        BindingError::new(format!("invalid {label} '{}': {error}", path.display()))
-    })?;
-    if !path.is_dir() {
-        return Err(BindingError::new(format!(
-            "{label} directory does not exist: {}",
-            path.display()
-        )));
+        Ok(())
     }
-    Ok(path)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

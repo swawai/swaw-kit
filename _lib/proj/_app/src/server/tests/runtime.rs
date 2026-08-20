@@ -59,6 +59,50 @@ async fn runtime_cleanup_requires_an_explicit_control_action() {
 }
 
 #[tokio::test]
+async fn stale_host_rejects_runtime_cleanup_before_preview_or_apply() {
+    let fixture = Fixture::new();
+    let app = fixture.app();
+    let selected_release_id = fixture.select_update();
+
+    for action in ["runtime-cleanup-preview", "runtime-cleanup-apply"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v2/runtime/cleanup")
+                    .header(HOST, AUTHORITY)
+                    .header("x-swawkit-control", action)
+                    .body(Body::empty())
+                    .expect("valid Runtime cleanup request"),
+            )
+            .await
+            .expect("Runtime cleanup response");
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("Runtime cleanup error body");
+        let document: Value = serde_json::from_slice(&body).expect("Runtime cleanup error JSON");
+        assert_eq!(
+            document["code"],
+            crate::server::command_run::RUNTIME_UPDATE_REQUIRED_CODE
+        );
+        assert!(document["error"].as_str().is_some_and(|error| {
+            error.contains(&fixture.release_id) && error.contains(&selected_release_id)
+        }));
+    }
+    assert!(
+        fixture
+            .root
+            .join("home/data/proj.swawkit/runtime/releases")
+            .join(&fixture.release_id)
+            .is_dir(),
+        "stale cleanup apply must not remove the running generation"
+    );
+}
+
+#[tokio::test]
 async fn binds_independent_random_ports_on_ipv4_loopback() {
     let first = bind_browser_safe().await.expect("first listener");
     let second = bind_browser_safe().await.expect("second listener");

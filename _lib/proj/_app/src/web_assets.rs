@@ -13,7 +13,7 @@ const SHELL_CSS: &str = include_str!("../web/styles/shell.css");
 const EXPLORER_CSS: &str = include_str!("../web/styles/explorer.css");
 const COMMAND_MENU_CSS: &str = include_str!("../web/styles/command-menu.css");
 const DETAIL_CSS: &str = include_str!("../web/styles/detail.css");
-const ENTRY_PROFILE_CSS: &str = include_str!("../web/styles/entry-profile.css");
+const ENTRY_CONFIG_CSS: &str = include_str!("../web/styles/entry-config.css");
 const RUNTIME_CONTROL_CSS: &str = include_str!("../web/styles/runtime-control.css");
 const COMMAND_RUN_CSS: &str = include_str!("../web/styles/command-run.css");
 const RUN_PROJECTION_CSS: &str = include_str!("../web/styles/run-projection.css");
@@ -36,7 +36,7 @@ const COMMAND_MENU_JS: &str = include_str!("../web/command-menu.js");
 const COMMAND_MENU_POSITION_JS: &str = include_str!("../web/command-menu-position.js");
 const DETAIL_JS: &str = include_str!("../web/detail.js");
 const DOCUMENT_PROJECTION_JS: &str = include_str!("../web/document-projection.js");
-const ENTRY_PROFILE_JS: &str = include_str!("../web/entry-profile.js");
+const ENTRY_CONFIG_JS: &str = include_str!("../web/entry-config.js");
 const RUNTIME_CONTROL_JS: &str = include_str!("../web/runtime-control.js");
 const RUNTIME_GENERATION_JS: &str = include_str!("../web/runtime-generation.js");
 const COMMAND_RUN_JS: &str = include_str!("../web/command-run.js");
@@ -74,7 +74,7 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "styles/explorer.css" => Some(("text/css; charset=utf-8", EXPLORER_CSS)),
         "styles/command-menu.css" => Some(("text/css; charset=utf-8", COMMAND_MENU_CSS)),
         "styles/detail.css" => Some(("text/css; charset=utf-8", DETAIL_CSS)),
-        "styles/entry-profile.css" => Some(("text/css; charset=utf-8", ENTRY_PROFILE_CSS)),
+        "styles/entry-config.css" => Some(("text/css; charset=utf-8", ENTRY_CONFIG_CSS)),
         "styles/runtime-control.css" => Some(("text/css; charset=utf-8", RUNTIME_CONTROL_CSS)),
         "styles/command-run.css" => Some(("text/css; charset=utf-8", COMMAND_RUN_CSS)),
         "styles/run-projection.css" => Some(("text/css; charset=utf-8", RUN_PROJECTION_CSS)),
@@ -107,7 +107,7 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "document-projection.js" => {
             Some(("text/javascript; charset=utf-8", DOCUMENT_PROJECTION_JS))
         }
-        "entry-profile.js" => Some(("text/javascript; charset=utf-8", ENTRY_PROFILE_JS)),
+        "entry-config.js" => Some(("text/javascript; charset=utf-8", ENTRY_CONFIG_JS)),
         "runtime-control.js" => Some(("text/javascript; charset=utf-8", RUNTIME_CONTROL_JS)),
         "runtime-generation.js" => Some(("text/javascript; charset=utf-8", RUNTIME_GENERATION_JS)),
         "command-run.js" => Some(("text/javascript; charset=utf-8", COMMAND_RUN_JS)),

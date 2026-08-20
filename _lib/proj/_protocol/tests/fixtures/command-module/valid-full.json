@@ -7,7 +7,7 @@
     {
       "provider": ".dev/setup",
       "export": "environment",
-      "contract": "swawkit.proj.dev-setup/v3"
+      "contract": "swawkit.proj.dev-setup/v4"
     }
   ],
   "provides": [

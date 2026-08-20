@@ -1,0 +1,6 @@
+显示由 .dev/setup Provider 自己持有的当前 Dev Settings 文档。
+
+用法：
+  {{INVOCATION}}
+
+Settings 文件缺失时使用 v1 协议定义的默认值且不写盘；已存文件无效时，Dev setup、status、check 与 setter 会显式失败。

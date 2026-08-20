@@ -17,10 +17,7 @@ fn preparation_owns_the_adapter_invocation_without_starting_it() {
     assert_eq!(prepared.adapter(), CommandAdapter::Pwsh);
     assert_eq!(prepared.entry_path(), directory.join("run.ps1"));
     assert_eq!(prepared.arguments(), argv(&["alpha", "two words"]));
-    assert_eq!(
-        prepared.working_directory(),
-        fixture.target_project_root.as_path()
-    );
+    assert_eq!(prepared.working_directory(), fixture.project_root.as_path());
     assert_eq!(
         prepared
             .environment()
@@ -83,7 +80,7 @@ fn isolated_launch_uses_target_cwd_and_overlays_the_supplied_baseline() {
 
     assert_eq!(
         command.get_current_dir(),
-        Some(fixture.target_project_root.as_path())
+        Some(fixture.project_root.as_path())
     );
     assert_eq!(
         command_environment(command, "SystemRoot"),
@@ -95,13 +92,122 @@ fn isolated_launch_uses_target_cwd_and_overlays_the_supplied_baseline() {
     );
     assert_eq!(
         command_environment(command, "SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR"),
-        Some(fixture.target_project_root.to_str().unwrap())
+        Some(fixture.project_root.to_str().unwrap())
     );
     assert_eq!(
         command_environment(command, "SWAWKIT_PROJ_CORE_COMMAND_ADAPTER_PWSH_ENTRY_PATH"),
         Some(prepared.entry_path().to_str().unwrap())
     );
     assert_eq!(launch.base_creation_flags(), 0);
+}
+
+#[test]
+fn isolated_system_launch_removes_dirty_retired_and_project_environment() {
+    let fixture = Fixture::new();
+    let dirty_names = EXPECTED_RETIRED_COMMAND_ENVIRONMENT
+        .iter()
+        .chain(EXPECTED_CONDITIONAL_PROJECT_ENVIRONMENT.iter())
+        .copied()
+        .collect::<Vec<_>>();
+    let names = dirty_names
+        .iter()
+        .map(|name| format!("'{name}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    fixture.command(
+        ".isolated-clean",
+        &format!(
+            r#"$names = [string[]]@({names})
+foreach ($name in $names) {{
+    if ($null -ne [Environment]::GetEnvironmentVariable($name, 'Process')) {{
+        [Console]::Error.WriteLine('leaked parent environment: ' + $name)
+        exit 91
+    }}
+}}
+exit 0"#
+        ),
+    );
+    let catalog = fixture.catalog();
+    let context = fixture.context();
+    let prepared = CommandExecutor::new(&context, &catalog)
+        .prepare(&argv(&[".isolated-clean"]))
+        .expect("prepared System command");
+    let mut baseline = vec![(
+        OsString::from("SystemRoot"),
+        env::var_os("SystemRoot").expect("SystemRoot"),
+    )];
+    baseline.extend(
+        dirty_names
+            .iter()
+            .map(|name| (OsString::from(name), OsString::from("stale-parent-value"))),
+    );
+
+    let launch = prepared
+        .materialize_process_launch_with_baseline(&baseline)
+        .expect("isolated System process launch");
+    let status = launch.status_for_test().expect("run isolated System child");
+
+    assert_eq!(status.code(), Some(0));
+}
+
+#[test]
+fn isolated_project_launch_replaces_dirty_conditional_project_environment() {
+    let fixture = Fixture::new();
+    let directory = module_directory(&fixture.project_module_root, "build");
+    fs::create_dir_all(&directory).expect("create project command directory");
+    fs::write(
+        directory.join("swawkit.module.json"),
+        r#"{"schema":"swawkit.command-module/v11"}"#,
+    )
+    .expect("write project command manifest");
+    fs::write(
+        directory.join("run.ps1"),
+        r#"$output = Join-Path $env:SWAWKIT_HOME 'project-environment.txt'
+[IO.File]::WriteAllLines(
+    $output,
+    [string[]]@(
+        $env:SWAWKIT_PROJ_PROJECT_ROOT,
+        $env:SWAWKIT_PROJ_PROJECT_MODULE_ROOT
+    )
+)
+exit 0"#,
+    )
+    .expect("write project command entry");
+    let catalog = fixture.catalog();
+    let context = fixture.context();
+    let prepared = CommandExecutor::new(&context, &catalog)
+        .prepare(&argv(&["project/build"]))
+        .expect("prepared project command");
+    let mut baseline = vec![(
+        OsString::from("SystemRoot"),
+        env::var_os("SystemRoot").expect("SystemRoot"),
+    )];
+    baseline.extend(
+        EXPECTED_CONDITIONAL_PROJECT_ENVIRONMENT
+            .map(|name| (OsString::from(name), OsString::from("stale-parent-value"))),
+    );
+
+    let launch = prepared
+        .materialize_process_launch_with_baseline(&baseline)
+        .expect("isolated project process launch");
+    let status = launch
+        .status_for_test()
+        .expect("run isolated project child");
+    assert_eq!(status.code(), Some(0));
+    let output = fs::read_to_string(fixture.root.join("project-environment.txt"))
+        .expect("read projected project environment");
+    let values = output.lines().collect::<Vec<_>>();
+
+    assert_eq!(
+        values,
+        [
+            fixture.project_root.to_str().expect("project root UTF-8"),
+            fixture
+                .project_module_root
+                .to_str()
+                .expect("project Module root UTF-8")
+        ]
+    );
 }
 
 #[test]

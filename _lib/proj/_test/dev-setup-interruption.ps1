@@ -123,7 +123,7 @@ try {
         )
     Assert-ProjSetupInterruption `
         -Condition ($Bound.ExitCode -eq 0) `
-        -Message "cannot create the isolated Entry Profile: $($Bound.Text)"
+        -Message "cannot bind the isolated Entry project: $($Bound.Text)"
     foreach ($Tool in @('bun', 'pwsh', 'msvc', 'rust')) {
         $Disabled = Invoke-ProjSetupEntry `
             -EntryPath $EntryPath `

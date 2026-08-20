@@ -49,7 +49,7 @@ impl ArchiveToolRequest {
                 ArchiveToolErrorKind::InvalidProjectSha256,
                 format!(
                     "{} must be empty or a 64-character SHA-256 value.",
-                    tool.hash_variable
+                    tool.setting_address("sha256")
                 ),
             ));
         }
@@ -58,7 +58,8 @@ impl ArchiveToolRequest {
                 ArchiveToolErrorKind::LatestWithProjectSha256,
                 format!(
                     "{}=latest cannot be combined with {}.",
-                    tool.version_variable, tool.hash_variable
+                    tool.setting_address("version"),
+                    tool.setting_address("sha256")
                 ),
             ));
         }

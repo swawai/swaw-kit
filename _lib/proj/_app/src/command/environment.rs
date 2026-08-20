@@ -4,16 +4,16 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use swawkit_proj_protocol::{
-    CommandIdentity, command_data_root as identity_data_root, valid_module_namespace,
+    COMMAND_ENVIRONMENT_PROTOCOL, CommandIdentity, command_data_root as identity_data_root,
+    valid_module_namespace,
 };
 
 use crate::{
-    binding::ProjectBinding,
-    catalog::{CommandNode, CommandSpace},
+    catalog::{CatalogSnapshot, CommandNode, CommandSpace},
     command_event::{COMMAND_EVENT_FRAME_PROTOCOL, COMMAND_EVENT_PROTOCOL_ENV},
     context::EntryContext,
+    entry_config::EntryConfig,
     launch::{ENTRY_FILE_ENV, LAUNCH_MODE_ENV},
-    profile::{EntryProfile, EntryProfileRecord},
 };
 
 use super::{CommandError, CommandResult, ResolvedCommand};
@@ -29,23 +29,61 @@ const COMMAND_OWNER_ENVIRONMENT: [&str; 3] = [
     "SWAWKIT_PROJ_CORE_COMMAND_OWNER_DIR",
     "SWAWKIT_PROJ_CORE_COMMAND_OWNER_DATA_ROOT",
 ];
+pub(super) const CONDITIONAL_PROJECT_ENVIRONMENT: [&str; 2] = [
+    "SWAWKIT_PROJ_PROJECT_ROOT",
+    "SWAWKIT_PROJ_PROJECT_MODULE_ROOT",
+];
+// Complete historical Profile publication set, except LANGUAGE, which remains
+// an explicit EntryConfig projection. The final two names were Profile-derived
+// command revisions rather than registry fields, but are retired with it.
+pub(super) const RETIRED_COMMAND_ENVIRONMENT: [&str; 30] = [
+    "SWAWKIT_PROJ_BUN_MODE",
+    "SWAWKIT_PROJ_BUN_SHA256",
+    "SWAWKIT_PROJ_BUN_VERSION",
+    "SWAWKIT_PROJ_CURSOR_MODE",
+    "SWAWKIT_PROJ_GH_MODE",
+    "SWAWKIT_PROJ_GIT_ID_ACCESS",
+    "SWAWKIT_PROJ_GIT_ID_EMAIL",
+    "SWAWKIT_PROJ_GIT_ID_NAME",
+    "SWAWKIT_PROJ_GO_MODE",
+    "SWAWKIT_PROJ_GO_SHA256",
+    "SWAWKIT_PROJ_GO_VERSION",
+    "SWAWKIT_PROJ_MSVC_CHANNEL",
+    "SWAWKIT_PROJ_MSVC_MODE",
+    "SWAWKIT_PROJ_PWSH_MODE",
+    "SWAWKIT_PROJ_PWSH_SHA256",
+    "SWAWKIT_PROJ_PWSH_VERSION",
+    "SWAWKIT_PROJ_PYTHON_MODE",
+    "SWAWKIT_PROJ_PYTHON_SHA256",
+    "SWAWKIT_PROJ_PYTHON_VERSION",
+    "SWAWKIT_PROJ_RUST_HOST",
+    "SWAWKIT_PROJ_RUST_MODE",
+    "SWAWKIT_PROJ_RUST_PROFILE",
+    "SWAWKIT_PROJ_RUST_TOOLCHAIN",
+    "SWAWKIT_PROJ_TARGET_PROJECT_ROOT",
+    "SWAWKIT_PROJ_UV_MODE",
+    "SWAWKIT_PROJ_UV_SHA256",
+    "SWAWKIT_PROJ_UV_VERSION",
+    "SWAWKIT_PROJ_VSCODE_MODE",
+    "SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION",
+    "SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION",
+];
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandExecutionContext {
     pub swawkit_home: PathBuf,
     pub command_root: PathBuf,
     pub system_root: PathBuf,
-    pub target_project_root: PathBuf,
+    pub project_root: Option<PathBuf>,
     pub module_roots: BTreeMap<String, PathBuf>,
     pub data_root: PathBuf,
     pub entry_name: String,
+    pub language: &'static str,
     pub entry_file: PathBuf,
     pub invocation_directory: PathBuf,
+    pub working_directory: PathBuf,
     pub dev_executable: PathBuf,
     pub module_executable: PathBuf,
     pub command_runtime_id: String,
-    pub profile: EntryProfileRecord,
-    pub environment_input_revision: String,
-    pub profile_revision: String,
     pub process_mode: CommandProcessMode,
 }
 
@@ -57,22 +95,49 @@ pub enum CommandProcessMode {
 }
 
 impl CommandExecutionContext {
-    pub fn new(
+    pub fn for_cli(
         entry: &EntryContext,
-        profile: &EntryProfile,
+        config: Option<&EntryConfig>,
+        catalog: &CatalogSnapshot,
         data_root: impl Into<PathBuf>,
         process_mode: CommandProcessMode,
     ) -> CommandResult<Self> {
-        let binding = profile.binding();
-        let mut module_roots = BTreeMap::new();
-        for (namespace, root) in [
-            ("swaw", entry.swaw_module_root()),
-            ("project", binding.project_module_root()),
-        ] {
-            if root.is_dir() {
-                module_roots.insert(namespace.to_owned(), root);
-            }
-        }
+        Self::new(
+            entry,
+            config,
+            catalog,
+            data_root,
+            entry.invocation_directory.clone(),
+            process_mode,
+        )
+    }
+
+    pub(crate) fn for_host(
+        entry: &EntryContext,
+        config: Option<&EntryConfig>,
+        catalog: &CatalogSnapshot,
+        data_root: impl Into<PathBuf>,
+    ) -> CommandResult<Self> {
+        Self::new(
+            entry,
+            config,
+            catalog,
+            data_root,
+            entry.swawkit_home.clone(),
+            CommandProcessMode::NoWindow,
+        )
+    }
+
+    fn new(
+        entry: &EntryContext,
+        config: Option<&EntryConfig>,
+        catalog: &CatalogSnapshot,
+        data_root: impl Into<PathBuf>,
+        invocation_directory: PathBuf,
+        process_mode: CommandProcessMode,
+    ) -> CommandResult<Self> {
+        let binding = config.and_then(EntryConfig::binding);
+        let module_roots = catalog_module_roots(catalog);
         let command_runtime_id = crate::runtime_release::command_runtime(entry)
             .map_err(|error| CommandError::new(format!("Command Runtime is invalid: {error}")))?
             .runtime_id;
@@ -80,21 +145,37 @@ impl CommandExecutionContext {
             swawkit_home: entry.swawkit_home.clone(),
             command_root: entry.command_root(),
             system_root: entry.system_root(),
-            target_project_root: binding.target_project_root().to_path_buf(),
+            project_root: binding.map(|binding| binding.project_root().to_path_buf()),
             module_roots,
             data_root: data_root.into(),
             entry_name: entry.entry_name.clone(),
+            language: config
+                .map(EntryConfig::language)
+                .unwrap_or_default()
+                .as_str(),
             entry_file: entry.entry_file.clone(),
-            invocation_directory: entry.invocation_directory.clone(),
+            working_directory: invocation_directory.clone(),
+            invocation_directory,
             dev_executable: entry.sibling_product_executable("swawkit-proj-dev.exe"),
             module_executable: entry.sibling_product_executable("swawkit-proj-module.exe"),
             command_runtime_id,
-            profile: profile.record().clone(),
-            environment_input_revision: profile.environment_input_revision().to_owned(),
-            profile_revision: profile.profile_revision().to_owned(),
             process_mode,
         })
     }
+}
+
+pub(super) fn catalog_module_roots(catalog: &CatalogSnapshot) -> BTreeMap<String, PathBuf> {
+    catalog
+        .commands
+        .iter()
+        .filter(|command| command.space == CommandSpace::Module && command.path.is_empty())
+        .filter_map(|command| {
+            command
+                .namespace
+                .as_ref()
+                .map(|namespace| (namespace.clone(), command.directory.clone()))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -114,7 +195,16 @@ impl ProcessEnvironment {
         for name in COMMAND_OWNER_ENVIRONMENT {
             environment.remove(name);
         }
-        environment.set("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL", "2");
+        for name in CONDITIONAL_PROJECT_ENVIRONMENT {
+            environment.remove(name);
+        }
+        for name in RETIRED_COMMAND_ENVIRONMENT {
+            environment.remove(name);
+        }
+        environment.set(
+            "SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL",
+            COMMAND_ENVIRONMENT_PROTOCOL,
+        );
         environment.set(COMMAND_EVENT_PROTOCOL_ENV, COMMAND_EVENT_FRAME_PROTOCOL);
         environment.set(
             "SWAWKIT_PROJ_CORE_COMMAND_ADDRESS",
@@ -142,12 +232,19 @@ impl ProcessEnvironment {
         );
         environment.set("SWAWKIT_HOME", &context.swawkit_home);
         environment.set("SWAWKIT_PROJ_SYSTEM_ROOT", &context.system_root);
-        environment.set(
-            "SWAWKIT_PROJ_TARGET_PROJECT_ROOT",
-            &context.target_project_root,
-        );
-        if let Some(project_root) = context.module_roots.get("project") {
-            environment.set("SWAWKIT_PROJ_PROJECT_MODULE_ROOT", project_root);
+        if protocol_command.space == CommandSpace::Module
+            && protocol_command.namespace.as_deref() == Some("project")
+        {
+            let project_root = context.project_root.as_ref().ok_or_else(|| {
+                CommandError::new(
+                    "Catalog invariant failed: project command has no bound project root",
+                )
+            })?;
+            environment.set("SWAWKIT_PROJ_PROJECT_ROOT", project_root);
+            let module_root = context.module_roots.get("project").ok_or_else(|| {
+                CommandError::new("Catalog invariant failed: project command has no Module root")
+            })?;
+            environment.set("SWAWKIT_PROJ_PROJECT_MODULE_ROOT", module_root);
         }
         let module_roots = serde_json::to_string(&context.module_roots).map_err(|error| {
             CommandError::new(format!("cannot serialize Module mount roots: {error}"))
@@ -155,21 +252,13 @@ impl ProcessEnvironment {
         environment.set("SWAWKIT_PROJ_MODULE_ROOTS", module_roots);
         environment.set("SWAWKIT_PROJ_DATA_ROOT", &context.data_root);
         environment.set("SWAWKIT_PROJ_ENTRY_COMMAND", &context.entry_name);
+        environment.set("SWAWKIT_PROJ_LANGUAGE", context.language);
         environment.set(
             "SWAWKIT_PROJ_CORE_COMMAND_RUNTIME_ID",
             &context.command_runtime_id,
         );
         environment.set("SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE", &context.entry_file);
         environment.set("SWAWKIT_PROJ_CORE_DEV_EXECUTABLE", &context.dev_executable);
-        environment.set(
-            "SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION",
-            &context.environment_input_revision,
-        );
-        environment.set(
-            "SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION",
-            &context.profile_revision,
-        );
-        environment.apply_profile(&context.profile);
         Ok(environment)
     }
 
@@ -177,16 +266,6 @@ impl ProcessEnvironment {
         self.set("SWAWKIT_PROJ_CORE_COMMAND_OWNER_ADDRESS", address);
         self.set("SWAWKIT_PROJ_CORE_COMMAND_OWNER_DIR", directory);
         self.set("SWAWKIT_PROJ_CORE_COMMAND_OWNER_DATA_ROOT", data_root);
-    }
-
-    fn apply_profile(&mut self, profile: &EntryProfileRecord) {
-        for (name, value, omit_when_empty) in profile.published_environment_variables() {
-            if omit_when_empty {
-                self.set_optional(name, &value);
-            } else {
-                self.set(name, value);
-            }
-        }
     }
 
     fn set(&mut self, name: impl Into<OsString>, value: impl AsRef<OsStr>) {
@@ -281,9 +360,7 @@ pub(crate) fn command_data_root(
 }
 
 pub fn catalog_command_data_root(
-    _context: &EntryContext,
     data_root: &Path,
-    _binding: Option<&ProjectBinding>,
     command: &CommandNode,
 ) -> CommandResult<PathBuf> {
     command_identity_data_root(

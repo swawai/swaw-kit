@@ -8,7 +8,6 @@ import {
   availableCommand,
   childrenColumnWidth,
   choiceColumnModels,
-  commandDisabledDuringSetup,
   commandHasChoices,
   commandMenuExpanded,
   selectedCommandFacet,
@@ -30,7 +29,6 @@ export {
   availableCommand,
   childrenColumnWidth,
   choiceColumnModels,
-  commandDisabledDuringSetup,
   commandHasChoices,
   commandMenuExpanded,
 } from "./explorer-model.js";
@@ -70,7 +68,6 @@ export function createExplorerView({
   let selectedSubjectRef = null;
   let selectedSubjectCollection = null;
   let expandedCommandMenuAddress = null;
-  let setupRequired = false;
   const commandStates = new Map();
   const subjectCollections = new Map();
   const subjectCollectionErrors = new Map();
@@ -127,7 +124,6 @@ export function createExplorerView({
       expandedCommandMenuAddress,
       command.address,
     );
-    const disabled = commandDisabledDuringSetup(setupRequired, command);
     const state = commandStates.get(command.address);
 
     button.type = "button";
@@ -136,7 +132,6 @@ export function createExplorerView({
     button.dataset.depth = String(depth);
     button.dataset.kind = group ? "group" : "command";
     button.dataset.navigationKey = command.address;
-    button.disabled = disabled;
     button.dataset.selected = String(selected);
     button.dataset.expandable = String(expandable);
     if (state?.tone) {
@@ -148,9 +143,7 @@ export function createExplorerView({
     if (selected && group) {
       button.setAttribute("aria-controls", `finder-column-${depth + 1}`);
     }
-    button.title = disabled
-      ? t("完成首次设置后可用", "Available after initial setup")
-      : command.address;
+    button.title = command.address;
 
     icon.className = "row-icon";
     icon.textContent = state?.icon ?? (group ? "⌑" : ">_");
@@ -188,7 +181,6 @@ export function createExplorerView({
       toggle.className = "command-menu-toggle";
       toggle.dataset.address = command.address;
       toggle.dataset.selected = String(selected);
-      toggle.disabled = disabled;
       toggle.setAttribute("aria-haspopup", "menu");
       toggle.setAttribute("popovertarget", commandMenuId(command.address, depth));
       toggle.setAttribute("popovertargetaction", "toggle");
@@ -393,7 +385,7 @@ export function createExplorerView({
   }
 
   function selectCommand(address, depth, options = {}) {
-    const command = availableCommand(catalog, setupRequired, address);
+    const command = availableCommand(catalog, address);
     if (!command) {
       return false;
     }
@@ -428,7 +420,7 @@ export function createExplorerView({
   }
 
   function selectAddress(address, options = {}) {
-    const command = availableCommand(catalog, setupRequired, address);
+    const command = availableCommand(catalog, address);
     if (!command) {
       return false;
     }
@@ -450,10 +442,10 @@ export function createExplorerView({
   function selectSubjectRecord(subject, options = {}) {
     const key = collectionKey(subject.owner, subject.collectionFacet);
     const current = subjectCollections.get(key)?.subjectByRef.get(subject.canonicalRef);
-    if (!current || setupRequired) {
+    if (!current) {
       return false;
     }
-    const owner = availableCommand(catalog, setupRequired, current.owner);
+    const owner = availableCommand(catalog, current.owner);
     if (!owner) {
       return false;
     }
@@ -475,10 +467,7 @@ export function createExplorerView({
   }
 
   function defaultCommand() {
-    const available = catalog.roots.filter(
-      (command) => !commandDisabledDuringSetup(setupRequired, command),
-    );
-    return sortCommands(catalog, available)[0] ?? null;
+    return sortCommands(catalog, catalog.roots)[0] ?? null;
   }
 
   function handleKeyboard(event) {
@@ -541,7 +530,7 @@ export function createExplorerView({
     catalog = nextCatalog;
     const preferred = options.address ?? previous;
     const preferredCommand = preferred
-      ? availableCommand(catalog, setupRequired, preferred)
+      ? availableCommand(catalog, preferred)
       : null;
     if (preferredCommand) {
       selectAddress(preferred, {
@@ -556,22 +545,6 @@ export function createExplorerView({
     } else {
       selectedPath = [];
       renderColumns();
-    }
-  }
-
-  function setSetupRequired(required) {
-    setupRequired = required;
-    if (!catalog) {
-      return;
-    }
-    const selected = catalog.commandByAddress.get(selectedPath.at(-1));
-    if (selected && !commandDisabledDuringSetup(setupRequired, selected)) {
-      renderColumns();
-      return;
-    }
-    const command = defaultCommand();
-    if (command) {
-      selectAddress(command.address, { history: "replace" });
     }
   }
 
@@ -597,7 +570,7 @@ export function createExplorerView({
         selectedSubjectRef = null;
         selectedSubjectCollection = null;
         const command = owner
-          ? availableCommand(catalog, setupRequired, owner)
+          ? availableCommand(catalog, owner)
           : null;
         if (command) {
           selectedPath = addressPath(owner);
@@ -671,6 +644,5 @@ export function createExplorerView({
     setSubjectCollection,
     setSubjectCollectionError,
     setSubjectCollectionLoading,
-    setSetupRequired,
   };
 }

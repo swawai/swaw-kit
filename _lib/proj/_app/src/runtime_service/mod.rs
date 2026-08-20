@@ -7,13 +7,11 @@ use std::ffi::OsString;
 use std::sync::Arc;
 
 use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSpace};
-use crate::command::{
-    CommandExecutionContext, CommandProcessMode, Invocation, PlannedCommand, command_data_root,
-};
+use crate::command::{CommandExecutionContext, Invocation, PlannedCommand, command_data_root};
 use crate::context::EntryContext;
 use crate::core_command::PreparedCoreCommand;
 use crate::data_root::DataRootSession;
-use crate::profile::{EntryProfileState, EntryProfileStore};
+use crate::entry_config::EntryConfigStore;
 use crate::run_journal::StartRunJournal;
 
 pub(crate) use error::RuntimeServiceError;
@@ -70,7 +68,6 @@ impl RuntimeService {
             address: prepared.execution.address().to_owned(),
             source: request.source,
             argument_count: prepared.execution.argument_count(),
-            profile_revision: prepared.journal.profile_revision,
         };
         let runs = self.runs.clone();
         tokio::task::spawn_blocking(move || runs.start(prepared.execution, journal_request))
@@ -106,7 +103,6 @@ impl RuntimeService {
             data_root.path().to_path_buf(),
             address.to_owned(),
             arguments.to_vec(),
-            false,
         )?;
         self.runs.query(prepared.execution)
     }
@@ -138,15 +134,13 @@ impl RuntimeService {
         let context = self.context.clone();
         let data_root_path = data_root.path().to_path_buf();
         let prepared = tokio::task::spawn_blocking(move || {
-            prepare_command(context, data_root_path, address, arguments, true)
+            prepare_command(context, data_root_path, address, arguments)
         })
         .await
         .map_err(|error| RuntimeServiceError::PreparationWorker(error.to_string()))??;
         Ok(PreparedRun {
             execution: prepared.execution,
-            journal: prepared
-                .journal
-                .ok_or(RuntimeServiceError::ProfileSetupRequired)?,
+            journal: prepared.journal,
         })
     }
 }
@@ -158,27 +152,22 @@ struct PreparedRun {
 
 struct PreparedJournal {
     module_data_root: std::path::PathBuf,
-    profile_revision: String,
 }
 
 struct PreparedCommand {
     execution: PreparedExecution,
-    journal: Option<PreparedJournal>,
+    journal: PreparedJournal,
 }
 
 fn prepare_command(
-    mut context: EntryContext,
+    context: EntryContext,
     data_root: std::path::PathBuf,
     address: String,
     arguments: Vec<String>,
-    require_ready_profile: bool,
 ) -> Result<PreparedCommand, RuntimeServiceError> {
-    let profile_store = EntryProfileStore::new(&context.swawkit_home, &data_root);
-    let profile_state = profile_store.read();
-    if require_ready_profile {
-        require_profile(&profile_state)?;
-    }
-    let catalog = CatalogSnapshot::discover(&context, profile_state.ready())
+    let config_store = EntryConfigStore::new(&context.swawkit_home, &data_root);
+    let config_state = config_store.read();
+    let catalog = CatalogSnapshot::discover(&context, config_state.ready())
         .map_err(|_| RuntimeServiceError::CatalogDiscovery)?;
     if !catalog
         .commands
@@ -209,52 +198,33 @@ fn prepare_command(
     )
     .map_err(RuntimeServiceError::DependenciesNotReady)?;
 
-    let working_directory = profile_state
-        .ready()
-        .map(|profile| profile.binding().target_project_root().to_path_buf())
-        .unwrap_or_else(|| context.invocation_directory.clone());
-    context.invocation_directory = working_directory.clone();
-    let execution_context = profile_state
-        .ready()
-        .map(|profile| {
-            CommandExecutionContext::new(
-                &context,
-                profile,
-                &data_root,
-                CommandProcessMode::NoWindow,
-            )
-            .map_err(|error| RuntimeServiceError::ExecutionContext(error.to_string()))
-        })
-        .transpose()?;
-    let journal = execution_context
-        .as_ref()
-        .zip(profile_state.ready())
-        .map(|(execution_context, profile)| {
-            Ok(PreparedJournal {
-                module_data_root: command_data_root(execution_context, command)
-                    .map_err(|error| RuntimeServiceError::CommandDataRoot(error.to_string()))?,
-                profile_revision: profile.profile_revision().to_owned(),
-            })
-        })
-        .transpose()?;
+    let execution_context =
+        CommandExecutionContext::for_host(&context, config_state.ready(), &catalog, &data_root)
+            .map_err(|error| RuntimeServiceError::ExecutionContext(error.to_string()))?;
+    let journal = PreparedJournal {
+        module_data_root: command_data_root(&execution_context, command)
+            .map_err(|error| RuntimeServiceError::CommandDataRoot(error.to_string()))?,
+    };
 
+    let working_directory = if command.space == CommandSpace::Module
+        && command.namespace.as_deref() == Some("project")
+    {
+        execution_context.project_root.clone().ok_or_else(|| {
+            RuntimeServiceError::ExecutionContext(
+                "project command has no bound project root".to_owned(),
+            )
+        })?
+    } else {
+        execution_context.working_directory.clone()
+    };
     let spec = RuntimeExecutionSpec::new(address, argv.clone(), working_directory);
     let execution = if command.adapter == CommandAdapter::Core {
         PreparedExecution::core(
             spec,
-            PreparedCoreCommand::for_runtime(
-                command,
-                argv,
-                catalog,
-                context,
-                data_root,
-                profile_state,
-                profile_store,
-            )
-            .map_err(|error| RuntimeServiceError::CommandInvalid(error.to_string()))?,
+            PreparedCoreCommand::for_runtime(command, argv, catalog, context, data_root)
+                .map_err(|error| RuntimeServiceError::CommandInvalid(error.to_string()))?,
         )
     } else {
-        let execution_context = execution_context.ok_or_else(|| profile_error(&profile_state))?;
         PreparedExecution::process(
             spec,
             execution_context,
@@ -264,20 +234,6 @@ fn prepare_command(
     };
 
     Ok(PreparedCommand { execution, journal })
-}
-
-fn require_profile(state: &EntryProfileState) -> Result<(), RuntimeServiceError> {
-    match state {
-        EntryProfileState::Ready(_) => Ok(()),
-        EntryProfileState::Missing { .. } => Err(RuntimeServiceError::ProfileSetupRequired),
-        EntryProfileState::Invalid { error, .. } => {
-            Err(RuntimeServiceError::ProfileInvalid(error.clone()))
-        }
-    }
-}
-
-fn profile_error(state: &EntryProfileState) -> RuntimeServiceError {
-    require_profile(state).expect_err("non-ready profile must have a typed error")
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{self, Write};
 use std::os::windows::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -36,7 +36,6 @@ impl Fixture {
             address: ".fixture".to_owned(),
             source,
             argument_count: 2,
-            profile_revision: "sha256-fixture".to_owned(),
         })
         .expect("start run journal")
     }
@@ -94,6 +93,7 @@ fn publishes_append_only_events_and_an_atomic_terminal_state() {
     assert_eq!(state["status"], "exited");
     assert_eq!(state["exitCode"], 7);
     assert_eq!(state["eventCount"], 2);
+    assert!(state.get("profileRevision").is_none());
     assert!(state["finishedAtUnixMs"].as_u64().is_some());
     assert!(!fixture.owner_path(&id).exists());
 
@@ -110,6 +110,175 @@ fn publishes_append_only_events_and_an_atomic_terminal_state() {
     assert_eq!(events[0]["kind"], "output");
     assert_eq!(events[1]["sequence"], second.sequence);
     assert_eq!(events[1]["stream"], "stderr");
+}
+
+#[test]
+fn reads_the_bounded_legacy_v1_state_without_republishing_profile_revision() {
+    let fixture = Fixture::new();
+    let journal = fixture.start(RunJournalSource::Cli);
+    let id = journal.id().unwrap();
+    journal.finish_exited(0).unwrap();
+    let state_path = fixture
+        .root
+        .join(JOURNAL_DIRECTORY_NAME)
+        .join(&id)
+        .join(JOURNAL_STATE_FILE_NAME);
+    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state["schema"] = Value::String(LEGACY_JOURNAL_STATE_SCHEMA.to_owned());
+    state["profileRevision"] = Value::String("sha256-legacy".to_owned());
+    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+    let document = serde_json::to_value(
+        read_run(&fixture.root, ".fixture", &id, 0).expect("read legacy journal"),
+    )
+    .unwrap();
+
+    assert_eq!(document["protocol"], "swawkit.command-run-journal/v3");
+    assert!(document.get("profileRevision").is_none());
+}
+
+#[test]
+fn current_v2_state_strictly_rejects_the_retired_profile_revision() {
+    let fixture = Fixture::new();
+    let journal = fixture.start(RunJournalSource::Cli);
+    let id = journal.id().unwrap();
+    journal.finish_exited(0).unwrap();
+    let state_path = fixture
+        .root
+        .join(JOURNAL_DIRECTORY_NAME)
+        .join(&id)
+        .join(JOURNAL_STATE_FILE_NAME);
+    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state["profileRevision"] = Value::String("sha256-retired".to_owned());
+    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+    let error = read_run(&fixture.root, ".fixture", &id, 0).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("unknown field `profileRevision`")
+    );
+}
+
+#[test]
+fn legacy_v1_state_requires_its_profile_revision_evidence() {
+    let fixture = Fixture::new();
+    let journal = fixture.start(RunJournalSource::Cli);
+    let id = journal.id().unwrap();
+    journal.finish_exited(0).unwrap();
+    let state_path = fixture
+        .root
+        .join(JOURNAL_DIRECTORY_NAME)
+        .join(&id)
+        .join(JOURNAL_STATE_FILE_NAME);
+    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state["schema"] = Value::String(LEGACY_JOURNAL_STATE_SCHEMA.to_owned());
+    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+
+    let error = read_run(&fixture.root, ".fixture", &id, 0).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("missing field `profileRevision`")
+    );
+}
+
+#[test]
+fn rejects_oversized_current_v2_state_before_parsing() {
+    let fixture = Fixture::new();
+    let journal = fixture.start(RunJournalSource::Cli);
+    let id = journal.id().unwrap();
+    journal.finish_exited(0).unwrap();
+    let state_path = fixture
+        .root
+        .join(JOURNAL_DIRECTORY_NAME)
+        .join(&id)
+        .join(JOURNAL_STATE_FILE_NAME);
+    pad_state_beyond_limit(&state_path);
+
+    assert_state_too_large(read_run(&fixture.root, ".fixture", &id, 0).unwrap_err());
+}
+
+#[test]
+fn rejects_oversized_legacy_v1_state_before_parsing() {
+    let fixture = Fixture::new();
+    let journal = fixture.start(RunJournalSource::Cli);
+    let id = journal.id().unwrap();
+    journal.finish_exited(0).unwrap();
+    let state_path = fixture
+        .root
+        .join(JOURNAL_DIRECTORY_NAME)
+        .join(&id)
+        .join(JOURNAL_STATE_FILE_NAME);
+    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
+    state["schema"] = Value::String(LEGACY_JOURNAL_STATE_SCHEMA.to_owned());
+    state["profileRevision"] = Value::String("sha256-legacy".to_owned());
+    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
+    pad_state_beyond_limit(&state_path);
+
+    assert_state_too_large(read_run(&fixture.root, ".fixture", &id, 0).unwrap_err());
+}
+
+#[test]
+fn rejects_state_that_grows_after_the_metadata_check() {
+    let fixture = Fixture::new();
+    let state_path = fixture.root.join("growing-state.json");
+    fs::write(&state_path, b"{}").unwrap();
+
+    let error = storage::read_stored_state_with_before_read(&state_path, |path| {
+        fs::write(path, vec![b' '; storage::MAX_STATE_BYTES as usize + 1])
+    })
+    .unwrap_err();
+
+    assert_state_too_large(error);
+}
+
+#[test]
+fn rejects_bounded_state_growth_after_the_metadata_check() {
+    let fixture = Fixture::new();
+    let state_path = fixture.root.join("bounded-growing-state.json");
+    fs::write(&state_path, b"{}").unwrap();
+
+    let error =
+        storage::read_stored_state_with_before_read(&state_path, |path| fs::write(path, b"{}\n"))
+            .unwrap_err();
+
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        error.to_string(),
+        "run journal state file changed while being read"
+    );
+}
+
+#[test]
+fn state_reader_never_follows_a_reparse_file() {
+    let fixture = Fixture::new();
+    let target = fixture.root.join("state-target.json");
+    let reparse = fixture.root.join("state-reparse.json");
+    fs::write(&target, b"{}").unwrap();
+    if let Err(error) = std::os::windows::fs::symlink_file(&target, &reparse) {
+        eprintln!("skipping run journal state reparse test: {error}");
+        return;
+    }
+
+    let error = storage::read_stored_state(&reparse).unwrap_err();
+
+    assert!(error.to_string().contains("must be a normal file"));
+    fs::remove_file(reparse).unwrap();
+}
+
+fn pad_state_beyond_limit(path: &Path) {
+    let mut content = fs::read(path).unwrap();
+    content.resize(storage::MAX_STATE_BYTES as usize + 1, b' ');
+    fs::write(path, content).unwrap();
+}
+
+fn assert_state_too_large(error: io::Error) {
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        error.to_string(),
+        "run journal state file exceeds its storage contract"
+    );
 }
 
 #[test]
@@ -209,7 +378,7 @@ fn reads_history_and_incremental_run_documents() {
     let document =
         serde_json::to_value(read_run(&fixture.root, ".fixture", &id, 1).expect("read journal"))
             .unwrap();
-    assert_eq!(document["protocol"], "swawkit.command-run-journal/v2");
+    assert_eq!(document["protocol"], "swawkit.command-run-journal/v3");
     assert_eq!(document["nextCursor"], 2);
     assert_eq!(document["events"].as_array().unwrap().len(), 1);
     assert_eq!(document["events"][0]["sequence"], 2);
@@ -438,7 +607,6 @@ fn subprocess_abandoned_writer() {
         address: ".fixture".to_owned(),
         source: RunJournalSource::Cli,
         argument_count: 0,
-        profile_revision: "sha256-subprocess".to_owned(),
     })
     .unwrap();
     let id = journal.id().unwrap();

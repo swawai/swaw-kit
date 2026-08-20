@@ -46,9 +46,9 @@ async fn resolves_a_blocked_command_check_document_from_exit_code_one() {
     let fixture = Fixture::new();
     check_surface(&fixture);
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let argv = vec![".check".to_owned(), ".tool".to_owned(), "--json".to_owned()];
     let document = command_check_document(false);
     let app = facet_app_with_exit_codes(
@@ -120,9 +120,9 @@ async fn rejects_exit_codes_that_violate_the_declared_return_protocol() {
     );
     fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let check_argv = vec![".check".to_owned(), ".tool".to_owned(), "--json".to_owned()];
 
     for (exit_code, ready) in [(0, false), (1, true), (2, false)] {

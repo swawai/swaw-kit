@@ -50,7 +50,7 @@ try {
     $DataRoot = Join-Path $TemporaryRoot 'data'
     $CacheDataRoot = Join-Path $TemporaryRoot 'cache'
     [void][IO.Directory]::CreateDirectory($ProjectRoot)
-    $Context = New-ProjDevContext `
+    $Context = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
         -CacheDataRoot $CacheDataRoot `

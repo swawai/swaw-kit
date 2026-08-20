@@ -19,9 +19,7 @@ if ($Mode -ieq '-File') {
     $Target = if ([IO.Path]::IsPathRooted($DeclaredPath)) {
         [IO.Path]::GetFullPath($DeclaredPath)
     } else {
-        [IO.Path]::GetFullPath((Join-Path (
-            [string]$env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT
-        ) $DeclaredPath))
+        [IO.Path]::GetFullPath($DeclaredPath)
     }
     $TargetItem = Get-Item -LiteralPath $Target -Force -ErrorAction SilentlyContinue
     if ([IO.Path]::GetExtension($Target) -ine '.ps1') {

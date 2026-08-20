@@ -3,28 +3,28 @@ use std::env;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-use swawkit_proj_protocol::valid_module_namespace;
+use swawkit_proj_dev::development::setup::settings::{
+    DevSettingsSnapshot, DevSettingsStore, is_setting_address,
+};
+use swawkit_proj_protocol::{COMMAND_ENVIRONMENT_PROTOCOL, valid_module_namespace};
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-
-const REVISION_PREFIX: &str = "sha256-";
-const COMMAND_PROTOCOL: &str = "2";
 
 pub(super) struct CommandContext {
     pub(super) data_root: PathBuf,
     pub(super) export_root: PathBuf,
     pub(super) entry_command: String,
-    pub(super) environment_input_revision: String,
-}
-
-pub(super) struct SetupCommandContext {
     pub(super) cache_data_root: PathBuf,
-    pub(super) profile_revision: String,
+    pub(super) settings: DevSettingsSnapshot,
 }
 
 impl CommandContext {
     pub(super) fn from_environment(address: &str) -> Result<Self, String> {
         validate_command_protocol(&required("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL")?)?;
-        if !matches!(address, ".dev/setup" | ".dev/setup/check" | ".dev/status") {
+        if !matches!(
+            address,
+            ".dev/settings" | ".dev/setup" | ".dev/setup/check" | ".dev/status"
+        ) && !is_setting_address(address)
+        {
             return Err(format!("unsupported Dev command address '{address}'"));
         }
         require_exact("SWAWKIT_PROJ_CORE_COMMAND_ADDRESS", address)?;
@@ -38,11 +38,7 @@ impl CommandContext {
                 .map_err(|error| format!("invalid Module mount root map: {error}"))?;
         validate_module_roots(&module_roots)?;
         let entry_command = required("SWAWKIT_PROJ_ENTRY_COMMAND")?;
-        let environment_input_revision =
-            required("SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION")?;
-        if !is_revision(&environment_input_revision) {
-            return Err("invalid command environment input revision".to_owned());
-        }
+        let settings = DevSettingsStore::new(&data_root).snapshot()?;
 
         let setup_root = data_root
             .join("modules")
@@ -54,7 +50,8 @@ impl CommandContext {
             data_root,
             export_root,
             entry_command,
-            environment_input_revision,
+            cache_data_root: swawkit_home.join("data").join("proj_cache"),
+            settings,
         })
     }
 
@@ -62,23 +59,8 @@ impl CommandContext {
         format!("{} .dev/setup", self.entry_command)
     }
 
-    pub(super) fn environment(&self, name: &str) -> String {
-        env::var(name).unwrap_or_default().trim().to_owned()
-    }
-}
-
-impl SetupCommandContext {
-    pub(super) fn from_environment() -> Result<Self, String> {
-        let swawkit_home = absolute_path(required("SWAWKIT_HOME")?, "Swaw Kit Home")?;
-        regular_directory(&swawkit_home, "Swaw Kit Home")?;
-        let profile_revision = required("SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION")?;
-        if !is_revision(&profile_revision) {
-            return Err("invalid command Profile revision".to_owned());
-        }
-        Ok(Self {
-            cache_data_root: swawkit_home.join("data").join("proj_cache"),
-            profile_revision,
-        })
+    pub(super) fn input_revision(&self) -> &str {
+        self.settings.input_revision()
     }
 }
 
@@ -112,11 +94,11 @@ fn require_exact(name: &str, expected: &str) -> Result<(), String> {
 }
 
 fn validate_command_protocol(actual: &str) -> Result<(), String> {
-    if actual == COMMAND_PROTOCOL {
+    if actual == COMMAND_ENVIRONMENT_PROTOCOL {
         Ok(())
     } else {
         Err(format!(
-            "unsupported SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL value '{actual}'; expected '{COMMAND_PROTOCOL}'"
+            "unsupported SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL value '{actual}'; expected '{COMMAND_ENVIRONMENT_PROTOCOL}'"
         ))
     }
 }
@@ -166,14 +148,6 @@ fn readable_data_root(path: &Path) -> Result<(), String> {
     }
 }
 
-fn is_revision(value: &str) -> bool {
-    value.len() == REVISION_PREFIX.len() + 64
-        && value.starts_with(REVISION_PREFIX)
-        && value[REVISION_PREFIX.len()..]
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -181,9 +155,9 @@ mod tests {
     use super::{validate_command_protocol, validate_module_roots};
 
     #[test]
-    fn command_environment_protocol_hard_cut_accepts_only_v2() {
-        assert_eq!(validate_command_protocol("2"), Ok(()));
-        assert!(validate_command_protocol("1").is_err());
+    fn command_environment_protocol_hard_cut_accepts_only_v3() {
+        assert_eq!(validate_command_protocol("3"), Ok(()));
+        assert!(validate_command_protocol("2").is_err());
     }
 
     #[test]

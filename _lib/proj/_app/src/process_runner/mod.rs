@@ -75,6 +75,13 @@ impl ProcessLaunch {
     pub(crate) fn base_creation_flags(&self) -> u32 {
         self.base_creation_flags
     }
+
+    #[cfg(test)]
+    pub(crate) fn status_for_test(mut self) -> io::Result<std::process::ExitStatus> {
+        self.command
+            .creation_flags(self.base_creation_flags)
+            .status()
+    }
 }
 
 struct ProcessLabel {

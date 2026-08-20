@@ -15,7 +15,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use super::*;
-use crate::profile::EntryProfileRecord;
+use crate::entry_config::EntryConfigRecord;
 use crate::runtime_service::RuntimeService;
 
 const NORMAL_ACTION: &str = "swaw/webdirectnormal";
@@ -47,7 +47,8 @@ async fn executes_and_cancels_direct_commands_through_the_http_router() {
     fs::write(
         &normal_script,
         format!(
-            "@echo off\r\nif not \"%SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL%\"==\"2\" exit /b 91\r\nif not \"%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%\"==\"{NORMAL_ACTION}\" exit /b 92\r\nif /I not \"%CD%\"==\"%SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR%\" exit /b 93\r\n>\"{NORMAL_MARKER}\" echo command cwd reached\r\necho {STDOUT_SENTINEL}\r\n1>&2 echo {PROGRESS_FRAME}\r\n1>&2 echo {STDERR_SENTINEL}\r\n",
+            "@echo off\r\nif not \"%SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL%\"==\"{}\" exit /b 91\r\nif not \"%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%\"==\"{NORMAL_ACTION}\" exit /b 92\r\nif /I not \"%CD%\"==\"%SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR%\" exit /b 93\r\n>\"{NORMAL_MARKER}\" echo command cwd reached\r\necho {STDOUT_SENTINEL}\r\n1>&2 echo {PROGRESS_FRAME}\r\n1>&2 echo {STDERR_SENTINEL}\r\n",
+            swawkit_proj_protocol::COMMAND_ENVIRONMENT_PROTOCOL,
         ),
     )
     .expect("write normal direct command script");
@@ -59,9 +60,9 @@ async fn executes_and_cancels_direct_commands_through_the_http_router() {
     )
     .expect("write cancel direct command script");
     fixture
-        .profile_store()
-        .save(EntryProfileRecord::default())
-        .expect("save direct command fixture profile");
+        .config_store()
+        .save(EntryConfigRecord::default())
+        .expect("save direct command fixture Entry Config");
 
     let context = fixture.context();
     let data_root = fixture.data_root_session();

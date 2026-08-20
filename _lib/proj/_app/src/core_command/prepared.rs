@@ -4,9 +4,8 @@ use std::path::PathBuf;
 use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSpace};
 use crate::command::ResolvedCommand;
 use crate::context::EntryContext;
-use crate::profile::{EntryProfileState, EntryProfileStore};
 
-use super::{CoreCommandError, CoreCommandOutcome, check, help, profile, runs};
+use super::{CoreCommandError, CoreCommandOutcome, check, help, runs};
 
 /// An owned in-process command invocation.
 ///
@@ -27,14 +26,7 @@ pub(crate) enum PreparedCoreCommand {
     Runs {
         snapshot: CatalogSnapshot,
         argv: Vec<OsString>,
-        context: EntryContext,
         data_root: PathBuf,
-        profile_state: EntryProfileState,
-    },
-    ProfileSetting {
-        address: String,
-        argv: Vec<OsString>,
-        store: EntryProfileStore,
     },
 }
 
@@ -46,8 +38,6 @@ impl PreparedCoreCommand {
         snapshot: CatalogSnapshot,
         context: EntryContext,
         data_root: PathBuf,
-        profile_state: EntryProfileState,
-        profile_store: EntryProfileStore,
     ) -> Result<Self, CoreCommandError> {
         if command.adapter != CommandAdapter::Core || command.space != CommandSpace::System {
             return Err(CoreCommandError::domain(format!(
@@ -77,14 +67,7 @@ impl PreparedCoreCommand {
             Some("meta.runs") => Ok(Self::Runs {
                 snapshot,
                 argv,
-                context,
                 data_root,
-                profile_state,
-            }),
-            Some("entry.profile.set") => Ok(Self::ProfileSetting {
-                address: command.address.clone(),
-                argv,
-                store: profile_store,
             }),
             Some(handler) => Err(CoreCommandError::domain(format!(
                 "unsupported Runtime Core command handler: {handler}"
@@ -111,18 +94,8 @@ impl PreparedCoreCommand {
             Self::Runs {
                 snapshot,
                 argv,
-                context,
                 data_root,
-                profile_state,
-            } => required(
-                runs::execute(&snapshot, &argv, &context, &data_root, &profile_state),
-                ".runs",
-            ),
-            Self::ProfileSetting {
-                address,
-                argv,
-                store,
-            } => profile::set(&address, argv.get(1..).unwrap_or_default(), &store),
+            } => required(runs::execute(&snapshot, &argv, &data_root), ".runs"),
         }
     }
 }

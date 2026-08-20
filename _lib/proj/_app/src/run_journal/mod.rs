@@ -19,7 +19,8 @@ pub(crate) use event::{RunJournalEvent, RunJournalEventData, RunJournalPhase, Ru
 pub use read::{RunJournalDocument, RunJournalHistoryDocument};
 pub(crate) use read::{read_run, read_run_directory, read_run_history};
 
-pub(crate) const JOURNAL_STATE_SCHEMA: &str = "swawkit.command-run-journal/v1";
+pub(crate) const LEGACY_JOURNAL_STATE_SCHEMA: &str = "swawkit.command-run-journal/v1";
+pub(crate) const JOURNAL_STATE_SCHEMA: &str = "swawkit.command-run-journal/v2";
 pub(crate) const JOURNAL_EVENT_SCHEMA: &str = "swawkit.command-run-event/v2";
 pub(crate) const JOURNAL_DIRECTORY_NAME: &str = "_runs";
 pub(crate) const JOURNAL_STATE_FILE_NAME: &str = "_state.json";
@@ -58,7 +59,6 @@ pub(crate) struct StartRunJournal {
     pub address: String,
     pub source: RunJournalSource,
     pub argument_count: usize,
-    pub profile_revision: String,
 }
 
 #[derive(Clone)]
@@ -155,7 +155,6 @@ impl RunJournal {
             request.source,
             started_at_unix_ms,
             request.argument_count,
-            request.profile_revision,
         );
         let work_state_path = work_root.join(JOURNAL_STATE_FILE_NAME);
         if let Err(error) = publish_stored_state(&work_state_path, &state) {

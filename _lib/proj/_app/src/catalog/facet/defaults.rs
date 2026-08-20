@@ -1,7 +1,7 @@
 use crate::{
     command_check::COMMAND_CHECK_PROTOCOL,
+    entry_config::EntryLanguage,
     facet::{Facet, FacetKind, FacetRenderer, FacetResolver},
-    profile::EntryLanguage,
     subject::SUBJECT_COLLECTION_PROTOCOL,
     subject_kind::SubjectKindRef,
 };
@@ -32,7 +32,7 @@ pub(super) fn default_facets(
     run_subject_kind: Option<&SubjectKindRef>,
 ) -> Vec<Facet> {
     let mut facets = Vec::new();
-    if command.handler.as_deref() == Some("entry.profile.set") {
+    if command.handler.as_deref() == Some("entry.config.set") {
         facets.push(operation_facet(
             "edit",
             FacetRenderer::Edit,

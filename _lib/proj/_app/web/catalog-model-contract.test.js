@@ -157,11 +157,11 @@ describe("Catalog v19 execution contract", () => {
         runnable: true,
         entry: "swawkit.module.json",
         adapter: "core",
-        handler: "entry.profile",
+        handler: "entry.config",
       }),
     ]));
     expect(catalog.commandByAddress.get(".entry").handler)
-      .toBe("entry.profile");
+      .toBe("entry.config");
 
     expect(() => createCatalog(payload([
       node(".legacy", { space: "project" }),
@@ -176,7 +176,7 @@ describe("Catalog v19 execution contract", () => {
         runnable: true,
         entry: "swawkit.module.json",
         adapter: "core",
-        handler: "entry.profile.set",
+        handler: "entry.config.set",
         facets: [{
           id: "edit",
           kind: "operation",
@@ -247,23 +247,33 @@ describe("Catalog v19 execution contract", () => {
       }),
     ]))).toThrow("runtime product is not valid");
 
-    const dev = createCatalog(payload([
-      node(".dev/setup", {
-        parent: ".dev",
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "runtime",
-        product: "dev",
-      }),
-      node(".dev/setup/check", {
-        parent: ".dev/setup",
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "runtime",
-        product: "dev",
-      }),
-    ]));
-    expect(dev.commandByAddress.get(".dev/setup").product).toBe("dev");
-    expect(dev.commandByAddress.get(".dev/setup/check").product).toBe("dev");
+    const devRuntimeAddresses = [
+      ".dev/settings",
+      ".dev/setup",
+      ".dev/setup/check",
+      ".dev/status",
+      ".dev/bun/mode",
+      ".dev/bun/sha256",
+      ".dev/bun/version",
+      ".dev/pwsh/mode",
+      ".dev/pwsh/sha256",
+      ".dev/pwsh/version",
+      ".dev/msvc/mode",
+      ".dev/msvc/channel",
+      ".dev/rust/mode",
+      ".dev/rust/toolchain",
+    ];
+    const dev = createCatalog(payload(devRuntimeAddresses.map((address) => node(address, {
+      parent: address.slice(0, address.lastIndexOf("/")),
+      runnable: true,
+      entry: "swawkit.module.json",
+      adapter: "runtime",
+      product: "dev",
+    }))));
+    for (const address of devRuntimeAddresses) {
+      const command = dev.commandByAddress.get(address);
+      expect(command.product).toBe("dev");
+      expect(command.module.execution).toEqual({ type: "runtime", product: "dev" });
+    }
   });
 });

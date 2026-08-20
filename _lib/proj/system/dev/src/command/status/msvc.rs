@@ -1,4 +1,5 @@
-use swawkit_proj_dev::development::msvc::{MsvcDefinition, MsvcStore};
+use swawkit_proj_dev::development::msvc::MsvcStore;
+use swawkit_proj_dev::development::setup::declaration::DeclarationSnapshot;
 
 use super::CommandContext;
 
@@ -25,20 +26,16 @@ impl MsvcReport {
     }
 }
 
-pub(super) fn inspect(context: &CommandContext) -> Result<MsvcReport, String> {
-    let mode = context
-        .environment("SWAWKIT_PROJ_MSVC_MODE")
-        .to_ascii_lowercase();
-    if mode.is_empty() || mode == "disabled" {
+pub(super) fn inspect(
+    context: &CommandContext,
+    declarations: &DeclarationSnapshot,
+) -> Result<MsvcReport, String> {
+    let Some(definition) = declarations
+        .msvc_definition()
+        .map_err(|error| error.to_string())?
+    else {
         return Ok(MsvcReport::Off);
-    }
-    if mode != "managed" {
-        return Err(format!(
-            "Unsupported SWAWKIT_PROJ_MSVC_MODE value '{mode}'. Expected 'managed' or 'disabled'."
-        ));
-    }
-    let definition = MsvcDefinition::new(&context.environment("SWAWKIT_PROJ_MSVC_CHANNEL"))
-        .map_err(|error| error.to_string())?;
+    };
     let store = MsvcStore::new(&context.data_root, &definition);
     let versions = store.read_installation().ok().map(|installation| {
         (

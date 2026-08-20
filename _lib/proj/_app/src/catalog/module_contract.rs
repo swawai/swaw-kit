@@ -17,8 +17,8 @@ use swawkit_proj_protocol::{
 };
 
 use crate::{
+    entry_config::EntryLanguage,
     facet::{FacetKind, FacetRenderer},
-    profile::EntryLanguage,
     subject::SubjectRef,
     subject_kind::SubjectKindRef,
 };

@@ -141,7 +141,7 @@ fn running_core_rejects_cancel_and_preserves_its_real_outcome() {
     let control = runner(Arc::new(UnusedProcessRunner))
         .start(
             PreparedExecution::core_fixture(
-                execution_spec(".entry/profile/name", ["changed"]),
+                execution_spec(".entry/language", ["en"]),
                 BlockingCoreTask {
                     entered: entered_tx,
                     release: release_rx,

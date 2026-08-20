@@ -44,7 +44,6 @@ $PreviousAddress = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS
 $PreviousDirectory = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_DIR
 $PreviousCapture = [string]$env:SWAWKIT_PROJ_TEST_BUN_CAPTURE
 $PreviousDataRoot = [string]$env:SWAWKIT_PROJ_DATA_ROOT
-$PreviousInputRevision = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION
 
 try {
     [void][IO.Directory]::CreateDirectory($BinRoot)
@@ -66,7 +65,7 @@ try {
             exports = @(
                 [ordered]@{
                     id = 'environment'
-                    contract = 'swawkit.proj.dev-setup/v3'
+                    contract = 'swawkit.proj.dev-setup/v4'
                 }
             )
         } | ConvertTo-Json -Depth 8),
@@ -102,7 +101,6 @@ try {
     $env:SWAWKIT_PROJ_CORE_COMMAND_DIR = Split-Path $EntryPath -Parent
     $env:SWAWKIT_PROJ_TEST_BUN_CAPTURE = $CapturePath
     $env:SWAWKIT_PROJ_DATA_ROOT = $DataRoot
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = $InputRevision
 
     [string[]]$Arguments = @(
         'hello world',
@@ -155,6 +153,46 @@ try {
         ) `
         -Message 'the thin Bun wrapper accepted a missing published executable'
 
+    New-ProjBunFixtureExecutable -Path $BunExecutable -Version '1.2.15'
+    $ReplacementStatePath = Join-Path $SetupRoot '.race-state.json'
+    [IO.File]::WriteAllText(
+        $ReplacementStatePath,
+        ([ordered]@{
+            schema = 'swawkit.command-provider-state/v2'
+            status = 'unavailable'
+            inputRevision = ('sha256-' + ('4' * 64))
+            token = ('5' * 32)
+        } | ConvertTo-Json -Depth 8),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        (Join-Path $ExportRoot 'env.ps1'),
+        (
+            "`$env:SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_PUBLICATION_TOKEN = " +
+            "'$PublicationToken'`r`n" +
+            "[IO.File]::Move(" +
+            "'$($ReplacementStatePath.Replace("'", "''"))', " +
+            "'$((Join-Path $SetupRoot '_state.json').Replace("'", "''"))', " +
+            "`$true)`r`n"
+        ),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $ChangedWhileLoading = Invoke-ProjBunEntryFixture `
+        -PowerShell $PowerShell `
+        -EntryPath $EntryPath `
+        -Arguments @('--version')
+    Assert-ProjBunTest `
+        -Condition (
+            $ChangedWhileLoading.ExitCode -ne 0 -and
+            $ChangedWhileLoading.Output.Contains(
+                'development environment changed while it was loading'
+            )
+        ) `
+        -Message (
+            'the thin Bun wrapper accepted a provider invalidation while ' +
+            "loading its Export: $($ChangedWhileLoading.Output)"
+        )
+
     Write-Host '[PASS] Proj thin Bun command wrapper' -ForegroundColor Green
 } finally {
     $env:PATH = $PreviousPath
@@ -163,7 +201,6 @@ try {
     $env:SWAWKIT_PROJ_CORE_COMMAND_DIR = $PreviousDirectory
     $env:SWAWKIT_PROJ_TEST_BUN_CAPTURE = $PreviousCapture
     $env:SWAWKIT_PROJ_DATA_ROOT = $PreviousDataRoot
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = $PreviousInputRevision
     if ([IO.Directory]::Exists($TemporaryRoot)) {
         Remove-Item -LiteralPath $TemporaryRoot -Recurse -Force
     }

@@ -1,12 +1,5 @@
-export function commandDisabledDuringSetup(setupRequired, command) {
-  return setupRequired && command.setupAvailable !== true;
-}
-
-export function availableCommand(catalog, setupRequired, address) {
-  const command = catalog.commandByAddress.get(address);
-  return command && !commandDisabledDuringSetup(setupRequired, command)
-    ? command
-    : null;
+export function availableCommand(catalog, address) {
+  return catalog.commandByAddress.get(address) ?? null;
 }
 
 export function childrenColumnWidth(command) {

@@ -1,4 +1,4 @@
-Inspect and maintain the current Entry project binding and development Profile.
+Inspect and maintain the current Entry's optional project binding and interface language.
 
 Usage:
   {{INVOCATION}}
@@ -14,4 +14,4 @@ one with .entry/instances/create, or explicitly migrate a same-name legacy
 instance with .entry/instances/migrate. Cold Bootstrap of the manager itself
 remains the physical bootstrap.ps1 responsibility.
 
-This Entry command remains available when the Profile is missing or invalid.
+This Entry command remains available when Entry Config is missing or invalid.

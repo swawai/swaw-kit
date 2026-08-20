@@ -151,8 +151,13 @@ try {
         -Message "created Entry did not start through Launcher/Core: $($EntryStatus.Text)"
     $EntryStatusDocument = $EntryStatus.Text | ConvertFrom-Json
     Assert-ProjEntryManager `
-        -Condition ($EntryStatusDocument.status -ceq 'setupRequired') `
-        -Message 'created Entry did not reach the Profile-free .entry command'
+        -Condition (
+            $EntryStatusDocument.protocol -ceq 'swawkit.entry-config-state/v1' -and
+            $EntryStatusDocument.status -ceq 'default' -and
+            $EntryStatusDocument.config.language -ceq 'zh-CN' -and
+            $null -eq $EntryStatusDocument.config.projectRoot
+        ) `
+        -Message 'created Entry did not expose its valid unbound default config'
 
     $Denied = Invoke-ProjEntryManager `
         -EntryPath $EntryPath `

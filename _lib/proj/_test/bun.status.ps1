@@ -30,6 +30,37 @@ function Invoke-ProjStatusToolchainFixture {
     }
 }
 
+function Write-ProjProductDevSettingsFixture {
+    param(
+        [Parameter(Mandatory = $true)][string]$DataRoot,
+        [Parameter(Mandatory = $true)][string]$BunVersion,
+        [AllowEmptyString()][string]$BunSha256 = ''
+    )
+
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
+    [void][IO.Directory]::CreateDirectory($SetupRoot)
+    [IO.File]::WriteAllText(
+        (Join-Path $SetupRoot '_settings.json'),
+        (@{
+            schema = 'swawkit.proj-dev-settings/v1'
+            bun = @{
+                mode = 'managed'
+                version = $BunVersion
+                sha256 = $BunSha256
+            }
+            pwsh = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            msvc = @{ mode = 'disabled'; channel = '' }
+            rust = @{
+                mode = 'disabled'
+                toolchain = ''
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+        } | ConvertTo-Json -Depth 4),
+        [Text.UTF8Encoding]::new($false)
+    )
+}
+
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 . (Join-Path $PSScriptRoot '_lib\stage0-toolchain.ps1')
 . (Join-Path $PSScriptRoot '_lib\bun-fixture.ps1')
@@ -44,8 +75,6 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
-    'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
-    'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256'
@@ -76,51 +105,36 @@ try {
     $ActionRoot = Join-Path $ProjectRoot '.swaw'
     [void][IO.Directory]::CreateDirectory($ActionRoot)
     [void][IO.Directory]::CreateDirectory($DataRoot)
-    $ProfilePath = Join-Path $DataRoot '_profile.json'
-    [IO.File]::WriteAllText($ProfilePath, '{}')
-    $ProfileRevision = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $ProfilePath
-    )
     Set-ProjBunProcessEnvironment -Values @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
         SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/status'
         SWAWKIT_HOME = $ControlHome
-        SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
-        SWAWKIT_PROJ_PROJECT_MODULE_ROOT = $ActionRoot
         SWAWKIT_PROJ_MODULE_ROOTS = (@{
             project = $ActionRoot
         } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $ProjectRoot
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = ('sha256-' + ('a' * 64))
-        SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $ProfileRevision
         SWAWKIT_PROJ_BUN_MODE = 'managed'
         SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
         SWAWKIT_PROJ_BUN_SHA256 = ''
     }
-    $Context = New-ProjDevContextFromEnvironment
+    $Context = New-ProjStage0TestContext `
+        -ProjectRoot $ProjectRoot `
+        -DataRoot $DataRoot `
+        -CacheDataRoot (Join-Path $ControlHome 'data\proj_cache') `
+        -EnvironmentRoot (Join-Path $DataRoot (
+            'modules\system\dev\setup\export'
+        ))
     Assert-ProjBunTest `
         -Condition ($Context.CacheDataRoot.Equals(
             (Join-Path $ControlHome 'data\proj_cache'),
             [StringComparison]::OrdinalIgnoreCase
         )) `
-        -Message 'the production context did not derive the shared cache from the entry root'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-    $RejectedLegacyProtocol = $false
-    try {
-        [void](New-ProjDevContextFromEnvironment)
-    } catch {
-        $RejectedLegacyProtocol = $_.Exception.Message.IndexOf(
-            'Expected protocol version 2.',
-            [StringComparison]::Ordinal
-        ) -ge 0
-    } finally {
-        $env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
-    }
-    Assert-ProjBunTest `
-        -Condition $RejectedLegacyProtocol `
-        -Message 'the PowerShell toolchain context accepted command protocol v1'
+        -Message 'the Stage-0 fixture did not use the shared cache root'
+    Write-ProjProductDevSettingsFixture `
+        -DataRoot $DataRoot `
+        -BunVersion '1.2.15'
     $Definition = Get-ProjDevBunDefinition
     $Definition.Sha256 = 'f' * 64
     $Definition.Verification = 'github'
@@ -139,6 +153,17 @@ try {
     Write-ProjDevInstallMetadata `
         -Definition $Definition `
         -InstallRoot $InstallRoot
+    foreach ($RetiredName in @(
+        'SWAWKIT_PROJ_BUN_MODE',
+        'SWAWKIT_PROJ_BUN_VERSION',
+        'SWAWKIT_PROJ_BUN_SHA256'
+    )) {
+        [Environment]::SetEnvironmentVariable(
+            $RetiredName,
+            $null,
+            [EnvironmentVariableTarget]::Process
+        )
+    }
 
     $StatusResult = Invoke-ProjStatusToolchainFixture `
         -Executable $ResolvedDevPath
@@ -147,7 +172,7 @@ try {
             $StatusResult.ExitCode -eq 0 -and
             $StatusResult.Output -like '*[[]READY[]]*bun 1.2.15*upstream*' -and
             $StatusResult.Output -like '*GitHub Release digest*' -and
-            $StatusResult.Output -like '*SWAWKIT_PROJ_BUN_SHA256*'
+            $StatusResult.Output -like '*.dev/bun/sha256*'
         ) `
         -Message ".dev/status did not report upstream trust: $($StatusResult.Output)"
 
@@ -242,7 +267,9 @@ try {
         })),
         [Text.UTF8Encoding]::new($false)
     )
-    $env:SWAWKIT_PROJ_BUN_VERSION = 'latest'
+    Write-ProjProductDevSettingsFixture `
+        -DataRoot $DataRoot `
+        -BunVersion 'latest'
     $MismatchedSelection = Invoke-ProjStatusToolchainFixture `
         -Executable $ResolvedDevPath
     Assert-ProjBunTest `
@@ -282,13 +309,14 @@ try {
         -Path $ModulesJunction `
         -Target $ExternalModules)
     $env:SWAWKIT_PROJ_DATA_ROOT = $ReparseDataRoot
-    $env:SWAWKIT_PROJ_BUN_VERSION = 'latest'
     $UnsafeStatus = Invoke-ProjStatusToolchainFixture `
         -Executable $ResolvedDevPath
     Assert-ProjBunTest `
         -Condition (
             $UnsafeStatus.ExitCode -ne 0 -and
-            $UnsafeStatus.Output -like '*must be a regular directory*' -and
+            $UnsafeStatus.Output -like (
+                '*Dev Settings directory must be a regular filesystem entry*'
+            ) -and
             $UnsafeStatus.Output -notlike '*latest -> 9.9.9*'
         ) `
         -Message (
@@ -297,8 +325,10 @@ try {
         )
 
     $env:SWAWKIT_PROJ_DATA_ROOT = $PinnedDataRoot
-    $env:SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
-    $env:SWAWKIT_PROJ_BUN_SHA256 = 'e' * 64
+    Write-ProjProductDevSettingsFixture `
+        -DataRoot $PinnedDataRoot `
+        -BunVersion '1.2.15' `
+        -BunSha256 ('e' * 64)
     $PinnedStatus = Invoke-ProjStatusToolchainFixture `
         -Executable $ResolvedDevPath
     Assert-ProjBunTest `

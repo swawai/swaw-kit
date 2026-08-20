@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use super::*;
+use crate::entry_config::EntryConfigRecord;
 use crate::process_runner::{ProcessControl, ProcessObserver, ProcessOutcome, ProcessOutputStream};
-use crate::profile::EntryProfileRecord;
 use crate::runtime_service::{PreparedExecution, RuntimeExecutionRunner, RuntimeService};
 
 #[derive(Clone)]
@@ -102,10 +102,6 @@ fn ready_fixture(fixture: &Fixture) {
         r#"{"schema":"swawkit.command-module/v11"}"#,
     );
     fixture.file("home/_lib/proj/system/demo/run.ps1", "");
-    fixture
-        .profile_store()
-        .save(EntryProfileRecord::default())
-        .expect("save ready fixture profile");
 }
 
 fn command_app(fixture: &Fixture, runner: Arc<FakeRunner>) -> (Router, RuntimeService) {
@@ -348,34 +344,46 @@ async fn limits_active_runs_to_four() {
 }
 
 #[tokio::test]
-async fn resolves_a_fresh_profile_working_directory_for_every_run() {
+async fn resolves_a_fresh_project_working_directory_for_every_run() {
     let fixture = Fixture::new();
     ready_fixture(&fixture);
     let runner = Arc::new(FakeRunner::default());
     let (app, runs) = command_app(&fixture, Arc::clone(&runner));
     let first_root = fixture.directory("first-project");
     let second_root = fixture.directory("second-project");
+    for root in [&first_root, &second_root] {
+        let module = root.join(".swaw/project-cwd");
+        fs::create_dir_all(&module).expect("create project command module");
+        fs::write(
+            module.join("swawkit.module.json"),
+            r#"{"schema":"swawkit.command-module/v11"}"#,
+        )
+        .expect("write project command contract");
+        fs::write(module.join("run.ps1"), "").expect("write project command entry");
+    }
 
-    let mut profile = EntryProfileRecord::default();
-    profile.target_project_root = first_root.to_string_lossy().into_owned();
+    let mut config = EntryConfigRecord::default();
+    config.project_root = Some(first_root.to_string_lossy().into_owned());
     fixture
-        .profile_store()
-        .save(profile.clone())
+        .config_store()
+        .save(config.clone())
         .expect("save first project root");
     assert_eq!(
-        post_run(app.clone(), json!({"address": ".demo"}))
+        post_run(app.clone(), json!({"address": "project/project-cwd"}))
             .await
             .status(),
         StatusCode::CREATED
     );
 
-    profile.target_project_root = second_root.to_string_lossy().into_owned();
+    config.project_root = Some(second_root.to_string_lossy().into_owned());
     fixture
-        .profile_store()
-        .save(profile)
+        .config_store()
+        .save(config)
         .expect("save second project root");
     assert_eq!(
-        post_run(app, json!({"address": ".demo"})).await.status(),
+        post_run(app, json!({"address": "project/project-cwd"}))
+            .await
+            .status(),
         StatusCode::CREATED
     );
 

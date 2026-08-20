@@ -1,14 +1,13 @@
 use std::ffi::OsString;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use swawkit_proj::{
     catalog::{CatalogSnapshot, CommandNode, is_help_marker},
     context::EntryContext,
-    core_command::profile as core_profile,
+    core_command::config as core_config,
     data_root::ResolvedDataRoot,
+    entry_config::{EntryConfigDocument, EntryConfigStore},
     help::render_help,
-    profile::{EntryProfileDocument, EntryProfileRecord, EntryProfileStore},
     runtime_cleanup,
     runtime_control::{self, HostAction, RuntimeStatusDocument},
 };
@@ -41,8 +40,8 @@ pub(super) fn dispatch_help_before_data_root(
     if !matches!(arguments, [marker] if marker.to_str().is_some_and(is_help_marker)) {
         return Ok(None);
     }
-    let snapshot = CatalogSnapshot::discover(context, None)
-        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    let resolved = super::resolve_owned_data_root(context).ok();
+    let snapshot = control_catalog(context, resolved.as_ref())?;
     control_node(&snapshot, address)?;
     let output =
         render_help(&snapshot, address).map_err(|error| CliError::new(error.to_string()))?;
@@ -54,7 +53,7 @@ pub(super) fn dispatch_help_before_data_root(
 pub(super) fn dispatch_runtime(
     context: &EntryContext,
     argv: &[OsString],
-    _resolved: &ResolvedDataRoot,
+    resolved: &ResolvedDataRoot,
 ) -> Result<Option<i32>, CliError> {
     let Some(address) = argv.first() else {
         return Ok(None);
@@ -69,8 +68,7 @@ pub(super) fn dispatch_runtime(
     {
         return Ok(None);
     }
-    let snapshot = CatalogSnapshot::discover(context, None)
-        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    let snapshot = control_catalog(context, Some(resolved))?;
     let arguments = argv.get(1..).unwrap_or_default();
     let command = resolve_control(&snapshot, address)?;
 
@@ -93,11 +91,24 @@ pub(super) fn dispatch_runtime(
     }
 }
 
+fn control_catalog(
+    context: &EntryContext,
+    resolved: Option<&ResolvedDataRoot>,
+) -> Result<CatalogSnapshot, CliError> {
+    let config_state = resolved
+        .map(|resolved| EntryConfigStore::new(&context.swawkit_home, resolved.path()).read());
+    CatalogSnapshot::discover(
+        context,
+        config_state.as_ref().and_then(|state| state.ready()),
+    )
+    .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))
+}
+
 pub(super) fn dispatch(
     snapshot: &CatalogSnapshot,
     argv: &[OsString],
     context: &EntryContext,
-    profile_store: &EntryProfileStore,
+    config_store: &EntryConfigStore,
 ) -> Result<Option<i32>, CliError> {
     let Some(address) = argv.first() else {
         return Ok(None);
@@ -108,7 +119,7 @@ pub(super) fn dispatch(
     let Some(command) = snapshot.commands.iter().find(|command| {
         command.address == address
             && command.adapter.as_deref() == Some("core")
-            && (command.is_control() || command.handler.as_deref() == Some("entry.profile.set"))
+            && (command.is_control() || command.handler.as_deref() == Some("entry.config.set"))
     }) else {
         return Ok(None);
     };
@@ -123,12 +134,12 @@ pub(super) fn dispatch(
     }
     let arguments = argv.get(1..).unwrap_or_default();
     let exit_code = match command.handler.as_deref() {
-        Some("entry.profile") => show_profile(arguments, profile_store)?,
-        Some("entry.profile.set") => complete_core_command(
-            core_profile::set(address, arguments, profile_store)
+        Some("entry.config") => show_config(arguments, config_store)?,
+        Some("entry.config.set") => complete_core_command(
+            core_config::set(address, arguments, config_store)
                 .map_err(|error| CliError::new(error.to_string()))?,
         )?,
-        Some("entry.profile.apply") => apply_profile(arguments, context, profile_store)?,
+        Some("entry.config.apply") => apply_config(arguments, context, config_store)?,
         Some(handler) => {
             return Err(CliError::new(format!(
                 "unsupported Core command handler: {handler}"
@@ -222,13 +233,10 @@ fn cleanup_runtime(
     runtime_cleanup::execute_text(context, apply).map_err(CliError::new)
 }
 
-fn show_profile(
-    arguments: &[OsString],
-    profile_store: &EntryProfileStore,
-) -> Result<i32, CliError> {
-    let document = profile_store.document();
+fn show_config(arguments: &[OsString], config_store: &EntryConfigStore) -> Result<i32, CliError> {
+    let document = config_store.document();
     match arguments {
-        [] => write_profile_summary(&document)?,
+        [] => write_config_summary(&document)?,
         [format] if format == "--json" => write_json(&document)?,
         _ => {
             return Err(CliError::new("usage: .entry [--json]"));
@@ -237,32 +245,24 @@ fn show_profile(
     Ok(0)
 }
 
-fn apply_profile(
+fn apply_config(
     arguments: &[OsString],
     context: &EntryContext,
-    profile_store: &EntryProfileStore,
+    config_store: &EntryConfigStore,
 ) -> Result<i32, CliError> {
     let [option, path] = arguments else {
-        return Err(CliError::new("usage: .entry/apply --file <profile.json>"));
+        return Err(CliError::new(
+            "usage: .entry/apply --file <entry-config.json>",
+        ));
     };
     if option != "--file" {
-        return Err(CliError::new("usage: .entry/apply --file <profile.json>"));
+        return Err(CliError::new(
+            "usage: .entry/apply --file <entry-config.json>",
+        ));
     }
     let path = resolve_input_path(path, &context.invocation_directory);
-    let content = fs::read_to_string(&path).map_err(|error| {
-        CliError::new(format!(
-            "cannot read entry profile input '{}': {error}",
-            path.display()
-        ))
-    })?;
-    let record: EntryProfileRecord = serde_json::from_str(&content).map_err(|error| {
-        CliError::new(format!(
-            "invalid entry profile JSON '{}': {error}",
-            path.display()
-        ))
-    })?;
-    let document = profile_store
-        .replace(record)
+    let document = config_store
+        .replace_from_file(&path)
         .map_err(|error| CliError::new(error.to_string()))?;
     write_json(&document)?;
     Ok(0)
@@ -287,14 +287,21 @@ fn require_no_arguments(address: &str, arguments: &[OsString]) -> Result<(), Cli
     }
 }
 
-fn write_profile_summary(document: &EntryProfileDocument) -> Result<(), CliError> {
+fn write_config_summary(document: &EntryConfigDocument) -> Result<(), CliError> {
     let resolved = document
-        .resolved_target_project_root
+        .resolved_project_root
         .as_deref()
         .unwrap_or("not resolved");
     let mut output = format!(
-        "Entry Profile\nStatus: {}\nFile: {}\nTarget: {}\nResolved: {}",
-        document.status, document.path, document.profile.target_project_root, resolved
+        "Entry Config\nStatus: {}\nFile: {}\nProject: {}\nResolved: {}",
+        document.status,
+        document.path,
+        document
+            .config
+            .project_root
+            .as_deref()
+            .unwrap_or("not configured"),
+        resolved
     );
     if let Some(error) = &document.error {
         output.push_str("\nError: ");
@@ -328,9 +335,9 @@ fn write_runtime_summary(document: &RuntimeStatusDocument) -> Result<(), CliErro
         .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))
 }
 
-fn write_json(document: &EntryProfileDocument) -> Result<(), CliError> {
+fn write_json(document: &EntryConfigDocument) -> Result<(), CliError> {
     let output = serde_json::to_string_pretty(document)
-        .map_err(|error| CliError::new(format!("cannot serialize entry profile: {error}")))?;
+        .map_err(|error| CliError::new(format!("cannot serialize Entry Config: {error}")))?;
     write_output(&output)
         .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))
 }

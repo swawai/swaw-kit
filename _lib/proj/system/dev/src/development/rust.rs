@@ -45,21 +45,21 @@ impl RustDefinition {
         if !valid_toolchain(&toolchain) {
             return Err(error(
                 RustErrorKind::InvalidDefinition,
-                "SWAWKIT_PROJ_RUST_TOOLCHAIN must be stable, beta, nightly, a Rust version, or a dated channel.",
+                ".dev/rust/toolchain must be stable, beta, nightly, a Rust version, or a dated channel.",
             ));
         }
         let profile = profile.trim().to_ascii_lowercase();
         if profile != PROFILE {
             return Err(error(
                 RustErrorKind::InvalidDefinition,
-                format!("Unsupported Rust profile '{profile}'. Expected one of: {PROFILE}"),
+                format!("Unsupported .dev/rust/profile value '{profile}'. Expected: {PROFILE}"),
             ));
         }
         let host = host.trim().to_ascii_lowercase();
         if host != HOST {
             return Err(error(
                 RustErrorKind::InvalidDefinition,
-                format!("Rust V0 supports host '{HOST}' only; received '{host}'."),
+                format!(".dev/rust/host supports '{HOST}' only; received '{host}'."),
             ));
         }
         Ok(Self {

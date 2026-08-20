@@ -32,7 +32,7 @@ export function defaultCommandFacet(command) {
 export function createSubjectFacetView(elements = null, options = {}) {
   const panes = elements
     ? new Map([
-      ["edit", elements.entryProfileDetail],
+      ["edit", elements.entryConfigDetail],
       ["overview", elements.commandDetail],
       ["help", elements.commandHelpPane],
       ["run", elements.commandRunPane],

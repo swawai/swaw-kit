@@ -194,7 +194,7 @@ fn resolve_release(
     {
         return Err(invalid_release(format!(
             "{} does not match the GitHub Release digest for {} {}",
-            tool.hash_variable,
+            tool.setting_address("sha256"),
             tool.display_name,
             definition.version()
         )));

@@ -12,14 +12,6 @@ $DevLibrary = Join-Path `
 . $DevLibrary
 Import-ProjDevTargetEnvironment
 
-if ([string]$env:SWAWKIT_PROJ_MSVC_MODE -cne 'managed') {
-    throw (
-        'demo.managed-msvc requires the project-managed MSVC environment. ' +
-        "Enable it and run " +
-        "'$($env:SWAWKIT_PROJ_ENTRY_COMMAND) .dev/setup'."
-    )
-}
-
 if ([string]::IsNullOrWhiteSpace([string]$env:VCToolsInstallDir)) {
     throw '.dev/setup did not publish the managed MSVC installation environment.'
 }

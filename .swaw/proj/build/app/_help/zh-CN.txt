@@ -1,4 +1,4 @@
-使用当前 Entry Profile 管理的 Rust 与 MSVC 工具链构建 Swaw Kit Proj Release Set。
+使用已发布并完整复验的 Bootstrap builder 环境构建 Swaw Kit Proj Release Set。
 
 用法:
   {{INVOCATION}}
@@ -19,5 +19,7 @@ swawkit-proj.exe 是高频 CLI Core；swawkit-proj-host.exe 独立承载 Web、�
 发布候选:
   {{ENTRY}} project/proj/publish/app
 
-固定 Bootstrap 工具链属于源码树维护入口，不作为项目 Module 命令暴露：
+该 Module 命令读取 `data/proj_cache/bootstrap/environment.json`，并核对
+`bootstrap.json`、工具路径、长度与摘要；它不消费 Entry Config 或 `.dev/setup`。
+没有可用 Entry 时，源码树维护入口仍可直接使用同一 Bootstrap 工具链：
   powershell.exe -NoProfile -ExecutionPolicy Bypass -File _lib\proj\build.ps1

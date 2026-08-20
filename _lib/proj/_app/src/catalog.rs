@@ -1,6 +1,6 @@
 use crate::{
     context::EntryContext,
-    profile::{EntryLanguage, EntryProfile},
+    entry_config::{EntryConfig, EntryLanguage},
     subject::SubjectRef,
 };
 use serde::Serialize;
@@ -58,15 +58,12 @@ pub struct CatalogSnapshot {
 }
 
 impl CatalogSnapshot {
-    pub fn discover(context: &EntryContext, profile: Option<&EntryProfile>) -> io::Result<Self> {
+    pub fn discover(context: &EntryContext, config: Option<&EntryConfig>) -> io::Result<Self> {
         let mut module_roots = vec![ModuleRoot::new("swaw", context.swaw_module_root())];
-        if let Some(profile) = profile {
-            module_roots.push(ModuleRoot::new(
-                "project",
-                profile.binding().project_module_root(),
-            ));
+        if let Some(binding) = config.and_then(EntryConfig::binding) {
+            module_roots.push(ModuleRoot::new("project", binding.project_module_root()));
         }
-        let language = profile.map(EntryProfile::language).unwrap_or_default();
+        let language = config.map(EntryConfig::language).unwrap_or_default();
         Self::discover_optional_roots(
             &context.system_root(),
             &module_roots,
@@ -117,39 +114,35 @@ impl CatalogSnapshot {
         assert_command_root(system_root)?;
 
         let system_path = absolute_path(system_root)?;
-        let mut pending = VecDeque::from([PendingDirectory {
-            module: read_pending_module(&system_path, language),
-            path: system_path,
-            id: CommandId::system(Vec::new()),
-        }]);
+        let mut commands = scan_root(
+            PendingDirectory {
+                module: read_pending_module(&system_path, language),
+                path: system_path,
+                id: CommandId::system(Vec::new()),
+            },
+            entry_name,
+            language,
+        )?;
 
-        for module_root in module_roots.iter().filter(|root| root.path.is_dir()) {
-            assert_command_root(&module_root.path)?;
-            let path = absolute_path(&module_root.path)?;
-            pending.push_back(PendingDirectory {
-                module: read_pending_module(&path, language),
-                path,
-                id: CommandId::module(&module_root.namespace, Vec::new()),
-            });
-        }
-
-        let mut commands = Vec::new();
-        while let Some(current) = pending.pop_front() {
-            commands.push(scan_node(&current, entry_name, language));
-
-            for child in child_directories(&current.path)? {
-                let Some(child_command) = child_address(&current, &child.name) else {
-                    continue;
+        for module_root in module_roots {
+            let scanned = (|| {
+                let Some(path) = safe_optional_module_root(&module_root.path)? else {
+                    return Ok(Vec::new());
                 };
-                let module = read_pending_module(&child.path, language);
-                if matches!(module, PendingModule::Absent) {
-                    continue;
-                }
-                pending.push_back(PendingDirectory {
-                    path: child.path,
-                    id: child_command.id,
-                    module,
-                });
+                scan_root(
+                    PendingDirectory {
+                        module: read_pending_module(&path, language),
+                        path,
+                        id: CommandId::module(&module_root.namespace, Vec::new()),
+                    },
+                    entry_name,
+                    language,
+                )
+            })();
+            match scanned {
+                Ok(mut scanned) => commands.append(&mut scanned),
+                Err(_) if module_root.namespace == "project" => {}
+                Err(error) => return Err(error),
             }
         }
 
@@ -169,6 +162,42 @@ impl CatalogSnapshot {
             commands,
         })
     }
+}
+
+pub(crate) fn safe_optional_module_root(path: &Path) -> io::Result<Option<PathBuf>> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    assert_command_root(path)?;
+    absolute_path(path).map(Some)
+}
+
+fn scan_root(
+    root: PendingDirectory,
+    entry_name: &str,
+    language: EntryLanguage,
+) -> io::Result<Vec<CommandNode>> {
+    let mut pending = VecDeque::from([root]);
+    let mut commands = Vec::new();
+    while let Some(current) = pending.pop_front() {
+        commands.push(scan_node(&current, entry_name, language));
+        for child in child_directories(&current.path)? {
+            let Some(child_command) = child_address(&current, &child.name) else {
+                continue;
+            };
+            let module = read_pending_module(&child.path, language);
+            if !matches!(module, PendingModule::Absent) {
+                pending.push_back(PendingDirectory {
+                    path: child.path,
+                    id: child_command.id,
+                    module,
+                });
+            }
+        }
+    }
+    Ok(commands)
 }
 
 #[derive(Debug, Clone)]

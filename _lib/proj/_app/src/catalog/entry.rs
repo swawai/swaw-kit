@@ -5,7 +5,7 @@ use super::{
     CommandSpace, MODULE_CONTRACT_FILE,
     filesystem::{FileCandidate, directory_files},
 };
-use crate::profile::EntryProfileRecord;
+use crate::entry_config::EntryConfigRecord;
 
 const ENTRY_PROTOCOL: [(&str, CommandAdapter); 5] = [
     ("run.exe", CommandAdapter::Exe),
@@ -40,8 +40,8 @@ impl ResolvedEntry {
         space == CommandSpace::System
             && (matches!(
                 (address, self.handler.as_deref()),
-                (".entry", Some("entry.profile"))
-                    | (".entry/apply", Some("entry.profile.apply"))
+                (".entry", Some("entry.config"))
+                    | (".entry/apply", Some("entry.config.apply"))
                     | (".entry/instances", Some("entry.instances"))
                     | (".entry/instances/create", Some("entry.instances.create"))
                     | (".entry/instances/migrate", Some("entry.instances.migrate"))
@@ -53,8 +53,8 @@ impl ResolvedEntry {
                     | (".check/dir/exists", Some("meta.check.dir.exists"))
                     | (".help", Some("meta.help"))
                     | (".runs", Some("meta.runs"))
-            ) || (self.handler.as_deref() == Some("entry.profile.set")
-                && EntryProfileRecord::is_profile_setting_address(address)))
+            ) || (self.handler.as_deref() == Some("entry.config.set")
+                && EntryConfigRecord::is_setting_address(address)))
     }
 
     pub(super) fn invalid_declared_owner(
@@ -79,7 +79,23 @@ impl ResolvedEntry {
         }
         match self.product.as_deref() {
             Some("module") => matches!(address, ".module/instantiate" | ".module/status"),
-            Some("dev") => matches!(address, ".dev/setup" | ".dev/setup/check" | ".dev/status"),
+            Some("dev") => matches!(
+                address,
+                ".dev/settings"
+                    | ".dev/setup"
+                    | ".dev/setup/check"
+                    | ".dev/status"
+                    | ".dev/bun/mode"
+                    | ".dev/bun/sha256"
+                    | ".dev/bun/version"
+                    | ".dev/pwsh/mode"
+                    | ".dev/pwsh/sha256"
+                    | ".dev/pwsh/version"
+                    | ".dev/msvc/mode"
+                    | ".dev/msvc/channel"
+                    | ".dev/rust/mode"
+                    | ".dev/rust/toolchain"
+            ),
             _ => false,
         }
     }

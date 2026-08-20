@@ -1,5 +1,6 @@
 use super::CommandContext;
-use swawkit_proj_dev::development::rust::{RustDefinition, RustStore};
+use swawkit_proj_dev::development::rust::RustStore;
+use swawkit_proj_dev::development::setup::declaration::DeclarationSnapshot;
 
 pub(super) enum RustReport {
     Off,
@@ -27,24 +28,16 @@ impl RustReport {
     }
 }
 
-pub(super) fn inspect(context: &CommandContext) -> Result<RustReport, String> {
-    let mode = context
-        .environment("SWAWKIT_PROJ_RUST_MODE")
-        .to_ascii_lowercase();
-    if mode.is_empty() || mode == "disabled" {
+pub(super) fn inspect(
+    context: &CommandContext,
+    declarations: &DeclarationSnapshot,
+) -> Result<RustReport, String> {
+    let Some(definition) = declarations
+        .rust_definition()
+        .map_err(|error| error.to_string())?
+    else {
         return Ok(RustReport::Off);
-    }
-    if mode != "rustup" {
-        return Err(format!(
-            "Unsupported SWAWKIT_PROJ_RUST_MODE value '{mode}'. Expected 'rustup' or 'disabled'."
-        ));
-    }
-    let definition = RustDefinition::new(
-        &context.environment("SWAWKIT_PROJ_RUST_TOOLCHAIN"),
-        &context.environment("SWAWKIT_PROJ_RUST_PROFILE"),
-        &context.environment("SWAWKIT_PROJ_RUST_HOST"),
-    )
-    .map_err(|error| error.to_string())?;
+    };
     let versions = RustStore::new(&context.data_root, &definition)
         .read_installation()
         .ok()

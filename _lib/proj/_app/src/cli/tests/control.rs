@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn runtime_status_is_available_before_profile_gating() {
+fn runtime_status_is_available_without_entry_config() {
     let fixture = Fixture::with_entry_runtime();
     fixture.core_command(".runtime", "runtime.status");
 
@@ -13,7 +13,7 @@ fn runtime_status_is_available_before_profile_gating() {
     .unwrap();
 
     assert_eq!(exit_code, 0);
-    assert!(!fixture.data_root().join("_profile.json").exists());
+    assert!(!fixture.data_root().join("_entry-config.json").exists());
 }
 
 #[test]
@@ -52,34 +52,33 @@ fn runtime_controls_ignore_unrelated_files_in_the_data_root() {
 }
 
 #[test]
-fn profile_settings_are_independent_typed_catalog_commands() {
+fn entry_config_settings_are_independent_typed_catalog_commands() {
     let fixture = Fixture::new();
-    for address in EntryProfileRecord::profile_setting_addresses() {
-        fixture.core_command(address, "entry.profile.set");
+    for address in EntryConfigRecord::setting_addresses() {
+        fixture.core_command(address, "entry.config.set");
     }
 
     let snapshot = CatalogSnapshot::discover(&fixture.context, None).unwrap();
     let setters = snapshot
         .commands
         .iter()
-        .filter(|command| command.handler.as_deref() == Some("entry.profile.set"))
+        .filter(|command| command.handler.as_deref() == Some("entry.config.set"))
         .collect::<Vec<_>>();
 
-    assert_eq!(setters.len(), 12);
+    assert_eq!(setters.len(), 2);
     assert!(setters.iter().all(|command| {
         let expected_parent = command.address.rsplit_once('/').map(|(parent, _)| parent);
         command.parent.as_deref() == expected_parent
-            && EntryProfileRecord::is_profile_setting_address(&command.address)
+            && EntryConfigRecord::is_setting_address(&command.address)
     }));
 }
 
 #[test]
-fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
+fn entry_control_commands_create_and_update_entry_config() {
     let fixture = Fixture::new();
-    fixture.core_command(".entry", "entry.profile");
-    fixture.core_command(".entry/language", "entry.profile.set");
-    fixture.core_command(".dev/bun/mode", "entry.profile.set");
-    fixture.core_command(".entry/apply", "entry.profile.apply");
+    fixture.core_command(".entry", "entry.config");
+    fixture.core_command(".entry/language", "entry.config.set");
+    fixture.core_command(".entry/apply", "entry.config.apply");
     fixture.command(
         ".entry/project",
         "swawkit.module.json",
@@ -91,7 +90,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
             .context
             .system_root()
             .join("entry/project/_help/zh-CN.txt"),
-        "Set Entry Profile project settings",
+        "Set Entry Config project settings",
     )
     .unwrap();
     fixture.initialize();
@@ -105,7 +104,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
         .unwrap(),
         0
     );
-    assert!(!fixture.data_root().join("_profile.json").exists());
+    assert!(!fixture.data_root().join("_entry-config.json").exists());
 
     assert_eq!(
         run(
@@ -116,7 +115,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
         .unwrap(),
         0
     );
-    assert!(!fixture.data_root().join("_profile.json").exists());
+    assert!(!fixture.data_root().join("_entry-config.json").exists());
 
     assert_eq!(
         run(
@@ -127,30 +126,14 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
         .unwrap(),
         0
     );
-    let EntryProfileState::Ready(profile) =
-        EntryProfileStore::new(&fixture.context.swawkit_home, fixture.data_root()).read()
+    let EntryConfigState::Ready(config) =
+        EntryConfigStore::new(&fixture.context.swawkit_home, fixture.data_root()).read()
     else {
-        panic!("expected ready profile");
+        panic!("expected ready Entry Config");
     };
-    assert_eq!(profile.record().language, "en");
+    assert_eq!(config.record().language, "en");
 
-    assert_eq!(
-        run(
-            &fixture.context,
-            &argv(&[".dev/bun/mode", "disabled"]),
-            CommandProcessMode::InheritConsole,
-        )
-        .unwrap(),
-        0
-    );
-    let EntryProfileState::Ready(profile) =
-        EntryProfileStore::new(&fixture.context.swawkit_home, fixture.data_root()).read()
-    else {
-        panic!("expected ready profile");
-    };
-    assert_eq!(profile.record().development.bun.mode, "disabled");
-
-    let before_invalid_update = fs::read(fixture.data_root().join("_profile.json")).unwrap();
+    let before_invalid_update = fs::read(fixture.data_root().join("_entry-config.json")).unwrap();
     let invalid_update = run(
         &fixture.context,
         &argv(&[".entry/unknown", "value"]),
@@ -159,27 +142,101 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     .unwrap_err();
     assert!(invalid_update.to_string().contains("command not found"));
     assert_eq!(
-        fs::read(fixture.data_root().join("_profile.json")).unwrap(),
+        fs::read(fixture.data_root().join("_entry-config.json")).unwrap(),
         before_invalid_update
     );
 
-    let mut replacement = profile.record().clone();
+    let mut replacement = config.record().clone();
     replacement.language = "zh-CN".to_owned();
-    let input = fixture.target_project_root.join("profile.json");
+    let input = fixture.project_root.join("entry-config.json");
     fs::write(&input, serde_json::to_string(&replacement).unwrap()).unwrap();
     assert_eq!(
         run(
             &fixture.context,
-            &argv(&[".entry/apply", "--file", "profile.json"]),
+            &argv(&[".entry/apply", "--file", "entry-config.json"]),
             CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
     );
-    let EntryProfileState::Ready(profile) =
-        EntryProfileStore::new(&fixture.context.swawkit_home, fixture.data_root()).read()
+    let EntryConfigState::Ready(config) =
+        EntryConfigStore::new(&fixture.context.swawkit_home, fixture.data_root()).read()
     else {
-        panic!("expected applied profile");
+        panic!("expected applied Entry Config");
     };
-    assert_eq!(profile.record().language, "zh-CN");
+    assert_eq!(config.record().language, "zh-CN");
+}
+
+#[test]
+fn oversized_entry_config_does_not_block_system_or_swaw_and_apply_is_recoverable() {
+    let fixture = Fixture::new();
+    fixture.core_command(".entry/apply", "entry.config.apply");
+    fixture.command(".system-ok", "run.cmd", "@exit /b 17\r\n");
+    let swaw = fixture.context.swaw_module_root().join("swaw-ok");
+    fs::create_dir_all(&swaw).unwrap();
+    fs::write(
+        swaw.join("swawkit.module.json"),
+        r#"{"schema":"swawkit.command-module/v11"}"#,
+    )
+    .unwrap();
+    fs::write(swaw.join("run.cmd"), "@exit /b 18\r\n").unwrap();
+    fixture.initialize();
+
+    let stored_path = fixture.data_root().join("_entry-config.json");
+    let oversized = vec![b'x'; ENTRY_CONFIG_MAX_BYTES as usize + 1];
+    fs::write(&stored_path, &oversized).unwrap();
+    assert!(matches!(
+        EntryConfigStore::new(&fixture.context.swawkit_home, fixture.data_root()).read(),
+        EntryConfigState::Invalid { .. }
+    ));
+
+    assert_eq!(
+        run(
+            &fixture.context,
+            &argv(&[".system-ok"]),
+            CommandProcessMode::InheritConsole,
+        )
+        .unwrap(),
+        17
+    );
+    assert_eq!(
+        run(
+            &fixture.context,
+            &argv(&["swaw/swaw-ok"]),
+            CommandProcessMode::InheritConsole,
+        )
+        .unwrap(),
+        18
+    );
+
+    let input = fixture.project_root.join("entry-config.json");
+    fs::write(&input, &oversized).unwrap();
+    let before_apply = fs::read(&stored_path).unwrap();
+    let error = run(
+        &fixture.context,
+        &argv(&[".entry/apply", "--file", "entry-config.json"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .expect_err("an oversized apply input must be rejected");
+    assert!(error.to_string().contains("no larger than 65536 bytes"));
+    assert_eq!(fs::read(&stored_path).unwrap(), before_apply);
+
+    fs::write(
+        &input,
+        serde_json::to_vec(&EntryConfigRecord::default()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            &fixture.context,
+            &argv(&[".entry/apply", "--file", "entry-config.json"]),
+            CommandProcessMode::InheritConsole,
+        )
+        .unwrap(),
+        0
+    );
+    assert!(matches!(
+        EntryConfigStore::new(&fixture.context.swawkit_home, fixture.data_root()).read(),
+        EntryConfigState::Ready(_)
+    ));
 }

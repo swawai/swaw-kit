@@ -1,7 +1,9 @@
+mod command_environment;
 mod command_identity;
 mod command_module;
 mod command_module_validation;
 mod dev_environment;
+mod dev_settings;
 mod digest;
 mod execution_contract;
 mod module_contract;
@@ -10,6 +12,7 @@ mod release;
 pub use serde;
 pub use serde_json;
 
+pub use command_environment::COMMAND_ENVIRONMENT_PROTOCOL;
 pub use command_identity::{
     CommandIdentity, CommandSpace, MAX_COMMAND_ADDRESS_BYTES, command_data_root,
     native_command_root,
@@ -24,8 +27,11 @@ pub use command_module::{
 pub use command_module_validation::validate_command_module;
 pub use dev_environment::{
     DEV_ENVIRONMENT_EXPORT_NAME, DEV_ENVIRONMENT_SCHEMA, DEV_SETUP_CONTRACT, DevEnvironmentExport,
-    DevEnvironmentVariable, DevInputNormalization, dev_provider_input_names,
-    dev_provider_input_normalization, parse_dev_environment, validate_dev_environment,
+    DevEnvironmentVariable, parse_dev_environment, validate_dev_environment,
+};
+pub use dev_settings::{
+    DEV_SETTINGS_SCHEMA, DevArchiveToolSettings, DevMsvcSettings, DevRustSettings, DevSettings,
+    dev_settings_input_revision, parse_dev_settings, validate_dev_settings,
 };
 pub use digest::{REVISION_PREFIX, RevisionBuilder, is_revision, is_sha256, revision, sha256_hex};
 pub use execution_contract::{

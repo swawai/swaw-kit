@@ -37,11 +37,7 @@ fn empty_history_is_a_complete_stdout_outcome() {
     let outcome = execute(
         &snapshot(),
         &argv(&[".runs"]),
-        &context(),
         &PathBuf::from("unused-data-root"),
-        &EntryProfileState::Missing {
-            path: PathBuf::from("unused-profile.json"),
-        },
     )
     .unwrap()
     .unwrap();
@@ -84,18 +80,5 @@ fn snapshot() -> CatalogSnapshot {
             directory: PathBuf::new(),
             native_owner: None,
         }],
-    }
-}
-
-fn context() -> EntryContext {
-    EntryContext {
-        swawkit_home: PathBuf::from("unused-home"),
-        data_root: PathBuf::from("unused-data-root"),
-        runtime_root: PathBuf::from("unused-runtime"),
-        entry_file: PathBuf::from("unused-entry.exe"),
-        entry_name: "fixture".to_owned(),
-        invocation_directory: PathBuf::from("unused-project"),
-        product_executable: PathBuf::from("unused-core.exe"),
-        release_id: "unused-release".to_owned(),
     }
 }

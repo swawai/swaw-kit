@@ -11,14 +11,14 @@ use super::{
     RunJournalStatus,
     owner::{OwnerLeaseState, RunOwnerLease},
     storage::{
-        StoredRunEvent, StoredRunState, assert_plain_directory, assert_plain_file,
-        publish_stored_state,
+        LegacyStoredRunState, StoredRunEvent, StoredRunState, assert_plain_directory,
+        assert_plain_file, publish_stored_state, read_stored_state,
     },
     unix_time_ms, valid_run_id,
 };
 
 const HISTORY_PROTOCOL: &str = "swawkit.command-run-history/v1";
-const DOCUMENT_PROTOCOL: &str = "swawkit.command-run-journal/v2";
+const DOCUMENT_PROTOCOL: &str = "swawkit.command-run-journal/v3";
 const MAX_HISTORY_RUNS: usize = 32;
 const MAX_RESPONSE_EVENTS: usize = 4096;
 const MAX_RESPONSE_TEXT_BYTES: usize = 1024 * 1024;
@@ -70,7 +70,6 @@ pub struct RunJournalDocument {
     exit_code: Option<i32>,
     error: Option<String>,
     argument_count: usize,
-    profile_revision: String,
     next_cursor: u64,
     events: Vec<RunJournalEvent>,
     truncated: bool,
@@ -165,7 +164,6 @@ pub(crate) fn read_run(
         exit_code: state.exit_code,
         error: state.error,
         argument_count: state.argument_count,
-        profile_revision: state.profile_revision,
         next_cursor: event_read.next_cursor,
         events: event_read.events,
         truncated: state.truncated || event_read.response_truncated,
@@ -233,9 +231,23 @@ fn read_reconciled_state(
 
 fn read_state(run_root: &Path, expected_id: &str, address: &str) -> io::Result<StoredRunState> {
     let path = run_root.join(JOURNAL_STATE_FILE_NAME);
-    assert_plain_file(&path)?;
-    let content = fs::read(path)?;
-    let state: StoredRunState = serde_json::from_slice(&content).map_err(invalid)?;
+    let content = read_stored_state(&path)?;
+    #[derive(serde::Deserialize)]
+    struct SchemaProbe {
+        schema: String,
+    }
+    let schema: SchemaProbe = serde_json::from_slice(&content).map_err(invalid)?;
+    let state: StoredRunState = match schema.schema.as_str() {
+        JOURNAL_STATE_SCHEMA => serde_json::from_slice(&content).map_err(invalid)?,
+        super::LEGACY_JOURNAL_STATE_SCHEMA => {
+            let legacy: LegacyStoredRunState = serde_json::from_slice(&content).map_err(invalid)?;
+            if legacy.profile_revision.is_empty() {
+                return Err(invalid("legacy run journal profileRevision is empty"));
+            }
+            legacy.into()
+        }
+        _ => return Err(invalid("unsupported run journal state schema")),
+    };
     if state.schema != JOURNAL_STATE_SCHEMA || state.id != expected_id || state.address != address {
         return Err(invalid("run journal identity does not match its directory"));
     }
@@ -266,7 +278,7 @@ fn validate_state(state: &StoredRunState) -> io::Result<()> {
                 && state.error.as_ref().is_some_and(|error| !error.is_empty())
         }
     };
-    if !valid || state.profile_revision.is_empty() {
+    if !valid {
         return Err(invalid("run journal state fields are inconsistent"));
     }
     Ok(())

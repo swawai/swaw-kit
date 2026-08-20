@@ -22,29 +22,26 @@ $CandidateArguments = @{
 & (Join-Path $PSScriptRoot 'dev-setup-interruption.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'run-journal-abandonment.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'host-release.ps1') @CandidateArguments
-& (Join-Path $PSScriptRoot 'development-declaration.ps1')
 & (Join-Path $PSScriptRoot 'development-command-layout.ps1')
 & (Join-Path $PSScriptRoot 'context-modules.ps1')
 & (Join-Path $PSScriptRoot 'module-instantiate.ps1') `
     -ModulePath $CandidateArguments.ModulePath
-& (Join-Path $PSScriptRoot 'command-export.ps1')
-& (Join-Path $PSScriptRoot 'provider-state.ps1')
-& (Join-Path $PSScriptRoot 'provider-activation.ps1')
 $TypeScriptTests = @(
     (Join-Path $RepoRoot '.swaw\proj\build\_lib\release-set.test.ts'),
     (Join-Path $RepoRoot '.swaw\proj\build\launcher\_lib\artifact.test.ts'),
     (Join-Path $RepoRoot '.swaw\proj\publish\_lib\runtime-release.test.ts')
 )
-$ProfilePath = Join-Path $RepoRoot 'data\proj.swawkit\_profile.json'
-$Profile = Get-Content -LiteralPath $ProfilePath -Raw -Encoding UTF8 |
-    ConvertFrom-Json
-$Bun = $Profile.development.bun
-$BunExecutable = Join-Path $RepoRoot (
-    'data\proj.swawkit\modules\system\dev\setup\export\bun\installs\{0}\bun.exe' -f
-    [string]$Bun.version
+$BunInstallsRoot = Join-Path $RepoRoot (
+    'data\proj.swawkit\modules\system\dev\setup\export\bun\installs'
 )
-if ($Bun.mode -cne 'managed' -or -not [IO.File]::Exists($BunExecutable)) {
-    throw "Proj Module TypeScript tests require the declared managed Bun: '$BunExecutable'."
+$BunExecutable = @(
+    Get-ChildItem -LiteralPath $BunInstallsRoot -Directory -ErrorAction SilentlyContinue |
+        Sort-Object -Property Name -Descending |
+        ForEach-Object { Join-Path $_.FullName 'bun.exe' } |
+        Where-Object { [IO.File]::Exists($_) }
+)[0]
+if ([string]::IsNullOrWhiteSpace([string]$BunExecutable)) {
+    throw "Proj Module TypeScript tests require an installed managed Bun below '$BunInstallsRoot'."
 }
 & $BunExecutable test @TypeScriptTests
 if ($LASTEXITCODE -ne 0) {
@@ -67,12 +64,9 @@ if ($LASTEXITCODE -ne 0) {
 & (Join-Path $PSScriptRoot 'bun.ps1') `
     -DevPath $CandidateArguments.DevPath
 & (Join-Path $PSScriptRoot 'pwsh.ps1')
-& (Join-Path $PSScriptRoot 'msvc.ps1') `
-    -DevPath $CandidateArguments.DevPath
-& (Join-Path $PSScriptRoot 'msvc.command.ps1')
+& (Join-Path $PSScriptRoot 'msvc.ps1')
 & (Join-Path $PSScriptRoot 'msvc.cache.ps1')
 & (Join-Path $PSScriptRoot 'rust.ps1')
-& (Join-Path $PSScriptRoot 'rust.strict.ps1')
 
 Write-Host '[PASS] Proj test suite' -ForegroundColor Green
 $global:LASTEXITCODE = 0

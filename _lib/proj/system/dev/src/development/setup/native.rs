@@ -28,7 +28,6 @@ use super::storage::{ExclusiveFileLock, ensure_directory_chain};
 pub struct NativeSetupContext {
     data_root: PathBuf,
     cache_data_root: PathBuf,
-    profile_revision: String,
     input_revision: String,
 }
 
@@ -36,7 +35,6 @@ impl NativeSetupContext {
     pub fn new(
         data_root: impl Into<PathBuf>,
         cache_data_root: impl Into<PathBuf>,
-        profile_revision: impl Into<String>,
         input_revision: impl Into<String>,
     ) -> Result<Self, String> {
         let data_root = data_root.into();
@@ -47,7 +45,6 @@ impl NativeSetupContext {
         Ok(Self {
             data_root,
             cache_data_root,
-            profile_revision: profile_revision.into(),
             input_revision: input_revision.into(),
         })
     }
@@ -202,14 +199,9 @@ pub fn run_native(
     let _setup_lock =
         ExclusiveFileLock::acquire(&locks.join("setup.lock"), Duration::from_secs(600))
             .map_err(|error| format!("cannot acquire development setup lock: {error}"))?;
-    let provider = SetupProvider::new(
-        &context.data_root,
-        &context.profile_revision,
-        &context.input_revision,
-    )?;
+    let provider = SetupProvider::new(&context.data_root, &context.input_revision)?;
     let publication = provider.start()?;
 
-    require_native_domains(declarations)?;
     let archive_requests = [&BUN, &PWSH]
         .into_iter()
         .filter_map(|tool| {
@@ -220,7 +212,11 @@ pub fn run_native(
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(|error| error.to_string())?;
-    let system_pwsh = (declarations.mode(PWSH.mode_variable) == Some("system"))
+    let system_pwsh = (declarations
+        .archive_settings(&PWSH)
+        .map_err(|error| error.to_string())?
+        .mode
+        == "system")
         .then(crate::development::pwsh::resolve_system)
         .transpose()?;
     let msvc_definition = declarations
@@ -282,22 +278,6 @@ pub fn run_native(
         rust,
         environment_changed,
     })
-}
-
-fn require_native_domains(declarations: &DeclarationSnapshot) -> Result<(), String> {
-    let unsupported = declarations
-        .enabled_modules()
-        .into_iter()
-        .filter(|name| !matches!(*name, "bun" | "pwsh" | "msvc" | "rust"))
-        .collect::<Vec<_>>();
-    if unsupported.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "native development setup does not yet handle these enabled declarations: {}.",
-            unsupported.join(", ")
-        ))
-    }
 }
 
 fn setup_archive_tool(

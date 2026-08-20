@@ -103,7 +103,7 @@ describe("Subject Facets", () => {
     const pane = () => ({ hidden: false });
     const elements = {
       commandWorkspace: pane(),
-      entryProfileDetail: pane(),
+      entryConfigDetail: pane(),
       commandDetail: pane(),
       commandHelpPane: pane(),
       commandRunPane: pane(),
@@ -125,7 +125,7 @@ describe("Subject Facets", () => {
     const pane = () => ({ hidden: false });
     const elements = {
       commandWorkspace: pane(),
-      entryProfileDetail: pane(),
+      entryConfigDetail: pane(),
       commandDetail: pane(),
       commandHelpPane: pane(),
       commandRunPane: pane(),
@@ -151,7 +151,7 @@ describe("Subject Facets", () => {
       const pane = () => ({ hidden: false });
       const elements = {
         commandWorkspace: pane(),
-        entryProfileDetail: pane(),
+        entryConfigDetail: pane(),
         commandDetail: pane(),
         commandHelpPane: pane(),
         commandRunPane: pane(),
@@ -171,7 +171,7 @@ describe("Subject Facets", () => {
     const pane = () => ({ hidden: false });
     const elements = {
       commandWorkspace: pane(),
-      entryProfileDetail: pane(),
+      entryConfigDetail: pane(),
       commandDetail: pane(),
       commandHelpPane: pane(),
       commandRunPane: pane(),

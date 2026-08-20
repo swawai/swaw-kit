@@ -32,19 +32,6 @@ function Get-ProjDevSafeSegment {
     return $Value
 }
 
-function Get-ProjDevRequiredEnvironmentValue {
-    param([Parameter(Mandatory = $true)][string]$Name)
-
-    $Value = [Environment]::GetEnvironmentVariable(
-        $Name,
-        [EnvironmentVariableTarget]::Process
-    )
-    if ([string]::IsNullOrWhiteSpace($Value)) {
-        throw "Required project declaration is missing: $Name"
-    }
-    return [string]$Value
-}
-
 function Get-ProjDevSha256Text {
     param([Parameter(Mandatory = $true)][string]$Value)
 

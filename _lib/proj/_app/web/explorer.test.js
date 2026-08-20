@@ -6,23 +6,50 @@ import {
   childrenColumnWidth,
   choiceColumnModels,
   commandHasChoices,
-  commandDisabledDuringSetup,
   commandMenuExpanded,
+  createExplorerView,
   restoreColumnScrollOffsets,
 } from "./explorer.js";
 
-describe("Explorer command-space behavior", () => {
-  test("keeps only explicitly available commands enabled during first setup", () => {
-    expect(commandDisabledDuringSetup(true, { setupAvailable: true })).toBe(false);
-    expect(commandDisabledDuringSetup(true, {})).toBe(true);
-    expect(commandDisabledDuringSetup(true, {
-      setupAvailable: true,
-    })).toBe(false);
-    expect(commandDisabledDuringSetup(false, {})).toBe(false);
-  });
+function domNode(tagName = "") {
+  return {
+    attributes: new Map(),
+    children: [],
+    className: "",
+    dataset: {},
+    disabled: false,
+    scrollTop: 0,
+    tagName,
+    addEventListener() {},
+    append(...children) { this.children.push(...children); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    querySelectorAll(selector) {
+      const className = selector.startsWith(".") ? selector.slice(1) : null;
+      const matches = [];
+      const visit = (node) => {
+        if (className && node.className?.split(/\s+/).includes(className)) {
+          matches.push(node);
+        }
+        node.children?.forEach(visit);
+      };
+      this.children.forEach(visit);
+      return matches;
+    },
+    replaceChildren(...children) { this.children = children; },
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+  };
+}
 
-  test("falls back instead of selecting a disabled routed command", () => {
-    const system = { address: ".entry", setupAvailable: true, space: "system" };
+function findByClass(root, className) {
+  if (root.className?.split(/\s+/).includes(className)) {
+    return root;
+  }
+  return root.children?.map((child) => findByClass(child, className)).find(Boolean) ?? null;
+}
+
+describe("Explorer command-space behavior", () => {
+  test("resolves every Catalog command without a global setup gate", () => {
+    const system = { address: ".entry", space: "system" };
     const module = { address: "project", namespace: "project", space: "module" };
     const catalog = {
       commandByAddress: new Map([
@@ -31,10 +58,9 @@ describe("Explorer command-space behavior", () => {
       ]),
     };
 
-    expect(availableCommand(catalog, true, module.address)).toBeNull();
-    expect(availableCommand(catalog, true, system.address)).toBe(system);
-    expect(availableCommand(catalog, false, module.address)).toBe(module);
-    expect(availableCommand(catalog, false, "missing")).toBeNull();
+    expect(availableCommand(catalog, module.address)).toBe(module);
+    expect(availableCommand(catalog, system.address)).toBe(system);
+    expect(availableCommand(catalog, "missing")).toBeNull();
   });
 
   test("keeps menu expansion independent from the selected command path", () => {
@@ -58,6 +84,70 @@ describe("Explorer command-space behavior", () => {
     expect(commandHasChoices(catalog, parent, [{ name: "children" }])).toBe(true);
     expect(commandHasChoices(catalog, leaf, [{ name: "overview" }])).toBe(true);
     expect(commandHasChoices(catalog, leaf, [])).toBe(false);
+  });
+
+  test("renders an enabled menu toggle for a command with Facets", () => {
+    const previous = {
+      document: globalThis.document,
+      requestAnimationFrame: globalThis.requestAnimationFrame,
+      window: globalThis.window,
+    };
+    const present = {
+      document: "document" in globalThis,
+      requestAnimationFrame: "requestAnimationFrame" in globalThis,
+      window: "window" in globalThis,
+    };
+    const columns = domNode("main");
+    const command = {
+      address: ".help",
+      parent: "",
+      runnable: true,
+      space: "system",
+      summary: "Help",
+    };
+    const facet = {
+      icon: "?",
+      kind: "projection",
+      label: "Overview",
+      name: "overview",
+      selected: true,
+      summary: "Show help",
+    };
+
+    globalThis.document = {
+      addEventListener() {},
+      createElement: (tagName) => domNode(tagName),
+    };
+    globalThis.window = { addEventListener() {} };
+    globalThis.requestAnimationFrame = () => 0;
+    try {
+      const view = createExplorerView({
+        columns,
+        detailPanel: domNode("aside"),
+        getCommandFacets: () => [facet],
+        onSelectCommand() {},
+      });
+      const catalog = {
+        childrenByParent: new Map(),
+        collator: new Intl.Collator("en"),
+        commandByAddress: new Map([[command.address, command]]),
+        roots: [command],
+      };
+
+      expect(() => view.setCatalog(catalog)).not.toThrow();
+      const toggle = findByClass(columns, "command-menu-toggle");
+      expect(toggle).not.toBeNull();
+      expect(toggle.disabled).toBe(false);
+      expect(toggle.getAttribute("disabled")).toBeNull();
+    } finally {
+      for (const name of Object.keys(previous)) {
+        if (present[name]) {
+          globalThis[name] = previous[name];
+        } else {
+          delete globalThis[name];
+        }
+      }
+    }
   });
 
   test("keeps ancestor child columns but obeys the terminal command view", () => {

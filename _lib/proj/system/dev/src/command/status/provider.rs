@@ -4,7 +4,7 @@ use super::CommandContext;
 use super::filesystem::{directory_chain, regular_file_length};
 
 pub(super) fn publication_token(context: &CommandContext) -> Result<String, String> {
-    let state = read_ready(&context.data_root, &context.environment_input_revision)
+    let state = read_ready(&context.data_root, context.input_revision())
         .map_err(|_| unavailable(context))?;
 
     let export_root = directory_chain(

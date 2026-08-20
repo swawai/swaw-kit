@@ -1,126 +1,29 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use windows_sys::Win32::System::Com::CoCreateGuid;
 use windows_sys::core::GUID;
 
 use crate::atomic_file;
 
+use super::settings::current_input_revision;
 use super::storage::{
     ExclusiveFileLock, ensure_directory_chain, existing_directory_chain, read_replaceable_bounded,
     regular_file_or_missing,
 };
 use super::{PRODUCER_CONTRACT, PRODUCER_EXPORT};
 
+mod invalidation;
+mod migration;
+
+pub(crate) use invalidation::begin_unavailable;
+pub use migration::migrate_legacy_layout;
+
 const STATE_SCHEMA: &str = "swawkit.command-provider-state/v2";
 const MAX_STATE_BYTES: u64 = 16 * 1024;
 const REVISION_PREFIX: &str = "sha256-";
-
-pub fn migrate_legacy_layout(data_root: &Path) -> Result<(), String> {
-    let source = data_root.join("modules/kernel/.dev/setup");
-    match fs::symlink_metadata(&source) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(format!("cannot inspect legacy development setup: {error}")),
-        Ok(_) => {}
-    }
-    existing_directory_chain(
-        data_root,
-        &["modules", "kernel", ".dev", "setup"],
-        "legacy development setup",
-    )
-    .map_err(|error| error.to_string())?;
-    let parent = ensure_directory_chain(
-        data_root,
-        &["modules", "system", "dev"],
-        "development setup parent",
-    )
-    .map_err(|error| error.to_string())?;
-    let destination = parent.join("setup");
-    if fs::symlink_metadata(&destination).is_ok() {
-        existing_directory_chain(
-            data_root,
-            &["modules", "system", "dev", "setup"],
-            "current development setup",
-        )
-        .map_err(|error| error.to_string())?;
-        merge_journal_only_destination(&source, &destination)?;
-    }
-    fs::rename(&source, &destination).map_err(|error| {
-        format!(
-            "cannot migrate development setup '{}' to '{}': {error}",
-            source.display(),
-            destination.display()
-        )
-    })
-}
-
-fn merge_journal_only_destination(source: &Path, destination: &Path) -> Result<(), String> {
-    let entries = fs::read_dir(destination)
-        .map_err(|error| format!("cannot inspect current development setup: {error}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("cannot inspect current development setup: {error}"))?;
-    if entries.len() != 1 || entries[0].file_name() != "_runs" {
-        return Err(format!(
-            "legacy and current development setup state both exist: '{}' and '{}'",
-            source.display(),
-            destination.display()
-        ));
-    }
-    let current_runs = entries[0].path();
-    let metadata = fs::symlink_metadata(&current_runs)
-        .map_err(|error| format!("cannot inspect current development setup journals: {error}"))?;
-    if !metadata.is_dir() || metadata.file_type().is_symlink() {
-        return Err("current development setup journals are not a regular directory".to_owned());
-    }
-    let legacy_runs = source.join("_runs");
-    match fs::symlink_metadata(&legacy_runs) {
-        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
-        Ok(_) => {
-            return Err("legacy development setup journals are not a regular directory".to_owned());
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => fs::create_dir(&legacy_runs)
-            .map_err(|error| {
-                format!("cannot prepare legacy development setup journals: {error}")
-            })?,
-        Err(error) => {
-            return Err(format!(
-                "cannot inspect legacy development setup journals: {error}"
-            ));
-        }
-    }
-    let journals = fs::read_dir(&current_runs)
-        .map_err(|error| format!("cannot inspect current development setup journals: {error}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| format!("cannot inspect current development setup journals: {error}"))?;
-    for entry in &journals {
-        let target = legacy_runs.join(entry.file_name());
-        if fs::symlink_metadata(&target).is_ok() {
-            return Err(format!(
-                "development setup journal exists in both legacy and current state: '{}'",
-                target.display()
-            ));
-        }
-    }
-    let mut moved = Vec::new();
-    for entry in journals {
-        let original = entry.path();
-        let target = legacy_runs.join(entry.file_name());
-        if let Err(error) = fs::rename(&original, &target) {
-            for (from, to) in moved.into_iter().rev() {
-                let _ = fs::rename(to, from);
-            }
-            return Err(format!("cannot merge development setup journal: {error}"));
-        }
-        moved.push((original, target));
-    }
-    fs::remove_dir(&current_runs)
-        .and_then(|()| fs::remove_dir(destination))
-        .map_err(|error| format!("cannot remove empty current development setup: {error}"))
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublicationAttempt {
@@ -176,10 +79,7 @@ pub fn read_ready(
     data_root: &Path,
     expected_input_revision: &str,
 ) -> Result<ReadyProviderState, String> {
-    require_revision(
-        expected_input_revision,
-        "command environment input revision",
-    )?;
+    require_revision(expected_input_revision, "Dev Settings input revision")?;
     let setup = existing_directory_chain(
         data_root,
         &["modules", "system", "dev", "setup"],
@@ -203,25 +103,21 @@ pub fn read_ready(
 }
 
 pub struct SetupProvider {
-    profile_path: PathBuf,
+    data_root: PathBuf,
     state_path: PathBuf,
     state_lock_path: PathBuf,
-    expected_profile_revision: String,
     input_revision: String,
 }
 
 impl SetupProvider {
     pub fn new(
         data_root: impl Into<PathBuf>,
-        expected_profile_revision: impl Into<String>,
         input_revision: impl Into<String>,
     ) -> Result<Self, String> {
         let data_root = data_root.into();
         migrate_legacy_layout(&data_root)?;
-        let expected_profile_revision = expected_profile_revision.into();
         let input_revision = input_revision.into();
-        require_revision(&expected_profile_revision, "command Profile revision")?;
-        require_revision(&input_revision, "command environment input revision")?;
+        require_revision(&input_revision, "Dev Settings input revision")?;
         let setup = ensure_directory_chain(
             &data_root,
             &["modules", "system", "dev", "setup"],
@@ -235,17 +131,16 @@ impl SetupProvider {
         )
         .map_err(|error| error.to_string())?;
         Ok(Self {
-            profile_path: data_root.join("_profile.json"),
+            data_root,
             state_path: setup.join("_state.json"),
             state_lock_path: locks.join("state.lock"),
-            expected_profile_revision,
             input_revision,
         })
     }
 
     pub fn start(&self) -> Result<PublicationAttempt, String> {
         let _lock = self.lock()?;
-        self.require_current_profile()?;
+        self.require_current_settings()?;
         let attempt = PublicationAttempt {
             input_revision: self.input_revision.clone(),
             token: fresh_token()?,
@@ -285,10 +180,10 @@ impl SetupProvider {
             .map_err(|error| format!("cannot acquire development provider state lock: {error}"))
     }
 
-    fn require_current_profile(&self) -> Result<(), String> {
-        if profile_revision(&self.profile_path)? != self.expected_profile_revision {
+    fn require_current_settings(&self) -> Result<(), String> {
+        if current_input_revision(&self.data_root)? != self.input_revision {
             return Err(
-                "the Entry Profile changed while .dev/setup was running; run the command again"
+                "the Dev Settings changed while .dev/setup was starting; run the command again"
                     .to_owned(),
             );
         }
@@ -300,20 +195,23 @@ impl SetupProvider {
     }
 
     fn publish(&self, state: &ProviderState) -> Result<(), String> {
-        regular_file_or_missing(&self.state_path, "command provider state")
-            .map_err(|error| error.to_string())?;
-        let mut content = serde_json::to_string_pretty(state)
-            .map_err(|error| format!("cannot serialize command provider state: {error}"))?
-            .replace('\n', "\r\n")
-            .into_bytes();
-        content.extend_from_slice(b"\r\n");
-        atomic_file::publish(&self.state_path, &content).map_err(|error| {
-            format!(
-                "cannot publish command provider state '{}': {error}",
-                self.state_path.display()
-            )
-        })
+        write_state(&self.state_path, state)
     }
+}
+
+fn write_state(path: &Path, state: &ProviderState) -> Result<(), String> {
+    regular_file_or_missing(path, "command provider state").map_err(|error| error.to_string())?;
+    let mut content = serde_json::to_string_pretty(state)
+        .map_err(|error| format!("cannot serialize command provider state: {error}"))?
+        .replace('\n', "\r\n")
+        .into_bytes();
+    content.extend_from_slice(b"\r\n");
+    atomic_file::publish(path, &content).map_err(|error| {
+        format!(
+            "cannot publish command provider state '{}': {error}",
+            path.display()
+        )
+    })
 }
 
 fn read_state(path: &Path) -> Result<Option<ProviderState>, String> {
@@ -378,17 +276,6 @@ fn is_lower_hex(value: &str, length: usize) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn profile_revision(path: &Path) -> Result<String, String> {
-    let content =
-        read_replaceable_bounded(path, "Entry Profile", 4 * 1024 * 1024).map_err(|error| {
-            format!(
-                "cannot read current Entry Profile '{}': {error}",
-                path.display()
-            )
-        })?;
-    Ok(format!("sha256-{:x}", Sha256::digest(content)))
 }
 
 fn require_revision(value: &str, subject: &str) -> Result<(), String> {

@@ -361,7 +361,6 @@ fn journal_request(root: &Path) -> StartRunJournal {
         address: ".fixture".to_owned(),
         source: RunJournalSource::Web,
         argument_count: 0,
-        profile_revision: "sha256-fixture".to_owned(),
     }
 }
 

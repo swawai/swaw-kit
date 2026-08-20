@@ -46,7 +46,7 @@ fn execute(context: &CommandContext, arguments: &[OsString]) -> Result<CheckOutc
         ));
     }
 
-    let result = verify_ready_export(&context.data_root, &context.environment_input_revision);
+    let result = verify_ready_export(&context.data_root, context.input_revision());
     let document = document(result, context);
     let output = if json {
         serde_json::to_string_pretty(&document)
@@ -112,10 +112,8 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use serde_json::Value;
-    use sha2::{Digest, Sha256};
-
     use super::*;
+    use serde_json::Value;
     use swawkit_proj_dev::development::setup::PUBLICATION_TOKEN_VARIABLE;
     use swawkit_proj_dev::development::setup::environment::EnvironmentPlan;
     use swawkit_proj_dev::development::setup::provider::SetupProvider;
@@ -220,25 +218,22 @@ mod tests {
                 NEXT.fetch_add(1, Ordering::Relaxed)
             ));
             std::fs::create_dir_all(&root).unwrap();
+            let settings =
+                swawkit_proj_dev::development::setup::settings::DevSettingsStore::new(&root)
+                    .snapshot()
+                    .unwrap();
             let context = CommandContext {
                 data_root: root.clone(),
                 export_root: root.join("modules/system/dev/setup/export"),
                 entry_command: "fixture".to_owned(),
-                environment_input_revision: format!("sha256-{}", "a".repeat(64)),
+                cache_data_root: root.join("cache"),
+                settings,
             };
             Self { root, context }
         }
 
         fn publish_ready(&self) {
-            let profile_content = b"{}\r\n";
-            std::fs::write(self.root.join("_profile.json"), profile_content).unwrap();
-            let profile_revision = format!("sha256-{:x}", Sha256::digest(profile_content));
-            let provider = SetupProvider::new(
-                &self.root,
-                profile_revision,
-                self.context.environment_input_revision.clone(),
-            )
-            .unwrap();
+            let provider = SetupProvider::new(&self.root, self.context.input_revision()).unwrap();
             let publication = provider.start().unwrap();
             let mut plan = EnvironmentPlan::default();
             plan.set(

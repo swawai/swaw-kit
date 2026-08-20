@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use super::*;
 use crate::data_root::{DataRootSession, ResolveDataRootRequest, resolve_data_root};
 use crate::process_runner::{ProcessControl, ProcessObserver};
-use crate::profile::{EntryProfileRecord, EntryProfileStore};
 use crate::run_journal::RunJournalSource;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -113,15 +112,6 @@ impl Fixture {
         fs::write(root.join("run.ps1"), "").expect("write fixture command entry");
     }
 
-    fn save_profile(&self) {
-        EntryProfileStore::new(
-            self.root.join("home"),
-            self.root.join("home/data/proj.swawkit"),
-        )
-        .save(EntryProfileRecord::default())
-        .expect("save fixture profile");
-    }
-
     fn select_update(&self) -> String {
         let runtime_root = self.root.join("home/data/proj.swawkit/runtime");
         let release_id = crate::runtime_release::tests::write_release(
@@ -160,7 +150,7 @@ fn request() -> StartCommandRunRequest {
 }
 
 #[tokio::test]
-async fn preparation_failure_happens_before_runner_or_journal() {
+async fn missing_entry_config_does_not_gate_command_submission() {
     let fixture = Fixture::new();
     fixture.install_command();
     let runner = Arc::new(RecordingRunner::default());
@@ -171,20 +161,19 @@ async fn preparation_failure_happens_before_runner_or_journal() {
     );
 
     let error = match service.submit(request()).await {
-        Ok(_) => panic!("a missing profile must reject command preparation"),
+        Ok(_) => panic!("recording runner must reject process start"),
         Err(error) => error,
     };
 
-    assert!(matches!(error, RuntimeServiceError::ProfileSetupRequired));
-    assert_eq!(runner.start_count(), 0);
-    assert!(!fixture.command_runs_root().exists());
+    assert!(matches!(error, RuntimeServiceError::Start(_)));
+    assert_eq!(runner.start_count(), 1);
+    assert!(fixture.command_runs_root().exists());
 }
 
 #[tokio::test]
 async fn shutdown_rejects_submit_and_query_with_typed_errors() {
     let fixture = Fixture::new();
     fixture.install_command();
-    fixture.save_profile();
     let runner = Arc::new(RecordingRunner::default());
     let service = RuntimeService::new(
         fixture.context(),
@@ -212,7 +201,6 @@ async fn shutdown_rejects_submit_and_query_with_typed_errors() {
 async fn updated_runtime_rejects_new_work_without_gating_existing_run_controls() {
     let fixture = Fixture::new();
     fixture.install_command();
-    fixture.save_profile();
     let runner = Arc::new(RecordingRunner::default());
     let service = RuntimeService::new(
         fixture.context(),
@@ -257,7 +245,6 @@ async fn updated_runtime_rejects_new_work_without_gating_existing_run_controls()
 async fn invalid_runtime_selector_fails_closed_before_new_work() {
     let fixture = Fixture::new();
     fixture.install_command();
-    fixture.save_profile();
     let runner = Arc::new(RecordingRunner::default());
     let service = RuntimeService::new(
         fixture.context(),

@@ -1,4 +1,4 @@
-查看并维护当前 Entry 的项目绑定与开发环境 Profile。
+查看并维护当前 Entry 的可选项目绑定与界面语言。
 
 用法:
   {{INVOCATION}}
@@ -13,4 +13,4 @@ Entry 实例必须由管理器显式创建；旧 DataRoot 也必须先显式迁�
 .entry/instances/create 创建实例，或使用 .entry/instances/migrate 显式迁移同名旧实例。
 manager 自身的冷 Bootstrap 仍由物理 bootstrap.ps1 完成。
 
-该命令属于当前 Entry，在 Profile 缺失或损坏时仍然可用。
+该命令属于当前 Entry；配置缺失时使用默认语言且不绑定项目，配置损坏时仍然可用。

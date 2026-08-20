@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
+    entry_config::EntryLanguage,
     facet::{Facet, FacetResolver},
-    profile::EntryLanguage,
     subject::SubjectRef,
     subject_kind::SubjectKindRef,
 };

@@ -5,9 +5,9 @@ async fn rescans_the_catalog_on_each_request() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
     fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
+        .config_store()
+        .save(crate::entry_config::EntryConfigRecord::default())
+        .expect("ready Entry Config");
     let app = fixture.app();
 
     let before = catalog_document(app.clone()).await;

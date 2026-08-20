@@ -8,11 +8,25 @@ import {
 
 const CATALOG_PROTOCOL = "swawkit.command-catalog/v19";
 const MODULE_PROTOCOL = "swawkit.command-module/v11";
-const PROFILE_INDEPENDENT_CORE_HANDLERS = new Set([
-  "meta.check",
-  "meta.help",
-  "meta.runs",
-]);
+const RUNTIME_OWNERS = {
+  dev: new Set([
+    ".dev/settings",
+    ".dev/setup",
+    ".dev/setup/check",
+    ".dev/status",
+    ".dev/bun/mode",
+    ".dev/bun/sha256",
+    ".dev/bun/version",
+    ".dev/pwsh/mode",
+    ".dev/pwsh/sha256",
+    ".dev/pwsh/version",
+    ".dev/msvc/mode",
+    ".dev/msvc/channel",
+    ".dev/rust/mode",
+    ".dev/rust/toolchain",
+  ]),
+  module: new Set([".module/instantiate", ".module/status"]),
+};
 
 function contractError(message) {
   return new Error(`${t("Catalog 协议无效", "Invalid Catalog protocol")}: ${message}`);
@@ -296,13 +310,9 @@ function normalizeCommand(value, index) {
       `${field("product")} must match the module execution declaration.`,
     );
   }
-  const runtimeOwners = {
-    dev: new Set([".dev/setup", ".dev/setup/check", ".dev/status"]),
-    module: new Set([".module/instantiate", ".module/status"]),
-  };
   if (
     adapter === "runtime"
-    && (space !== "system" || !runtimeOwners[product]?.has(address))
+    && (space !== "system" || !RUNTIME_OWNERS[product]?.has(address))
   ) {
     throw contractError(
       `${field("product")} runtime product is not valid for this System command.`,
@@ -338,10 +348,6 @@ function normalizeCommand(value, index) {
     product: product ?? "",
     runOperations: view?.runOperations ?? [],
     runnable: command.runnable,
-    setupAvailable: space === "system" && (
-      ["entry", "runtime"].includes(path[0])
-      || PROFILE_INDEPENDENT_CORE_HANDLERS.has(handler)
-    ),
     space,
     subjectKinds,
     summary: help?.summary ?? "",
@@ -414,7 +420,7 @@ export function createCatalog(document) {
       }
       const controlEdit = facet.renderer === "edit"
         && target.space === "system"
-        && target.handler === "entry.profile.set";
+        && target.handler === "entry.config.set";
       if (
         !target.runnable
         || (target.space === "system" && target.path[0] === "entry" && !controlEdit)
@@ -455,17 +461,6 @@ export function createCatalog(document) {
       childrenByParent.set(command.parent, siblings);
     } else {
       roots.push(command);
-    }
-  }
-
-  for (const command of commandByAddress.values()) {
-    if (command.handler !== "entry.profile.set") {
-      continue;
-    }
-    let current = command;
-    while (current) {
-      current.setupAvailable = true;
-      current = current.parent ? commandByAddress.get(current.parent) : null;
     }
   }
 

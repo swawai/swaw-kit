@@ -108,17 +108,26 @@ try {
     $ProjectModuleRoot = Join-Path $FixtureHome '.swaw'
     [void][IO.Directory]::CreateDirectory($SwawModuleRoot)
     [void][IO.Directory]::CreateDirectory($ProjectModuleRoot)
-    $ProfilePath = Join-Path $DataRoot '_profile.json'
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
+    [void][IO.Directory]::CreateDirectory($SetupRoot)
     [IO.File]::WriteAllText(
-        $ProfilePath,
-        "{}`r`n",
+        (Join-Path $SetupRoot '_settings.json'),
+        (@{
+            schema = 'swawkit.proj-dev-settings/v1'
+            bun = @{ mode = 'managed'; version = 'latest'; sha256 = '' }
+            pwsh = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            msvc = @{ mode = 'disabled'; channel = '' }
+            rust = @{
+                mode = 'disabled'
+                toolchain = ''
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+        } | ConvertTo-Json -Depth 4),
         [Text.UTF8Encoding]::new($false)
     )
-    $ProfileRevision = 'sha256-' + (
-        Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256
-    ).Hash.ToLowerInvariant()
     $Environment = @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '2'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
         SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $FixtureHome
@@ -127,18 +136,6 @@ try {
             project = $ProjectModuleRoot
         } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_ENTRY_COMMAND = 'network-fixture'
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = (
-            'sha256-' + ('b' * 64)
-        )
-        SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $ProfileRevision
-        SWAWKIT_PROJ_BUN_MODE = 'managed'
-        SWAWKIT_PROJ_BUN_VERSION = 'latest'
-        SWAWKIT_PROJ_BUN_SHA256 = ''
-        SWAWKIT_PROJ_PWSH_MODE = 'disabled'
-        SWAWKIT_PROJ_PWSH_VERSION = ''
-        SWAWKIT_PROJ_PWSH_SHA256 = ''
-        SWAWKIT_PROJ_MSVC_MODE = 'disabled'
-        SWAWKIT_PROJ_RUST_MODE = 'disabled'
         HTTP_PROXY = 'http://127.0.0.1:1'
         HTTPS_PROXY = 'http://127.0.0.1:1'
         ALL_PROXY = 'http://127.0.0.1:1'
@@ -149,7 +146,6 @@ try {
         -Environment $Environment `
         -TimeoutSeconds 45
     Write-Verbose $Failed.Output
-    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
     $SelectionPath = Join-Path $SetupRoot (
         'export\bun\.swawkit-dev-selection.json'
     )
