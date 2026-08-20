@@ -86,6 +86,26 @@ describe("Catalog v19 model", () => {
     expect(catalog.commandByAddress.get(".dev/exec").setupAvailable).toBe(false);
   });
 
+  test("keeps Profile-independent Core commands available during setup", () => {
+    const core = (address, handler) => node(address, {
+      runnable: true,
+      entry: "swawkit.module.json",
+      adapter: "core",
+      handler,
+    });
+    const catalog = createCatalog(payload([
+      core(".check", "meta.check"),
+      core(".help", "meta.help"),
+      core(".runs", "meta.runs"),
+      core(".other", "other.handler"),
+    ]));
+
+    expect(catalog.commandByAddress.get(".check").setupAvailable).toBe(true);
+    expect(catalog.commandByAddress.get(".help").setupAvailable).toBe(true);
+    expect(catalog.commandByAddress.get(".runs").setupAvailable).toBe(true);
+    expect(catalog.commandByAddress.get(".other").setupAvailable).toBe(false);
+  });
+
   test("keeps a diagnostic leaf distinct from a command group", () => {
     const catalog = createCatalog(payload([
       node(".broken", { diagnostic: "multiple run entries" }),

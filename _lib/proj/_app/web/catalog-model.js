@@ -8,6 +8,11 @@ import {
 
 const CATALOG_PROTOCOL = "swawkit.command-catalog/v19";
 const MODULE_PROTOCOL = "swawkit.command-module/v11";
+const PROFILE_INDEPENDENT_CORE_HANDLERS = new Set([
+  "meta.check",
+  "meta.help",
+  "meta.runs",
+]);
 
 function contractError(message) {
   return new Error(`${t("Catalog 协议无效", "Invalid Catalog protocol")}: ${message}`);
@@ -333,7 +338,10 @@ function normalizeCommand(value, index) {
     product: product ?? "",
     runOperations: view?.runOperations ?? [],
     runnable: command.runnable,
-    setupAvailable: space === "system" && ["entry", "runtime"].includes(path[0]),
+    setupAvailable: space === "system" && (
+      ["entry", "runtime"].includes(path[0])
+      || PROFILE_INDEPENDENT_CORE_HANDLERS.has(handler)
+    ),
     space,
     subjectKinds,
     summary: help?.summary ?? "",
