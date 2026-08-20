@@ -1,11 +1,12 @@
 use std::{
     io::{Read, Write},
-    net::TcpStream,
+    net::{Ipv4Addr, TcpStream},
     sync::mpsc,
     time::Duration,
 };
 
 use super::*;
+use crate::server::loopback::bind_browser_safe;
 
 #[tokio::test]
 async fn runtime_status_is_one_typed_control_document() {
@@ -59,8 +60,8 @@ async fn runtime_cleanup_requires_an_explicit_control_action() {
 
 #[tokio::test]
 async fn binds_independent_random_ports_on_ipv4_loopback() {
-    let first = bind_loopback().await.expect("first listener");
-    let second = bind_loopback().await.expect("second listener");
+    let first = bind_browser_safe().await.expect("first listener");
+    let second = bind_browser_safe().await.expect("second listener");
     let first_address = first.local_addr().expect("first address");
     let second_address = second.local_addr().expect("second address");
 

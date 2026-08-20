@@ -1,9 +1,4 @@
-use std::{
-    io,
-    net::{Ipv4Addr, SocketAddr},
-    sync::Arc,
-    thread,
-};
+use std::{io, sync::Arc, thread};
 
 use axum::{
     Json, Router,
@@ -17,7 +12,7 @@ use axum::{
     routing::get,
 };
 use serde::{Deserialize, Serialize};
-use tokio::{net::TcpListener, sync::oneshot};
+use tokio::sync::oneshot;
 
 use crate::{
     catalog::CatalogSnapshot,
@@ -34,6 +29,7 @@ mod command_run;
 mod entry_manager;
 mod facet_resolution;
 mod host_control;
+mod loopback;
 mod runtime_control;
 
 use host_control::HostControl;
@@ -94,7 +90,9 @@ async fn run_server<F>(
 where
     F: FnOnce(HostRuntimeDocument) -> Result<(), String>,
 {
-    let listener = bind_loopback().await.map_err(|error| error.to_string())?;
+    let listener = loopback::bind_browser_safe()
+        .await
+        .map_err(|error| error.to_string())?;
     let address = listener.local_addr().map_err(|error| error.to_string())?;
     let authority = address.to_string();
     let url = format!("http://{authority}/");
@@ -140,10 +138,6 @@ where
         (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
         (Err(serve_error), Err(shutdown_error)) => Err(format!("{serve_error}; {shutdown_error}")),
     }
-}
-
-async fn bind_loopback() -> io::Result<TcpListener> {
-    TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, 0))).await
 }
 
 #[cfg(test)]
