@@ -12,8 +12,8 @@ contract。可使用纯只读检查：
 动态业务前提由所属 run.* 自己验证。
 
 极薄 EXE Launcher 负责 Entry 寻址、Host/CLI 分流和原生 argv 边界。入口文件名
-<entry>.exe 映射到 data/proj.<entry>，稳定实例身份来自其中的 entry.id；Runtime selector
-位于该 DataRoot 的 runtime/current。替换同路径 Launcher 不会改变 Entry 身份。
+<entry>.exe 唯一映射到规范 data/proj.<entry>，Runtime selector 位于该 DataRoot 的
+runtime/current；普通运行不读取第二份身份文件。
 只有 manager swawkit.exe 能在 Runtime 缺失时冷 Bootstrap；普通 Entry 会 fail closed，
 并要求先通过 manager 创建或修复。入口自身不声明项目配置，也不承担公开命令路由。
 

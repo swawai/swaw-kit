@@ -148,7 +148,6 @@ fn raw_conflict_state(
         entry_file: entry_file.to_owned(),
         data_root: data_root.to_owned(),
         status: super::EntryStatus::Conflict,
-        entry_id: None,
         release_id: None,
         issues,
     })

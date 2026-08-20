@@ -1,14 +1,13 @@
 import { t } from "./i18n.js";
 
-const RUNTIME_STATUS_PROTOCOL = "swawkit.runtime-status/v2";
-const HOST_STATUS_PROTOCOL = "swawkit.host-status/v2";
+const RUNTIME_STATUS_PROTOCOL = "swawkit.runtime-status/v3";
+const HOST_STATUS_PROTOCOL = "swawkit.host-status/v3";
 const RUNTIME_CLEANUP_PROTOCOL = "swawkit.runtime-cleanup/v1";
 const SHA256 = /^[a-f0-9]{64}$/;
 const BOOT_ID = /^[A-Za-z0-9-]{1,160}$/;
 const LOOPBACK_URL = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/$/;
 const HOST_STATUS_FIELDS = [
   "bootId",
-  "entryId",
   "instanceKeySha256",
   "pid",
   "protocol",
@@ -49,8 +48,6 @@ function validHostStatus(document) {
     : 0;
   return exactFields(document, HOST_STATUS_FIELDS)
     && document.protocol === HOST_STATUS_PROTOCOL
-    && typeof document.entryId === "string"
-    && SHA256.test(document.entryId)
     && typeof document.instanceKeySha256 === "string"
     && SHA256.test(document.instanceKeySha256)
     && Number.isInteger(document.pid)

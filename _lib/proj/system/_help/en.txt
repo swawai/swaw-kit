@@ -7,7 +7,7 @@ Commands declare required Provider contracts and provided Export contracts in sw
 
 `.check` reports whether the command entry and its declared inbound dependencies are ready. Normal execution repeats the same read-only dependency assertion before the Journal and target process. Checks never install, build, repair, or execute domain code; each run.* owns its dynamic domain validation.
 
-The thin EXE Launcher owns Entry addressing, Host/CLI routing, and the native argv boundary. `<entry>.exe` maps to `data/proj.<entry>`; the stable identity is that DataRoot's `entry.id`, and its Runtime selector is `runtime/current`. Replacing the Launcher at the same path does not replace the Entry identity. Only the manager `swawkit.exe` may cold Bootstrap a missing Runtime; ordinary Entries fail closed and must be created or repaired through the manager.
+The thin EXE Launcher owns Entry addressing, Host/CLI routing, and the native argv boundary. `<entry>.exe` maps uniquely to canonical `data/proj.<entry>`, whose Runtime selector is `runtime/current`. Normal execution reads no second identity file. Only the manager `swawkit.exe` may cold Bootstrap a missing Runtime; ordinary Entries fail closed and must be created or repaired through the manager.
 
 _lib\proj\build.ps1 writes only App and Launcher candidates below data/proj_cache/bootstrap/build. project/proj/build/launcher likewise publishes only its command-local export/swawkit.exe. Neither replaces the root Launcher, and there is no publish/launcher, Launcher-template, or Favorites publication path.
 

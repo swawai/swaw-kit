@@ -151,7 +151,6 @@ fn router(expected_authority: String, context: EntryContext, data_root: DataRoot
     let runtime =
         crate::host_runtime::HostRuntimeLocator::new(&context).expect("locate test Host runtime");
     let host_runtime = HostRuntimeDocument::new(
-        context.entry_id.as_str(),
         runtime.instance_key().as_str(),
         &context.release_id,
         "test-host",

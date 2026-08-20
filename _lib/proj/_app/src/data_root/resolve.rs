@@ -8,9 +8,7 @@ use std::sync::Arc;
 
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
-use crate::entry::{EntryId, EntryIdErrorKind};
-
-use super::lease::{DataRootBindingLease, DataRootLeaseError};
+use super::lease::DataRootBindingLease;
 
 #[derive(Clone, Copy)]
 pub struct ResolveDataRootRequest<'a> {
@@ -21,17 +19,12 @@ pub struct ResolveDataRootRequest<'a> {
 #[derive(Clone)]
 pub struct ResolvedDataRoot {
     path: PathBuf,
-    entry_id: EntryId,
     _lease: Arc<DataRootBindingLease>,
 }
 
 impl ResolvedDataRoot {
     pub fn path(&self) -> &Path {
         &self.path
-    }
-
-    pub fn entry_id(&self) -> &EntryId {
-        &self.entry_id
     }
 
     pub fn runtime_root(&self) -> PathBuf {
@@ -44,14 +37,13 @@ impl fmt::Debug for ResolvedDataRoot {
         formatter
             .debug_struct("ResolvedDataRoot")
             .field("path", &self.path)
-            .field("entry_id", &self.entry_id)
             .finish_non_exhaustive()
     }
 }
 
 impl PartialEq for ResolvedDataRoot {
     fn eq(&self, other: &Self) -> bool {
-        self.path == other.path && self.entry_id == other.entry_id
+        self.path == other.path
     }
 }
 
@@ -138,12 +130,14 @@ pub fn resolve_data_root(
     }
 
     match DataRootBindingLease::acquire(&data_root) {
-        Ok((lease, entry_id)) => Ok(ResolvedDataRoot {
+        Ok(lease) => Ok(ResolvedDataRoot {
             path: data_root,
-            entry_id,
             _lease: Arc::new(lease),
         }),
-        Err(error) => classify_open_error(&data_root, error),
+        Err(error) => Err(ResolveDataRootError::new(
+            ResolveDataRootErrorKind::Io,
+            error.to_string(),
+        )),
     }
 }
 
@@ -159,46 +153,6 @@ fn uninitialized(entry_name: &str, data_root: &Path) -> ResolveDataRootError {
             data_root.display()
         ),
     )
-}
-
-fn classify_open_error(
-    data_root: &Path,
-    error: DataRootLeaseError,
-) -> Result<ResolvedDataRoot, ResolveDataRootError> {
-    match EntryId::read(data_root) {
-        Err(entry_error) if entry_error.kind() == EntryIdErrorKind::Missing => {
-            let legacy = match fs::symlink_metadata(data_root.join("_entry.json")) {
-                Ok(_) => true,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-                Err(_) => true,
-            };
-            let (kind, message) = if legacy {
-                (
-                    ResolveDataRootErrorKind::LegacyMigrationRequired,
-                    format!(
-                        "legacy Entry DataRoot requires explicit migration before use: {}",
-                        data_root.display()
-                    ),
-                )
-            } else {
-                (
-                    ResolveDataRootErrorKind::UnmanagedDataRoot,
-                    format!(
-                        "Entry DataRoot is unmanaged because entry.id is missing: {}",
-                        data_root.display()
-                    ),
-                )
-            };
-            Err(ResolveDataRootError::new(kind, message))
-        }
-        Err(entry_error) if entry_error.kind() == EntryIdErrorKind::Invalid => Err(
-            ResolveDataRootError::new(ResolveDataRootErrorKind::Invalid, entry_error.to_string()),
-        ),
-        _ => Err(ResolveDataRootError::new(
-            ResolveDataRootErrorKind::Io,
-            error.to_string(),
-        )),
-    }
 }
 
 fn required_directory(path: &Path, label: &str) -> Result<PathBuf, ResolveDataRootError> {
@@ -234,8 +188,6 @@ fn absolute(path: &Path, label: &str) -> Result<PathBuf, ResolveDataRootError> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolveDataRootErrorKind {
     Uninitialized,
-    LegacyMigrationRequired,
-    UnmanagedDataRoot,
     Invalid,
     Io,
 }

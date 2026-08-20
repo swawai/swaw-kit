@@ -18,8 +18,7 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::context::EntryContext;
 use crate::launch::{
-    ENTRY_FILE_ENV, ENTRY_ID_ENV, LAUNCH_MODE_ENV, LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION,
-    LaunchMode,
+    ENTRY_FILE_ENV, LAUNCH_MODE_ENV, LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION, LaunchMode,
 };
 
 const PROTOCOL_ENV: &str = "SWAWKIT_PROJ_HOST_RESTART_PROTOCOL";
@@ -135,7 +134,6 @@ pub fn prepare(context: &EntryContext) -> Result<(), String> {
         .creation_flags(CREATE_NO_WINDOW)
         .env(LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION)
         .env(ENTRY_FILE_ENV, &context.entry_file)
-        .env(ENTRY_ID_ENV, context.entry_id.as_str())
         .env(LAUNCH_MODE_ENV, LaunchMode::InternalHost.as_env_value())
         .env(PROTOCOL_ENV, PROTOCOL_VERSION)
         .env(PARENT_PID_ENV, std::process::id().to_string())
@@ -249,7 +247,6 @@ mod tests {
             runtime_root: root.clone(),
             entry_file: root.join("swawkit.exe"),
             entry_name: "swawkit".to_owned(),
-            entry_id: crate::entry::EntryId::parse(&"a".repeat(64)).expect("test Entry ID"),
             invocation_directory: root.clone(),
             product_executable: host,
             release_id,

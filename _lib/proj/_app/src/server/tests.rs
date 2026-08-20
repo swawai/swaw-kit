@@ -15,7 +15,6 @@ use super::*;
 use crate::{
     context::EntryContext,
     data_root::{DataRootSession, ResolveDataRootRequest, resolve_data_root},
-    entry::EntryId,
     profile::EntryProfileStore,
 };
 
@@ -34,7 +33,6 @@ fn test_host_runtime(context: &EntryContext) -> HostRuntimeDocument {
     let runtime =
         crate::host_runtime::HostRuntimeLocator::new(context).expect("locate test Host runtime");
     HostRuntimeDocument::new(
-        context.entry_id.as_str(),
         runtime.instance_key().as_str(),
         &context.release_id,
         "test-host",
@@ -72,7 +70,6 @@ impl Fixture {
         fs::write(runtime_root.join("current"), format!("{release_id}\n"))
             .expect("write Runtime selector");
         fs::write(root.join("home/swawkit.exe"), b"fixture").expect("create fixture entry");
-        EntryId::create_once(&data_root).expect("create fixture Entry ID");
         let fixture = Self { root, release_id };
         let context = fixture.context();
         resolve_data_root(ResolveDataRootRequest {
@@ -100,7 +97,6 @@ impl Fixture {
         let data_root = self.root.join("home/data/proj.swawkit");
         EntryContext {
             swawkit_home: self.root.join("home"),
-            entry_id: EntryId::read(&data_root).expect("read fixture Entry ID"),
             data_root,
             runtime_root: self.root.join("home/data/proj.swawkit/runtime"),
             entry_file: self.root.join("home/swawkit.exe"),
@@ -181,7 +177,6 @@ async fn exposes_status_and_requires_explicit_authority_for_shutdown() {
         crate::runtime_control::HOST_STATUS_PROTOCOL
     );
     assert_eq!(document["pid"], std::process::id());
-    assert_eq!(document["entryId"], fixture.context().entry_id.as_str());
     assert!(
         document["instanceKeySha256"]
             .as_str()
@@ -200,7 +195,6 @@ async fn exposes_status_and_requires_explicit_authority_for_shutdown() {
         fields,
         std::collections::BTreeSet::from([
             "bootId",
-            "entryId",
             "instanceKeySha256",
             "pid",
             "protocol",

@@ -142,10 +142,6 @@ fn write_mutation_summary(document: &EntryMutationDocument) -> Result<(), CliErr
         document.entry.entry_file,
         document.entry.data_root,
     );
-    if let Some(entry_id) = &document.entry.entry_id {
-        output.push_str("\nEntry ID: ");
-        output.push_str(entry_id);
-    }
     if let Some(release_id) = &document.entry.release_id {
         output.push_str("\nRelease: ");
         output.push_str(release_id);

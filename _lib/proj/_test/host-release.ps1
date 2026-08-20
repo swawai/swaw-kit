@@ -194,8 +194,7 @@ try {
         ConvertFrom-Json
     Assert-ProjHostReleaseTest `
         -Condition (
-            [string]$HostStatus.protocol -ceq 'swawkit.host-status/v2' -and
-            [string]$HostStatus.entryId -ceq [string]$Runtime.EntryId -and
+            [string]$HostStatus.protocol -ceq 'swawkit.host-status/v3' -and
             [string]$HostStatus.runningReleaseId -ceq $RunningReleaseId -and
             [string]$HostStatus.selectedReleaseId -ceq $SelectedReleaseId -and
             [bool]$HostStatus.updateAvailable

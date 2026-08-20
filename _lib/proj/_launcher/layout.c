@@ -17,10 +17,7 @@ static WCHAR runtime_root[TEXT_CAPACITY];
 static WCHAR releases_root[TEXT_CAPACITY];
 static WCHAR selected_core[TEXT_CAPACITY];
 static WCHAR selector[TEXT_CAPACITY];
-static WCHAR identity_path[TEXT_CAPACITY];
 static WCHAR bootstrap[TEXT_CAPACITY];
-static WCHAR identity[65u];
-static CHAR identity_record[66u];
 static CHAR release_selector[66u];
 static BOOL manager_entry;
 
@@ -173,7 +170,6 @@ BOOL locate_entry_layout(const WCHAR *entry_path)
     static const WCHAR runtime_suffix[] = L"\\runtime";
     static const WCHAR releases_suffix[] = L"\\releases";
     static const WCHAR selector_suffix[] = L"\\current";
-    static const WCHAR identity_suffix[] = L"\\entry.id";
     static const WCHAR bootstrap_suffix[] = L"\\_lib\\proj\\bootstrap.ps1";
     DWORD entry_length = wide_length(entry_path);
     DWORD home_length = last_separator_before(entry_path, entry_length);
@@ -233,88 +229,10 @@ BOOL locate_entry_layout(const WCHAR *entry_path)
         return FALSE;
     }
     length = wide_length(selector);
-    if (!append_text(selector, &length, selector_suffix)
-        || !copy_path(identity_path, data_root)) {
+    if (!append_text(selector, &length, selector_suffix)) {
         return FALSE;
     }
-    length = wide_length(identity_path);
-    return append_text(identity_path, &length, identity_suffix)
-        && copy_path_with_suffix(entry_path, home_length, bootstrap_suffix, bootstrap);
-}
-
-DWORD read_layout_entry_id(void)
-{
-    DWORD attributes;
-    DWORD error;
-    HANDLE file;
-    DWORD bytes_read = 0u;
-    DWORD index;
-
-    SetLastError(ERROR_SUCCESS);
-    if (!is_directory(home_root)) {
-        return ENTRY_ID_INVALID;
-    }
-    attributes = GetFileAttributesW(data_parent);
-    if (attributes == INVALID_FILE_ATTRIBUTES) {
-        error = GetLastError();
-        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND
-            ? ENTRY_ID_MISSING
-            : ENTRY_ID_INVALID;
-    }
-    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) == 0u
-        || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0u) {
-        return ENTRY_ID_INVALID;
-    }
-
-    SetLastError(ERROR_SUCCESS);
-    attributes = GetFileAttributesW(data_root);
-    if (attributes == INVALID_FILE_ATTRIBUTES) {
-        error = GetLastError();
-        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND
-            ? ENTRY_ID_MISSING
-            : ENTRY_ID_INVALID;
-    }
-    if ((attributes & FILE_ATTRIBUTE_DIRECTORY) == 0u
-        || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0u) {
-        return ENTRY_ID_INVALID;
-    }
-
-    SetLastError(ERROR_SUCCESS);
-    attributes = GetFileAttributesW(identity_path);
-    if (attributes == INVALID_FILE_ATTRIBUTES) {
-        error = GetLastError();
-        return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND
-            ? ENTRY_ID_MISSING
-            : ENTRY_ID_INVALID;
-    }
-    if ((attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0u) {
-        return ENTRY_ID_INVALID;
-    }
-    file = CreateFileW(
-        identity_path,
-        GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        NULL,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
-        NULL
-    );
-    if (file == INVALID_HANDLE_VALUE
-        || !ReadFile(file, identity_record, sizeof(identity_record), &bytes_read, NULL)) {
-        if (file != INVALID_HANDLE_VALUE) {
-            CloseHandle(file);
-        }
-        return ENTRY_ID_INVALID;
-    }
-    CloseHandle(file);
-    if (!is_lowercase_hex_record(identity_record, bytes_read)) {
-        return ENTRY_ID_INVALID;
-    }
-    for (index = 0u; index < 64u; ++index) {
-        identity[index] = (WCHAR)identity_record[index];
-    }
-    identity[64u] = L'\0';
-    return ENTRY_ID_VALID;
+    return copy_path_with_suffix(entry_path, home_length, bootstrap_suffix, bootstrap);
 }
 
 BOOL resolve_layout_current_core(void)
@@ -390,9 +308,4 @@ const WCHAR *layout_bootstrap_path(void)
 const WCHAR *layout_core_path(void)
 {
     return selected_core;
-}
-
-const WCHAR *layout_entry_id(void)
-{
-    return identity;
 }

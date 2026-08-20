@@ -7,15 +7,12 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_SHARE_READ, FILE_SHARE_WRITE,
 };
 
-use crate::entry::{EntryId, EntryIdError};
-
 pub(crate) struct DataRootBindingLease {
     _directory: File,
-    _entry_id: File,
 }
 
 impl DataRootBindingLease {
-    pub(crate) fn acquire(data_root: &Path) -> Result<(Self, EntryId), DataRootLeaseError> {
+    pub(crate) fn acquire(data_root: &Path) -> Result<Self, DataRootLeaseError> {
         let directory = OpenOptions::new()
             .read(true)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
@@ -32,14 +29,9 @@ impl DataRootBindingLease {
             )));
         }
 
-        let (entry_id, id) = EntryId::open_pinned(data_root)?;
-        Ok((
-            Self {
-                _directory: directory,
-                _entry_id: entry_id,
-            },
-            id,
-        ))
+        Ok(Self {
+            _directory: directory,
+        })
     }
 }
 
@@ -65,9 +57,3 @@ impl std::fmt::Display for DataRootLeaseError {
 }
 
 impl std::error::Error for DataRootLeaseError {}
-
-impl From<EntryIdError> for DataRootLeaseError {
-    fn from(error: EntryIdError) -> Self {
-        Self::new(error.to_string())
-    }
-}

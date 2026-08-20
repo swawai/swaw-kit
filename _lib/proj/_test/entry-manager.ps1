@@ -70,7 +70,6 @@ try {
     $FixtureHome = [string]$Runtime.Home
     $EntryPath = Join-Path $FixtureHome 'proj1.exe'
     $DataRoot = Join-Path $FixtureHome 'data\proj.proj1'
-    $EntryIdPath = Join-Path $DataRoot 'entry.id'
     $RuntimeRoot = Join-Path $DataRoot 'runtime'
     $CurrentPath = Join-Path $RuntimeRoot 'current'
 
@@ -83,7 +82,7 @@ try {
     $CreatedDocument = $Created.Text | ConvertFrom-Json
     Assert-ProjEntryManager `
         -Condition (
-            $CreatedDocument.protocol -ceq 'swawkit.entry-instance-mutation/v1' -and
+            $CreatedDocument.protocol -ceq 'swawkit.entry-instance-mutation/v2' -and
             $CreatedDocument.operation -ceq 'create' -and
             $CreatedDocument.changed -eq $true -and
             $CreatedDocument.entry.entryName -ceq 'proj1' -and
@@ -97,7 +96,7 @@ try {
     Assert-ProjEntryManager `
         -Condition (
             [IO.File]::Exists($EntryPath) -and
-            [IO.File]::Exists($EntryIdPath) -and
+            -not [IO.File]::Exists((Join-Path $DataRoot 'entry.id')) -and
             [IO.File]::Exists((Join-Path $DataRoot 'launcher.json')) -and
             [IO.File]::Exists($CurrentPath)
         ) `
@@ -115,23 +114,17 @@ try {
             $LauncherReceipt.sha256 -ceq $LauncherDigest
         ) `
         -Message 'manager create did not bind the Launcher receipt to proj1 and its exact bytes'
-    $EntryIdBefore = [IO.File]::ReadAllText(
-        $EntryIdPath,
-        [Text.Encoding]::UTF8
-    )
     $ReleaseId = [IO.File]::ReadAllText(
         $CurrentPath,
         [Text.Encoding]::UTF8
     ).Trim()
     Assert-ProjEntryManager `
         -Condition (
-            $EntryIdBefore.Trim() -cmatch '^[a-f0-9]{64}$' -and
-            $CreatedDocument.entry.entryId -ceq $EntryIdBefore.Trim() -and
             $ReleaseId -ceq [string]$Runtime.ReleaseId -and
             $CreatedDocument.entry.releaseId -ceq $ReleaseId -and
             [IO.Directory]::Exists((Join-Path $RuntimeRoot "releases\$ReleaseId"))
         ) `
-        -Message 'manager create did not publish a coherent identity and Runtime Release'
+        -Message 'manager create did not publish a coherent Runtime Release'
 
     $Repeated = Invoke-ProjEntryManager `
         -EntryPath $ManagerEntry `
@@ -140,19 +133,15 @@ try {
         -Condition ($Repeated.ExitCode -eq 0) `
         -Message "idempotent manager create failed: $($Repeated.Text)"
     $RepeatedDocument = $Repeated.Text | ConvertFrom-Json
-    $EntryIdAfter = [IO.File]::ReadAllText(
-        $EntryIdPath,
-        [Text.Encoding]::UTF8
-    )
     Assert-ProjEntryManager `
         -Condition (
-            $RepeatedDocument.protocol -ceq 'swawkit.entry-instance-mutation/v1' -and
+            $RepeatedDocument.protocol -ceq 'swawkit.entry-instance-mutation/v2' -and
             $RepeatedDocument.operation -ceq 'create' -and
             $RepeatedDocument.changed -eq $false -and
             $RepeatedDocument.entry.status -ceq 'ready' -and
-            $EntryIdAfter -ceq $EntryIdBefore
+            -not [IO.File]::Exists((Join-Path $DataRoot 'entry.id'))
         ) `
-        -Message 'repeated manager create was not identity-preserving and idempotent'
+        -Message 'repeated manager create was not idempotent'
 
     $EntryStatus = Invoke-ProjEntryManager `
         -EntryPath $EntryPath `

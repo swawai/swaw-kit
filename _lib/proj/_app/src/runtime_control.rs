@@ -9,15 +9,14 @@ use crate::context::EntryContext;
 use crate::host_runtime::{HostRuntimeDocument, HostRuntimeLocator};
 use crate::runtime_release::RuntimeReleaseStore;
 
-pub const HOST_STATUS_PROTOCOL: &str = "swawkit.host-status/v2";
-pub const RUNTIME_STATUS_PROTOCOL: &str = "swawkit.runtime-status/v2";
+pub const HOST_STATUS_PROTOCOL: &str = "swawkit.host-status/v3";
+pub const RUNTIME_STATUS_PROTOCOL: &str = "swawkit.runtime-status/v3";
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostStatusDocument {
     pub protocol: String,
-    pub entry_id: String,
     pub instance_key_sha256: String,
     pub boot_id: String,
     pub pid: u32,
@@ -35,7 +34,6 @@ impl HostStatusDocument {
         let selected_release_id = selected_release_id.into();
         let document = Self {
             protocol: HOST_STATUS_PROTOCOL.to_owned(),
-            entry_id: runtime.entry_id.clone(),
             instance_key_sha256: runtime.instance_key_sha256.clone(),
             boot_id: runtime.boot_id.clone(),
             pid: runtime.pid,
@@ -52,7 +50,6 @@ impl HostStatusDocument {
 
     pub fn validate(&self, runtime: &HostRuntimeDocument) -> Result<(), String> {
         if self.protocol != HOST_STATUS_PROTOCOL
-            || self.entry_id != runtime.entry_id
             || self.instance_key_sha256 != runtime.instance_key_sha256
             || self.boot_id != runtime.boot_id
             || self.pid != runtime.pid
@@ -224,7 +221,6 @@ fn host_agent() -> Agent {
 mod tests {
     use super::*;
 
-    const ENTRY_ID: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const INSTANCE_KEY: &str = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const RELEASE_ID: &str = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const SELECTED_ID: &str = "3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -237,7 +233,6 @@ mod tests {
     #[test]
     fn host_status_is_bound_to_the_runtime_generation() {
         let runtime = HostRuntimeDocument::new(
-            ENTRY_ID,
             INSTANCE_KEY,
             RELEASE_ID,
             "boot-1",
@@ -248,7 +243,6 @@ mod tests {
         let status = HostStatusDocument::new(&runtime, SELECTED_ID).unwrap();
 
         assert_eq!(status.protocol, HOST_STATUS_PROTOCOL);
-        assert_eq!(status.entry_id, ENTRY_ID);
         assert_eq!(status.instance_key_sha256, INSTANCE_KEY);
         assert_eq!(status.running_release_id, RELEASE_ID);
         assert_eq!(status.selected_release_id, SELECTED_ID);

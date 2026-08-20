@@ -29,7 +29,6 @@ impl Fixture {
                 runtime_root: runtime_root.clone(),
                 entry_file: root.join("entry.exe"),
                 entry_name: "entry".to_owned(),
-                entry_id: crate::entry::EntryId::parse(&"a".repeat(64)).unwrap(),
                 invocation_directory: root.clone(),
                 product_executable: runtime_root
                     .join("releases")

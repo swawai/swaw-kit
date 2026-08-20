@@ -36,7 +36,6 @@ impl Fixture {
             runtime_root,
             entry_file: root.join("swawkit.exe"),
             entry_name: "swawkit".to_owned(),
-            entry_id: crate::entry::EntryId::parse(&"a".repeat(64)).unwrap(),
             invocation_directory: root.clone(),
             product_executable: releases.join(&release_id).join("swawkit-proj.exe"),
             release_id,

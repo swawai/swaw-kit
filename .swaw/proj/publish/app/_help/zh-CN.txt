@@ -9,8 +9,8 @@
 发布先完整写入不可变目录：
   <SWAWKIT_PROJ_DATA_ROOT>/runtime/releases/<release-id>/
 
-其中 SWAWKIT_PROJ_DATA_ROOT 是当前 Entry 独享的 data/proj.<entry>，其稳定身份记录在
-根部 entry.id；不同 Entry 不共享 Runtime selector。
+其中 SWAWKIT_PROJ_DATA_ROOT 是当前 Entry 独享的规范 data/proj.<entry>；不同 Entry
+不共享 Runtime selector，也不读取额外身份文件。
 
 确认 Core、Host、Module、Dev、Manifest 的长度与 SHA-256 后，只原子更新：
   <SWAWKIT_PROJ_DATA_ROOT>/runtime/current

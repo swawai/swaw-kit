@@ -2,6 +2,6 @@ List and inspect ordinary Entry instances managed by the swawkit manager.
 
 Usage: .entry/instances [--json]
 
-Only the swawkit manager can run this command. Each identity lives in
-data/proj.<name>/entry.id and owns an isolated Runtime publication. Inspection
-never migrates or repairs an instance implicitly.
+Only the swawkit manager can run this command. Each canonical
+data/proj.<name> owns an isolated Runtime publication. Inspection never
+migrates or repairs an instance implicitly.

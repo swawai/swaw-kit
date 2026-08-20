@@ -14,7 +14,6 @@ function entry(status = "ready") {
     entryFile: "D:\\kit\\proj1.exe",
     dataRoot: "D:\\kit\\data\\proj.proj1",
     status,
-    entryId: status === "ready" ? "a".repeat(64) : null,
     releaseId: status === "ready" ? "b".repeat(64) : null,
     issues: [],
   };
@@ -32,7 +31,7 @@ describe("Entry manager client", () => {
   test("reads the inventory without probing mutation routes", async () => {
     const requests = [];
     const document = {
-      protocol: "swawkit.entry-inventory/v1",
+      protocol: "swawkit.entry-inventory/v2",
       swawkitHome: "D:\\kit",
       entries: [entry()],
     };
@@ -49,7 +48,7 @@ describe("Entry manager client", () => {
   test("uses the exact inspect request without a control header", async () => {
     const requests = [];
     const document = {
-      protocol: "swawkit.entry-instance-state/v1",
+      protocol: "swawkit.entry-instance-state/v2",
       entry: entry("available"),
     };
     await inspectEntryInstance("proj1", async (...request) => {
@@ -72,7 +71,7 @@ describe("Entry manager client", () => {
       requests.push([url, options]);
       const operation = url.endsWith("/migrate") ? "migrate" : "create";
       return response({
-        protocol: "swawkit.entry-instance-mutation/v1",
+        protocol: "swawkit.entry-instance-mutation/v2",
         operation,
         changed: true,
         entry: entry(),
@@ -106,7 +105,7 @@ describe("Entry manager client", () => {
     await expect(readEntryInventory(async () => response({ error: "manager only" }, 404)))
       .rejects.toBeInstanceOf(EntryManagerClientError);
     await expect(createEntryInstance("proj1", async () => response({
-      protocol: "swawkit.entry-instance-mutation/v1",
+      protocol: "swawkit.entry-instance-mutation/v2",
       operation: "migrate",
       changed: true,
       entry: entry(),

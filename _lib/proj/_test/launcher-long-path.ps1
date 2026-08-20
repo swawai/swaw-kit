@@ -186,7 +186,6 @@ function Add-LongEntryRuntime {
     param(
         [Parameter(Mandatory = $true)][string]$EntryHome,
         [Parameter(Mandatory = $true)][string]$Name,
-        [Parameter(Mandatory = $true)][string]$EntryId,
         [Parameter(Mandatory = $true)][string]$ReleaseId
     )
 
@@ -194,9 +193,6 @@ function Add-LongEntryRuntime {
     $RuntimeRoot = Join-Path $DataRoot 'runtime'
     $ReleaseRoot = Join-Path $RuntimeRoot "releases\$ReleaseId"
     [void][IO.Directory]::CreateDirectory($ReleaseRoot)
-    Write-LongPathHexRecord `
-        -Path (Join-Path $DataRoot 'entry.id') `
-        -Value $EntryId
     Write-LongPathHexRecord `
         -Path (Join-Path $RuntimeRoot 'current') `
         -Value $ReleaseId
@@ -233,22 +229,18 @@ try {
     [void][IO.Directory]::CreateDirectory($Invocation)
     $EntryHome = New-LauncherLongHome -Root $TemporaryRoot -Prefix 'entry-'
     [void][IO.Directory]::CreateDirectory($EntryHome)
-    $EntryId = 'a' * 64
     $ReleaseId = '1' * 64
     $Runtime = Add-LongEntryRuntime `
         -EntryHome $EntryHome `
         -Name 'long' `
-        -EntryId $EntryId `
         -ReleaseId $ReleaseId
     $Entry = Join-Path $EntryHome 'long.exe'
     [IO.File]::Copy($LauncherPath, $Entry, $false)
-    $IdentityPath = Join-Path $Runtime.DataRoot 'entry.id'
     $SelectorPath = Join-Path $Runtime.RuntimeRoot 'current'
     $CorePath = Join-Path $Runtime.ReleaseRoot 'swawkit-proj.exe'
     Assert-LauncherLongPath `
         -Condition (
             $Entry.Length -lt 260 -and
-            $IdentityPath.Length -gt 260 -and
             $SelectorPath.Length -gt 260 -and
             $CorePath.Length -gt 260
         ) `
@@ -264,9 +256,7 @@ try {
                 "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE=$Entry"
             ) -and
             -not $Run.StandardOutput.Contains('ENTRY_FILE=\\?\') -and
-            $Run.StandardOutput.Contains(
-                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$EntryId"
-            ) -and
+            -not $Run.StandardOutput.Contains('CORE_LAUNCH_ENTRY_ID') -and
             $Run.StandardOutput.Contains($ReleaseId)
         ) `
         -Message (
@@ -279,11 +269,9 @@ try {
         -Prefix 'deep-' `
         -Length 280
     [void][IO.Directory]::CreateDirectory($DeepHome)
-    $DeepId = 'c' * 64
     [void](Add-LongEntryRuntime `
         -EntryHome $DeepHome `
         -Name 'deep' `
-        -EntryId $DeepId `
         -ReleaseId ('3' * 64))
     $DeepEntry = Join-Path $DeepHome 'deep.exe'
     [IO.File]::Copy($LauncherPath, $DeepEntry, $false)
@@ -317,9 +305,7 @@ try {
                 "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE=$DeepEntry"
             ) -and
             -not $DeepEnvironment.Contains('ENTRY_FILE=\\?\') -and
-            $DeepEnvironment.Contains(
-                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$DeepId"
-            )
+            -not $DeepEnvironment.Contains('CORE_LAUNCH_ENTRY_ID')
         ) `
         -Message (
             "GetModuleFileName did not preserve a >260 Entry identity " +
@@ -331,7 +317,6 @@ try {
     $ManagerEntry = Join-Path $ManagerHome 'swawkit.exe'
     $ManagerBootstrap = Join-Path $ManagerHome '_lib\proj\bootstrap.ps1'
     $ManagerMarker = Join-Path $ManagerHome 'bootstrap-ran.txt'
-    $ManagerEntryId = 'b' * 64
     [void][IO.Directory]::CreateDirectory((Split-Path $ManagerBootstrap -Parent))
     [IO.File]::Copy($LauncherPath, $ManagerEntry, $false)
     $ManagerFixture = @"
@@ -342,7 +327,6 @@ try {
 `$ReleaseId = '2' * 64
 `$ReleaseRoot = Join-Path `$RuntimeRoot "releases\`$ReleaseId"
 [void][IO.Directory]::CreateDirectory(`$ReleaseRoot)
-[IO.File]::WriteAllText((Join-Path `$DataRoot 'entry.id'), ('$ManagerEntryId' + [char]10), [Text.UTF8Encoding]::new(`$false))
 [IO.File]::WriteAllText((Join-Path `$RuntimeRoot 'current'), (`$ReleaseId + [char]10), [Text.UTF8Encoding]::new(`$false))
 [IO.File]::Copy((Join-Path ([Environment]::SystemDirectory) 'cmd.exe'), (Join-Path `$ReleaseRoot 'swawkit-proj.exe'), `$false)
 [IO.File]::WriteAllText('$($ManagerMarker.Replace("'", "''"))', 'ran')

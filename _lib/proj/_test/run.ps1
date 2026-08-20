@@ -3,7 +3,6 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
-& (Join-Path $PSScriptRoot 'bootstrap-manager-data-root.ps1')
 & (Join-Path $PSScriptRoot 'launcher-build.ps1')
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 . (Join-Path $RepoRoot '_lib\proj\_bootstrap\layout.ps1')

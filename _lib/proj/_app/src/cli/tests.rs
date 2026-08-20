@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use sha2::{Digest, Sha256};
 use swawkit_proj::context::EntryContext;
 use swawkit_proj::data_root::{ResolveDataRootRequest, resolve_data_root};
-use swawkit_proj::entry::EntryId;
 use swawkit_proj::profile::{EntryProfileRecord, EntryProfileStore};
 
 use super::*;
@@ -166,7 +165,6 @@ impl Fixture {
             runtime_root,
             entry_file,
             entry_name: "fixture".to_owned(),
-            entry_id: EntryId::parse(&"c".repeat(64)).expect("fixture Entry ID"),
             invocation_directory: project_root.clone(),
             product_executable,
             release_id,
@@ -218,13 +216,6 @@ impl Fixture {
 
     fn initialize(&self) {
         fs::create_dir_all(self.data_root()).expect("create fixture DataRoot");
-        if !self.data_root().join("entry.id").exists() {
-            fs::write(
-                self.data_root().join("entry.id"),
-                format!("{}\n", self.context.entry_id),
-            )
-            .expect("write fixture Entry ID");
-        }
     }
 
     fn command(&self, address: &str, entry_name: &str, body: &str) -> PathBuf {
@@ -282,7 +273,7 @@ fn protocol_help_uses_an_explicitly_initialized_entry_without_requiring_a_profil
     .unwrap();
 
     assert_eq!(exit_code, 0);
-    assert!(fixture.data_root().join("entry.id").is_file());
+    assert!(fixture.data_root().is_dir());
 }
 
 #[test]
@@ -331,7 +322,7 @@ fn local_help_is_read_only_but_command_owned_help_obeys_command_exit_status() {
     )
     .unwrap_err();
     assert!(unavailable.to_string().contains("not enabled"));
-    assert!(fixture.data_root().join("entry.id").is_file());
+    assert!(fixture.data_root().is_dir());
 }
 
 #[test]
@@ -351,7 +342,7 @@ fn command_execution_reuses_the_initialized_entry_data_root() {
             29
         );
     }
-    assert!(fixture.data_root().join("entry.id").is_file());
+    assert!(fixture.data_root().is_dir());
 }
 
 #[test]
@@ -378,31 +369,22 @@ fn invalid_or_unsupported_commands_fail_before_process_execution() {
             .to_string()
             .contains("run.ts is restricted to Module commands")
     );
-    assert!(fixture.data_root().join("entry.id").is_file());
+    assert!(fixture.data_root().is_dir());
 }
 
 #[test]
-fn unmanaged_and_legacy_candidates_fail_closed_before_execution() {
+fn files_inside_the_canonical_data_root_do_not_define_runtime_identity() {
     let fixture = Fixture::new();
     fixture.command(".tool", "run.cmd", "@exit /b 0\r\n");
-    fs::create_dir_all(fixture.data_root()).unwrap();
-
-    let unmanaged = run(
-        &fixture.context,
-        &argv(&[".tool"]),
-        CommandProcessMode::InheritConsole,
-    )
-    .unwrap_err();
-    assert!(unmanaged.to_string().contains("entry.id is missing"));
-
+    fixture.bind();
     fs::write(fixture.data_root().join("_entry.json"), b"legacy").unwrap();
-    let legacy = run(
+    let exit_code = run(
         &fixture.context,
         &argv(&[".tool"]),
         CommandProcessMode::InheritConsole,
     )
-    .unwrap_err();
-    assert!(legacy.to_string().contains("explicit migration"));
+    .expect("an unrelated legacy record must not gate a running Entry");
+    assert_eq!(exit_code, 0);
 }
 
 fn argv(values: &[&str]) -> Vec<OsString> {

@@ -122,12 +122,10 @@ fn ready_create_and_migrate_retries_do_not_depend_on_manager_generation() {
 
     let create_retry = fixture.manager().create("ready-create").unwrap();
     assert!(!create_retry.changed);
-    assert_eq!(create_retry.entry.entry_id, created.entry.entry_id);
     assert_eq!(create_retry.entry.release_id, created.entry.release_id);
 
     let migrate_retry = fixture.manager().migrate("ready-migrate").unwrap();
     assert!(!migrate_retry.changed);
-    assert_eq!(migrate_retry.entry.entry_id, migrated.entry.entry_id);
     assert_eq!(migrate_retry.entry.release_id, migrated.entry.release_id);
 }
 

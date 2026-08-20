@@ -6,7 +6,6 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use super::*;
 use crate::data_root::{DataRootSession, ResolveDataRootRequest, resolve_data_root};
-use crate::entry::EntryId;
 use crate::process_runner::{ProcessControl, ProcessObserver};
 use crate::profile::{EntryProfileRecord, EntryProfileStore};
 use crate::run_journal::RunJournalSource;
@@ -65,7 +64,6 @@ impl Fixture {
         fs::write(runtime_root.join("current"), format!("{release_id}\n"))
             .expect("write Runtime selector");
         fs::write(root.join("home/swawkit.exe"), b"fixture").expect("create fixture Entry");
-        EntryId::create_once(&data_root).expect("create fixture Entry ID");
         let fixture = Self { root, release_id };
         let context = fixture.context();
         resolve_data_root(ResolveDataRootRequest {
@@ -81,7 +79,6 @@ impl Fixture {
         let runtime_root = data_root.join("runtime");
         EntryContext {
             swawkit_home: self.root.join("home"),
-            entry_id: EntryId::read(&data_root).expect("read fixture Entry ID"),
             data_root,
             runtime_root,
             entry_file: self.root.join("home/swawkit.exe"),

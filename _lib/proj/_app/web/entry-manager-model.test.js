@@ -17,7 +17,6 @@ function entry(overrides = {}) {
     entryFile: "D:\\kit\\proj1.exe",
     dataRoot: "D:\\kit\\data\\proj.proj1",
     status: "ready",
-    entryId: "a".repeat(64),
     releaseId: "b".repeat(64),
     issues: [],
     ...overrides,
@@ -46,7 +45,6 @@ describe("Entry manager protocol model", () => {
       { ...valid, entries: [entry(), entry()] },
       { ...valid, entries: [{ ...entry(), extra: true }] },
       { ...valid, entries: [entry({ status: "unknown" })] },
-      { ...valid, entries: [entry({ entryId: "invalid" })] },
       { ...valid, entries: [entry({ issues: [""] })] },
     ];
     for (const document of invalid) {
@@ -57,7 +55,7 @@ describe("Entry manager protocol model", () => {
   test("binds inspections and mutations to the requested Entry and operation", () => {
     const inspection = {
       protocol: ENTRY_INSTANCE_STATE_PROTOCOL,
-      entry: entry({ status: "available", entryId: null, releaseId: null }),
+      entry: entry({ status: "available", releaseId: null }),
     };
     expect(normalizeEntryInspection(inspection, "proj1")).toEqual(inspection);
     expect(() => normalizeEntryInspection(inspection, "proj2"))

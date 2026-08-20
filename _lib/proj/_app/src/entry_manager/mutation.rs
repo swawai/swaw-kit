@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::data_root::DataRootLock;
-use crate::entry::EntryId;
 use crate::runtime_release::RuntimeReleaseStore;
 
 use super::launcher::LauncherArtifact;
@@ -93,8 +92,6 @@ pub(super) fn migrate(
     generation
         .launcher
         .publish_receipt_replace(&target.data_root, &target.name)?;
-    EntryId::create_once(&target.data_root)
-        .map_err(|error| EntryManagerError::conflict(error.to_string()))?;
 
     let after = super::inspect::inspect_target(&target)?;
     require_ready(&after)?;
@@ -111,9 +108,6 @@ fn create_fresh(
     fs::create_dir(&stage)
         .map_err(|error| EntryManagerError::io("create staged Entry DataRoot", error))?;
     let prepared = (|| {
-        EntryId::create_once(&stage).map_err(|error| {
-            EntryManagerError::io("create staged Entry identity", std::io::Error::other(error))
-        })?;
         generation
             .launcher
             .publish_receipt_create(&stage, &target.name)?;

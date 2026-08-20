@@ -118,7 +118,6 @@ impl Fixture {
                 runtime_root: root.join("runtime"),
                 entry_file: root.join("fixture.exe"),
                 entry_name: "fixture".to_owned(),
-                entry_id: crate::entry::EntryId::parse(&"a".repeat(64)).unwrap(),
                 invocation_directory: root.join("project"),
                 product_executable: root.join("fixture-core.exe"),
                 release_id: "fixture-release".to_owned(),

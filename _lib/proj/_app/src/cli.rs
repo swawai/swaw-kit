@@ -132,13 +132,6 @@ fn resolve_owned_data_root(context: &EntryContext) -> Result<ResolvedDataRoot, C
             resolved.path().display()
         )));
     }
-    if resolved.entry_id() != &context.entry_id {
-        return Err(CliError::new(format!(
-            "resolved Entry ID does not match the running Runtime: expected {}, received {}",
-            context.entry_id,
-            resolved.entry_id()
-        )));
-    }
     Ok(resolved)
 }
 

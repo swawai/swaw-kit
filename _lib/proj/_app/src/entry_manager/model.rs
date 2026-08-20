@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-pub const ENTRY_INVENTORY_PROTOCOL: &str = "swawkit.entry-inventory/v1";
-pub const ENTRY_INSTANCE_STATE_PROTOCOL: &str = "swawkit.entry-instance-state/v1";
-pub const ENTRY_INSTANCE_MUTATION_PROTOCOL: &str = "swawkit.entry-instance-mutation/v1";
+pub const ENTRY_INVENTORY_PROTOCOL: &str = "swawkit.entry-inventory/v2";
+pub const ENTRY_INSTANCE_STATE_PROTOCOL: &str = "swawkit.entry-instance-state/v2";
+pub const ENTRY_INSTANCE_MUTATION_PROTOCOL: &str = "swawkit.entry-instance-mutation/v2";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,7 +21,6 @@ pub struct EntryState {
     pub entry_file: String,
     pub data_root: String,
     pub status: EntryStatus,
-    pub entry_id: Option<String>,
     pub release_id: Option<String>,
     pub issues: Vec<String>,
 }

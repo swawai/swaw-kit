@@ -84,14 +84,6 @@ fn pin_entry_data_root(context: &EntryContext) -> Result<DataRootSession, Box<dy
         )
         .into());
     }
-    if resolved_data_root.entry_id() != &context.entry_id {
-        return Err(format!(
-            "the Host resolved a different Entry ID: expected {}, received {}",
-            context.entry_id,
-            resolved_data_root.entry_id()
-        )
-        .into());
-    }
     Ok(data_root)
 }
 
@@ -120,18 +112,11 @@ fn null_terminated(value: &str) -> Vec<u16> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
-    use swawkit_proj::entry::EntryId;
-
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
-    const LAUNCH_ENTRY_ID: &str =
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    const REPLACEMENT_ENTRY_ID: &str =
-        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     struct Fixture {
         root: PathBuf,
@@ -149,8 +134,6 @@ mod tests {
             fs::create_dir_all(&data_root).expect("create Entry DataRoot");
             let entry_file = root.join("entry.exe");
             fs::write(&entry_file, b"launcher").expect("create Entry Launcher");
-            fs::write(data_root.join("entry.id"), format!("{LAUNCH_ENTRY_ID}\n"))
-                .expect("create Entry ID");
             Self {
                 context: EntryContext {
                     swawkit_home: root.clone(),
@@ -158,17 +141,12 @@ mod tests {
                     runtime_root: data_root.join("runtime"),
                     entry_file,
                     entry_name: "entry".to_owned(),
-                    entry_id: EntryId::parse(LAUNCH_ENTRY_ID).expect("parse launch Entry ID"),
                     invocation_directory: root.clone(),
                     product_executable: root.join("swawkit-proj-host.exe"),
                     release_id: "c".repeat(64),
                 },
                 root,
             }
-        }
-
-        fn entry_id_path(&self) -> PathBuf {
-            self.context.data_root.join("entry.id")
         }
     }
 
@@ -179,32 +157,16 @@ mod tests {
     }
 
     #[test]
-    fn restart_does_not_enter_launcher_start_after_the_entry_id_is_replaced() {
+    fn data_root_pin_is_acquired_before_restart_completion() {
         let fixture = Fixture::new();
-        fs::write(fixture.entry_id_path(), format!("{REPLACEMENT_ENTRY_ID}\n"))
-            .expect("replace Entry ID after LaunchRequest validation");
-        let launcher_start_entered = Cell::new(false);
-
-        let result = pin_entry_data_root(&fixture.context).map(|data_root| {
-            launcher_start_entered.set(true);
-            drop(data_root);
-        });
-
-        let error = result.expect_err("a replaced Entry ID must fail before restart completion");
-        assert!(error.to_string().contains("resolved a different Entry ID"));
-        assert!(!launcher_start_entered.get());
-    }
-
-    #[test]
-    fn entry_id_stays_pinned_until_restart_completion_returns() {
-        let fixture = Fixture::new();
-        let data_root = pin_entry_data_root(&fixture.context).expect("pin Entry identity");
-
-        let replacement = fs::write(fixture.entry_id_path(), format!("{REPLACEMENT_ENTRY_ID}\n"));
-        assert!(replacement.is_err(), "the pinned Entry ID was replaceable");
-
+        let data_root = pin_entry_data_root(&fixture.context).expect("pin Entry DataRoot");
+        let moved = fixture.root.join("data/proj.moved");
+        assert!(
+            fs::rename(&fixture.context.data_root, &moved).is_err(),
+            "the pinned Entry DataRoot was replaceable"
+        );
         drop(data_root);
-        fs::write(fixture.entry_id_path(), format!("{REPLACEMENT_ENTRY_ID}\n"))
-            .expect("replace Entry ID after releasing the pin");
+        fs::rename(&fixture.context.data_root, moved)
+            .expect("move Entry DataRoot after releasing the pin");
     }
 }

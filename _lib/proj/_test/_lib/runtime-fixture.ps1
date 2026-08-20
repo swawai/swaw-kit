@@ -218,7 +218,6 @@ function New-ProjCandidateRuntimeFixture {
         RuntimeRoot = ''
         RuntimeRelease = ''
         ReleaseId = ''
-        EntryId = ''
         EntryPath = ''
         CommandRuntimeId = $CommandRuntimeId
         ReleaseSet = $ReleaseSet
@@ -266,15 +265,6 @@ function Add-ProjCandidateRuntimeEntry {
         throw "Candidate Runtime DataRoot already exists: $DataRoot"
     }
     [void][IO.Directory]::CreateDirectory($DataRoot)
-    $EntryId = (
-        [Guid]::NewGuid().ToString('N') +
-        [Guid]::NewGuid().ToString('N')
-    ).ToLowerInvariant()
-    [IO.File]::WriteAllText(
-        (Join-Path $DataRoot 'entry.id'),
-        ($EntryId + "`n"),
-        [Text.UTF8Encoding]::new($false)
-    )
     $RuntimeRoot = Join-Path $DataRoot 'runtime'
     $Published = Publish-ProjRuntimeReleaseSet `
         -ReleaseSet $Runtime.ReleaseSet `
@@ -288,7 +278,6 @@ function Add-ProjCandidateRuntimeEntry {
     $Runtime.RuntimeRoot = $RuntimeRoot
     $Runtime.RuntimeRelease = [string]$Published.Root
     $Runtime.ReleaseId = [string]$Published.ReleaseId
-    $Runtime.EntryId = $EntryId
     $Runtime.EntryPath = $EntryPath
     return $EntryPath
 }

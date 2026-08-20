@@ -12,8 +12,8 @@ use swawkit_proj::{
     command::{CommandProcessMode, ConsoleCancellation},
     context::EntryContext,
     launch::{
-        ENTRY_FILE_ENV, ENTRY_ID_ENV, LAUNCH_MODE_ENV, LAUNCH_PROTOCOL_ENV,
-        LAUNCH_PROTOCOL_VERSION, LaunchMode, LaunchRequest, clear_inherited_swawkit_environment,
+        ENTRY_FILE_ENV, LAUNCH_MODE_ENV, LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION, LaunchMode,
+        LaunchRequest, clear_inherited_swawkit_environment,
     },
     runtime_release,
 };
@@ -86,7 +86,6 @@ fn launch_host(request: &LaunchRequest, context: &EntryContext) -> Result<i32, B
         .creation_flags(CREATE_NO_WINDOW)
         .env(LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION)
         .env(ENTRY_FILE_ENV, &context.entry_file)
-        .env(ENTRY_ID_ENV, context.entry_id.as_str())
         .env(LAUNCH_MODE_ENV, LaunchMode::InternalHost.as_env_value())
         .spawn()
         .map_err(|error| format!("cannot start the Entry Host '{}': {error}", host.display()))?;

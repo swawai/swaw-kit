@@ -1,5 +1,3 @@
-use crate::entry::EntryId;
-
 use super::{ResolveDataRootError, ResolveDataRootRequest, ResolvedDataRoot, resolve_data_root};
 
 #[derive(Clone)]
@@ -16,9 +14,5 @@ impl DataRootSession {
 
     pub fn resolved(&self) -> ResolvedDataRoot {
         self.resolved.clone()
-    }
-
-    pub fn entry_id(&self) -> &EntryId {
-        self.resolved.entry_id()
     }
 }

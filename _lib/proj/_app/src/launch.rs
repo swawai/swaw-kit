@@ -5,13 +5,10 @@ use std::fmt;
 use std::os::windows::ffi::OsStrExt;
 use std::path::PathBuf;
 
-use crate::entry::EntryId;
-
 pub const ENTRY_FILE_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE";
-pub const ENTRY_ID_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID";
 pub const LAUNCH_MODE_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_MODE";
 pub const LAUNCH_PROTOCOL_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL";
-pub const LAUNCH_PROTOCOL_VERSION: &str = "5";
+pub const LAUNCH_PROTOCOL_VERSION: &str = "6";
 const PROJECT_ENVIRONMENT_PREFIX: &str = "SWAWKIT_PROJ_";
 const SWAWKIT_HOME_ENV: &str = "SWAWKIT_HOME";
 
@@ -43,7 +40,6 @@ impl LaunchMode {
 pub struct LaunchRequest {
     pub mode: LaunchMode,
     pub entry_file: PathBuf,
-    pub entry_id: EntryId,
     pub invocation_dir: PathBuf,
     pub argv: Vec<OsString>,
 }
@@ -67,13 +63,11 @@ impl LaunchRequest {
         validate_launch_protocol(&mut lookup)?;
         let mode = read_mode(&mut lookup)?;
         let entry_file = read_entry_file(&mut lookup)?;
-        let entry_id = read_entry_id(&mut lookup)?;
         let argv = direct_argv.into_iter().collect();
 
         Ok(Self {
             mode,
             entry_file,
-            entry_id,
             invocation_dir,
             argv,
         })
@@ -189,26 +183,6 @@ fn read_entry_file(
         )));
     }
     Ok(path)
-}
-
-fn read_entry_id(
-    lookup: &mut impl FnMut(&str) -> Option<OsString>,
-) -> Result<EntryId, LaunchError> {
-    let value = lookup(ENTRY_ID_ENV).ok_or_else(|| {
-        LaunchError::new(format!(
-            "required launch declaration is missing: {ENTRY_ID_ENV}"
-        ))
-    })?;
-    let value = value.to_str().ok_or_else(|| {
-        LaunchError::new(format!(
-            "launch declaration {ENTRY_ID_ENV} must be valid Unicode"
-        ))
-    })?;
-    EntryId::parse(value).map_err(|error| {
-        LaunchError::new(format!(
-            "launch declaration {ENTRY_ID_ENV} is invalid: {error}"
-        ))
-    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

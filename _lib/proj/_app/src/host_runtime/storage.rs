@@ -9,20 +9,18 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
 };
 
-use crate::entry::EntryId;
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InstanceKey(String);
 
 impl InstanceKey {
-    pub fn derive(data_root: &Path, entry_id: &EntryId) -> io::Result<Self> {
+    pub fn derive(data_root: &Path) -> io::Result<Self> {
         regular_directory(data_root, "Entry DataRoot")?;
         let canonical = fs::canonicalize(data_root)?;
         if !canonical.is_absolute() {
             return Err(invalid_data("canonical Entry DataRoot is not absolute"));
         }
         regular_directory(&canonical, "canonical Entry DataRoot")?;
-        Ok(Self(hash_instance_key(&canonical, entry_id)))
+        Ok(Self(hash_instance_key(&canonical)))
     }
 
     pub fn parse(value: impl Into<String>) -> io::Result<Self> {
@@ -38,13 +36,11 @@ impl InstanceKey {
     }
 }
 
-pub(super) fn hash_instance_key(canonical_data_root: &Path, entry_id: &EntryId) -> String {
+pub(super) fn hash_instance_key(canonical_data_root: &Path) -> String {
     let mut digest = Sha256::new();
     for unit in canonical_data_root.as_os_str().encode_wide() {
         digest.update(unit.to_le_bytes());
     }
-    digest.update(0_u16.to_le_bytes());
-    digest.update(entry_id.as_str().as_bytes());
     format!("{:x}", digest.finalize())
 }
 

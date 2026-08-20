@@ -1,11 +1,10 @@
-export const ENTRY_INVENTORY_PROTOCOL = "swawkit.entry-inventory/v1";
-export const ENTRY_INSTANCE_STATE_PROTOCOL = "swawkit.entry-instance-state/v1";
-export const ENTRY_INSTANCE_MUTATION_PROTOCOL = "swawkit.entry-instance-mutation/v1";
+export const ENTRY_INVENTORY_PROTOCOL = "swawkit.entry-inventory/v2";
+export const ENTRY_INSTANCE_STATE_PROTOCOL = "swawkit.entry-instance-state/v2";
+export const ENTRY_INSTANCE_MUTATION_PROTOCOL = "swawkit.entry-instance-mutation/v2";
 
 const ENTRY_STATE_FIELDS = [
   "dataRoot",
   "entryFile",
-  "entryId",
   "entryName",
   "issues",
   "releaseId",
@@ -69,7 +68,6 @@ export function normalizeEntryState(value) {
     entryFile: requiredString(value.entryFile, "Entry state.entryFile"),
     dataRoot: requiredString(value.dataRoot, "Entry state.dataRoot"),
     status,
-    entryId: nullableSha256(value.entryId, "Entry state.entryId"),
     releaseId: nullableSha256(value.releaseId, "Entry state.releaseId"),
     issues: [...value.issues],
   };

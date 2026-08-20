@@ -33,7 +33,6 @@ function Get-ProjBootstrapLayout {
             'release\swawkit-proj-dev.exe'
         )
         ManagerDataRoot = $ManagerDataRoot
-        ManagerEntryIdPath = Join-Path $ManagerDataRoot 'entry.id'
         RuntimeRoot = Join-Path $ManagerDataRoot 'runtime'
         RuntimeCurrentPath = Join-Path $ManagerDataRoot 'runtime\current'
         LauncherBuildPath = Join-Path $KernelRoot '_launcher\build.ps1'

@@ -60,10 +60,6 @@ Assert-ProjBootstrapContractTest `
             (Join-Path $RepoRoot 'data\proj.swawkit'),
             [StringComparison]::OrdinalIgnoreCase
         ) -and
-        [IO.Path]::GetFullPath($Layout.ManagerEntryIdPath).Equals(
-            (Join-Path $RepoRoot 'data\proj.swawkit\entry.id'),
-            [StringComparison]::OrdinalIgnoreCase
-        ) -and
         [IO.Path]::GetFullPath($Layout.RuntimeRoot).Equals(
             (Join-Path $RepoRoot 'data\proj.swawkit\runtime'),
             [StringComparison]::OrdinalIgnoreCase
@@ -142,8 +138,8 @@ Assert-ProjBootstrapContractTest `
         $BootstrapEntry.Contains('Invoke-ProjBootstrapRustProductBuild') -and
         $BootstrapEntry.Contains('CandidateModulePath') -and
         $BootstrapEntry.Contains('CandidateDevPath') -and
-        $BootstrapEntry.Contains('MigrateLegacyManagerDataRoot') -and
-        $BootstrapEntry.Contains('Initialize-ProjManagerDataRoot')
+        -not $BootstrapEntry.Contains('entry.id') -and
+        -not $BootstrapEntry.Contains('manager-data-root.ps1')
     ) `
     -Message 'the cold Bootstrap entry still builds the Launcher'
 
@@ -175,9 +171,9 @@ $PrivateLayoutChecks = @(
     [IO.File]::Exists((Join-Path $ProjRoot '_bootstrap\setup.ps1'))
     [IO.File]::Exists((Join-Path $ProjRoot '_runtime\release.ps1'))
     [IO.File]::Exists((Join-Path $ProjRoot '_runtime\publish.ps1'))
-    [IO.File]::Exists((Join-Path $ProjRoot (
+    (-not [IO.File]::Exists((Join-Path $ProjRoot (
         '_runtime\manager-data-root.ps1'
-    )))
+    ))))
     [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\_lib\process.ps1'))
     (-not [IO.File]::Exists((Join-Path $ProjRoot (
         'system\dev\_lib\runtime.ps1'

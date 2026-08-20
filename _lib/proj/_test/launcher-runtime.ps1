@@ -97,14 +97,12 @@ function Add-EntryRuntime {
     param(
         [Parameter(Mandatory = $true)][string]$EntryHome,
         [Parameter(Mandatory = $true)][string]$Name,
-        [Parameter(Mandatory = $true)][string]$EntryId,
         [Parameter(Mandatory = $true)][string]$ReleaseId
     )
     $DataRoot = Join-Path $EntryHome "data\proj.$Name"
     $RuntimeRoot = Join-Path $DataRoot 'runtime'
     $ReleaseRoot = Join-Path $RuntimeRoot "releases\$ReleaseId"
     [void][IO.Directory]::CreateDirectory($ReleaseRoot)
-    Write-HexRecord -Path (Join-Path $DataRoot 'entry.id') -Value $EntryId
     Write-HexRecord -Path (Join-Path $RuntimeRoot 'current') -Value $ReleaseId
     [IO.File]::Copy(
         (Join-Path ([Environment]::SystemDirectory) 'cmd.exe'),
@@ -137,8 +135,6 @@ $TemporaryRoot = Join-Path $RepoRoot (
 )
 $EntryHome = Join-Path $TemporaryRoot 'home'
 $Invocation = Join-Path $TemporaryRoot 'invocation'
-$AlphaId = 'a' * 64
-$BetaId = 'b' * 64
 $AlphaReleaseId = '1' * 64
 $BetaReleaseId = '2' * 64
 $Command = '/d /s /c "set SWAWKIT_PROJ_CORE_LAUNCH & echo CORE=%CMDCMDLINE% & exit /b 37"'
@@ -150,12 +146,10 @@ try {
     $Alpha = Add-EntryRuntime `
         -EntryHome $EntryHome `
         -Name 'alpha' `
-        -EntryId $AlphaId `
         -ReleaseId $AlphaReleaseId
     $Beta = Add-EntryRuntime `
         -EntryHome $EntryHome `
         -Name 'beta' `
-        -EntryId $BetaId `
         -ReleaseId $BetaReleaseId
     $AlphaEntry = Join-Path $EntryHome 'alpha.exe'
     $BetaEntry = Join-Path $EntryHome 'beta.exe'
@@ -174,11 +168,9 @@ try {
         -Condition (
             $AlphaRun.ExitCode -eq 37 -and
             $AlphaRun.StandardOutput.Contains(
-                "SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL=5"
+                "SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL=6"
             ) -and
-            $AlphaRun.StandardOutput.Contains(
-                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$AlphaId"
-            ) -and
+            -not $AlphaRun.StandardOutput.Contains('CORE_LAUNCH_ENTRY_ID') -and
             $AlphaRun.StandardOutput.Contains(
                 "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE=$AlphaEntry"
             ) -and
@@ -190,9 +182,7 @@ try {
     Assert-LauncherRuntime `
         -Condition (
             $BetaRun.ExitCode -eq 37 -and
-            $BetaRun.StandardOutput.Contains(
-                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$BetaId"
-            ) -and
+            -not $BetaRun.StandardOutput.Contains('CORE_LAUNCH_ENTRY_ID') -and
             $BetaRun.StandardOutput.Contains($BetaReleaseId) -and
             -not $BetaRun.StandardOutput.Contains($AlphaReleaseId)
         ) `
@@ -237,7 +227,6 @@ try {
     $ManagerEntry = Join-Path $ManagerHome 'SwAwKiT.exe'
     $ManagerBootstrap = Join-Path $ManagerHome '_lib\proj\bootstrap.ps1'
     $ManagerMarker = Join-Path $ManagerHome 'bootstrap-ran.txt'
-    $ManagerEntryId = 'c' * 64
     [void][IO.Directory]::CreateDirectory((Split-Path $ManagerBootstrap -Parent))
     [IO.File]::Copy($LauncherPath, $ManagerEntry, $false)
     $ManagerFixture = @"
@@ -248,7 +237,6 @@ try {
 `$ReleaseId = '3' * 64
 `$ReleaseRoot = Join-Path `$RuntimeRoot "releases\`$ReleaseId"
 [void][IO.Directory]::CreateDirectory(`$ReleaseRoot)
-[IO.File]::WriteAllText((Join-Path `$DataRoot 'entry.id'), ('$ManagerEntryId' + [char]10), [Text.UTF8Encoding]::new(`$false))
 [IO.File]::WriteAllText((Join-Path `$RuntimeRoot 'current'), (`$ReleaseId + [char]10), [Text.UTF8Encoding]::new(`$false))
 [IO.File]::Copy((Join-Path ([Environment]::SystemDirectory) 'cmd.exe'), (Join-Path `$ReleaseRoot 'swawkit-proj.exe'), `$false)
 [IO.File]::WriteAllText('$($ManagerMarker.Replace("'", "''"))', 'ran')
@@ -266,36 +254,9 @@ try {
         -Condition (
             $ManagerRun.ExitCode -eq 37 -and
             [IO.File]::Exists($ManagerMarker) -and
-            $ManagerRun.StandardOutput.Contains(
-                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$ManagerEntryId"
-            )
+            -not $ManagerRun.StandardOutput.Contains('CORE_LAUNCH_ENTRY_ID')
         ) `
         -Message "manager cold Bootstrap failed: $($ManagerRun.StandardError)"
-
-    $MalformedHome = Join-Path $TemporaryRoot 'malformed-home'
-    $MalformedEntry = Join-Path $MalformedHome 'swawkit.exe'
-    [void][IO.Directory]::CreateDirectory($MalformedHome)
-    [IO.File]::Copy($LauncherPath, $MalformedEntry, $false)
-    $Malformed = Add-EntryRuntime `
-        -EntryHome $MalformedHome `
-        -Name 'swawkit' `
-        -EntryId ('d' * 64) `
-        -ReleaseId ('4' * 64)
-    [IO.File]::WriteAllText(
-        (Join-Path $Malformed.DataRoot 'entry.id'),
-        (('D' * 64) + "`n"),
-        [Text.UTF8Encoding]::new($false)
-    )
-    $MalformedRun = Invoke-Launcher `
-        -Executable $MalformedEntry `
-        -Arguments $Command `
-        -WorkingDirectory $Invocation
-    Assert-LauncherRuntime `
-        -Condition (
-            $MalformedRun.ExitCode -eq 1 -and
-            $MalformedRun.StandardError.Contains('identity is malformed or unsafe')
-        ) `
-        -Message 'Launcher accepted a malformed entry.id'
 
     $ReparseName = 'reparse'
     $ReparseEntry = Join-Path $EntryHome "$ReparseName.exe"
@@ -303,7 +264,6 @@ try {
     $ExternalFixture = Add-EntryRuntime `
         -EntryHome $TemporaryRoot `
         -Name 'external-data-root' `
-        -EntryId ('e' * 64) `
         -ReleaseId ('5' * 64)
     $ExternalDataRoot = $ExternalFixture.DataRoot
     [IO.File]::Copy($LauncherPath, $ReparseEntry, $false)
@@ -317,7 +277,7 @@ try {
     Assert-LauncherRuntime `
         -Condition (
             $ReparseRun.ExitCode -eq 1 -and
-            $ReparseRun.StandardError.Contains('identity is malformed or unsafe')
+            $ReparseRun.StandardError.Contains('Entry Runtime is missing or invalid')
         ) `
         -Message 'Launcher followed a reparse-point DataRoot'
 
@@ -328,7 +288,6 @@ try {
     $AncestorFixture = Add-EntryRuntime `
         -EntryHome $AncestorExternalHome `
         -Name 'ancestor' `
-        -EntryId ('f' * 64) `
         -ReleaseId ('6' * 64)
     [void][IO.Directory]::CreateDirectory($AncestorHome)
     [IO.File]::Copy($LauncherPath, $AncestorEntry, $false)
@@ -344,7 +303,7 @@ try {
     Assert-LauncherRuntime `
         -Condition (
             $AncestorRun.ExitCode -eq 1 -and
-            $AncestorRun.StandardError.Contains('identity is malformed or unsafe')
+            $AncestorRun.StandardError.Contains('Entry Runtime is missing or invalid')
         ) `
         -Message 'Launcher followed a reparse-point data ancestor'
 

@@ -57,7 +57,6 @@ function entry(status, overrides = {}) {
     entryFile: "D:\\kit\\proj1.exe",
     dataRoot: "D:\\kit\\data\\proj.proj1",
     status,
-    entryId: ready ? "a".repeat(64) : null,
     releaseId: ready ? "b".repeat(64) : null,
     issues: [],
     ...overrides,
@@ -98,11 +97,11 @@ describe("Entry manager view", () => {
       documentImpl,
       fetchImpl: async (url) => response(url.endsWith("/inspect")
         ? {
-          protocol: "swawkit.entry-instance-state/v1",
+          protocol: "swawkit.entry-instance-state/v2",
           entry: entry("available"),
         }
         : {
-          protocol: "swawkit.entry-inventory/v1",
+          protocol: "swawkit.entry-inventory/v2",
           swawkitHome: "D:\\kit",
           entries: [],
         }),
@@ -134,7 +133,7 @@ describe("Entry manager view", () => {
       if (url === "/api/v2/entries" && options.method === "POST") {
         created = true;
         return response({
-          protocol: "swawkit.entry-instance-mutation/v1",
+          protocol: "swawkit.entry-instance-mutation/v2",
           operation: "create",
           changed: true,
           entry: entry("ready"),
@@ -142,12 +141,12 @@ describe("Entry manager view", () => {
       }
       if (url === "/api/v2/entries/inspect") {
         return response({
-          protocol: "swawkit.entry-instance-state/v1",
+          protocol: "swawkit.entry-instance-state/v2",
           entry: entry(created ? "ready" : "available"),
         });
       }
       return response({
-        protocol: "swawkit.entry-inventory/v1",
+        protocol: "swawkit.entry-inventory/v2",
         swawkitHome: "D:\\kit",
         entries: created ? [entry("ready")] : [],
       });
@@ -176,18 +175,18 @@ describe("Entry manager view", () => {
     const ready = entry("ready");
     const fetchImpl = async (url) => {
       if (url === "/api/v2/entries/inspect") {
-        return response({ protocol: "swawkit.entry-instance-state/v1", entry: legacy });
+        return response({ protocol: "swawkit.entry-instance-state/v2", entry: legacy });
       }
       if (url === "/api/v2/entries/migrate") {
         return response({
-          protocol: "swawkit.entry-instance-mutation/v1",
+          protocol: "swawkit.entry-instance-mutation/v2",
           operation: "migrate",
           changed: true,
           entry: ready,
         });
       }
       return response({
-        protocol: "swawkit.entry-inventory/v1",
+        protocol: "swawkit.entry-inventory/v2",
         swawkitHome: "D:\\kit",
         entries: [],
       });

@@ -4,7 +4,6 @@ use std::path::Path;
 
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
-use crate::entry::{EntryId, EntryIdErrorKind};
 use crate::runtime_release::RuntimeReleaseStore;
 
 use super::launcher::{receipt_exists, validate_installed, validate_receipt};
@@ -19,11 +18,10 @@ pub(super) fn inspect_target(target: &EntryTarget) -> Result<EntryState, EntryMa
 
     if matches!(data_kind, PathKind::Missing) {
         return Ok(match entry_kind {
-            PathKind::Missing => state(paths, EntryStatus::Available, None, None, vec![]),
+            PathKind::Missing => state(paths, EntryStatus::Available, None, vec![]),
             _ => state(
                 paths,
                 EntryStatus::Conflict,
-                None,
                 None,
                 vec!["Entry Launcher exists without its DataRoot".to_owned()],
             ),
@@ -34,7 +32,6 @@ pub(super) fn inspect_target(target: &EntryTarget) -> Result<EntryState, EntryMa
             paths,
             EntryStatus::Conflict,
             None,
-            None,
             vec![format!(
                 "Entry DataRoot is not a regular non-reparse directory: {}",
                 target.data_root.display()
@@ -42,106 +39,71 @@ pub(super) fn inspect_target(target: &EntryTarget) -> Result<EntryState, EntryMa
         ));
     }
 
-    match EntryId::read(&target.data_root) {
-        Ok(entry_id) => inspect_initialized(target, paths, entry_kind, entry_id),
-        Err(error) if error.kind() == EntryIdErrorKind::Missing => {
-            inspect_uninitialized(target, paths, entry_kind)
-        }
-        Err(error) => Ok(state(
-            paths,
-            EntryStatus::Conflict,
-            None,
-            None,
-            vec![error.to_string()],
-        )),
-    }
+    inspect_existing(target, paths, entry_kind)
 }
 
-fn inspect_initialized(
-    target: &EntryTarget,
-    paths: StatePaths,
-    entry_kind: PathKind,
-    entry_id: EntryId,
-) -> Result<EntryState, EntryManagerError> {
-    let release_id = match inspect_runtime(target) {
-        Ok(value) => value,
-        Err(issue) => {
-            return Ok(state(
-                paths,
-                EntryStatus::Conflict,
-                Some(entry_id.to_string()),
-                None,
-                vec![issue],
-            ));
-        }
-    };
-    if matches!(entry_kind, PathKind::Missing) {
-        return Ok(match validate_receipt(&target.data_root, &target.name) {
-            Ok(()) => state(
-                paths,
-                EntryStatus::Incomplete,
-                Some(entry_id.to_string()),
-                Some(release_id),
-                vec!["Entry Launcher publication has not completed".to_owned()],
-            ),
-            Err(issue) => state(
-                paths,
-                EntryStatus::Conflict,
-                Some(entry_id.to_string()),
-                Some(release_id),
-                vec![issue],
-            ),
-        });
-    }
-    if !matches!(entry_kind, PathKind::RegularFile) {
-        return Ok(state(
-            paths,
-            EntryStatus::Conflict,
-            Some(entry_id.to_string()),
-            Some(release_id),
-            vec!["Entry Launcher is not a regular non-reparse file".to_owned()],
-        ));
-    }
-    match validate_installed(&target.data_root, &target.entry_file, &target.name) {
-        Ok(()) => Ok(state(
-            paths,
-            EntryStatus::Ready,
-            Some(entry_id.to_string()),
-            Some(release_id),
-            vec![],
-        )),
-        Err(issue) => Ok(state(
-            paths,
-            EntryStatus::Conflict,
-            Some(entry_id.to_string()),
-            Some(release_id),
-            vec![issue],
-        )),
-    }
-}
-
-fn inspect_uninitialized(
+fn inspect_existing(
     target: &EntryTarget,
     paths: StatePaths,
     entry_kind: PathKind,
 ) -> Result<EntryState, EntryManagerError> {
+    let runtime = inspect_runtime(target);
+    let receipt = validate_receipt(&target.data_root, &target.name);
+    if let (Ok(release_id), Ok(())) = (&runtime, &receipt) {
+        match entry_kind {
+            PathKind::Missing => {
+                return Ok(state(
+                    paths,
+                    EntryStatus::Incomplete,
+                    Some(release_id.clone()),
+                    vec!["Entry Launcher publication has not completed".to_owned()],
+                ));
+            }
+            PathKind::RegularFile => {
+                if validate_installed(&target.data_root, &target.entry_file, &target.name).is_ok() {
+                    return Ok(state(
+                        paths,
+                        EntryStatus::Ready,
+                        Some(release_id.clone()),
+                        vec![],
+                    ));
+                }
+            }
+            PathKind::RegularDirectory | PathKind::Unsafe => {
+                return Ok(state(
+                    paths,
+                    EntryStatus::Conflict,
+                    Some(release_id.clone()),
+                    vec!["Entry Launcher is not a regular non-reparse file".to_owned()],
+                ));
+            }
+        }
+    }
+
     if !legacy_record_exists(&target.data_root) {
-        return Ok(state(
-            paths,
-            EntryStatus::Conflict,
-            None,
-            None,
-            vec!["Entry DataRoot has neither entry.id nor valid legacy evidence".to_owned()],
-        ));
+        let mut issues = Vec::new();
+        if let Err(issue) = runtime {
+            issues.push(issue);
+        }
+        if let Err(issue) = receipt {
+            issues.push(issue);
+        }
+        if matches!(entry_kind, PathKind::RegularFile)
+            && let Err(issue) =
+                validate_installed(&target.data_root, &target.entry_file, &target.name)
+            && !issues.contains(&issue)
+        {
+            issues.push(issue);
+        }
+        return Ok(state(paths, EntryStatus::Conflict, None, issues));
     }
     if let Err(issue) = validate_legacy_record(&target.data_root, &target.name) {
-        return Ok(state(paths, EntryStatus::Conflict, None, None, vec![issue]));
+        return Ok(state(paths, EntryStatus::Conflict, None, vec![issue]));
     }
     if !matches!(entry_kind, PathKind::Missing | PathKind::RegularFile) {
         return Ok(state(
             paths,
             EntryStatus::Conflict,
-            None,
             None,
             vec!["legacy Entry Launcher is not a regular non-reparse file".to_owned()],
         ));
@@ -153,14 +115,12 @@ fn inspect_uninitialized(
             paths,
             EntryStatus::Conflict,
             None,
-            None,
             vec![format!("partial migration is inconsistent: {issue}")],
         ));
     }
     Ok(state(
         paths,
         EntryStatus::LegacyMigrationRequired,
-        None,
         inspect_runtime(target).ok(),
         vec![],
     ))
@@ -192,7 +152,6 @@ pub(super) fn conflict_state(
         state_paths(target)?,
         EntryStatus::Conflict,
         None,
-        None,
         issues,
     ))
 }
@@ -214,7 +173,6 @@ fn state_paths(target: &EntryTarget) -> Result<StatePaths, EntryManagerError> {
 fn state(
     paths: StatePaths,
     status: EntryStatus,
-    entry_id: Option<String>,
     release_id: Option<String>,
     issues: Vec<String>,
 ) -> EntryState {
@@ -223,7 +181,6 @@ fn state(
         entry_file: paths.entry_file,
         data_root: paths.data_root,
         status,
-        entry_id,
         release_id,
         issues,
     }

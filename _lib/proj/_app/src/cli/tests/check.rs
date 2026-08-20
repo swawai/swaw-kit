@@ -21,21 +21,20 @@ fn command_check_requires_an_explicitly_initialized_entry() {
 }
 
 #[test]
-fn command_check_fails_closed_for_a_legacy_data_root() {
+fn command_check_ignores_a_legacy_record_in_the_running_data_root() {
     let fixture = Fixture::new();
     fixture.core_command(".check", "meta.check");
     fixture.command(".target", "run.exe", "fixture");
     fs::create_dir_all(fixture.data_root()).unwrap();
     fs::write(fixture.data_root().join("_entry.json"), b"legacy").unwrap();
 
-    let error = run(
+    let exit_code = run(
         &fixture.context,
         &argv(&[".check", ".target", "--json"]),
         CommandProcessMode::InheritConsole,
     )
-    .unwrap_err();
-
-    assert!(error.to_string().contains("explicit migration"));
+    .expect("legacy evidence is not a runtime identity gate");
+    assert!(matches!(exit_code, 0 | 1));
     assert!(!fixture.data_root().join("entry.id").exists());
 }
 

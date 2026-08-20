@@ -6,7 +6,6 @@ use serde_json::json;
 
 use super::*;
 use crate::context::EntryContext;
-use crate::entry::EntryId;
 
 mod generation;
 mod receipt_binding;
@@ -43,14 +42,12 @@ impl Fixture {
         fs::write(runtime_root.join("current"), format!("{release_id}\n")).unwrap();
         let entry_file = home.join("swawkit.exe");
         fs::write(&entry_file, b"thin manager Launcher").unwrap();
-        let entry_id = EntryId::create_once(&data_root).unwrap();
         let context = EntryContext {
             swawkit_home: home.clone(),
             data_root: data_root.clone(),
             runtime_root: runtime_root.clone(),
             entry_file,
             entry_name: "swawkit".to_owned(),
-            entry_id,
             invocation_directory: root.clone(),
             product_executable: runtime_root
                 .join("releases")
@@ -104,14 +101,14 @@ impl Drop for Fixture {
 
 #[test]
 fn wire_protocol_names_are_stable() {
-    assert_eq!(ENTRY_INVENTORY_PROTOCOL, "swawkit.entry-inventory/v1");
+    assert_eq!(ENTRY_INVENTORY_PROTOCOL, "swawkit.entry-inventory/v2");
     assert_eq!(
         ENTRY_INSTANCE_STATE_PROTOCOL,
-        "swawkit.entry-instance-state/v1"
+        "swawkit.entry-instance-state/v2"
     );
     assert_eq!(
         ENTRY_INSTANCE_MUTATION_PROTOCOL,
-        "swawkit.entry-instance-mutation/v1"
+        "swawkit.entry-instance-mutation/v2"
     );
 }
 
@@ -121,11 +118,12 @@ fn fresh_create_is_ready_idempotent_and_has_independent_runtime_bytes() {
     let created = fixture.manager().create("proj1").unwrap();
     assert!(created.changed);
     assert_eq!(created.entry.status, EntryStatus::Ready);
-    let first_id = created.entry.entry_id.clone();
+    let first_release = created.entry.release_id.clone();
 
     let repeated = fixture.manager().create("proj1").unwrap();
     assert!(!repeated.changed);
-    assert_eq!(repeated.entry.entry_id, first_id);
+    assert_eq!(repeated.entry.release_id, first_release);
+    assert!(!fixture.data_root("proj1").join("entry.id").exists());
     assert_eq!(fixture.manager().inventory().unwrap().entries.len(), 1);
 
     let source_core = fixture
@@ -169,7 +167,7 @@ fn strict_legacy_migration_is_forward_only_and_idempotent() {
     );
 
     // This is the safe crash point after replacing the Launcher but before
-    // publishing its receipt and the final entry.id commit marker.
+    // publishing its final launcher.json commit receipt.
     fs::copy(
         &fixture.context.entry_file,
         fixture.entry_file("legacy-one"),

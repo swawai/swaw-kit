@@ -7,12 +7,11 @@ Usage:
 Project binding, interface language, and Git settings use typed commands below
 {{ADDRESS}}. Development-tool settings live below the matching .dev tool node.
 Entry instances must be created explicitly, and legacy DataRoots require an
-explicit migration. Instance identity comes from data/proj.<entry>/entry.id,
-not a Launcher FileId. Replacing the EXE at the same path neither reclaims nor
-changes the Entry identity.
+explicit migration. The Launcher basename maps uniquely to canonical
+data/proj.<entry>; neither a Launcher FileId nor a second identity file is read.
 Only the swawkit manager may inspect instances with .entry/instances, create
 one with .entry/instances/create, or explicitly migrate a same-name legacy
-instance with .entry/instances/migrate. Cold migration of the manager itself
-remains a bootstrap.ps1 -MigrateLegacyManagerDataRoot operation.
+instance with .entry/instances/migrate. Cold Bootstrap of the manager itself
+remains the physical bootstrap.ps1 responsibility.
 
 This Entry command remains available when the Profile is missing or invalid.

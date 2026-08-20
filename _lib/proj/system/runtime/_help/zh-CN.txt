@@ -6,8 +6,8 @@
 
 状态包含当前 selector 选中的 Release、已发布 Release 数量，以及当前 Entry Host 的 PID、
 运行 Release 和是否有新版本待重启。Host 未运行时仍可查看 Release 状态。
-JSON 使用 swawkit.runtime-status/v2；其中 Host 状态使用 swawkit.host-status/v2，并携带
-entryId、由规范 DataRoot 与 entry.id 派生的 instanceKeySha256、运行 Release 与 bootId，
+JSON 使用 swawkit.runtime-status/v3；其中 Host 状态使用 swawkit.host-status/v3，并携带
+由规范 DataRoot 派生的 instanceKeySha256、运行 Release 与 bootId，
 因此状态绑定到明确的 Host generation，而不是按 PID 或 Launcher 文件猜测。
 
 子命令：

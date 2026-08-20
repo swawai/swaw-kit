@@ -11,9 +11,7 @@ use std::sync::{
 use tokio::sync::watch;
 
 use super::ServerState;
-use crate::host_runtime::{
-    HOST_BOOT_HEADER, HOST_ENTRY_HEADER, HOST_INSTANCE_HEADER, HOST_RELEASE_HEADER,
-};
+use crate::host_runtime::{HOST_BOOT_HEADER, HOST_INSTANCE_HEADER, HOST_RELEASE_HEADER};
 use crate::runtime_control::HostStatusDocument;
 
 const CONTROL_HEADER: &str = "x-swawkit-control";
@@ -184,10 +182,6 @@ pub(super) async fn health(State(state): State<ServerState>) -> Response {
     headers.insert(
         HeaderName::from_static(HOST_BOOT_HEADER),
         HeaderValue::from_str(&state.host_runtime.boot_id).expect("validated Host boot ID"),
-    );
-    headers.insert(
-        HeaderName::from_static(HOST_ENTRY_HEADER),
-        HeaderValue::from_str(&state.host_runtime.entry_id).expect("validated Host Entry ID"),
     );
     headers.insert(
         HeaderName::from_static(HOST_INSTANCE_HEADER),

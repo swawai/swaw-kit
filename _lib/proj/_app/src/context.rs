@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
-use crate::entry::EntryId;
 use crate::launch::LaunchRequest;
 
 /// Entry identity and installation facts after launch transport has been removed.
@@ -22,7 +21,6 @@ pub struct EntryContext {
     pub runtime_root: PathBuf,
     pub entry_file: PathBuf,
     pub entry_name: String,
-    pub entry_id: EntryId,
     pub invocation_directory: PathBuf,
     pub product_executable: PathBuf,
     pub release_id: String,
@@ -136,21 +134,6 @@ impl EntryContext {
             )));
         }
 
-        let disk_entry_id = EntryId::read(&layout.data_root).map_err(|error| {
-            ContextError::new(format!(
-                "cannot validate the Entry ID in '{}': {error}",
-                layout.data_root.display()
-            ))
-        })?;
-        if disk_entry_id != request.entry_id {
-            return Err(ContextError::new(format!(
-                "the Launcher Entry ID does not match '{}': expected {}, received {}",
-                layout.data_root.join("entry.id").display(),
-                disk_entry_id,
-                request.entry_id
-            )));
-        }
-
         let invocation_directory = absolute_path(&request.invocation_dir, "invocation directory")?;
         if !invocation_directory.is_dir() {
             return Err(ContextError::new(format!(
@@ -165,7 +148,6 @@ impl EntryContext {
             runtime_root: layout.runtime_root,
             entry_file,
             entry_name: layout.entry_name,
-            entry_id: disk_entry_id,
             invocation_directory,
             product_executable: layout.product_executable,
             release_id: layout.release_id,
@@ -330,8 +312,6 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
-    const TEST_ENTRY_ID: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-
     struct Fixture {
         root: PathBuf,
         data_root: PathBuf,
@@ -365,9 +345,6 @@ mod tests {
             }
             fs::write(&executable, "fixture").expect("write executable");
             fs::write(&entry_file, "fixture").expect("write entry file");
-            fs::write(data_root.join("entry.id"), format!("{TEST_ENTRY_ID}\n"))
-                .expect("write Entry ID");
-
             Self {
                 root,
                 data_root,
@@ -381,7 +358,6 @@ mod tests {
             LaunchRequest {
                 mode: LaunchMode::Cli,
                 entry_file: self.entry_file.clone(),
-                entry_id: EntryId::parse(TEST_ENTRY_ID).expect("test Entry ID"),
                 invocation_dir: self.invocation_dir.clone(),
                 argv: Vec::new(),
             }
@@ -407,7 +383,6 @@ mod tests {
         assert_eq!(context.data_root, fixture.data_root);
         assert_eq!(context.runtime_root, fixture.data_root.join("runtime"));
         assert_eq!(context.entry_name, "project-one");
-        assert_eq!(context.entry_id.as_str(), TEST_ENTRY_ID);
         assert_eq!(context.entry_file, fixture.entry_file);
         assert_eq!(context.invocation_directory, fixture.invocation_dir);
         assert_eq!(context.release_id, "a".repeat(64));
@@ -470,21 +445,6 @@ mod tests {
             error
                 .to_string()
                 .contains("does not match its Runtime DataRoot")
-        );
-    }
-
-    #[test]
-    fn rejects_a_launcher_entry_id_that_does_not_match_disk() {
-        let fixture = Fixture::new();
-        let mut request = fixture.request();
-        request.entry_id = EntryId::parse(&"b".repeat(64)).expect("other Entry ID");
-
-        let error = EntryContext::from_sources(&request, &fixture.executable, "swawkit-proj.exe")
-            .expect_err("mismatched Launcher Entry ID must fail closed");
-        assert!(
-            error
-                .to_string()
-                .contains("Launcher Entry ID does not match")
         );
     }
 

@@ -17,9 +17,8 @@ pub use storage::InstanceKey;
 use storage::hash_instance_key;
 use storage::{is_reparse, is_sha256, read_regular_file, regular_directory};
 
-pub const HOST_RUNTIME_PROTOCOL: &str = "swawkit.host-runtime/v2";
+pub const HOST_RUNTIME_PROTOCOL: &str = "swawkit.host-runtime/v3";
 pub const HOST_BOOT_HEADER: &str = "x-swawkit-host-boot";
-pub const HOST_ENTRY_HEADER: &str = "x-swawkit-host-entry";
 pub const HOST_INSTANCE_HEADER: &str = "x-swawkit-host-instance";
 pub const HOST_RELEASE_HEADER: &str = "x-swawkit-host-release";
 
@@ -30,7 +29,6 @@ static NEXT_BOOT: AtomicU64 = AtomicU64::new(0);
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostRuntimeDocument {
     pub protocol: String,
-    pub entry_id: String,
     pub instance_key_sha256: String,
     pub release_id: String,
     pub boot_id: String,
@@ -40,7 +38,6 @@ pub struct HostRuntimeDocument {
 
 impl HostRuntimeDocument {
     pub fn new(
-        entry_id: impl Into<String>,
         instance_key_sha256: impl Into<String>,
         release_id: impl Into<String>,
         boot_id: impl Into<String>,
@@ -49,18 +46,13 @@ impl HostRuntimeDocument {
     ) -> io::Result<Self> {
         let document = Self {
             protocol: HOST_RUNTIME_PROTOCOL.to_owned(),
-            entry_id: entry_id.into(),
             instance_key_sha256: instance_key_sha256.into(),
             release_id: release_id.into(),
             boot_id: boot_id.into(),
             pid,
             url: url.into(),
         };
-        document.validate(
-            &document.entry_id,
-            &document.instance_key_sha256,
-            &document.release_id,
-        )?;
+        document.validate(&document.instance_key_sha256, &document.release_id)?;
         Ok(document)
     }
 
@@ -70,7 +62,6 @@ impl HostRuntimeDocument {
 
     pub fn identity(&self) -> HostRuntimeIdentity {
         HostRuntimeIdentity {
-            entry_id: self.entry_id.clone(),
             instance_key_sha256: self.instance_key_sha256.clone(),
             release_id: self.release_id.clone(),
             boot_id: self.boot_id.clone(),
@@ -78,12 +69,9 @@ impl HostRuntimeDocument {
         }
     }
 
-    fn validate(&self, entry_id: &str, instance_key: &str, release_id: &str) -> io::Result<()> {
+    fn validate(&self, instance_key: &str, release_id: &str) -> io::Result<()> {
         if self.protocol != HOST_RUNTIME_PROTOCOL {
             return Err(invalid_data("Host runtime protocol is unsupported"));
-        }
-        if self.entry_id != entry_id || !is_sha256(entry_id) {
-            return Err(invalid_data("Host runtime Entry ID does not match"));
         }
         if self.instance_key_sha256 != instance_key || !is_sha256(instance_key) {
             return Err(invalid_data("Host runtime Instance key does not match"));
@@ -108,7 +96,6 @@ pub struct HostRuntimeLocator {
     runtime_root: PathBuf,
     hosts_root: PathBuf,
     path: PathBuf,
-    entry_id: String,
     instance_key: InstanceKey,
     release_id: String,
 }
@@ -125,14 +112,13 @@ impl HostRuntimeLocator {
             ));
         }
         let hosts_root = runtime_root.join("hosts");
-        let instance_key = InstanceKey::derive(&context.data_root, &context.entry_id)?;
+        let instance_key = InstanceKey::derive(&context.data_root)?;
         let path = hosts_root.join(format!("{}.json", context.release_id));
         Ok(Self {
             data_root: context.data_root.clone(),
             runtime_root,
             hosts_root,
             path,
-            entry_id: context.entry_id.as_str().to_owned(),
             instance_key,
             release_id: context.release_id.clone(),
         })
@@ -142,7 +128,6 @@ impl HostRuntimeLocator {
         HostRuntimeOwner {
             locator: self.clone(),
             identity: HostRuntimeIdentity {
-                entry_id: self.entry_id.clone(),
                 instance_key_sha256: self.instance_key.as_str().to_owned(),
                 release_id: self.release_id.clone(),
                 boot_id: unique_boot_id(),
@@ -191,7 +176,7 @@ impl HostRuntimeLocator {
     }
 
     pub fn validate_document(&self, document: &HostRuntimeDocument) -> io::Result<()> {
-        document.validate(&self.entry_id, self.instance_key.as_str(), &self.release_id)
+        document.validate(self.instance_key.as_str(), &self.release_id)
     }
 
     fn validate_storage(&self) -> io::Result<()> {
@@ -228,7 +213,6 @@ pub struct HostRuntimeOwner {
 
 #[derive(Debug, Clone)]
 pub struct HostRuntimeIdentity {
-    entry_id: String,
     instance_key_sha256: String,
     release_id: String,
     boot_id: String,
@@ -238,7 +222,6 @@ pub struct HostRuntimeIdentity {
 impl HostRuntimeIdentity {
     pub fn document(&self, url: impl Into<String>) -> io::Result<HostRuntimeDocument> {
         HostRuntimeDocument::new(
-            self.entry_id.clone(),
             self.instance_key_sha256.clone(),
             self.release_id.clone(),
             self.boot_id.clone(),
@@ -258,8 +241,7 @@ impl HostRuntimeOwner {
     }
 
     pub fn publish(&self, document: &HostRuntimeDocument) -> io::Result<()> {
-        if document.entry_id != self.identity.entry_id
-            || document.instance_key_sha256 != self.identity.instance_key_sha256
+        if document.instance_key_sha256 != self.identity.instance_key_sha256
             || document.release_id != self.identity.release_id
             || document.boot_id != self.identity.boot_id
             || document.pid != self.identity.pid
@@ -317,11 +299,9 @@ fn probe(document: &HostRuntimeDocument) -> io::Result<()> {
         return Err(invalid_data("Host health response is not HTTP 200"));
     }
     let boot_id = response_header(lines.clone(), HOST_BOOT_HEADER);
-    let entry_id = response_header(lines.clone(), HOST_ENTRY_HEADER);
     let instance_key = response_header(lines.clone(), HOST_INSTANCE_HEADER);
     let release_id = response_header(lines, HOST_RELEASE_HEADER);
     if boot_id.as_deref() != Some(document.boot_id.as_str())
-        || entry_id.as_deref() != Some(document.entry_id.as_str())
         || instance_key.as_deref() != Some(document.instance_key_sha256.as_str())
         || release_id.as_deref() != Some(document.release_id.as_str())
     {

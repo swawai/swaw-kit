@@ -2,10 +2,6 @@ use super::*;
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::entry::EntryId;
-
-const ENTRY_ID: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-const OTHER_ENTRY_ID: &str = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const RELEASE_ID: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 const OTHER_RELEASE_ID: &str = "1000000000000000000000000000000000000000000000000000000000000000";
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -35,7 +31,6 @@ impl Fixture {
                 runtime_root,
                 entry_file,
                 entry_name: "swawkit".to_owned(),
-                entry_id: EntryId::parse(ENTRY_ID).expect("fixture Entry ID"),
                 invocation_directory: root.clone(),
                 product_executable: root.join("swawkit-proj-host.exe"),
                 release_id: RELEASE_ID.to_owned(),
@@ -58,16 +53,16 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn instance_key_uses_the_canonical_unicode_data_root_and_entry_id() {
+fn instance_key_uses_only_the_canonical_unicode_data_root() {
     let fixture = Fixture::new();
     let unicode_root = fixture.root.join("路径-Case");
     fs::create_dir(&unicode_root).expect("create Unicode DataRoot");
-    let entry_id = EntryId::parse(ENTRY_ID).unwrap();
-    let first = InstanceKey::derive(&unicode_root, &entry_id).unwrap();
+    let first = InstanceKey::derive(&unicode_root).unwrap();
     let case_alias = fixture.root.join("路径-case");
-    let second = InstanceKey::derive(&case_alias, &entry_id).unwrap();
-    let changed =
-        InstanceKey::derive(&unicode_root, &EntryId::parse(OTHER_ENTRY_ID).unwrap()).unwrap();
+    let second = InstanceKey::derive(&case_alias).unwrap();
+    let other_root = fixture.root.join("other-root");
+    fs::create_dir(&other_root).expect("create other DataRoot");
+    let changed = InstanceKey::derive(&other_root).unwrap();
 
     assert_eq!(first, second);
     assert_ne!(first, changed);
@@ -75,11 +70,10 @@ fn instance_key_uses_the_canonical_unicode_data_root_and_entry_id() {
 }
 
 #[test]
-fn instance_key_encoding_is_utf16le_nul_then_ascii_entry_id() {
-    let entry_id = EntryId::parse(ENTRY_ID).unwrap();
+fn instance_key_encoding_is_canonical_path_utf16le() {
     assert_eq!(
-        hash_instance_key(Path::new(r"C:\SWA🌱W\data\proj.项目"), &entry_id),
-        "34158bcc8007a8fa3af7cf13681746fd0941405bcd23ae281138b95ea1d60942"
+        hash_instance_key(Path::new(r"C:\SWA🌱W\data\proj.项目")),
+        "1b7fee795185f58f45db2b7f7bf2b2b961bc5e348de0af9f5e4558c4f9fb2432"
     );
 }
 
@@ -166,7 +160,7 @@ fn rejects_a_reparse_host_runtime_directory() {
 }
 
 #[test]
-fn rejects_a_reparse_or_v1_runtime_document() {
+fn rejects_a_reparse_or_v2_runtime_document() {
     let fixture = Fixture::new();
     let locator = HostRuntimeLocator::new(&fixture.context).unwrap();
     let owner = locator.acquire_owner();
@@ -181,15 +175,15 @@ fn rejects_a_reparse_or_v1_runtime_document() {
         fs::remove_file(locator.path()).unwrap();
     }
 
-    let mut v1 = document;
-    v1.protocol = "swawkit.host-runtime/v1".to_owned();
-    fs::write(locator.path(), serde_json::to_vec(&v1).unwrap()).unwrap();
+    let mut v2 = document;
+    v2.protocol = "swawkit.host-runtime/v2".to_owned();
+    fs::write(locator.path(), serde_json::to_vec(&v2).unwrap()).unwrap();
     let error = locator.read().unwrap_err();
     assert!(error.to_string().contains("protocol is unsupported"));
 }
 
 #[test]
-fn health_probe_requires_boot_entry_instance_and_release_identity() {
+fn health_probe_requires_boot_instance_and_release_identity() {
     let valid = HealthIdentity::valid();
     let valid_result = probe(&health_fixture(&valid, &valid));
     assert!(valid_result.is_ok(), "{valid_result:?}");
@@ -197,10 +191,6 @@ fn health_probe_requires_boot_entry_instance_and_release_identity() {
     for response in [
         HealthIdentity {
             boot: "boot-b".to_owned(),
-            ..valid.clone()
-        },
-        HealthIdentity {
-            entry: OTHER_ENTRY_ID.to_owned(),
             ..valid.clone()
         },
         HealthIdentity {
@@ -219,7 +209,6 @@ fn health_probe_requires_boot_entry_instance_and_release_identity() {
 
 #[derive(Clone)]
 struct HealthIdentity {
-    entry: String,
     instance: String,
     release: String,
     boot: String,
@@ -228,7 +217,6 @@ struct HealthIdentity {
 impl HealthIdentity {
     fn valid() -> Self {
         Self {
-            entry: ENTRY_ID.to_owned(),
             instance: "1".repeat(64),
             release: RELEASE_ID.to_owned(),
             boot: "boot-a".to_owned(),
@@ -254,15 +242,14 @@ fn health_fixture(document: &HealthIdentity, response: &HealthIdentity) -> HostR
         write!(
             stream,
             "HTTP/1.1 200 OK\r\n{HOST_BOOT_HEADER}: {}\r\n\
-             {HOST_ENTRY_HEADER}: {}\r\n{HOST_INSTANCE_HEADER}: {}\r\n\
+             {HOST_INSTANCE_HEADER}: {}\r\n\
              {HOST_RELEASE_HEADER}: {}\r\nContent-Length: 3\r\n\
              Connection: close\r\n\r\nok\n",
-            response.boot, response.entry, response.instance, response.release
+            response.boot, response.instance, response.release
         )
         .expect("health fixture response");
     });
     HostRuntimeDocument::new(
-        document.entry.clone(),
         document.instance.clone(),
         document.release.clone(),
         document.boot.clone(),

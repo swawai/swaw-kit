@@ -7,7 +7,7 @@
 #include "path.h"
 
 #define TEXT_CAPACITY PROJ_PATH_CAPACITY
-#define LAUNCH_PROTOCOL_VALUE L"5"
+#define LAUNCH_PROTOCOL_VALUE L"6"
 
 static const WCHAR launch_protocol_name[] =
     L"SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL";
@@ -275,10 +275,6 @@ static BOOL prepare_environment(BOOL host_mode)
             entry_protocol_path
         )
         && SetEnvironmentVariableW(
-            L"SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID",
-            layout_entry_id()
-        )
-        && SetEnvironmentVariableW(
             L"SWAWKIT_PROJ_CORE_LAUNCH_MODE",
             host_mode ? L"internal-host" : L"cli"
         );
@@ -290,7 +286,6 @@ void WINAPI launcher_entry(void)
     const WCHAR *core_path;
     BOOL host_mode = *argument_tail == L'\0';
     DWORD entry_length = GetModuleFileNameW(NULL, raw_entry_path, TEXT_CAPACITY);
-    DWORD entry_id_status;
     DWORD creation_flags;
     BOOL inherit_handles;
     DWORD wait_result;
@@ -336,15 +331,7 @@ void WINAPI launcher_entry(void)
         );
     }
 
-    entry_id_status = read_layout_entry_id();
-    if (entry_id_status == ENTRY_ID_INVALID) {
-        fail(
-            host_mode,
-            L"The Entry identity is malformed or unsafe.",
-            "[ERROR] The Entry identity is malformed or unsafe.\r\n"
-        );
-    }
-    if (entry_id_status != ENTRY_ID_VALID || !resolve_layout_current_core()) {
+    if (!resolve_layout_current_core()) {
         if (!layout_is_manager_entry()) {
             fail(
                 host_mode,
@@ -354,9 +341,7 @@ void WINAPI launcher_entry(void)
                 "Open swawkit.exe to create or repair this Entry.\r\n"
             );
         }
-        if (!run_bootstrap(host_mode)
-            || read_layout_entry_id() != ENTRY_ID_VALID
-            || !resolve_layout_current_core()) {
+        if (!run_bootstrap(host_mode) || !resolve_layout_current_core()) {
             fail(
                 host_mode,
                 L"Bootstrap could not prepare the manager Entry Runtime.",

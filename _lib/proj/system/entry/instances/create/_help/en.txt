@@ -9,8 +9,8 @@ swawkit manager can run this command; it creates the root Launcher, isolated
 DataRoot, and current Runtime copy.
 
 Creation atomically commits the complete DataRoot before publishing the root
-Launcher. launcher.json records the Launcher length and SHA-256. Retrying an
-interrupted publication completes the Launcher without replacing entry.id.
+Launcher. launcher.json records the target name, Launcher length, and SHA-256.
+Retrying an interrupted publication completes the Launcher from that receipt.
 If the manager has selected a new Runtime while its Host still runs the old
 Release, creation requires a Host restart instead of mixing generations.
 The command never migrates a legacy DataRoot implicitly or creates a desktop

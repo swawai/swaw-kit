@@ -10,7 +10,6 @@ pub mod command_runtime;
 pub mod context;
 pub mod core_command;
 pub mod data_root;
-pub mod entry;
 pub mod entry_manager;
 pub mod facet;
 pub mod help;

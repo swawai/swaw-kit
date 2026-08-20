@@ -104,7 +104,6 @@ fn create_is_idempotent_and_does_not_create_a_profile() {
         .expect("create Entry instance"),
         0
     );
-    let entry_id = fs::read(data_root.join("entry.id")).unwrap();
     assert_eq!(
         run(
             &fixture.context,
@@ -119,7 +118,7 @@ fn create_is_idempotent_and_does_not_create_a_profile() {
         fs::read(fixture.root.join("proj-one.exe")).unwrap(),
         fs::read(&fixture.context.entry_file).unwrap()
     );
-    assert_eq!(fs::read(data_root.join("entry.id")).unwrap(), entry_id);
+    assert!(!data_root.join("entry.id").exists());
     assert!(data_root.join("runtime/current").is_file());
     assert!(!data_root.join("_profile.json").exists());
 }
@@ -161,7 +160,8 @@ fn legacy_data_root_changes_only_through_explicit_migrate() {
         .expect("explicitly migrate legacy Entry"),
         0
     );
-    assert!(data_root.join("entry.id").is_file());
+    assert!(!data_root.join("entry.id").exists());
+    assert!(data_root.join("launcher.json").is_file());
     assert!(fixture.root.join("legacy-one.exe").is_file());
     assert!(!data_root.join("_profile.json").exists());
 }

@@ -25,14 +25,10 @@ async fn runtime_status_is_one_typed_control_document() {
             .expect("Runtime status body"),
     )
     .expect("Runtime status JSON");
-    assert_eq!(document["protocol"], "swawkit.runtime-status/v2");
+    assert_eq!(document["protocol"], "swawkit.runtime-status/v3");
     assert_eq!(document["selectedReleaseId"], fixture.release_id);
     assert_eq!(document["releaseCount"], 1);
-    assert_eq!(document["host"]["protocol"], "swawkit.host-status/v2");
-    assert_eq!(
-        document["host"]["entryId"],
-        fixture.context().entry_id.as_str()
-    );
+    assert_eq!(document["host"]["protocol"], "swawkit.host-status/v3");
     assert_eq!(
         document
             .as_object()
@@ -117,11 +113,6 @@ fn shutdown_signal_stops_the_live_http_server() {
         "{}: {}\r\n",
         crate::host_runtime::HOST_BOOT_HEADER,
         document.boot_id
-    )));
-    assert!(response.to_ascii_lowercase().contains(&format!(
-        "{}: {}\r\n",
-        crate::host_runtime::HOST_ENTRY_HEADER,
-        document.entry_id
     )));
     assert!(response.to_ascii_lowercase().contains(&format!(
         "{}: {}\r\n",

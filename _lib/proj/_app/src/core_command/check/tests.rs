@@ -128,7 +128,6 @@ fn context() -> EntryContext {
         runtime_root: PathBuf::from("unused-runtime"),
         entry_file: PathBuf::from("unused-entry.exe"),
         entry_name: "fixture".to_owned(),
-        entry_id: crate::entry::EntryId::parse(&"a".repeat(64)).unwrap(),
         invocation_directory: PathBuf::from("unused-project"),
         product_executable: PathBuf::from("unused-core.exe"),
         release_id: "unused-release".to_owned(),

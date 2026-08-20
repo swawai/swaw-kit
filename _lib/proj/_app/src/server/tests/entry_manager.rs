@@ -12,7 +12,6 @@ use super::{AUTHORITY, Fixture};
 use crate::{
     context::EntryContext,
     data_root::{DataRootSession, ResolveDataRootRequest},
-    entry::EntryId,
 };
 
 const CONTROL_HEADER: &str = "x-swawkit-control";
@@ -62,7 +61,7 @@ async fn manager_inventory_and_inspection_use_the_frozen_wire() {
         inventory.as_object().unwrap().keys().collect::<Vec<_>>(),
         ["entries", "protocol", "swawkitHome"]
     );
-    assert_eq!(inventory["protocol"], "swawkit.entry-inventory/v1");
+    assert_eq!(inventory["protocol"], "swawkit.entry-inventory/v2");
     assert_eq!(
         inventory["swawkitHome"],
         fixture.root.join("home").to_string_lossy().as_ref()
@@ -83,10 +82,9 @@ async fn manager_inventory_and_inspection_use_the_frozen_wire() {
         inspection.as_object().unwrap().keys().collect::<Vec<_>>(),
         ["entry", "protocol"]
     );
-    assert_eq!(inspection["protocol"], "swawkit.entry-instance-state/v1");
+    assert_eq!(inspection["protocol"], "swawkit.entry-instance-state/v2");
     assert_eq!(inspection["entry"]["entryName"], "proj1");
     assert_eq!(inspection["entry"]["status"], "available");
-    assert_eq!(inspection["entry"]["entryId"], Value::Null);
     assert_eq!(inspection["entry"]["releaseId"], Value::Null);
 
     let invalid_name = request(
@@ -146,7 +144,7 @@ async fn create_requires_authority_and_converges_idempotently() {
         created.as_object().unwrap().keys().collect::<Vec<_>>(),
         ["changed", "entry", "operation", "protocol"]
     );
-    assert_eq!(created["protocol"], "swawkit.entry-instance-mutation/v1");
+    assert_eq!(created["protocol"], "swawkit.entry-instance-mutation/v2");
     assert_eq!(created["operation"], "create");
     assert_eq!(created["changed"], true);
     assert_eq!(created["entry"]["entryName"], "proj1");
@@ -154,7 +152,8 @@ async fn create_requires_authority_and_converges_idempotently() {
 
     let data_root = fixture.root.join("home/data/proj.proj1");
     assert!(fixture.root.join("home/proj1.exe").is_file());
-    assert!(data_root.join("entry.id").is_file());
+    assert!(!data_root.join("entry.id").exists());
+    assert!(data_root.join("launcher.json").is_file());
     assert!(data_root.join("launcher.json").is_file());
     assert!(data_root.join("runtime/current").is_file());
 
@@ -212,7 +211,8 @@ async fn migrate_requires_exact_legacy_evidence_and_control_header() {
     assert_eq!(migrated["operation"], "migrate");
     assert_eq!(migrated["changed"], true);
     assert_eq!(migrated["entry"]["status"], "ready");
-    assert!(data_root.join("entry.id").is_file());
+    assert!(!data_root.join("entry.id").exists());
+    assert!(data_root.join("launcher.json").is_file());
     assert!(data_root.join("_entry.json").is_file());
 }
 
@@ -303,14 +303,12 @@ fn ordinary_app(fixture: &Fixture) -> Router {
         .expect("write ordinary selector");
     let entry_file = home.join("ordinary.exe");
     fs::write(&entry_file, b"ordinary Launcher").expect("write ordinary Launcher");
-    let entry_id = EntryId::create_once(&data_root).expect("create ordinary Entry ID");
     let context = EntryContext {
         swawkit_home: home.clone(),
         data_root: data_root.clone(),
         runtime_root,
         entry_file: entry_file.clone(),
         entry_name: name.to_owned(),
-        entry_id,
         invocation_directory: fixture.root.clone(),
         product_executable: data_root
             .join("runtime/releases")

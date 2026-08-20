@@ -33,27 +33,22 @@ fn runtime_controls_require_a_ready_owned_data_root() {
 }
 
 #[test]
-fn runtime_controls_reject_a_changed_entry_id() {
+fn runtime_controls_ignore_unrelated_files_in_the_data_root() {
     let fixture = Fixture::with_entry_runtime();
     fixture.core_command(".runtime", "runtime.status");
     fs::write(
-        fixture.data_root().join("entry.id"),
-        format!("{}\n", "d".repeat(64)),
+        fixture.data_root().join("user-created.txt"),
+        b"not framework identity",
     )
     .expect("replace fixture Entry ID before it is pinned");
 
-    let error = run(
+    let exit_code = run(
         &fixture.context,
         &argv(&[".runtime", "--json"]),
         CommandProcessMode::InheritConsole,
     )
-    .expect_err("Runtime control must reject a mismatched Entry ID");
-
-    assert!(
-        error
-            .to_string()
-            .contains("resolved Entry ID does not match the running Runtime")
-    );
+    .expect("unrelated DataRoot files must not affect Runtime identity");
+    assert_eq!(exit_code, 0);
 }
 
 #[test]
