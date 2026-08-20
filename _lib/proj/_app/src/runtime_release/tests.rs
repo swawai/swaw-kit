@@ -16,7 +16,8 @@ impl Fixture {
             "swawkit-runtime-release-{}-{sequence}",
             std::process::id()
         ));
-        let runtime_root = root.join("_lib/proj/_bin");
+        let data_root = root.join("data/proj.entry");
+        let runtime_root = data_root.join("runtime");
         fs::create_dir_all(runtime_root.join("releases")).expect("create Runtime root");
         let running = "a".repeat(64);
         let selected = "b".repeat(64);
@@ -24,8 +25,11 @@ impl Fixture {
         Self {
             context: EntryContext {
                 swawkit_home: root.clone(),
+                data_root,
+                runtime_root: runtime_root.clone(),
                 entry_file: root.join("entry.exe"),
                 entry_name: "entry".to_owned(),
+                entry_id: crate::entry::EntryId::parse(&"a".repeat(64)).unwrap(),
                 invocation_directory: root.clone(),
                 product_executable: runtime_root
                     .join("releases")
@@ -55,10 +59,16 @@ fn reads_the_selected_release_independently_of_the_running_release() {
 }
 
 #[test]
+fn per_entry_runtime_fixture_does_not_create_the_legacy_shared_bin_layout() {
+    let fixture = Fixture::new();
+    assert!(!fixture.root.join("_lib/proj/_bin").exists());
+}
+
+#[test]
 fn rejects_noncanonical_selector_content() {
     let fixture = Fixture::new();
     fs::write(
-        fixture.context.command_root().join("_bin/current"),
+        fixture.context.runtime_root.join("current"),
         format!("{}\r\n", "B".repeat(64)),
     )
     .expect("replace selector");
@@ -68,7 +78,7 @@ fn rejects_noncanonical_selector_content() {
 #[test]
 fn bounded_reader_rejects_a_file_that_grows_after_initial_metadata() {
     let fixture = Fixture::new();
-    let selector = fixture.context.command_root().join("_bin/current");
+    let selector = fixture.context.runtime_root.join("current");
     let mut file = open_regular_file(&selector, "Runtime selector", SELECTOR_BYTES)
         .expect("open selector through its guarded handle");
     let initial_length = file.metadata().expect("selector metadata").len();
@@ -102,8 +112,8 @@ fn accepts_an_exact_four_member_v4_release() {
         ("swawkit-proj-module.exe", b"module".as_slice()),
         ("swawkit-proj-dev.exe", b"dev".as_slice()),
     ];
-    let releases = fixture.root.join("_lib/proj/_bin/releases");
-    let release_id = write_release(&releases, &artifacts);
+    let releases = fixture.context.runtime_root.join("releases");
+    let release_id = write_release(&fixture.root, &releases, &artifacts);
 
     validate_release(&releases.join(&release_id), &release_id, &fixture.root)
         .expect("validate exact Runtime Release membership");
@@ -125,10 +135,10 @@ fn release_identity_is_canonical_by_artifact_name() {
         ("swawkit-proj.exe", b"core".as_slice()),
     ];
 
-    let releases = fixture.root.join("_lib/proj/_bin/releases");
-    let forward_id = write_release(&releases, &forward);
+    let releases = fixture.context.runtime_root.join("releases");
+    let forward_id = write_release(&fixture.root, &releases, &forward);
     fs::remove_dir_all(releases.join(&forward_id)).unwrap();
-    let reverse_id = write_release(&releases, &reverse);
+    let reverse_id = write_release(&fixture.root, &releases, &reverse);
 
     assert_eq!(forward_id, reverse_id);
     validate_release(&releases.join(&reverse_id), &reverse_id, &fixture.root)
@@ -144,8 +154,8 @@ fn running_release_structure_does_not_follow_the_current_selector() {
         ("swawkit-proj-module.exe", b"module".as_slice()),
         ("swawkit-proj-dev.exe", b"dev".as_slice()),
     ];
-    let releases = fixture.root.join("_lib/proj/_bin/releases");
-    let release_id = write_release(&releases, &artifacts);
+    let releases = fixture.context.runtime_root.join("releases");
+    let release_id = write_release(&fixture.root, &releases, &artifacts);
     let context = EntryContext {
         product_executable: releases.join(&release_id).join("swawkit-proj-host.exe"),
         release_id,
@@ -159,8 +169,9 @@ fn running_release_structure_does_not_follow_the_current_selector() {
 fn running_release_rejects_legacy_or_incomplete_membership() {
     let fixture = Fixture::new();
     let release = fixture
-        .root
-        .join("_lib/proj/_bin/releases")
+        .context
+        .runtime_root
+        .join("releases")
         .join(&fixture.context.release_id);
     fs::create_dir_all(&release).unwrap();
     fs::write(release.join("swawkit-proj-host.exe"), b"host").unwrap();
@@ -182,8 +193,8 @@ fn validates_only_the_runtime_product_that_will_be_started() {
         ("swawkit-proj-module.exe", b"module".as_slice()),
         ("swawkit-proj-dev.exe", b"dev".as_slice()),
     ];
-    let releases = fixture.root.join("_lib/proj/_bin/releases");
-    let release_id = write_release(&releases, &artifacts);
+    let releases = fixture.context.runtime_root.join("releases");
+    let release_id = write_release(&fixture.root, &releases, &artifacts);
     let host = releases.join(&release_id).join("swawkit-proj-host.exe");
     validate_product(&host).expect("validate selected product artifact");
 
@@ -196,8 +207,9 @@ fn rejects_a_v4_release_without_the_module_artifact() {
     let fixture = Fixture::new();
     let release_id = "c".repeat(64);
     let release = fixture
-        .root
-        .join("_lib/proj/_bin/releases")
+        .context
+        .runtime_root
+        .join("releases")
         .join(&release_id);
     fs::create_dir_all(&release).expect("create incomplete Runtime Release");
     let artifacts = [
@@ -231,10 +243,12 @@ fn rejects_a_v4_release_without_the_module_artifact() {
     assert!(validate_release(&release, &release_id, &fixture.root).is_err());
 }
 
-pub(crate) fn write_release(root: &Path, artifacts: &[(&str, &[u8])]) -> String {
-    let command_runtime_id = infer_swawkit_home(root)
-        .map(|home| write_command_runtime(&home))
-        .unwrap_or_else(|| "d".repeat(64));
+pub(crate) fn write_release(
+    swawkit_home: &Path,
+    root: &Path,
+    artifacts: &[(&str, &[u8])],
+) -> String {
+    let command_runtime_id = write_command_runtime(swawkit_home);
     let records = artifacts
         .iter()
         .map(|(name, bytes)| {
@@ -276,19 +290,6 @@ pub(crate) fn write_release(root: &Path, artifacts: &[(&str, &[u8])]) -> String 
     )
     .expect("write Runtime manifest");
     release_id
-}
-
-fn infer_swawkit_home(releases: &Path) -> Option<PathBuf> {
-    (releases.file_name()? == "releases")
-        .then_some(())
-        .and_then(|()| releases.parent())
-        .filter(|path| path.file_name().is_some_and(|name| name == "_bin"))
-        .and_then(Path::parent)
-        .filter(|path| path.file_name().is_some_and(|name| name == "proj"))
-        .and_then(Path::parent)
-        .filter(|path| path.file_name().is_some_and(|name| name == "_lib"))
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
 }
 
 pub(crate) fn write_command_runtime(home: &Path) -> String {

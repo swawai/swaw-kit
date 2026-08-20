@@ -77,10 +77,11 @@ async fn resolves_a_blocked_command_check_document_from_exit_code_one() {
 }
 
 #[tokio::test]
-async fn command_check_facet_does_not_bind_a_fresh_data_root() {
+async fn command_check_facet_does_not_replace_the_owned_data_root_identity() {
     let fixture = Fixture::new();
-    let data_directory = fixture.root.join("home/data");
-    fs::remove_dir_all(&data_directory).expect("remove fixture DataRoot binding");
+    let data_root = fixture.root.join("home/data/proj.swawkit");
+    let entry_id_path = data_root.join("entry.id");
+    let entry_id_before = fs::read(&entry_id_path).expect("read fixture Entry ID");
     check_surface(&fixture);
     let argv = vec![".check".to_owned(), ".tool".to_owned(), "--json".to_owned()];
     let document = command_check_document(false);
@@ -103,7 +104,11 @@ async fn command_check_facet_does_not_bind_a_fresh_data_root() {
     .await;
 
     assert_eq!(response.status(), StatusCode::OK);
-    assert!(!data_directory.exists());
+    assert_eq!(
+        fs::read(entry_id_path).expect("reread fixture Entry ID"),
+        entry_id_before
+    );
+    assert!(!data_root.join("_entry.json").exists());
 }
 
 #[tokio::test]

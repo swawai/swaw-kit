@@ -69,20 +69,35 @@ test("atomically selects a new runtime while the previous release remains mapped
     const before = (await lstat(releaseRoot)).birthtimeMs;
     const selected = await readReadyBuildReleaseSet(fixture.dataRoot, "fixture");
     await writeFile(join(fixture.runtimeRoot, "current"), "invalid".repeat(1024));
-    expect(await publishRuntimeReleaseSet(fixture.home, fixture.cacheRoot, selected)).toBe(current);
+    expect(await publishRuntimeReleaseSet(
+      fixture.home,
+      fixture.dataRoot,
+      fixture.cacheRoot,
+      selected,
+    )).toBe(current);
     expect(await readFile(join(fixture.runtimeRoot, "current"), "utf8")).toBe(`${current}\n`);
     expect((await lstat(releaseRoot)).birthtimeMs).toBe(before);
     expect((await readdir(fixture.runtimeRoot)).filter((name) => name.startsWith("."))).toEqual([]);
 
     const unexpected = join(releaseRoot, "unexpected.bin");
     await writeFile(unexpected, "unexpected");
-    expect(publishRuntimeReleaseSet(fixture.home, fixture.cacheRoot, selected)).rejects.toThrow(
+    expect(publishRuntimeReleaseSet(
+      fixture.home,
+      fixture.dataRoot,
+      fixture.cacheRoot,
+      selected,
+    )).rejects.toThrow(
       "directory membership is invalid",
     );
     await rm(unexpected);
 
     await writeFile(join(releaseRoot, "swawkit-proj-host.exe"), "coherently-tampered-host");
-    expect(publishRuntimeReleaseSet(fixture.home, fixture.cacheRoot, selected)).rejects.toThrow(
+    expect(publishRuntimeReleaseSet(
+      fixture.home,
+      fixture.dataRoot,
+      fixture.cacheRoot,
+      selected,
+    )).rejects.toThrow(
       "artifact is corrupt",
     );
   } finally {
@@ -104,10 +119,55 @@ test("rejects a runtime releases parent junction", async () => {
     "swawkit-proj-dev.exe": systemExecutable("hostname.exe"),
   });
 
-  expect(publishRuntimeReleaseSet(fixture.home, fixture.cacheRoot, release)).rejects.toThrow(
+  expect(publishRuntimeReleaseSet(
+    fixture.home,
+    fixture.dataRoot,
+    fixture.cacheRoot,
+    release,
+  )).rejects.toThrow(
     "runtime releases must be a regular directory",
   );
   expect(await readdir(external)).toEqual([]);
+});
+
+test("keeps each entry DataRoot selector isolated and never creates the legacy _bin", async () => {
+  const fixture = await runtimeFixture();
+  const secondDataRoot = join(fixture.root, "second-entry-data");
+  await mkdir(secondDataRoot);
+
+  const firstRelease = await buildFixtureRelease(fixture, {
+    "swawkit-proj.exe": systemExecutable("cmd.exe"),
+    "swawkit-proj-host.exe": systemExecutable("where.exe"),
+    "swawkit-proj-module.exe": systemExecutable("hostname.exe"),
+    "swawkit-proj-dev.exe": systemExecutable("whoami.exe"),
+  });
+  const firstId = await publishRuntimeReleaseSet(
+    fixture.home,
+    fixture.dataRoot,
+    fixture.cacheRoot,
+    firstRelease,
+  );
+
+  const secondRelease = await buildFixtureRelease(fixture, {
+    "swawkit-proj.exe": systemExecutable("where.exe"),
+    "swawkit-proj-host.exe": systemExecutable("whoami.exe"),
+    "swawkit-proj-module.exe": systemExecutable("cmd.exe"),
+    "swawkit-proj-dev.exe": systemExecutable("hostname.exe"),
+  });
+  const secondId = await publishRuntimeReleaseSet(
+    fixture.home,
+    secondDataRoot,
+    fixture.cacheRoot,
+    secondRelease,
+  );
+
+  expect(secondId).not.toBe(firstId);
+  expect(await readFile(join(fixture.dataRoot, "runtime", "current"), "utf8"))
+    .toBe(`${firstId}\n`);
+  expect(await readFile(join(secondDataRoot, "runtime", "current"), "utf8"))
+    .toBe(`${secondId}\n`);
+  await expect(lstat(join(fixture.home, "_lib", "proj", "_bin")))
+    .rejects.toMatchObject({ code: "ENOENT" });
 });
 
 type Fixture = Awaited<ReturnType<typeof runtimeFixture>>;
@@ -126,8 +186,8 @@ async function runtimeFixture() {
   const dataRoot = join(root, "data");
   const commandRoot = join(dataRoot, "modules", "project", "proj", "build", "app");
   const cacheRoot = join(home, "data", "proj_cache");
-  const runtimeRoot = join(home, "_lib", "proj", "_bin");
-  await mkdir(join(home, "_lib", "proj"), { recursive: true });
+  const runtimeRoot = join(dataRoot, "runtime");
+  await mkdir(dataRoot, { recursive: true });
   await mkdir(cacheRoot, { recursive: true });
   const commandRuntimeId = await writeCommandRuntime(home);
   return {
@@ -144,7 +204,12 @@ async function runtimeFixture() {
 
 async function publishFixtureRelease(fixture: Fixture, sources: Candidates): Promise<string> {
   const release = await buildFixtureRelease(fixture, sources);
-  return publishRuntimeReleaseSet(fixture.home, fixture.cacheRoot, release);
+  return publishRuntimeReleaseSet(
+    fixture.home,
+    fixture.dataRoot,
+    fixture.cacheRoot,
+    release,
+  );
 }
 
 async function buildFixtureRelease(fixture: Fixture, sources: Candidates) {

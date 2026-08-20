@@ -3,11 +3,8 @@ use std::io;
 use std::sync::Arc;
 
 use super::*;
-use crate::entry_runner::{
-    EntryOutputStream, EntryRunControl, EntryRunObserver, EntryRunOutcome, EntryRunSpec,
-    EntryRunner,
-};
-use crate::server::command_run::CommandRuns;
+use crate::process_runner::{ProcessControl, ProcessObserver, ProcessOutcome, ProcessOutputStream};
+use crate::runtime_service::{PreparedExecution, RuntimeExecutionRunner, RuntimeService};
 
 mod query_exit;
 
@@ -54,14 +51,14 @@ struct FacetQueryRunner {
     exit_codes: BTreeMap<Vec<String>, i32>,
 }
 
-impl EntryRunner for FacetQueryRunner {
+impl RuntimeExecutionRunner for FacetQueryRunner {
     fn start(
         &self,
-        spec: EntryRunSpec,
-        observer: Arc<dyn EntryRunObserver>,
-    ) -> io::Result<Arc<dyn EntryRunControl>> {
-        let argv = spec
-            .argv
+        execution: PreparedExecution,
+        observer: Arc<dyn ProcessObserver>,
+    ) -> io::Result<Arc<dyn ProcessControl>> {
+        let argv = execution
+            .argv()
             .iter()
             .map(|value| value.to_string_lossy().into_owned())
             .collect::<Vec<_>>();
@@ -72,15 +69,15 @@ impl EntryRunner for FacetQueryRunner {
             )
         })?;
         let exit_code = self.exit_codes.get(&argv).copied().unwrap_or(0);
-        observer.output(EntryOutputStream::Stdout, document.clone());
-        observer.completed(EntryRunOutcome::Exited(exit_code));
+        observer.output(ProcessOutputStream::Stdout, document.clone());
+        observer.completed(ProcessOutcome::Exited(exit_code));
         Ok(Arc::new(CompletedQuery))
     }
 }
 
 struct CompletedQuery;
 
-impl EntryRunControl for CompletedQuery {
+impl ProcessControl for CompletedQuery {
     fn cancel(&self) -> io::Result<()> {
         Ok(())
     }
@@ -99,16 +96,20 @@ fn facet_app_with_exit_codes(
     documents: BTreeMap<Vec<String>, String>,
     exit_codes: BTreeMap<Vec<String>, i32>,
 ) -> Router {
-    let runner: Arc<dyn EntryRunner> = Arc::new(FacetQueryRunner {
+    let runner: Arc<dyn RuntimeExecutionRunner> = Arc::new(FacetQueryRunner {
         documents,
         exit_codes,
     });
-    router_with_runs(
+    let context = fixture.context();
+    let data_root = fixture.data_root_session();
+    let runtime_service = RuntimeService::new(context.clone(), data_root.clone(), runner);
+    let host_runtime = test_host_runtime(&context);
+    router_with_runtime_service(
         AUTHORITY.to_owned(),
-        fixture.context(),
-        fixture.data_root_session(),
-        CommandRuns::new(runner),
-        test_host_runtime(),
+        context,
+        data_root,
+        runtime_service,
+        host_runtime,
         HostControl::new(),
     )
 }

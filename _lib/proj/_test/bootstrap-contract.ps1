@@ -56,6 +56,22 @@ Assert-ProjBootstrapContractTest `
             )),
             [StringComparison]::OrdinalIgnoreCase
         ) -and
+        [IO.Path]::GetFullPath($Layout.ManagerDataRoot).Equals(
+            (Join-Path $RepoRoot 'data\proj.swawkit'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.ManagerEntryIdPath).Equals(
+            (Join-Path $RepoRoot 'data\proj.swawkit\entry.id'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.RuntimeRoot).Equals(
+            (Join-Path $RepoRoot 'data\proj.swawkit\runtime'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
+        [IO.Path]::GetFullPath($Layout.RuntimeCurrentPath).Equals(
+            (Join-Path $RepoRoot 'data\proj.swawkit\runtime\current'),
+            [StringComparison]::OrdinalIgnoreCase
+        ) -and
         [IO.Path]::GetFullPath($Layout.LauncherBuildRoot).Equals(
             (Join-Path $RepoRoot 'data\proj_cache\bootstrap\build\launcher'),
             [StringComparison]::OrdinalIgnoreCase
@@ -63,12 +79,8 @@ Assert-ProjBootstrapContractTest `
         [IO.Path]::GetFullPath($Layout.LauncherCandidatePath).Equals(
             (Join-Path $RepoRoot (
                 'data\proj_cache\bootstrap\build\launcher\release\' +
-                'template.proj1.exe'
+                'swawkit.exe'
             )),
-            [StringComparison]::OrdinalIgnoreCase
-        ) -and
-        [IO.Path]::GetFullPath($Layout.LauncherTemplatePath).Equals(
-            (Join-Path $RepoRoot 'Favorites\template.proj1.exe'),
             [StringComparison]::OrdinalIgnoreCase
         ) -and
         [IO.Path]::GetFullPath($Layout.LauncherBuildPath).Equals(
@@ -100,7 +112,7 @@ Assert-ProjBootstrapContractTest `
             [StringComparison]::OrdinalIgnoreCase
         )
     ) `
-    -Message 'the Bootstrap generated state escaped the shared Proj cache'
+    -Message 'the Bootstrap layout does not separate manager state and shared cache'
 
 $AppBuild = [IO.File]::ReadAllText(
     (Join-Path $RepoRoot '_lib\proj\_app\build.ps1')
@@ -129,7 +141,9 @@ Assert-ProjBootstrapContractTest `
         -not $BootstrapEntry.Contains('LauncherBuild') -and
         $BootstrapEntry.Contains('Invoke-ProjBootstrapRustProductBuild') -and
         $BootstrapEntry.Contains('CandidateModulePath') -and
-        $BootstrapEntry.Contains('CandidateDevPath')
+        $BootstrapEntry.Contains('CandidateDevPath') -and
+        $BootstrapEntry.Contains('MigrateLegacyManagerDataRoot') -and
+        $BootstrapEntry.Contains('Initialize-ProjManagerDataRoot')
     ) `
     -Message 'the cold Bootstrap entry still builds the Launcher'
 
@@ -161,6 +175,9 @@ $PrivateLayoutChecks = @(
     [IO.File]::Exists((Join-Path $ProjRoot '_bootstrap\setup.ps1'))
     [IO.File]::Exists((Join-Path $ProjRoot '_runtime\release.ps1'))
     [IO.File]::Exists((Join-Path $ProjRoot '_runtime\publish.ps1'))
+    [IO.File]::Exists((Join-Path $ProjRoot (
+        '_runtime\manager-data-root.ps1'
+    )))
     [IO.File]::Exists((Join-Path $ProjRoot 'system\dev\_lib\process.ps1'))
     (-not [IO.File]::Exists((Join-Path $ProjRoot (
         'system\dev\_lib\runtime.ps1'

@@ -1,141 +1,73 @@
-use std::error::Error;
-use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::Read;
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
-use std::sync::Arc;
 
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+    FILE_SHARE_READ, FILE_SHARE_WRITE,
 };
 
-use crate::entry::{EntryIdentity, EntryIdentityLease};
-
-use super::plan::{DataRootPlan, ordinal_text_eq};
-use super::record::parse_entry_record;
+use crate::entry::{EntryId, EntryIdError};
 
 pub(crate) struct DataRootBindingLease {
-    _entry_file: Arc<EntryIdentityLease>,
-    _data_root: EntryIdentityLease,
-    _entry_record: File,
+    _directory: File,
+    _entry_id: File,
 }
 
 impl DataRootBindingLease {
-    pub(crate) fn acquire(
-        plan: &DataRootPlan,
-        entry_file: Arc<EntryIdentityLease>,
-        data_root: EntryIdentityLease,
-    ) -> Result<Self, DataRootBindingLeaseError> {
-        let target = plan.target();
-        let expected_data_root_identity = expected_data_root_identity(plan);
-        if entry_file.identity() != &target.identity {
-            return Err(DataRootBindingLeaseError::new(format!(
-                "pinned project entry identity does not match its DataRoot plan: {}",
-                target.entry_file.display()
+    pub(crate) fn acquire(data_root: &Path) -> Result<(Self, EntryId), DataRootLeaseError> {
+        let directory = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(data_root)
+            .map_err(|error| lease_error("pin Entry DataRoot", data_root, error))?;
+        let metadata = directory
+            .metadata()
+            .map_err(|error| lease_error("inspect pinned Entry DataRoot", data_root, error))?;
+        if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err(DataRootLeaseError::new(format!(
+                "Entry DataRoot must be a regular non-reparse directory: {}",
+                data_root.display()
             )));
         }
 
-        if let Some(expected) = expected_data_root_identity
-            && data_root.identity() != expected
-        {
-            return Err(DataRootBindingLeaseError::new(format!(
-                "project DataRoot directory changed before its binding was pinned: {}",
-                target.data_root.display()
-            )));
-        }
-
-        let record_path = target.data_root.join("_entry.json");
-        let (entry_record, record) = open_entry_record(&record_path)?;
-        if !record.matches_identity(&target.identity)
-            || !ordinal_text_eq(&record.entry_name, &target.entry_name)
-        {
-            return Err(DataRootBindingLeaseError::new(format!(
-                "project DataRoot binding changed before it was pinned: {}",
-                record_path.display()
-            )));
-        }
-
-        Ok(Self {
-            _entry_file: entry_file,
-            _data_root: data_root,
-            _entry_record: entry_record,
-        })
-    }
-}
-
-fn expected_data_root_identity(plan: &DataRootPlan) -> Option<&EntryIdentity> {
-    match plan {
-        DataRootPlan::Direct {
-            data_root_identity, ..
-        } => Some(data_root_identity),
-        DataRootPlan::ClaimCurrent {
-            observed_directory_identity,
-            ..
-        }
-        | DataRootPlan::ClaimRename {
-            observed_directory_identity,
-            ..
-        } => Some(observed_directory_identity),
-        DataRootPlan::Create { .. } => None,
-    }
-}
-
-fn open_entry_record(
-    path: &Path,
-) -> Result<(File, super::record::EntryRecord), DataRootBindingLeaseError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .share_mode(FILE_SHARE_READ)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(path)
-        .map_err(|error| binding_error("pin project DataRoot identity record", path, error))?;
-    let metadata = file.metadata().map_err(|error| {
-        binding_error(
-            "inspect pinned project DataRoot identity record",
-            path,
-            error,
-        )
-    })?;
-    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        return Err(DataRootBindingLeaseError::new(format!(
-            "project DataRoot identity record must be a regular file: {}",
-            path.display()
-        )));
-    }
-
-    let mut content = Vec::new();
-    (&file).read_to_end(&mut content).map_err(|error| {
-        binding_error("read pinned project DataRoot identity record", path, error)
-    })?;
-    let record = parse_entry_record(&content).map_err(|error| {
-        DataRootBindingLeaseError::new(format!(
-            "invalid pinned project DataRoot identity record '{}': {error}",
-            path.display()
+        let (entry_id, id) = EntryId::open_pinned(data_root)?;
+        Ok((
+            Self {
+                _directory: directory,
+                _entry_id: entry_id,
+            },
+            id,
         ))
-    })?;
-    Ok((file, record))
+    }
 }
 
-fn binding_error(action: &str, path: &Path, error: impl fmt::Display) -> DataRootBindingLeaseError {
-    DataRootBindingLeaseError::new(format!("cannot {action} '{}': {error}", path.display()))
+fn lease_error(action: &str, path: &Path, error: std::io::Error) -> DataRootLeaseError {
+    DataRootLeaseError::new(format!("cannot {action} '{}': {error}", path.display()))
 }
 
 #[derive(Debug)]
-pub(crate) struct DataRootBindingLeaseError {
+pub(crate) struct DataRootLeaseError {
     message: String,
 }
 
-impl DataRootBindingLeaseError {
+impl DataRootLeaseError {
     fn new(message: String) -> Self {
         Self { message }
     }
 }
 
-impl fmt::Display for DataRootBindingLeaseError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for DataRootLeaseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.message)
     }
 }
 
-impl Error for DataRootBindingLeaseError {}
+impl std::error::Error for DataRootLeaseError {}
+
+impl From<EntryIdError> for DataRootLeaseError {
+    fn from(error: EntryIdError) -> Self {
+        Self::new(error.to_string())
+    }
+}

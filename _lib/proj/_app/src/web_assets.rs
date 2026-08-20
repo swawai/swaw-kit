@@ -15,7 +15,6 @@ const COMMAND_MENU_CSS: &str = include_str!("../web/styles/command-menu.css");
 const DETAIL_CSS: &str = include_str!("../web/styles/detail.css");
 const ENTRY_PROFILE_CSS: &str = include_str!("../web/styles/entry-profile.css");
 const RUNTIME_CONTROL_CSS: &str = include_str!("../web/styles/runtime-control.css");
-const CLAIM_CSS: &str = include_str!("../web/styles/claim.css");
 const COMMAND_RUN_CSS: &str = include_str!("../web/styles/command-run.css");
 const RUN_PROJECTION_CSS: &str = include_str!("../web/styles/run-projection.css");
 const CONTEXT_PROJECTION_CSS: &str = include_str!("../web/styles/context-projection.css");
@@ -38,7 +37,6 @@ const DETAIL_JS: &str = include_str!("../web/detail.js");
 const DOCUMENT_PROJECTION_JS: &str = include_str!("../web/document-projection.js");
 const ENTRY_PROFILE_JS: &str = include_str!("../web/entry-profile.js");
 const RUNTIME_CONTROL_JS: &str = include_str!("../web/runtime-control.js");
-const CLAIM_JS: &str = include_str!("../web/claim.js");
 const COMMAND_RUN_JS: &str = include_str!("../web/command-run.js");
 const COMMAND_RUN_OPERATIONS_JS: &str = include_str!("../web/command-run-operations.js");
 const COMMAND_RUN_CLIENT_JS: &str = include_str!("../web/command-run-client.js");
@@ -73,7 +71,6 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "styles/detail.css" => Some(("text/css; charset=utf-8", DETAIL_CSS)),
         "styles/entry-profile.css" => Some(("text/css; charset=utf-8", ENTRY_PROFILE_CSS)),
         "styles/runtime-control.css" => Some(("text/css; charset=utf-8", RUNTIME_CONTROL_CSS)),
-        "styles/claim.css" => Some(("text/css; charset=utf-8", CLAIM_CSS)),
         "styles/command-run.css" => Some(("text/css; charset=utf-8", COMMAND_RUN_CSS)),
         "styles/run-projection.css" => Some(("text/css; charset=utf-8", RUN_PROJECTION_CSS)),
         "styles/context-projection.css" => {
@@ -106,7 +103,6 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         }
         "entry-profile.js" => Some(("text/javascript; charset=utf-8", ENTRY_PROFILE_JS)),
         "runtime-control.js" => Some(("text/javascript; charset=utf-8", RUNTIME_CONTROL_JS)),
-        "claim.js" => Some(("text/javascript; charset=utf-8", CLAIM_JS)),
         "command-run.js" => Some(("text/javascript; charset=utf-8", COMMAND_RUN_JS)),
         "command-run-operations.js" => {
             Some(("text/javascript; charset=utf-8", COMMAND_RUN_OPERATIONS_JS))

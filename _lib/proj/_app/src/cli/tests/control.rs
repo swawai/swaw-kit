@@ -1,21 +1,59 @@
 use super::*;
 
 #[test]
-fn runtime_status_is_available_before_data_root_and_profile_gating() {
-    let fixture = Fixture::new();
+fn runtime_status_is_available_before_profile_gating() {
+    let fixture = Fixture::with_entry_runtime();
     fixture.core_command(".runtime", "runtime.status");
-    let mut unexpected_claim =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
-    let exit_code = run_with_approver(
+    let exit_code = run(
         &fixture.context,
         &argv(&[".runtime", "--json"]),
-        &mut unexpected_claim,
+        CommandProcessMode::InheritConsole,
     )
     .unwrap();
 
     assert_eq!(exit_code, 0);
+    assert!(!fixture.data_root().join("_profile.json").exists());
+}
+
+#[test]
+fn runtime_controls_require_a_ready_owned_data_root() {
+    let fixture = Fixture::new();
+    fixture.core_command(".runtime", "runtime.status");
+
+    let error = run(
+        &fixture.context,
+        &argv(&[".runtime", "--json"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .expect_err("Runtime control must not bypass Entry identity");
+
+    assert!(error.to_string().contains("DataRoot resolution failed"));
     assert!(!fixture.data_root().exists());
+}
+
+#[test]
+fn runtime_controls_reject_a_changed_entry_id() {
+    let fixture = Fixture::with_entry_runtime();
+    fixture.core_command(".runtime", "runtime.status");
+    fs::write(
+        fixture.data_root().join("entry.id"),
+        format!("{}\n", "d".repeat(64)),
+    )
+    .expect("replace fixture Entry ID before it is pinned");
+
+    let error = run(
+        &fixture.context,
+        &argv(&[".runtime", "--json"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .expect_err("Runtime control must reject a mismatched Entry ID");
+
+    assert!(
+        error
+            .to_string()
+            .contains("resolved Entry ID does not match the running Runtime")
+    );
 }
 
 #[test]
@@ -56,14 +94,13 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
         "Set Entry Profile Git settings",
     )
     .unwrap();
-    let mut unexpected_claim =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
+    fixture.initialize();
 
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".entry", "--json"]),
-            &mut unexpected_claim,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
@@ -71,10 +108,10 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert!(!fixture.data_root().join("_profile.json").exists());
 
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".entry/git", "--help"]),
-            &mut unexpected_claim,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
@@ -82,10 +119,10 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert!(!fixture.data_root().join("_profile.json").exists());
 
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".entry/git/name", "Fixture User"]),
-            &mut unexpected_claim,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
@@ -98,10 +135,10 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert_eq!(profile.record().git.name, "Fixture User");
 
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".dev/bun/mode", "disabled"]),
-            &mut unexpected_claim,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
@@ -114,10 +151,10 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert_eq!(profile.record().development.bun.mode, "disabled");
 
     let before_invalid_update = fs::read(fixture.data_root().join("_profile.json")).unwrap();
-    let invalid_update = run_with_approver(
+    let invalid_update = run(
         &fixture.context,
         &argv(&[".entry/git/unknown", "value"]),
-        &mut unexpected_claim,
+        CommandProcessMode::InheritConsole,
     )
     .unwrap_err();
     assert!(invalid_update.to_string().contains("command not found"));
@@ -131,10 +168,10 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     let input = fixture.target_project_root.join("profile.json");
     fs::write(&input, serde_json::to_string(&replacement).unwrap()).unwrap();
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".entry/apply", "--file", "profile.json"]),
-            &mut unexpected_claim,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0

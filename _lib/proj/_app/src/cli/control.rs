@@ -5,23 +5,17 @@ use std::path::{Path, PathBuf};
 use swawkit_proj::{
     catalog::{CatalogSnapshot, CommandNode, is_help_marker},
     context::EntryContext,
+    core_command::profile as core_profile,
+    data_root::ResolvedDataRoot,
     help::render_help,
     profile::{EntryProfileDocument, EntryProfileRecord, EntryProfileStore},
     runtime_cleanup,
     runtime_control::{self, HostAction, RuntimeStatusDocument},
 };
 
-use super::{CliError, write_output};
+use super::{CliError, complete_core_command, write_output};
 
-pub(super) enum PreDataRootControl {
-    Claim {
-        snapshot: CatalogSnapshot,
-        address: String,
-    },
-    Complete(i32),
-}
-
-fn is_pre_data_root_control(address: &str) -> bool {
+fn is_early_control(address: &str) -> bool {
     [".entry", ".runtime"].iter().any(|root| {
         address == *root
             || address
@@ -30,56 +24,71 @@ fn is_pre_data_root_control(address: &str) -> bool {
     })
 }
 
-pub(super) fn dispatch_before_data_root(
+pub(super) fn dispatch_help_before_data_root(
     context: &EntryContext,
     argv: &[OsString],
-) -> Result<Option<PreDataRootControl>, CliError> {
+) -> Result<Option<i32>, CliError> {
     let Some(address) = argv.first() else {
         return Ok(None);
     };
     let address = address
         .to_str()
         .ok_or_else(|| CliError::new("command address is not valid Unicode"))?;
-    if !is_pre_data_root_control(address) {
+    if !is_early_control(address) {
         return Ok(None);
     }
+    let arguments = argv.get(1..).unwrap_or_default();
+    if !matches!(arguments, [marker] if marker.to_str().is_some_and(is_help_marker)) {
+        return Ok(None);
+    }
+    let snapshot = CatalogSnapshot::discover(context, None)
+        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    control_node(&snapshot, address)?;
+    let output =
+        render_help(&snapshot, address).map_err(|error| CliError::new(error.to_string()))?;
+    write_output(&output)
+        .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
+    Ok(Some(0))
+}
 
+pub(super) fn dispatch_runtime(
+    context: &EntryContext,
+    argv: &[OsString],
+    _resolved: &ResolvedDataRoot,
+) -> Result<Option<i32>, CliError> {
+    let Some(address) = argv.first() else {
+        return Ok(None);
+    };
+    let address = address
+        .to_str()
+        .ok_or_else(|| CliError::new("command address is not valid Unicode"))?;
+    if address != ".runtime"
+        && !address
+            .strip_prefix(".runtime")
+            .is_some_and(|suffix| suffix.starts_with('/'))
+    {
+        return Ok(None);
+    }
     let snapshot = CatalogSnapshot::discover(context, None)
         .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
     let arguments = argv.get(1..).unwrap_or_default();
-    if matches!(arguments, [marker] if marker.to_str().is_some_and(is_help_marker)) {
-        control_node(&snapshot, address)?;
-        let output =
-            render_help(&snapshot, address).map_err(|error| CliError::new(error.to_string()))?;
-        write_output(&output)
-            .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
-        return Ok(Some(PreDataRootControl::Complete(0)));
-    }
     let command = resolve_control(&snapshot, address)?;
 
     match command.handler.as_deref() {
-        Some("entry.claim") => Ok(Some(PreDataRootControl::Claim {
-            snapshot,
-            address: address.to_owned(),
-        })),
-        Some("runtime.status") => Ok(Some(PreDataRootControl::Complete(show_runtime_status(
-            arguments, context,
-        )?))),
-        Some("host.exit") => Ok(Some(PreDataRootControl::Complete(request_host_action(
+        Some("runtime.status") => Ok(Some(show_runtime_status(arguments, context)?)),
+        Some("host.exit") => Ok(Some(request_host_action(
             address,
             arguments,
             context,
             HostAction::Exit,
-        )?))),
-        Some("host.restart") => Ok(Some(PreDataRootControl::Complete(request_host_action(
+        )?)),
+        Some("host.restart") => Ok(Some(request_host_action(
             address,
             arguments,
             context,
             HostAction::Restart,
-        )?))),
-        Some("runtime.cleanup") => Ok(Some(PreDataRootControl::Complete(cleanup_runtime(
-            address, arguments, context,
-        )?))),
+        )?)),
+        Some("runtime.cleanup") => Ok(Some(cleanup_runtime(address, arguments, context)?)),
         _ => Ok(None),
     }
 }
@@ -115,7 +124,10 @@ pub(super) fn dispatch(
     let arguments = argv.get(1..).unwrap_or_default();
     let exit_code = match command.handler.as_deref() {
         Some("entry.profile") => show_profile(arguments, profile_store)?,
-        Some("entry.profile.set") => set_profile(address, arguments, profile_store)?,
+        Some("entry.profile.set") => complete_core_command(
+            core_profile::set(address, arguments, profile_store)
+                .map_err(|error| CliError::new(error.to_string()))?,
+        )?,
         Some("entry.profile.apply") => apply_profile(arguments, context, profile_store)?,
         Some(handler) => {
             return Err(CliError::new(format!(
@@ -225,27 +237,6 @@ fn show_profile(
     Ok(0)
 }
 
-fn set_profile(
-    address: &str,
-    arguments: &[OsString],
-    profile_store: &EntryProfileStore,
-) -> Result<i32, CliError> {
-    let [value] = arguments else {
-        return Err(CliError::new(format!("usage: {address} <value>")));
-    };
-    let value = unicode_argument(value, "profile value")?.to_owned();
-    if !EntryProfileRecord::is_profile_setting_address(address) {
-        return Err(CliError::new(format!(
-            "Catalog invariant failed for '{address}': Entry Profile setting address is invalid"
-        )));
-    }
-    let document = profile_store
-        .update_setting(address, value)
-        .map_err(|error| CliError::new(error.to_string()))?;
-    write_json(&document)?;
-    Ok(0)
-}
-
 fn apply_profile(
     arguments: &[OsString],
     context: &EntryContext,
@@ -284,12 +275,6 @@ fn resolve_input_path(value: &OsString, invocation_directory: &Path) -> PathBuf 
     } else {
         invocation_directory.join(path)
     }
-}
-
-fn unicode_argument<'a>(value: &'a OsString, label: &str) -> Result<&'a str, CliError> {
-    value
-        .to_str()
-        .ok_or_else(|| CliError::new(format!("{label} is not valid Unicode")))
 }
 
 fn require_no_arguments(address: &str, arguments: &[OsString]) -> Result<(), CliError> {

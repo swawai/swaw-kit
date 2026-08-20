@@ -25,10 +25,25 @@ async fn runtime_status_is_one_typed_control_document() {
             .expect("Runtime status body"),
     )
     .expect("Runtime status JSON");
-    assert_eq!(document["protocol"], "swawkit.runtime-status/v1");
+    assert_eq!(document["protocol"], "swawkit.runtime-status/v2");
     assert_eq!(document["selectedReleaseId"], fixture.release_id);
     assert_eq!(document["releaseCount"], 1);
-    assert_eq!(document["host"]["protocol"], "swawkit.host-status/v1");
+    assert_eq!(document["host"]["protocol"], "swawkit.host-status/v2");
+    assert_eq!(
+        document["host"]["entryId"],
+        fixture.context().entry_id.as_str()
+    );
+    assert_eq!(
+        document
+            .as_object()
+            .expect("Runtime status object")
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(
+            ["host", "protocol", "releaseCount", "selectedReleaseId",]
+        )
+    );
     assert_eq!(document["host"]["updateAvailable"], false);
 }
 
@@ -66,9 +81,10 @@ fn shutdown_signal_stops_the_live_http_server() {
     fixture.directory("home/_lib/proj");
     let (events, received_events) = mpsc::channel();
     let (shutdown, shutdown_receiver) = oneshot::channel();
-    let host_runtime = test_host_runtime();
+    let context = fixture.context();
+    let host_runtime = test_host_runtime(&context);
     let server_thread = spawn(
-        fixture.context(),
+        context,
         fixture.data_root_session(),
         host_runtime.identity(),
         move |event| events.send(event).map_err(|error| error.to_string()),
@@ -105,7 +121,17 @@ fn shutdown_signal_stops_the_live_http_server() {
     assert!(response.to_ascii_lowercase().contains(&format!(
         "{}: {}\r\n",
         crate::host_runtime::HOST_ENTRY_HEADER,
-        document.entry_key_sha256
+        document.entry_id
+    )));
+    assert!(response.to_ascii_lowercase().contains(&format!(
+        "{}: {}\r\n",
+        crate::host_runtime::HOST_INSTANCE_HEADER,
+        document.instance_key_sha256
+    )));
+    assert!(response.to_ascii_lowercase().contains(&format!(
+        "{}: {}\r\n",
+        crate::host_runtime::HOST_RELEASE_HEADER,
+        document.release_id
     )));
     assert!(response.ends_with("\r\nok\n"));
 
@@ -123,9 +149,10 @@ fn authenticated_web_shutdown_stops_the_live_http_server() {
     fixture.directory("home/_lib/proj");
     let (events, received_events) = mpsc::channel();
     let (_shutdown, shutdown_receiver) = oneshot::channel();
-    let host_runtime = test_host_runtime();
+    let context = fixture.context();
+    let host_runtime = test_host_runtime(&context);
     let server_thread = spawn(
-        fixture.context(),
+        context,
         fixture.data_root_session(),
         host_runtime.identity(),
         move |event| events.send(event).map_err(|error| error.to_string()),

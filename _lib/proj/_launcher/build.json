@@ -1,5 +1,7 @@
 {
-  "schema": "swawkit.proj-launcher-build/v1",
+  "schema": "swawkit.proj-launcher-build/v2",
+  "sources": ["launcher.c", "layout.c", "path.c"],
+  "headers": ["layout.h", "path.h"],
   "compileArguments": [
     "/nologo", "/Brepro", "/W4", "/WX", "/TC", "/c", "/O1", "/Os",
     "/Oi", "/Gy", "/Gw", "/Zl"

@@ -10,9 +10,9 @@ import { moveFileReplace } from "../../_lib/windows-filesystem.ts";
 
 const MANIFEST_SCHEMA = "swawkit.proj-build-artifact/v2";
 export const PRODUCER_ADDRESS = "project/proj/build/launcher";
-export const PRODUCER_CONTRACT = "swawkit.proj-build-launcher/v1";
+export const PRODUCER_CONTRACT = "swawkit.proj-build-launcher/v2";
 export const PRODUCER_EXPORT = "launcher";
-export const ARTIFACT_NAME = "template.proj1.exe";
+export const ARTIFACT_NAME = "swawkit.exe";
 const STATE_SCHEMA = "swawkit.command-provider-state/v2";
 const MAX_DOCUMENT_BYTES = 1024 * 1024;
 

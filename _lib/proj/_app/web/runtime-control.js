@@ -1,10 +1,28 @@
 import { t } from "./i18n.js";
 
-const RUNTIME_STATUS_PROTOCOL = "swawkit.runtime-status/v1";
-const HOST_STATUS_PROTOCOL = "swawkit.host-status/v1";
+const RUNTIME_STATUS_PROTOCOL = "swawkit.runtime-status/v2";
+const HOST_STATUS_PROTOCOL = "swawkit.host-status/v2";
 const RUNTIME_CLEANUP_PROTOCOL = "swawkit.runtime-cleanup/v1";
 const SHA256 = /^[a-f0-9]{64}$/;
+const BOOT_ID = /^[A-Za-z0-9-]{1,160}$/;
 const LOOPBACK_URL = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/$/;
+const HOST_STATUS_FIELDS = [
+  "bootId",
+  "entryId",
+  "instanceKeySha256",
+  "pid",
+  "protocol",
+  "runningReleaseId",
+  "selectedReleaseId",
+  "updateAvailable",
+  "url",
+];
+const RUNTIME_STATUS_FIELDS = [
+  "host",
+  "protocol",
+  "releaseCount",
+  "selectedReleaseId",
+];
 const CLEANUP_STATES = {
   preview: new Set(["selected", "inUse", "removable", "retained"]),
   apply: new Set(["selected", "inUse", "removed", "retained"]),
@@ -29,14 +47,17 @@ function validHostStatus(document) {
   const port = typeof document?.url === "string"
     ? Number(LOOPBACK_URL.exec(document.url)?.[1])
     : 0;
-  return document?.protocol === HOST_STATUS_PROTOCOL
-    && typeof document.entryKeySha256 === "string"
-    && SHA256.test(document.entryKeySha256)
+  return exactFields(document, HOST_STATUS_FIELDS)
+    && document.protocol === HOST_STATUS_PROTOCOL
+    && typeof document.entryId === "string"
+    && SHA256.test(document.entryId)
+    && typeof document.instanceKeySha256 === "string"
+    && SHA256.test(document.instanceKeySha256)
     && Number.isInteger(document.pid)
     && document.pid > 0
+    && document.pid <= 0xffffffff
     && typeof document.bootId === "string"
-    && document.bootId.length > 0
-    && document.bootId.length <= 160
+    && BOOT_ID.test(document.bootId)
     && Number.isInteger(port)
     && port <= 65535
     && typeof document.runningReleaseId === "string"
@@ -46,6 +67,13 @@ function validHostStatus(document) {
     && typeof document.updateAvailable === "boolean"
     && document.updateAvailable
       === (document.runningReleaseId !== document.selectedReleaseId);
+}
+
+function exactFields(document, expected) {
+  return typeof document === "object"
+    && document !== null
+    && !Array.isArray(document)
+    && Object.keys(document).sort().join("\0") === expected.join("\0");
 }
 
 export async function readRuntimeStatus(fetchImpl = fetch) {
@@ -61,11 +89,12 @@ export async function readRuntimeStatus(fetchImpl = fetch) {
   }
   const document = await response.json();
   if (
-    document?.protocol !== RUNTIME_STATUS_PROTOCOL
+    !exactFields(document, RUNTIME_STATUS_FIELDS)
+    || document.protocol !== RUNTIME_STATUS_PROTOCOL
     || typeof document.selectedReleaseId !== "string"
     || !SHA256.test(document.selectedReleaseId)
     || !Number.isInteger(document.releaseCount)
-    || document.releaseCount < 0
+    || document.releaseCount < 1
     || !(document.host === null || validHostStatus(document.host))
     || (document.host !== null
       && document.host?.selectedReleaseId !== document.selectedReleaseId)

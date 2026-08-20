@@ -136,6 +136,38 @@ fn native_adapter_does_not_build_an_uninstantiated_module_during_execution() {
 }
 
 #[test]
+fn journal_starts_before_native_artifact_preparation_fails() {
+    let fixture = Fixture::new();
+    let directory = module_directory(&fixture.swaw_module_root, "journaled-native-missing");
+    fs::create_dir_all(&directory).unwrap();
+    fs::write(directory.join("swawkit.module.json"), native_manifest()).unwrap();
+    let catalog = fixture.catalog();
+
+    let error = CommandExecutor::new(&fixture.context(), &catalog)
+        .execute_journaled(&argv(&["swaw/journaled-native-missing"]))
+        .expect_err("uninstantiated native command must fail");
+
+    assert!(error.to_string().contains("has not been instantiated"));
+    let runs_root = fixture
+        .data_root
+        .join("modules/swaw/journaled-native-missing/_runs");
+    let run_root = fs::read_dir(runs_root)
+        .unwrap()
+        .next()
+        .expect("failed preparation journal")
+        .unwrap()
+        .path();
+    let state: serde_json::Value =
+        serde_json::from_slice(&fs::read(run_root.join("_state.json")).unwrap()).unwrap();
+    assert_eq!(state["status"], "failed");
+    assert!(
+        state["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("has not been instantiated"))
+    );
+}
+
+#[test]
 fn delegated_native_port_points_instantiation_at_its_owner() {
     let fixture = Fixture::new();
     let owner = module_directory(&fixture.swaw_module_root, "context");

@@ -17,9 +17,9 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::context::EntryContext;
-use crate::entry::EntryIdentity;
 use crate::launch::{
-    ENTRY_FILE_ENV, LAUNCH_MODE_ENV, LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION, LaunchMode,
+    ENTRY_FILE_ENV, ENTRY_ID_ENV, LAUNCH_MODE_ENV, LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION,
+    LaunchMode,
 };
 
 const PROTOCOL_ENV: &str = "SWAWKIT_PROJ_HOST_RESTART_PROTOCOL";
@@ -72,8 +72,6 @@ impl HostRestartRequest {
     }
 
     pub fn complete(self, context: &EntryContext) -> Result<(), String> {
-        let entry_identity = EntryIdentity::read(&context.entry_file)
-            .map_err(|error| format!("cannot pin the Entry before Host restart: {error}"))?;
         let parent = owned_handle(
             unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, self.parent_pid) },
             "open the retiring Host process",
@@ -91,12 +89,6 @@ impl HostRestartRequest {
         if unsafe { WaitForSingleObject(raw_handle(&parent), u32::MAX) } != WAIT_OBJECT_0 {
             return Err(last_error("wait for the retiring Host"));
         }
-        let current_identity = EntryIdentity::read(&context.entry_file)
-            .map_err(|error| format!("cannot revalidate the Entry after Host shutdown: {error}"))?;
-        if current_identity != entry_identity {
-            return Err("the Entry Launcher changed while the Host was restarting".to_owned());
-        }
-
         let mut launcher = Command::new(&context.entry_file)
             .current_dir(&context.invocation_directory)
             .stdin(Stdio::null())
@@ -143,6 +135,7 @@ pub fn prepare(context: &EntryContext) -> Result<(), String> {
         .creation_flags(CREATE_NO_WINDOW)
         .env(LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION)
         .env(ENTRY_FILE_ENV, &context.entry_file)
+        .env(ENTRY_ID_ENV, context.entry_id.as_str())
         .env(LAUNCH_MODE_ENV, LaunchMode::InternalHost.as_env_value())
         .env(PROTOCOL_ENV, PROTOCOL_VERSION)
         .env(PARENT_PID_ENV, std::process::id().to_string())
@@ -247,13 +240,16 @@ mod tests {
             ("swawkit-proj-module.exe", b"module".as_slice()),
             ("swawkit-proj-dev.exe", b"dev".as_slice()),
         ];
-        let release_id = write_release(&root, &artifacts);
+        let release_id = write_release(&root, &root, &artifacts);
         let host = root.join(&release_id).join("swawkit-proj-host.exe");
         fs::write(&host, b"h0st").expect("tamper Host without changing its length");
         let context = EntryContext {
             swawkit_home: root.clone(),
+            data_root: root.clone(),
+            runtime_root: root.clone(),
             entry_file: root.join("swawkit.exe"),
             entry_name: "swawkit".to_owned(),
+            entry_id: crate::entry::EntryId::parse(&"a".repeat(64)).expect("test Entry ID"),
             invocation_directory: root.clone(),
             product_executable: host,
             release_id,

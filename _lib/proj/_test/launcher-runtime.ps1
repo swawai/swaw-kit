@@ -10,19 +10,17 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
-function Assert-ProjLauncherRuntimeTest {
+function Assert-LauncherRuntime {
     param(
         [Parameter(Mandatory = $true)][bool]$Condition,
         [Parameter(Mandatory = $true)][string]$Message
     )
     if (-not $Condition) {
-        throw "Assertion failed: $Message"
+        throw "Launcher runtime assertion failed: $Message"
     }
 }
 
-. (Join-Path $PSScriptRoot '_lib\runtime-fixture.ps1')
-
-function Invoke-ProjLauncherRuntimeProcess {
+function Invoke-Launcher {
     param(
         [Parameter(Mandatory = $true)][string]$Executable,
         [Parameter(Mandatory = $true)][string]$Arguments,
@@ -30,33 +28,33 @@ function Invoke-ProjLauncherRuntimeProcess {
         [Collections.IDictionary]$EnvironmentVariables = @{}
     )
 
-    $StartInfo = [Diagnostics.ProcessStartInfo]::new()
-    $StartInfo.FileName = $Executable
-    $StartInfo.Arguments = $Arguments
-    $StartInfo.WorkingDirectory = $WorkingDirectory
-    $StartInfo.UseShellExecute = $false
-    # Windows PowerShell 5.1 can inherit duplicate-cased names such as Path
-    # and PATH. Rebuild one case-insensitive child block before adding probes;
-    # lazy materialization can otherwise silently drop an unrelated variable.
-    $InheritedEnvironment = [Environment]::GetEnvironmentVariables(
-        [EnvironmentVariableTarget]::Process
-    )
-    [void]$StartInfo.EnvironmentVariables
-    $StartInfo.EnvironmentVariables.Clear()
-    foreach ($Name in [string[]]@($InheritedEnvironment.Keys)) {
-        $StartInfo.EnvironmentVariables[$Name] = [string]$InheritedEnvironment[$Name]
-    }
-    $StartInfo.CreateNoWindow = $true
-    $StartInfo.RedirectStandardOutput = $true
-    $StartInfo.RedirectStandardError = $true
-    $StartInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
-    $StartInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+    $PreviousEnvironment = @{}
     foreach ($Pair in $EnvironmentVariables.GetEnumerator()) {
-        $StartInfo.EnvironmentVariables[[string]$Pair.Key] = [string]$Pair.Value
+        $Name = [string]$Pair.Key
+        $PreviousEnvironment[$Name] = [Environment]::GetEnvironmentVariable(
+            $Name,
+            [EnvironmentVariableTarget]::Process
+        )
+        [Environment]::SetEnvironmentVariable(
+            $Name,
+            [string]$Pair.Value,
+            [EnvironmentVariableTarget]::Process
+        )
     }
-    $Process = [Diagnostics.Process]::new()
-    $Process.StartInfo = $StartInfo
+    $Process = $null
     try {
+        $StartInfo = [Diagnostics.ProcessStartInfo]::new()
+        $StartInfo.FileName = $Executable
+        $StartInfo.Arguments = $Arguments
+        $StartInfo.WorkingDirectory = $WorkingDirectory
+        $StartInfo.UseShellExecute = $false
+        $StartInfo.CreateNoWindow = $true
+        $StartInfo.RedirectStandardOutput = $true
+        $StartInfo.RedirectStandardError = $true
+        $StartInfo.StandardOutputEncoding = [Text.UTF8Encoding]::new($false)
+        $StartInfo.StandardErrorEncoding = [Text.UTF8Encoding]::new($false)
+        $Process = [Diagnostics.Process]::new()
+        $Process.StartInfo = $StartInfo
         if (-not $Process.Start()) {
             throw "Launcher process did not start: $Executable"
         }
@@ -69,518 +67,340 @@ function Invoke-ProjLauncherRuntimeProcess {
             StandardError = $StandardError
         }
     } finally {
-        $Process.Dispose()
+        if ($null -ne $Process) {
+            $Process.Dispose()
+        }
+        foreach ($Pair in $PreviousEnvironment.GetEnumerator()) {
+            [Environment]::SetEnvironmentVariable(
+                [string]$Pair.Key,
+                $Pair.Value,
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+    }
+}
+
+function Write-HexRecord {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+    [void][IO.Directory]::CreateDirectory((Split-Path -Path $Path -Parent))
+    [IO.File]::WriteAllText(
+        $Path,
+        ($Value + "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
+}
+
+function Add-EntryRuntime {
+    param(
+        [Parameter(Mandatory = $true)][string]$EntryHome,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$EntryId,
+        [Parameter(Mandatory = $true)][string]$ReleaseId
+    )
+    $DataRoot = Join-Path $EntryHome "data\proj.$Name"
+    $RuntimeRoot = Join-Path $DataRoot 'runtime'
+    $ReleaseRoot = Join-Path $RuntimeRoot "releases\$ReleaseId"
+    [void][IO.Directory]::CreateDirectory($ReleaseRoot)
+    Write-HexRecord -Path (Join-Path $DataRoot 'entry.id') -Value $EntryId
+    Write-HexRecord -Path (Join-Path $RuntimeRoot 'current') -Value $ReleaseId
+    [IO.File]::Copy(
+        (Join-Path ([Environment]::SystemDirectory) 'cmd.exe'),
+        (Join-Path $ReleaseRoot 'swawkit-proj.exe'),
+        $false
+    )
+    return [pscustomobject]@{
+        DataRoot = $DataRoot
+        RuntimeRoot = $RuntimeRoot
+        ReleaseRoot = $ReleaseRoot
     }
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-if ([string]::IsNullOrWhiteSpace($LauncherPath) -or
-    [string]::IsNullOrWhiteSpace($CorePath) -or
-    [string]::IsNullOrWhiteSpace($HostPath) -or
-    [string]::IsNullOrWhiteSpace($ModulePath) -or
-    [string]::IsNullOrWhiteSpace($DevPath)) {
-    . (Join-Path $RepoRoot (
-        '_lib\proj\_bootstrap\layout.ps1'
-    ))
+if ([string]::IsNullOrWhiteSpace($LauncherPath)) {
+    . (Join-Path $RepoRoot '_lib\proj\_bootstrap\layout.ps1')
     $Layout = Get-ProjBootstrapLayout
-    if ([string]::IsNullOrWhiteSpace($LauncherPath)) {
-        $LauncherPath = $Layout.LauncherCandidatePath
+    $LauncherPath = $Layout.LauncherCandidatePath
+    if (-not [IO.File]::Exists($LauncherPath)) {
+        & (Join-Path $RepoRoot '_lib\proj\build.ps1') | Out-Host
     }
-    if ([string]::IsNullOrWhiteSpace($CorePath)) {
-        $CorePath = Join-Path $Layout.BuildRoot 'release\swawkit-proj.exe'
-    }
-    if ([string]::IsNullOrWhiteSpace($HostPath)) {
-        $HostPath = Join-Path $Layout.BuildRoot 'release\swawkit-proj-host.exe'
-    }
-    if ([string]::IsNullOrWhiteSpace($ModulePath)) {
-        $ModulePath = $Layout.ModuleCandidatePath
-    }
-    if ([string]::IsNullOrWhiteSpace($DevPath)) {
-        $DevPath = Join-Path $Layout.BuildRoot (
-            'release\swawkit-proj-dev.exe'
-        )
-    }
-    & (Join-Path $RepoRoot '_lib\proj\build.ps1') | Out-Host
 }
 $LauncherPath = [IO.Path]::GetFullPath($LauncherPath)
-$CorePath = [IO.Path]::GetFullPath($CorePath)
-$HostPath = [IO.Path]::GetFullPath($HostPath)
-$ModulePath = [IO.Path]::GetFullPath($ModulePath)
-$DevPath = [IO.Path]::GetFullPath($DevPath)
-foreach ($RequiredFile in @(
-    $LauncherPath,
-    $CorePath,
-    $HostPath,
-    $ModulePath,
-    $DevPath
-)) {
-    if (-not [IO.File]::Exists($RequiredFile)) {
-        throw "Required built executable does not exist: $RequiredFile"
-    }
+if (-not [IO.File]::Exists($LauncherPath)) {
+    throw "Launcher candidate does not exist: $LauncherPath"
 }
 
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-launcher-$([Guid]::NewGuid().ToString('N'))"
 )
-$RuntimeHome = Join-Path $TemporaryRoot 'runtime-home'
-$RuntimeKernelRoot = Join-Path $RuntimeHome '_lib\proj'
-$CommandRuntimeId = Copy-ProjFixtureCommandRuntime -RuntimeHome $RuntimeHome
-$RuntimeReleaseSet = New-ProjRuntimeReleaseSetFromFiles `
-    -Artifacts ([ordered]@{
-        'swawkit-proj.exe' = $CorePath
-        'swawkit-proj-host.exe' = $HostPath
-        'swawkit-proj-module.exe' = $ModulePath
-        'swawkit-proj-dev.exe' = $DevPath
-    }) `
-    -CommandRuntimeId $CommandRuntimeId
-$RuntimeReleaseId = [string]$RuntimeReleaseSet.ReleaseId
-$RuntimeBin = Join-Path $RuntimeKernelRoot '_bin'
-$RuntimeRelease = Join-Path (
-    Join-Path $RuntimeBin 'releases'
-) $RuntimeReleaseId
-$RuntimeCorePath = Join-Path $RuntimeRelease 'swawkit-proj.exe'
-$RuntimeHostPath = Join-Path $RuntimeRelease 'swawkit-proj-host.exe'
-$RuntimeModulePath = Join-Path $RuntimeRelease 'swawkit-proj-module.exe'
-$RuntimeDevPath = Join-Path $RuntimeRelease 'swawkit-proj-dev.exe'
-$EntryName = "test-launcher-$([Guid]::NewGuid().ToString('N'))"
-$EntryPath = Join-Path $RuntimeHome "$EntryName.exe"
-$DataRoot = Join-Path $RuntimeHome "data\proj.$EntryName"
-$TargetRoot = Join-Path $TemporaryRoot 'target'
-$ProjectModuleRoot = Join-Path $TargetRoot '.swaw'
-$ProbeRoot = Join-Path $ProjectModuleRoot 'probe'
-$InvocationRoot = Join-Path $TemporaryRoot 'invocation'
-$CapturePath = Join-Path $DataRoot 'modules\project\probe\capture.json'
-$UnsupportedRoot = Join-Path $RuntimeHome 'Favorites'
-$UnsupportedEntry = Join-Path $UnsupportedRoot 'unsupported-layout.exe'
-$BootstrapHome = Join-Path $TemporaryRoot 'bootstrap-home'
-$BootstrapEntry = Join-Path $BootstrapHome 'bootstrap-entry.exe'
-$BootstrapScript = Join-Path $BootstrapHome '_lib\proj\bootstrap.ps1'
-$BootstrapCore = Join-Path $BootstrapHome (
-    ('_lib\proj\_bin\releases\' + ('b' * 64) + '\swawkit-proj.exe')
-)
-$BootstrapMarker = Join-Path $BootstrapHome 'bootstrap-ran.txt'
-
-$PoisonedVariables = @(
-    'SWAWKIT_HOME',
-    'SWAWKIT_PROJ_PROTOCOL',
-    'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_PROJECT_MODULE_ROOT',
-    'SWAWKIT_PROJ_MODULE_ROOTS',
-    'SWAWKIT_PROJ_DATA_ROOT',
-    'SWAWKIT_PROJ_ENTRY_COMMAND',
-    'SWAWKIT_PROJ_ENTRY_FILE',
-    'SWAWKIT_PROJ_LAUNCH_MODE',
-    'SWAWKIT_PROJ_COMMAND_PROTOCOL',
-    'SWAWKIT_PROJ_COMMAND_DATA_ROOT',
-    'SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL',
-    'SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE',
-    'SWAWKIT_PROJ_CORE_LAUNCH_MODE',
-    'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
-    'SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE',
-    'SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT',
-    'SWAWKIT_PROJ_CORE_COMMAND_SPACE',
-    'SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE',
-    'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
-    'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
-    'SWAWKIT_PROJ_CORE_COMMAND_RUNTIME_ID',
-    'SWAWKIT_PROJ_BUN_VERSION',
-    'SwAwKiT_PrOj_UnKnOwN',
-    'swawkit_proj_module_kernel_dev_setup_inherited_test',
-    'SwAwKiT_PrOj_CoRe_AdApTeR_PoWeRsHeLl_ArG_47',
-    'sWaWkIt_pRoJ_CoRe_cOmMaNd_aDaPtEr_pWsH_ArG_47'
-)
-$SavedEnvironment = @{}
-foreach ($Name in $PoisonedVariables) {
-    $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable(
-        $Name,
-        [EnvironmentVariableTarget]::Process
-    )
-}
-[Environment]::SetEnvironmentVariable(
-    'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
-    $null,
-    [EnvironmentVariableTarget]::Process
-)
+$EntryHome = Join-Path $TemporaryRoot 'home'
+$Invocation = Join-Path $TemporaryRoot 'invocation'
+$AlphaId = 'a' * 64
+$BetaId = 'b' * 64
+$AlphaReleaseId = '1' * 64
+$BetaReleaseId = '2' * 64
+$Command = '/d /s /c "set SWAWKIT_PROJ_CORE_LAUNCH & echo CORE=%CMDCMDLINE% & exit /b 37"'
+$ReparsePaths = [Collections.Generic.List[string]]::new()
 
 try {
-    foreach ($Directory in @(
-        (Join-Path $RuntimeKernelRoot 'system'),
-        (Join-Path $RuntimeKernelRoot 'modules'),
-        $ProbeRoot,
-        $InvocationRoot,
-        $UnsupportedRoot,
-        (Split-Path -Path $BootstrapScript -Parent)
-    )) {
-        [void][IO.Directory]::CreateDirectory($Directory)
-    }
-    [void](Publish-ProjRuntimeReleaseSet `
-        -ReleaseSet $RuntimeReleaseSet `
-        -ProjHome $RuntimeHome `
-        -CacheDataRoot (Join-Path $RuntimeHome 'data\proj_cache'))
-    Copy-Item `
-        -LiteralPath (Join-Path $RepoRoot '_lib\proj\system') `
-        -Destination $RuntimeKernelRoot `
-        -Recurse `
-        -Force
-    [IO.File]::Copy($LauncherPath, $EntryPath, $false)
-    [IO.File]::Copy($LauncherPath, $UnsupportedEntry, $false)
-    [IO.File]::Copy($LauncherPath, $BootstrapEntry, $false)
+    [void][IO.Directory]::CreateDirectory($EntryHome)
+    [void][IO.Directory]::CreateDirectory($Invocation)
+    $Alpha = Add-EntryRuntime `
+        -EntryHome $EntryHome `
+        -Name 'alpha' `
+        -EntryId $AlphaId `
+        -ReleaseId $AlphaReleaseId
+    $Beta = Add-EntryRuntime `
+        -EntryHome $EntryHome `
+        -Name 'beta' `
+        -EntryId $BetaId `
+        -ReleaseId $BetaReleaseId
+    $AlphaEntry = Join-Path $EntryHome 'alpha.exe'
+    $BetaEntry = Join-Path $EntryHome 'beta.exe'
+    [IO.File]::Copy($LauncherPath, $AlphaEntry, $false)
+    [IO.File]::Copy($LauncherPath, $BetaEntry, $false)
 
-    $BootstrapFixture = @'
-$ErrorActionPreference = 'Stop'
-$HomeRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
-$ReleaseId = 'b' * 64
-$RuntimeRoot = Join-Path $HomeRoot '_lib\proj\_bin'
-$RuntimePath = Join-Path (
-    Join-Path (Join-Path $RuntimeRoot 'releases') $ReleaseId
-) 'swawkit-proj.exe'
-$CmdPath = Join-Path ([Environment]::SystemDirectory) 'cmd.exe'
-[void][IO.Directory]::CreateDirectory((Split-Path -Path $RuntimePath -Parent))
-[IO.File]::Copy($CmdPath, $RuntimePath, $false)
-[IO.File]::WriteAllText(
-    (Join-Path $RuntimeRoot 'current'),
-    ($ReleaseId + "`n"),
-    [Text.UTF8Encoding]::new($false)
-)
-[IO.File]::WriteAllText(
-    (Join-Path $HomeRoot 'bootstrap-ran.txt'),
-    [string]$env:SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL,
-    [Text.UTF8Encoding]::new($false)
-)
-'@
-    [IO.File]::WriteAllText(
-        $BootstrapScript,
-        $BootstrapFixture,
-        [Text.UTF8Encoding]::new($false)
-    )
-
-    $Bootstrapped = Invoke-ProjLauncherRuntimeProcess `
-        -Executable $BootstrapEntry `
-        -Arguments '/d /c exit 0' `
-        -WorkingDirectory $InvocationRoot
-    Assert-ProjLauncherRuntimeTest `
+    $AlphaRun = Invoke-Launcher `
+        -Executable $AlphaEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation
+    $BetaRun = Invoke-Launcher `
+        -Executable $BetaEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation
+    Assert-LauncherRuntime `
         -Condition (
-            $Bootstrapped.ExitCode -eq 0 -and
-            [IO.File]::Exists($BootstrapCore) -and
-            [IO.File]::Exists($BootstrapMarker) -and
-            [IO.File]::ReadAllText($BootstrapMarker) -ceq ''
+            $AlphaRun.ExitCode -eq 37 -and
+            $AlphaRun.StandardOutput.Contains(
+                "SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL=4"
+            ) -and
+            $AlphaRun.StandardOutput.Contains(
+                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$AlphaId"
+            ) -and
+            $AlphaRun.StandardOutput.Contains(
+                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE=$AlphaEntry"
+            ) -and
+            -not $AlphaRun.StandardOutput.Contains('ENTRY_FILE=\\?\') -and
+            $AlphaRun.StandardOutput.Contains($AlphaReleaseId) -and
+            -not $AlphaRun.StandardOutput.Contains($BetaReleaseId)
         ) `
-        -Message (
-            'Launcher did not Bootstrap a missing shared Core: ' +
-            "exit=$($Bootstrapped.ExitCode); " +
-            "core=$([IO.File]::Exists($BootstrapCore)); " +
-            "marker=$([IO.File]::Exists($BootstrapMarker)); " +
-            "stdout=$($Bootstrapped.StandardOutput); " +
-            "stderr=$($Bootstrapped.StandardError)"
-        )
-
-    $Help = Invoke-ProjLauncherRuntimeProcess `
-        -Executable $EntryPath `
-        -Arguments '--help' `
-        -WorkingDirectory $InvocationRoot
-    Assert-ProjLauncherRuntimeTest `
-        -Condition ($Help.ExitCode -eq 0) `
-        -Message "native Launcher help failed: $($Help.StandardError)"
-    Assert-ProjLauncherRuntimeTest `
-        -Condition ($Help.StandardOutput.Contains($EntryName)) `
-        -Message 'shared Core did not derive the copied Launcher entry name'
-    Assert-ProjLauncherRuntimeTest `
-        -Condition ([IO.File]::Exists((Join-Path $DataRoot '_entry.json'))) `
-        -Message 'copied Launcher did not create its entry-owned DataRoot'
-
-    $Profile = [ordered]@{
-        schema = 'swawkit.entry-profile/v2'
-        targetProjectRoot = $TargetRoot
-        language = 'zh-CN'
-        development = [ordered]@{
-            bun = [ordered]@{
-                mode = 'disabled'; version = '1.2.15'; sha256 = ''
-            }
-            pwsh = [ordered]@{
-                mode = 'managed'; version = '7.6.4'; sha256 = ''
-            }
-            msvc = [ordered]@{ mode = 'disabled'; channel = '17' }
-            rust = [ordered]@{
-                mode = 'disabled'
-                toolchain = 'stable'
-                profile = 'minimal'
-                host = 'x86_64-pc-windows-msvc'
-            }
-            uv = [ordered]@{
-                mode = 'disabled'; version = '0.10.2'; sha256 = ''
-            }
-            python = [ordered]@{
-                mode = 'disabled'; version = '3.13'; sha256 = ''
-            }
-            go = [ordered]@{
-                mode = 'disabled'; version = ''; sha256 = ''
-            }
-            gh = [ordered]@{ mode = 'system' }
-            vscode = [ordered]@{ mode = 'system' }
-            cursor = [ordered]@{ mode = 'system' }
-        }
-        git = [ordered]@{ name = ''; email = ''; access = '' }
-    }
-    [IO.File]::WriteAllText(
-        (Join-Path $DataRoot '_profile.json'),
-        (($Profile | ConvertTo-Json -Depth 8) + "`n"),
-        [Text.UTF8Encoding]::new($false)
-    )
-    Add-ProjFixtureCommandManifest -CommandRoot $ProbeRoot
-    [IO.File]::WriteAllText(
-        (Join-Path $ProbeRoot 'run.ps1'),
-        @'
-$ErrorActionPreference = 'Stop'
-$Payload = [ordered]@{
-    arguments = [string[]]@($args)
-    swawkitHome = [string]$env:SWAWKIT_HOME
-    entryFile = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE
-    launchEntryFile = [string]$env:SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE
-    launchProtocol = [string]$env:SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL
-    workerProtocol = [string]$env:SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL
-    legacyEntryFile = [string]$env:SWAWKIT_PROJ_ENTRY_FILE
-    entryName = [string]$env:SWAWKIT_PROJ_ENTRY_COMMAND
-    targetProjectRoot = [string]$env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT
-    projectModuleRoot = [string]$env:SWAWKIT_PROJ_PROJECT_MODULE_ROOT
-    moduleRoots = [string]$env:SWAWKIT_PROJ_MODULE_ROOTS
-    dataRoot = [string]$env:SWAWKIT_PROJ_DATA_ROOT
-    commandProtocol = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL
-    commandDataRoot = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT
-    commandSpace = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_SPACE
-    commandNamespace = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE
-    legacyCommandProtocol = [string]$env:SWAWKIT_PROJ_COMMAND_PROTOCOL
-    legacyCommandDataRoot = [string]$env:SWAWKIT_PROJ_COMMAND_DATA_ROOT
-    invocationDirectory = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR
-    launchMode = [string]$env:SWAWKIT_PROJ_CORE_LAUNCH_MODE
-    legacyLaunchMode = [string]$env:SWAWKIT_PROJ_LAUNCH_MODE
-    bunVersion = [string]$env:SWAWKIT_PROJ_BUN_VERSION
-    environmentInputRevision = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION
-    profileRevision = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION
-    unknownState = [string]$env:SWAWKIT_PROJ_UNKNOWN
-    moduleState = [string]$env:SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_INHERITED_TEST
-    legacyAdapterState = [string]$env:SWAWKIT_PROJ_CORE_ADAPTER_POWERSHELL_ARG_47
-    commandAdapterState = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_ADAPTER_PWSH_ARG_47
-}
-$CapturePath = Join-Path $env:SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT 'capture.json'
-[void][IO.Directory]::CreateDirectory((Split-Path -Path $CapturePath -Parent))
-[IO.File]::WriteAllText(
-    $CapturePath,
-    (($Payload | ConvertTo-Json -Depth 5) + "`n"),
-    [Text.UTF8Encoding]::new($false)
-)
-Write-Output 'worker-stdout-sentinel'
-[Console]::Error.WriteLine('worker-stderr-sentinel')
-exit 37
-'@,
-        [Text.UTF8Encoding]::new($false)
-    )
-    $ManagedPwshSource = Join-Path $RepoRoot (
-        'data\proj.swawkit\modules\system\dev\setup\export\pwsh\installs\7.6.4'
-    )
-    Copy-ProjFixtureHardLinkTree `
-        -Source $ManagedPwshSource `
-        -Destination (Join-Path $DataRoot (
-            'modules\system\dev\setup\export\pwsh\installs\7.6.4'
-        ))
-    $DevelopmentSetup = Invoke-ProjLauncherRuntimeProcess `
-        -Executable $EntryPath `
-        -Arguments '.dev/setup' `
-        -WorkingDirectory $InvocationRoot
-    Assert-ProjLauncherRuntimeTest `
-        -Condition ($DevelopmentSetup.ExitCode -eq 0) `
-        -Message "native development setup failed: $($DevelopmentSetup.StandardError)"
-
-    $env:SWAWKIT_HOME = 'C:\foreign-home'
-    $env:SWAWKIT_PROJ_PROTOCOL = 'foreign'
-    $env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT = 'C:\foreign-project'
-    $env:SWAWKIT_PROJ_PROJECT_MODULE_ROOT = 'C:\foreign-project\.swaw'
-    $env:SWAWKIT_PROJ_MODULE_ROOTS = '{"foreign":"C:\\foreign-module"}'
-    $env:SWAWKIT_PROJ_DATA_ROOT = 'C:\foreign-data'
-    $env:SWAWKIT_PROJ_ENTRY_COMMAND = 'foreign-entry'
-    $env:SWAWKIT_PROJ_ENTRY_FILE = 'C:\foreign-entry.exe'
-    $env:SWAWKIT_PROJ_LAUNCH_MODE = 'internal-host'
-    $env:SWAWKIT_PROJ_COMMAND_PROTOCOL = 'foreign'
-    $env:SWAWKIT_PROJ_COMMAND_DATA_ROOT = 'C:\foreign-command-data'
-    $env:SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL = 'foreign'
-    $env:SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE = 'C:\foreign-core-entry.exe'
-    $env:SWAWKIT_PROJ_CORE_LAUNCH_MODE = 'internal-host'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE = 'C:\foreign-command-entry.exe'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT = 'C:\foreign-core-command-data'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_SPACE = 'system'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_NAMESPACE = 'foreign'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = 'foreign-input-revision'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = 'foreign-profile-revision'
-    $env:SWAWKIT_PROJ_BUN_VERSION = 'foreign-version'
-    $env:SwAwKiT_PrOj_UnKnOwN = 'foreign-unknown'
-    $env:swawkit_proj_module_kernel_dev_setup_inherited_test = 'foreign-module'
-    $env:SwAwKiT_PrOj_CoRe_AdApTeR_PoWeRsHeLl_ArG_47 = 'foreign-legacy-adapter'
-    $env:sWaWkIt_pRoJ_CoRe_cOmMaNd_aDaPtEr_pWsH_ArG_47 = 'foreign-command-adapter'
-
-    $Run = Invoke-ProjLauncherRuntimeProcess `
-        -Executable $EntryPath `
-        -Arguments 'project/probe "" "a&b|c" "你好 世界"' `
-        -WorkingDirectory $InvocationRoot
-    Assert-ProjLauncherRuntimeTest `
-        -Condition ($Run.ExitCode -eq 37) `
-        -Message (
-            "Launcher did not return the exact Core exit code: " +
-            "$($Run.ExitCode); stderr=$($Run.StandardError)"
-        )
-    $Capture = [IO.File]::ReadAllText($CapturePath) | ConvertFrom-Json
-    $ModuleRoots = [string]$Capture.moduleRoots | ConvertFrom-Json
-    Assert-ProjLauncherRuntimeTest `
+        -Message "alpha did not use only its own selector: $($AlphaRun.StandardOutput)"
+    Assert-LauncherRuntime `
         -Condition (
-            [string]$ModuleRoots.project -ceq $ProjectModuleRoot -and
-            [string]$ModuleRoots.swaw -ceq (
-                Join-Path $RuntimeKernelRoot 'modules'
-            )
+            $BetaRun.ExitCode -eq 37 -and
+            $BetaRun.StandardOutput.Contains(
+                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$BetaId"
+            ) -and
+            $BetaRun.StandardOutput.Contains($BetaReleaseId) -and
+            -not $BetaRun.StandardOutput.Contains($AlphaReleaseId)
         ) `
-        -Message 'structured Module mount roots were not rebuilt by Core'
-    Assert-ProjLauncherRuntimeTest `
-        -Condition (
-            @($Capture.arguments).Count -eq 3 -and
-            [string]$Capture.arguments[0] -ceq '' -and
-            [string]$Capture.arguments[1] -ceq 'a&b|c' -and
-            [string]$Capture.arguments[2] -ceq '你好 世界'
-        ) `
-        -Message 'Launcher did not preserve empty, metacharacter, and Unicode argv'
-    $Expectations = [ordered]@{
-        swawkitHome = $RuntimeHome
-        entryFile = $EntryPath
-        launchEntryFile = ''
-        launchProtocol = ''
-        workerProtocol = ''
-        legacyEntryFile = ''
-        entryName = $EntryName
-        targetProjectRoot = $TargetRoot
-        projectModuleRoot = $ProjectModuleRoot
-        dataRoot = $DataRoot
-        commandProtocol = '2'
-        commandDataRoot = (Join-Path $DataRoot 'modules\project\probe')
-        commandSpace = 'module'
-        commandNamespace = 'project'
-        legacyCommandProtocol = ''
-        legacyCommandDataRoot = ''
-        invocationDirectory = $InvocationRoot
-        launchMode = ''
-        legacyLaunchMode = ''
-        bunVersion = '1.2.15'
-        unknownState = ''
-        moduleState = ''
-        legacyAdapterState = ''
-        commandAdapterState = ''
-    }
-    foreach ($Expectation in $Expectations.GetEnumerator()) {
-        Assert-ProjLauncherRuntimeTest `
-            -Condition (
-                [string]$Capture.($Expectation.Key) -ceq
-                    [string]$Expectation.Value
-            ) `
-            -Message (
-                "unexpected $($Expectation.Key): " +
-                "'$([string]$Capture.($Expectation.Key))'"
-            )
-    }
-    foreach ($RevisionName in @(
-        'environmentInputRevision',
-        'profileRevision'
-    )) {
-        Assert-ProjLauncherRuntimeTest `
-            -Condition (
-                [string]$Capture.($RevisionName) -cmatch
-                    '^sha256-[a-f0-9]{64}$'
-            ) `
-            -Message (
-                "unexpected ${RevisionName}: " +
-                "'$([string]$Capture.($RevisionName))'"
-            )
-    }
+        -Message "beta did not use only its own selector: $($BetaRun.StandardOutput)"
 
-    $WorkerRun = Invoke-ProjLauncherRuntimeProcess `
-        -Executable $EntryPath `
-        -Arguments 'project/probe worker-boundary' `
-        -WorkingDirectory $InvocationRoot `
+    $WorkerRun = Invoke-Launcher `
+        -Executable $AlphaEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation `
         -EnvironmentVariables @{
             SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL = '2'
         }
-    Assert-ProjLauncherRuntimeTest `
+    Assert-LauncherRuntime `
         -Condition (
             $WorkerRun.ExitCode -eq 37 -and
-            $WorkerRun.StandardOutput.Contains('worker-stdout-sentinel') -and
-            $WorkerRun.StandardError.Contains('worker-stderr-sentinel')
+            $WorkerRun.StandardOutput.Contains(
+                'SWAWKIT_PROJ_CORE_LAUNCH_MODE=worker'
+            ) -and
+            -not $WorkerRun.StandardOutput.Contains(
+                'SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL='
+            )
         ) `
-        -Message (
-            'Launcher did not consume the Web worker mode: ' +
-            "exit=$($WorkerRun.ExitCode); " +
-            "stderr=$($WorkerRun.StandardError)"
-        )
-    $WorkerCapture = [IO.File]::ReadAllText($CapturePath) |
-        ConvertFrom-Json
-    Assert-ProjLauncherRuntimeTest `
-        -Condition (
-            @($WorkerCapture.arguments).Count -eq 1 -and
-            [string]$WorkerCapture.arguments[0] -ceq 'worker-boundary' -and
-            [string]::IsNullOrEmpty([string]$WorkerCapture.workerProtocol)
-        ) `
-        -Message 'Web worker launch declaration leaked into the command'
+        -Message 'Launcher did not consume the worker transition declaration'
 
-    $RejectedWorkerDeclaration = Invoke-ProjLauncherRuntimeProcess `
-        -Executable $EntryPath `
-        -Arguments '--help' `
-        -WorkingDirectory $InvocationRoot `
+    $InvalidWorkerRun = Invoke-Launcher `
+        -Executable $AlphaEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation `
         -EnvironmentVariables @{
-            SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL = 'foreign'
+            SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL = 'invalid'
         }
-    Assert-ProjLauncherRuntimeTest `
+    Assert-LauncherRuntime `
         -Condition (
-            $RejectedWorkerDeclaration.ExitCode -eq 1 -and
-            $RejectedWorkerDeclaration.StandardError.Contains(
+            $InvalidWorkerRun.ExitCode -eq 1 -and
+            $InvalidWorkerRun.StandardError.Contains(
                 'Web worker launch declaration'
             )
         ) `
-        -Message 'Launcher accepted an invalid Web worker declaration'
+        -Message 'Launcher accepted an invalid worker transition declaration'
 
-    foreach ($ProtocolValue in @('', 'foreign')) {
-        $RejectedNestedEntry = Invoke-ProjLauncherRuntimeProcess `
-            -Executable $EntryPath `
-            -Arguments '--help' `
-            -WorkingDirectory $InvocationRoot `
-            -EnvironmentVariables @{
-                SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = $ProtocolValue
-            }
-        Assert-ProjLauncherRuntimeTest `
-            -Condition (
-                $RejectedNestedEntry.ExitCode -eq 1 -and
-                $RejectedNestedEntry.StandardError.Contains(
-                    'inside another Entry command'
-                )
-            ) `
-            -Message (
-                'Launcher did not reject nested Entry startup when the ' +
-                'command protocol variable existed: ' +
-                "value='$ProtocolValue'; " +
-                "exit=$($RejectedNestedEntry.ExitCode); " +
-                "stderr=$($RejectedNestedEntry.StandardError)"
-            )
-    }
-
-    $RejectedLayout = Invoke-ProjLauncherRuntimeProcess `
-        -Executable $UnsupportedEntry `
-        -Arguments '--help' `
-        -WorkingDirectory $InvocationRoot
-    Assert-ProjLauncherRuntimeTest `
+    $BootstrapMarker = Join-Path $EntryHome 'bootstrap-ran.txt'
+    $BootstrapPath = Join-Path $EntryHome '_lib\proj\bootstrap.ps1'
+    [void][IO.Directory]::CreateDirectory((Split-Path $BootstrapPath -Parent))
+    [IO.File]::WriteAllText(
+        $BootstrapPath,
+        "[IO.File]::WriteAllText('$($BootstrapMarker.Replace("'", "''"))', 'ran')`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    $MissingEntry = Join-Path $EntryHome 'missing.exe'
+    [IO.File]::Copy($LauncherPath, $MissingEntry, $false)
+    $LegacyRelease = '9' * 64
+    $LegacyCore = Join-Path $EntryHome (
+        "_lib\proj\_bin\releases\$LegacyRelease\swawkit-proj.exe"
+    )
+    [void][IO.Directory]::CreateDirectory((Split-Path $LegacyCore -Parent))
+    [IO.File]::Copy(
+        (Join-Path ([Environment]::SystemDirectory) 'cmd.exe'),
+        $LegacyCore,
+        $false
+    )
+    Write-HexRecord `
+        -Path (Join-Path $EntryHome '_lib\proj\_bin\current') `
+        -Value $LegacyRelease
+    $MissingRun = Invoke-Launcher `
+        -Executable $MissingEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation
+    Assert-LauncherRuntime `
         -Condition (
-            $RejectedLayout.ExitCode -eq 1 -and
-            $RejectedLayout.StandardError.Contains('Cannot locate')
+            $MissingRun.ExitCode -eq 1 -and
+            $MissingRun.StandardError.Contains('Entry Runtime is missing or invalid') -and
+            -not [IO.File]::Exists($BootstrapMarker)
         ) `
-        -Message 'Launcher accepted an Entry outside SWAWKIT_HOME root'
+        -Message 'ordinary Entry used Bootstrap or the legacy shared selector'
+
+    $ManagerHome = Join-Path $TemporaryRoot 'manager-home'
+    $ManagerEntry = Join-Path $ManagerHome 'SwAwKiT.exe'
+    $ManagerBootstrap = Join-Path $ManagerHome '_lib\proj\bootstrap.ps1'
+    $ManagerMarker = Join-Path $ManagerHome 'bootstrap-ran.txt'
+    $ManagerEntryId = 'c' * 64
+    [void][IO.Directory]::CreateDirectory((Split-Path $ManagerBootstrap -Parent))
+    [IO.File]::Copy($LauncherPath, $ManagerEntry, $false)
+    $ManagerFixture = @"
+`$ErrorActionPreference = 'Stop'
+`$ManagerRoot = [IO.Path]::GetFullPath((Join-Path `$PSScriptRoot '..\..'))
+`$DataRoot = Join-Path `$ManagerRoot 'data\proj.swawkit'
+`$RuntimeRoot = Join-Path `$DataRoot 'runtime'
+`$ReleaseId = '3' * 64
+`$ReleaseRoot = Join-Path `$RuntimeRoot "releases\`$ReleaseId"
+[void][IO.Directory]::CreateDirectory(`$ReleaseRoot)
+[IO.File]::WriteAllText((Join-Path `$DataRoot 'entry.id'), ('$ManagerEntryId' + [char]10), [Text.UTF8Encoding]::new(`$false))
+[IO.File]::WriteAllText((Join-Path `$RuntimeRoot 'current'), (`$ReleaseId + [char]10), [Text.UTF8Encoding]::new(`$false))
+[IO.File]::Copy((Join-Path ([Environment]::SystemDirectory) 'cmd.exe'), (Join-Path `$ReleaseRoot 'swawkit-proj.exe'), `$false)
+[IO.File]::WriteAllText('$($ManagerMarker.Replace("'", "''"))', 'ran')
+"@
+    [IO.File]::WriteAllText(
+        $ManagerBootstrap,
+        $ManagerFixture,
+        [Text.UTF8Encoding]::new($false)
+    )
+    $ManagerRun = Invoke-Launcher `
+        -Executable $ManagerEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation
+    Assert-LauncherRuntime `
+        -Condition (
+            $ManagerRun.ExitCode -eq 37 -and
+            [IO.File]::Exists($ManagerMarker) -and
+            $ManagerRun.StandardOutput.Contains(
+                "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$ManagerEntryId"
+            )
+        ) `
+        -Message "manager cold Bootstrap failed: $($ManagerRun.StandardError)"
+
+    $MalformedHome = Join-Path $TemporaryRoot 'malformed-home'
+    $MalformedEntry = Join-Path $MalformedHome 'swawkit.exe'
+    [void][IO.Directory]::CreateDirectory($MalformedHome)
+    [IO.File]::Copy($LauncherPath, $MalformedEntry, $false)
+    $Malformed = Add-EntryRuntime `
+        -EntryHome $MalformedHome `
+        -Name 'swawkit' `
+        -EntryId ('d' * 64) `
+        -ReleaseId ('4' * 64)
+    [IO.File]::WriteAllText(
+        (Join-Path $Malformed.DataRoot 'entry.id'),
+        (('D' * 64) + "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $MalformedRun = Invoke-Launcher `
+        -Executable $MalformedEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation
+    Assert-LauncherRuntime `
+        -Condition (
+            $MalformedRun.ExitCode -eq 1 -and
+            $MalformedRun.StandardError.Contains('identity is malformed or unsafe')
+        ) `
+        -Message 'Launcher accepted a malformed entry.id'
+
+    $ReparseName = 'reparse'
+    $ReparseEntry = Join-Path $EntryHome "$ReparseName.exe"
+    $ReparseDataRoot = Join-Path $EntryHome "data\proj.$ReparseName"
+    $ExternalFixture = Add-EntryRuntime `
+        -EntryHome $TemporaryRoot `
+        -Name 'external-data-root' `
+        -EntryId ('e' * 64) `
+        -ReleaseId ('5' * 64)
+    $ExternalDataRoot = $ExternalFixture.DataRoot
+    [IO.File]::Copy($LauncherPath, $ReparseEntry, $false)
+    [void][IO.Directory]::CreateDirectory((Split-Path $ReparseDataRoot -Parent))
+    [void](New-Item -ItemType Junction -Path $ReparseDataRoot -Target $ExternalDataRoot)
+    $ReparsePaths.Add($ReparseDataRoot)
+    $ReparseRun = Invoke-Launcher `
+        -Executable $ReparseEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation
+    Assert-LauncherRuntime `
+        -Condition (
+            $ReparseRun.ExitCode -eq 1 -and
+            $ReparseRun.StandardError.Contains('identity is malformed or unsafe')
+        ) `
+        -Message 'Launcher followed a reparse-point DataRoot'
+
+    $AncestorHome = Join-Path $TemporaryRoot 'ancestor-home'
+    $AncestorEntry = Join-Path $AncestorHome 'ancestor.exe'
+    $AncestorData = Join-Path $AncestorHome 'data'
+    $AncestorExternalHome = Join-Path $TemporaryRoot 'ancestor-external'
+    $AncestorFixture = Add-EntryRuntime `
+        -EntryHome $AncestorExternalHome `
+        -Name 'ancestor' `
+        -EntryId ('f' * 64) `
+        -ReleaseId ('6' * 64)
+    [void][IO.Directory]::CreateDirectory($AncestorHome)
+    [IO.File]::Copy($LauncherPath, $AncestorEntry, $false)
+    [void](New-Item `
+        -ItemType Junction `
+        -Path $AncestorData `
+        -Target (Split-Path -Path $AncestorFixture.DataRoot -Parent))
+    $ReparsePaths.Add($AncestorData)
+    $AncestorRun = Invoke-Launcher `
+        -Executable $AncestorEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation
+    Assert-LauncherRuntime `
+        -Condition (
+            $AncestorRun.ExitCode -eq 1 -and
+            $AncestorRun.StandardError.Contains('identity is malformed or unsafe')
+        ) `
+        -Message 'Launcher followed a reparse-point data ancestor'
+
+    $NestedRun = Invoke-Launcher `
+        -Executable $AlphaEntry `
+        -Arguments $Command `
+        -WorkingDirectory $Invocation `
+        -EnvironmentVariables @{ SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1' }
+    Assert-LauncherRuntime `
+        -Condition (
+            $NestedRun.ExitCode -eq 1 -and
+            $NestedRun.StandardError.Contains('inside another Entry command')
+        ) `
+        -Message 'Launcher accepted nested Entry startup'
 } finally {
-    foreach ($Name in $PoisonedVariables) {
-        [Environment]::SetEnvironmentVariable(
-            $Name,
-            $SavedEnvironment[$Name],
-            [EnvironmentVariableTarget]::Process
-        )
+    foreach ($ReparsePath in $ReparsePaths) {
+        if ([IO.Directory]::Exists($ReparsePath) -and
+            ([IO.File]::GetAttributes($ReparsePath) -band
+                [IO.FileAttributes]::ReparsePoint)) {
+            [IO.Directory]::Delete($ReparsePath)
+        }
     }
     if ([IO.Directory]::Exists($TemporaryRoot) -and
         $TemporaryRoot.StartsWith(

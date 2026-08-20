@@ -186,7 +186,6 @@ function New-ProjCandidateRuntimeFixture {
     [void](Assert-ProjCandidateRuntimeFixtureRoot `
         -Path (Split-Path -Path $RuntimeHome -Parent))
     $KernelRoot = Join-Path $RuntimeHome '_lib\proj'
-    $RuntimeBin = Join-Path $KernelRoot '_bin'
     [void][IO.Directory]::CreateDirectory($KernelRoot)
     $CommandRuntimeId = Copy-ProjFixtureCommandRuntime -RuntimeHome $RuntimeHome
     $ReleaseSet = New-ProjRuntimeReleaseSetFromFiles `
@@ -197,15 +196,9 @@ function New-ProjCandidateRuntimeFixture {
             'swawkit-proj-dev.exe' = $DevPath
         }) `
         -CommandRuntimeId $CommandRuntimeId
-    $Published = Publish-ProjRuntimeReleaseSet `
-        -ReleaseSet $ReleaseSet `
-        -ProjHome $RuntimeHome `
-        -CacheDataRoot (Join-Path $RuntimeHome 'data\proj_cache')
-    $RuntimeRelease = [string]$Published.Root
 
     foreach ($RelativeDirectory in @(
         'system',
-        '_shell',
         '_toolchain'
     )) {
         Copy-Item `
@@ -221,10 +214,14 @@ function New-ProjCandidateRuntimeFixture {
     return [pscustomobject][ordered]@{
         Home = $RuntimeHome
         KernelRoot = $KernelRoot
-        RuntimeBin = $RuntimeBin
-        RuntimeRelease = $RuntimeRelease
-        ReleaseId = [string]$Published.ReleaseId
+        DataRoot = ''
+        RuntimeRoot = ''
+        RuntimeRelease = ''
+        ReleaseId = ''
+        EntryId = ''
+        EntryPath = ''
         CommandRuntimeId = $CommandRuntimeId
+        ReleaseSet = $ReleaseSet
         LauncherPath = [IO.Path]::GetFullPath($LauncherPath)
     }
 }
@@ -243,8 +240,56 @@ function Add-ProjCandidateRuntimeEntry {
     )) {
         throw "Entry path escaped the candidate runtime: $EntryPath"
     }
+    if (-not [string]::IsNullOrEmpty([string]$Runtime.EntryPath)) {
+        throw "Candidate runtime already belongs to an Entry: $($Runtime.EntryPath)"
+    }
+    if (-not [IO.Path]::GetExtension($EntryPath).Equals(
+        '.exe',
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Candidate runtime Entry must have an .exe suffix: $EntryPath"
+    }
+    $EntryName = [IO.Path]::GetFileNameWithoutExtension($EntryPath)
+    if ([string]::IsNullOrWhiteSpace($EntryName)) {
+        throw "Candidate runtime Entry has no usable file name: $EntryPath"
+    }
+    $DataRootName = if ($EntryName.Equals(
+        'swawkit',
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        'swawkit'
+    } else {
+        $EntryName
+    }
+    $DataRoot = Join-Path $Runtime.Home "data\proj.$DataRootName"
+    if ([IO.Directory]::Exists($DataRoot) -or [IO.File]::Exists($DataRoot)) {
+        throw "Candidate Runtime DataRoot already exists: $DataRoot"
+    }
+    [void][IO.Directory]::CreateDirectory($DataRoot)
+    $EntryId = (
+        [Guid]::NewGuid().ToString('N') +
+        [Guid]::NewGuid().ToString('N')
+    ).ToLowerInvariant()
+    [IO.File]::WriteAllText(
+        (Join-Path $DataRoot 'entry.id'),
+        ($EntryId + "`n"),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $RuntimeRoot = Join-Path $DataRoot 'runtime'
+    $Published = Publish-ProjRuntimeReleaseSet `
+        -ReleaseSet $Runtime.ReleaseSet `
+        -RuntimeRoot $RuntimeRoot `
+        -ProjHome $Runtime.Home `
+        -CacheDataRoot (Join-Path $Runtime.Home 'data\proj_cache')
+
     [void][IO.Directory]::CreateDirectory((Split-Path -Path $EntryPath -Parent))
     [IO.File]::Copy($Runtime.LauncherPath, $EntryPath, $false)
+    $Runtime.DataRoot = $DataRoot
+    $Runtime.RuntimeRoot = $RuntimeRoot
+    $Runtime.RuntimeRelease = [string]$Published.Root
+    $Runtime.ReleaseId = [string]$Published.ReleaseId
+    $Runtime.EntryId = $EntryId
+    $Runtime.EntryPath = $EntryPath
     return $EntryPath
 }
 

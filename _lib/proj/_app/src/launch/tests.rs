@@ -2,6 +2,8 @@ use super::*;
 use std::collections::HashMap;
 use std::os::windows::ffi::OsStringExt;
 
+const TEST_ENTRY_ID: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 fn request(
     direct_argv: &[&str],
     launch_declarations: &[(&str, &str)],
@@ -15,6 +17,7 @@ fn request(
             LAUNCH_MODE_ENV.to_owned(),
             OsString::from(LaunchMode::Cli.as_env_value()),
         ),
+        (ENTRY_ID_ENV.to_owned(), OsString::from(TEST_ENTRY_ID)),
     ]);
     declarations.extend(
         launch_declarations
@@ -38,6 +41,7 @@ fn native_launcher_arguments_are_preserved() {
     .unwrap();
 
     assert_eq!(result.mode, LaunchMode::Cli);
+    assert_eq!(result.entry_id.as_str(), TEST_ENTRY_ID);
     assert_eq!(
         result.argv,
         [".demo", "", "a&b|c", "带 空格"].map(OsString::from)
@@ -106,7 +110,7 @@ fn current_native_launcher_protocol_is_required() {
         ],
     )
     .unwrap_err();
-    assert!(outdated.to_string().contains("expected '3'"));
+    assert!(outdated.to_string().contains("expected '4'"));
 }
 
 #[test]
@@ -171,6 +175,46 @@ fn entry_file_is_required_and_absolute() {
 
     let relative = request(&[], &[(ENTRY_FILE_ENV, "project.exe")]).unwrap_err();
     assert!(relative.to_string().contains("must be absolute"));
+}
+
+#[test]
+fn entry_id_is_required_and_canonical() {
+    let declarations = HashMap::from([
+        (
+            LAUNCH_PROTOCOL_ENV.to_owned(),
+            OsString::from(LAUNCH_PROTOCOL_VERSION),
+        ),
+        (
+            LAUNCH_MODE_ENV.to_owned(),
+            OsString::from(LaunchMode::Cli.as_env_value()),
+        ),
+        (
+            ENTRY_FILE_ENV.to_owned(),
+            OsString::from(r"C:\swaw\project.exe"),
+        ),
+    ]);
+    let missing = LaunchRequest::from_sources([], PathBuf::from(r"C:\work\project"), |name| {
+        declarations.get(name).cloned()
+    })
+    .unwrap_err();
+    assert!(missing.to_string().contains(ENTRY_ID_ENV));
+
+    for invalid in [
+        String::new(),
+        "A".repeat(64),
+        "a".repeat(63),
+        "g".repeat(64),
+    ] {
+        let error = request(
+            &[],
+            &[
+                (ENTRY_FILE_ENV, r"C:\swaw\project.exe"),
+                (ENTRY_ID_ENV, invalid.as_str()),
+            ],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains(ENTRY_ID_ENV), "{error}");
+    }
 }
 
 #[test]

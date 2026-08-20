@@ -11,7 +11,9 @@ use std::sync::{
 use tokio::sync::watch;
 
 use super::ServerState;
-use crate::host_runtime::{HOST_BOOT_HEADER, HOST_ENTRY_HEADER};
+use crate::host_runtime::{
+    HOST_BOOT_HEADER, HOST_ENTRY_HEADER, HOST_INSTANCE_HEADER, HOST_RELEASE_HEADER,
+};
 use crate::runtime_control::HostStatusDocument;
 
 const CONTROL_HEADER: &str = "x-swawkit-control";
@@ -103,11 +105,7 @@ pub(super) async fn get_host(State(state): State<ServerState>) -> Response {
                 .into_response();
         }
     };
-    match HostStatusDocument::new(
-        &state.host_runtime,
-        state.context.release_id,
-        selected_release_id,
-    ) {
+    match HostStatusDocument::new(&state.host_runtime, selected_release_id) {
         Ok(document) => Json(document).into_response(),
         Err(error) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -189,8 +187,16 @@ pub(super) async fn health(State(state): State<ServerState>) -> Response {
     );
     headers.insert(
         HeaderName::from_static(HOST_ENTRY_HEADER),
-        HeaderValue::from_str(&state.host_runtime.entry_key_sha256)
-            .expect("validated Host Entry identity"),
+        HeaderValue::from_str(&state.host_runtime.entry_id).expect("validated Host Entry ID"),
+    );
+    headers.insert(
+        HeaderName::from_static(HOST_INSTANCE_HEADER),
+        HeaderValue::from_str(&state.host_runtime.instance_key_sha256)
+            .expect("validated Host Instance key"),
+    );
+    headers.insert(
+        HeaderName::from_static(HOST_RELEASE_HEADER),
+        HeaderValue::from_str(&state.host_runtime.release_id).expect("validated Host Release ID"),
     );
     response
 }

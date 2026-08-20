@@ -1,6 +1,3 @@
-use std::ffi::OsString;
-use std::path::PathBuf;
-
 use axum::{
     Json,
     extract::State,
@@ -12,14 +9,12 @@ use serde::Deserialize;
 use crate::{
     catalog::{CatalogSnapshot, CommandNode, CommandSpace},
     command_check::COMMAND_CHECK_PROTOCOL,
-    context::EntryContext,
-    entry_runner::EntryRunSpec,
     facet::{Facet, FacetKind, FacetResolver, valid_facet_id},
     profile::EntryProfileStore,
+    runtime_service::RuntimeService,
     subject::{SUBJECT_COLLECTION_PROTOCOL, SubjectCollection, SubjectRef},
 };
 
-use super::command_run::CommandRuns;
 use super::{ServerState, api_error};
 
 mod collection;
@@ -48,10 +43,8 @@ struct FacetResolutionDocument {
 }
 
 struct ResolutionContext {
-    entry: EntryContext,
-    working_directory: PathBuf,
     catalog: CatalogSnapshot,
-    command_runs: CommandRuns,
+    runtime_service: RuntimeService,
 }
 
 type ApiResult<T> = Result<T, (StatusCode, Json<super::ApiError>)>;
@@ -79,25 +72,10 @@ pub(super) async fn post_facet_resolution(
 }
 
 async fn resolution_context(state: &ServerState) -> ApiResult<ResolutionContext> {
-    let data_root_session = state.data_root.clone();
-    let inspection = tokio::task::spawn_blocking(move || data_root_session.inspect())
-        .await
-        .map_err(|error| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("DataRoot inspection worker failed: {error}"),
-            )
-        })?
-        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    if inspection.claim.is_some() {
-        return Err(api_error(
-            StatusCode::CONFLICT,
-            "DataRoot ownership claim is required",
-        ));
-    }
+    let resolved = state.data_root.resolved();
     let entry = state.context.clone();
-    let command_runs = state.command_runs.clone();
-    let data_root = inspection.data_root;
+    let runtime_service = state.runtime_service.clone();
+    let data_root = resolved.path().to_path_buf();
     tokio::task::spawn_blocking(move || {
         let profile_state = EntryProfileStore::new(&entry.swawkit_home, &data_root).read();
         let catalog = CatalogSnapshot::discover(&entry, profile_state.ready()).map_err(|_| {
@@ -106,15 +84,9 @@ async fn resolution_context(state: &ServerState) -> ApiResult<ResolutionContext>
                 "catalog discovery failed",
             )
         })?;
-        let working_directory = profile_state
-            .ready()
-            .map(|profile| profile.binding().target_project_root().to_path_buf())
-            .unwrap_or_else(|| entry.invocation_directory.clone());
         Ok(ResolutionContext {
-            entry,
-            working_directory,
             catalog,
-            command_runs,
+            runtime_service,
         })
     })
     .await
@@ -329,16 +301,9 @@ fn resolve_command_document(
     returns: &str,
 ) -> ApiResult<FacetResolutionDocument> {
     exact_runnable_command(&context.catalog, address)?;
-    let mut argv = Vec::with_capacity(arguments.len() + 1);
-    argv.push(OsString::from(address));
-    argv.extend(arguments.iter().map(OsString::from));
     let output = context
-        .command_runs
-        .query(EntryRunSpec {
-            entry_file: context.entry.entry_file.clone(),
-            working_directory: context.working_directory.clone(),
-            argv,
-        })
+        .runtime_service
+        .query(address, arguments)
         .map_err(|_| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,

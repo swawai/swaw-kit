@@ -15,12 +15,15 @@ fn runs_read_history_and_latest_after_the_target_stops_being_runnable() {
         "@echo off\r\necho journal fixture\r\nexit /b 0\r\n",
     );
     fixture.bind();
-    let mut unexpected_claim =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     for _ in 0..3 {
         assert_eq!(
-            run_with_approver(&fixture.context, &argv(&[".demo"]), &mut unexpected_claim).unwrap(),
+            run(
+                &fixture.context,
+                &argv(&[".demo"]),
+                CommandProcessMode::InheritConsole,
+            )
+            .unwrap(),
             0
         );
     }
@@ -46,20 +49,29 @@ fn runs_read_history_and_latest_after_the_target_stops_being_runnable() {
         vec![".runs", ".demo", "--run", &run_id, "--after", "0"],
     ] {
         assert_eq!(
-            run_with_approver(&fixture.context, &argv(&arguments), &mut unexpected_claim).unwrap(),
+            run(
+                &fixture.context,
+                &argv(&arguments),
+                CommandProcessMode::InheritConsole,
+            )
+            .unwrap(),
             0
         );
     }
 
-    let missing = run_with_approver(
+    let missing = run(
         &fixture.context,
         &argv(&[".runs", ".missing"]),
-        &mut unexpected_claim,
+        CommandProcessMode::InheritConsole,
     )
     .unwrap_err();
     assert!(missing.to_string().contains("command not found"));
 
-    let removed =
-        run_with_approver(&fixture.context, &argv(&[".logs"]), &mut unexpected_claim).unwrap_err();
+    let removed = run(
+        &fixture.context,
+        &argv(&[".logs"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap_err();
     assert!(removed.to_string().contains("command not found: .logs"));
 }

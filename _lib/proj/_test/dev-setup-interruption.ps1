@@ -109,7 +109,7 @@ try {
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
-    $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
+    $DataRoot = [string]$Runtime.DataRoot
     $CancellationRoot = Join-Path $Runtime.Home '.swaw\cancel-tree'
     Add-ProjFixtureCommandManifest -CommandRoot $CancellationRoot
     $CancellationAction = Join-Path $CancellationRoot 'run.exe'

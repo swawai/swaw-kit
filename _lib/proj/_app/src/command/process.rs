@@ -1,4 +1,5 @@
 mod journaled;
+mod materialize;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -11,6 +12,7 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use super::{CommandError, CommandProcessMode, CommandResult, ProcessEnvironment};
 pub(crate) use journaled::run_process_journaled;
+pub(super) use materialize::materialize_isolated_command;
 
 #[derive(Debug, Default)]
 pub(crate) enum AdapterLaunch {
@@ -115,8 +117,33 @@ fn prepare_command(
     environment: &ProcessEnvironment,
     process_mode: CommandProcessMode,
 ) -> CommandResult<Command> {
+    let cmd_executable = if adapter == CommandAdapter::Cmd {
+        Some(ambient_command_processor()?)
+    } else {
+        None
+    };
+    let mut command = adapter_command(
+        adapter,
+        entry_path,
+        arguments,
+        adapter_launch,
+        cmd_executable.as_deref(),
+    )?;
+    command.current_dir(working_directory);
+    command.creation_flags(process_creation_flags(process_mode));
+    environment.apply(&mut command);
+    Ok(command)
+}
+
+fn adapter_command(
+    adapter: CommandAdapter,
+    entry_path: &Path,
+    arguments: &[OsString],
+    adapter_launch: &AdapterLaunch,
+    cmd_executable: Option<&Path>,
+) -> CommandResult<Command> {
     validate_adapter(adapter)?;
-    let mut command = match adapter {
+    Ok(match adapter {
         CommandAdapter::Exe => executable_command(entry_path, arguments),
         CommandAdapter::Native | CommandAdapter::Delegate => {
             native_command(adapter_launch, arguments)?
@@ -124,13 +151,13 @@ fn prepare_command(
         CommandAdapter::Bun => bun_command(adapter_launch, entry_path, arguments)?,
         CommandAdapter::Runtime => runtime_command(adapter_launch, arguments)?,
         CommandAdapter::Pwsh => pwsh_command(adapter_launch, entry_path, arguments)?,
-        CommandAdapter::Cmd => cmd_command(entry_path, arguments)?,
+        CommandAdapter::Cmd => cmd_command(
+            cmd_executable.expect("Cmd adapter must resolve its command processor"),
+            entry_path,
+            arguments,
+        )?,
         CommandAdapter::Core | CommandAdapter::Python => unreachable!(),
-    };
-    command.current_dir(working_directory);
-    command.creation_flags(process_creation_flags(process_mode));
-    environment.apply(&mut command);
-    Ok(command)
+    })
 }
 
 pub(super) fn process_creation_flags(process_mode: CommandProcessMode) -> u32 {
@@ -242,7 +269,11 @@ fn pwsh_command(
     Ok(command)
 }
 
-fn cmd_command(entry_path: &Path, arguments: &[OsString]) -> CommandResult<Command> {
+fn cmd_command(
+    executable: &Path,
+    entry_path: &Path,
+    arguments: &[OsString],
+) -> CommandResult<Command> {
     let marker = match arguments {
         [] => None,
         [marker] if marker.to_str().is_some_and(is_help_marker) => marker.to_str(),
@@ -253,16 +284,6 @@ fn cmd_command(entry_path: &Path, arguments: &[OsString]) -> CommandResult<Comma
             ));
         }
     };
-    let executable = env::var_os("ComSpec")
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| CommandError::new("the Windows command processor is unavailable"))?;
-    if !Path::new(&executable).is_file() {
-        return Err(CommandError::new(format!(
-            "the Windows command processor is unavailable: {}",
-            Path::new(&executable).display()
-        )));
-    }
-
     let command_line = match marker {
         Some(marker) => {
             format!("/d /s /v:off /c \"set \"{CMD_ENTRY_ENV}=\" & \"%{CMD_ENTRY_ENV}%\" {marker}\"")
@@ -274,6 +295,23 @@ fn cmd_command(entry_path: &Path, arguments: &[OsString]) -> CommandResult<Comma
     command.raw_arg(command_line);
     command.env(CMD_ENTRY_ENV, entry_path);
     Ok(command)
+}
+
+fn ambient_command_processor() -> CommandResult<PathBuf> {
+    let executable = env::var_os("ComSpec")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| CommandError::new("the Windows command processor is unavailable"))?;
+    validate_command_processor(Path::new(&executable))
+}
+
+fn validate_command_processor(executable: &Path) -> CommandResult<PathBuf> {
+    if !executable.is_file() {
+        return Err(CommandError::new(format!(
+            "the Windows command processor is unavailable: {}",
+            executable.display()
+        )));
+    }
+    Ok(executable.to_owned())
 }
 
 fn remove_inherited_adapter_environment(command: &mut Command) {

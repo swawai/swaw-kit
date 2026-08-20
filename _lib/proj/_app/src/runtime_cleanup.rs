@@ -124,13 +124,13 @@ impl RuntimeCleanupDocument {
 }
 
 pub fn execute_text(context: &EntryContext, apply: bool) -> Result<i32, String> {
-    let document = runtime_cleanup_engine::run(&context.swawkit_home, apply)?;
+    let document = runtime_cleanup_engine::run(context, apply)?;
     println!("{}", document.render_text());
     Ok(0)
 }
 
 pub fn execute_json(context: &EntryContext, apply: bool) -> Result<RuntimeCleanupDocument, String> {
-    runtime_cleanup_engine::run(&context.swawkit_home, apply)
+    runtime_cleanup_engine::run(context, apply)
 }
 
 pub fn write_json(

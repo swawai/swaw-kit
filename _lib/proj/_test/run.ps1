@@ -3,6 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 
+& (Join-Path $PSScriptRoot 'bootstrap-manager-data-root.ps1')
 & (Join-Path $PSScriptRoot 'launcher-build.ps1')
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 . (Join-Path $RepoRoot '_lib\proj\_bootstrap\layout.ps1')
@@ -15,11 +16,12 @@ $CandidateArguments = @{
     DevPath = $Layout.DevCandidatePath
 }
 & (Join-Path $PSScriptRoot 'launcher-runtime.ps1') @CandidateArguments
+& (Join-Path $PSScriptRoot 'launcher-long-path.ps1') `
+    -LauncherPath $CandidateArguments.LauncherPath
 & (Join-Path $PSScriptRoot 'smoke-entry.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'dev-setup-interruption.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'run-journal-abandonment.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'host-release.ps1') @CandidateArguments
-& (Join-Path $PSScriptRoot 'claim-entry.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'development-declaration.ps1')
 & (Join-Path $PSScriptRoot 'development-command-layout.ps1')
 & (Join-Path $PSScriptRoot 'context-modules.ps1')
@@ -31,7 +33,6 @@ $CandidateArguments = @{
 $TypeScriptTests = @(
     (Join-Path $RepoRoot '.swaw\proj\build\_lib\release-set.test.ts'),
     (Join-Path $RepoRoot '.swaw\proj\build\launcher\_lib\artifact.test.ts'),
-    (Join-Path $RepoRoot '.swaw\proj\publish\launcher\_lib\template.test.ts'),
     (Join-Path $RepoRoot '.swaw\proj\publish\_lib\runtime-release.test.ts')
 )
 $ProfilePath = Join-Path $RepoRoot 'data\proj.swawkit\_profile.json'

@@ -19,24 +19,24 @@ impl Fixture {
             "swawkit-runtime-cleanup-launch-{}-{sequence}",
             std::process::id()
         ));
-        let releases = root.join("_lib/proj/_bin/releases");
+        let data_root = root.join("data/proj.swawkit");
+        let runtime_root = data_root.join("runtime");
+        let releases = runtime_root.join("releases");
         let artifacts = [
             ("swawkit-proj.exe", b"core".as_slice()),
             ("swawkit-proj-host.exe", b"host".as_slice()),
             ("swawkit-proj-module.exe", b"module".as_slice()),
             ("swawkit-proj-dev.exe", b"dev".as_slice()),
         ];
-        let release_id = write_release(&releases, &artifacts);
-        fs::write(
-            root.join("_lib/proj/_bin/current"),
-            format!("{release_id}\n"),
-        )
-        .unwrap();
-        fs::create_dir_all(root.join("data")).unwrap();
+        let release_id = write_release(&root, &releases, &artifacts);
+        fs::write(runtime_root.join("current"), format!("{release_id}\n")).unwrap();
         let context = EntryContext {
             swawkit_home: root.clone(),
+            data_root,
+            runtime_root,
             entry_file: root.join("swawkit.exe"),
             entry_name: "swawkit".to_owned(),
+            entry_id: crate::entry::EntryId::parse(&"a".repeat(64)).unwrap(),
             invocation_directory: root.clone(),
             product_executable: releases.join(&release_id).join("swawkit-proj.exe"),
             release_id,

@@ -5,6 +5,7 @@ $script:ProjKernelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 function Get-ProjBootstrapLayout {
     $KernelRoot = $script:ProjKernelRoot
     $ProjHome = [IO.Path]::GetFullPath((Join-Path $KernelRoot '..\..'))
+    $ManagerDataRoot = Join-Path $ProjHome 'data\proj.swawkit'
     $CacheRoot = Join-Path $ProjHome 'data\proj_cache'
     $BootstrapDataRoot = Join-Path $CacheRoot 'bootstrap'
     $LauncherBuildRoot = Join-Path $BootstrapDataRoot 'build\launcher'
@@ -31,15 +32,14 @@ function Get-ProjBootstrapLayout {
         DevCandidatePath = Join-Path $DevBuildRoot (
             'release\swawkit-proj-dev.exe'
         )
-        RuntimeRoot = Join-Path $KernelRoot '_bin'
-        RuntimeCurrentPath = Join-Path $KernelRoot '_bin\current'
+        ManagerDataRoot = $ManagerDataRoot
+        ManagerEntryIdPath = Join-Path $ManagerDataRoot 'entry.id'
+        RuntimeRoot = Join-Path $ManagerDataRoot 'runtime'
+        RuntimeCurrentPath = Join-Path $ManagerDataRoot 'runtime\current'
         LauncherBuildPath = Join-Path $KernelRoot '_launcher\build.ps1'
         LauncherBuildRoot = $LauncherBuildRoot
         LauncherCandidatePath = Join-Path $LauncherBuildRoot (
-            'release\template.proj1.exe'
-        )
-        LauncherTemplatePath = Join-Path $ProjHome (
-            'Favorites\template.proj1.exe'
+            'release\swawkit.exe'
         )
         CacheRoot = $CacheRoot
         BootstrapDataRoot = $BootstrapDataRoot

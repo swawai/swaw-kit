@@ -23,26 +23,25 @@ use crate::{
     catalog::CatalogSnapshot,
     catalog_reader::CatalogReader,
     context::EntryContext,
-    data_root::{DataRootSession, DataRootSessionState},
+    data_root::DataRootSession,
     host_runtime::{HostRuntimeDocument, HostRuntimeIdentity},
     profile::{EntryProfileDocument, EntryProfileStore, ProfileUpdateError},
+    runtime_service::RuntimeService,
     web_assets,
 };
 
-mod claim;
 mod command_run;
 mod facet_resolution;
 mod host_control;
 mod runtime_control;
 
-use command_run::CommandRuns;
 use host_control::HostControl;
 
 #[derive(Clone)]
 struct ServerState {
     context: EntryContext,
     data_root: DataRootSession,
-    command_runs: CommandRuns,
+    runtime_service: RuntimeService,
     host_control: HostControl,
     host_runtime: HostRuntimeDocument,
 }
@@ -104,16 +103,16 @@ where
 
     notify_ready(host_runtime.clone())?;
 
-    let command_runs = CommandRuns::native();
+    let runtime_service = RuntimeService::native(context.clone(), data_root.clone());
     let host_control = HostControl::new();
     let shutdown_control = host_control.clone();
     let serve_result = axum::serve(
         listener,
-        router_with_runs(
+        router_with_runtime_service(
             authority,
             context,
             data_root,
-            command_runs.clone(),
+            runtime_service.clone(),
             host_runtime,
             host_control,
         ),
@@ -126,10 +125,14 @@ where
     })
     .await
     .map_err(|error| error.to_string());
-    let shutdown_result = tokio::task::spawn_blocking(move || command_runs.shutdown())
-        .await
-        .map_err(|error| format!("command worker shutdown failed: {error}"))
-        .and_then(|result| result);
+    let shutdown_result = tokio::task::spawn_blocking(move || {
+        runtime_service
+            .shutdown()
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Runtime service shutdown task failed: {error}"))
+    .and_then(|result| result);
 
     match (serve_result, shutdown_result) {
         (Ok(()), Ok(())) => Ok(()),
@@ -144,28 +147,33 @@ async fn bind_loopback() -> io::Result<TcpListener> {
 
 #[cfg(test)]
 fn router(expected_authority: String, context: EntryContext, data_root: DataRootSession) -> Router {
+    let runtime =
+        crate::host_runtime::HostRuntimeLocator::new(&context).expect("locate test Host runtime");
     let host_runtime = HostRuntimeDocument::new(
-        "0".repeat(64),
+        context.entry_id.as_str(),
+        runtime.instance_key().as_str(),
+        &context.release_id,
         "test-host",
         std::process::id(),
         format!("http://{expected_authority}/"),
     )
     .expect("test Host runtime");
-    router_with_runs(
+    let runtime_service = RuntimeService::native(context.clone(), data_root.clone());
+    router_with_runtime_service(
         expected_authority,
         context,
         data_root,
-        CommandRuns::native(),
+        runtime_service,
         host_runtime,
         HostControl::new(),
     )
 }
 
-fn router_with_runs(
+fn router_with_runtime_service(
     expected_authority: String,
     context: EntryContext,
     data_root: DataRootSession,
-    command_runs: CommandRuns,
+    runtime_service: RuntimeService,
     host_runtime: HostRuntimeDocument,
     host_control: HostControl,
 ) -> Router {
@@ -178,10 +186,6 @@ fn router_with_runs(
         .route(
             "/api/v2/facet-resolutions",
             axum::routing::post(facet_resolution::post_facet_resolution),
-        )
-        .route(
-            "/api/v2/data-root/claim",
-            get(claim::get_claim).post(claim::post_claim),
         )
         .route("/api/v2/profile", get(get_profile))
         .route("/api/v2/host", get(host_control::get_host))
@@ -219,7 +223,7 @@ fn router_with_runs(
         .with_state(ServerState {
             context,
             data_root,
-            command_runs,
+            runtime_service,
             host_control,
             host_runtime,
         })
@@ -381,34 +385,14 @@ fn api_error(status: StatusCode, error: impl Into<String>) -> (StatusCode, Json<
     )
 }
 
-async fn data_root_status(
-    state: &ServerState,
-) -> Result<DataRootSessionState, (StatusCode, Json<ApiError>)> {
-    let data_root = state.data_root.clone();
-    tokio::task::spawn_blocking(move || data_root.status())
-        .await
-        .map_err(|error| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("DataRoot worker failed: {error}"),
-            )
-        })?
-        .map_err(|error| api_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
-}
-
 async fn ready_profile_store(
     state: &ServerState,
 ) -> Result<EntryProfileStore, (StatusCode, Json<ApiError>)> {
-    match data_root_status(state).await? {
-        DataRootSessionState::Ready(resolved) => Ok(EntryProfileStore::new(
-            &state.context.swawkit_home,
-            resolved.path(),
-        )),
-        DataRootSessionState::ClaimRequired(_) => Err(api_error(
-            StatusCode::CONFLICT,
-            "DataRoot ownership claim is required",
-        )),
-    }
+    let resolved = state.data_root.resolved();
+    Ok(EntryProfileStore::new(
+        &state.context.swawkit_home,
+        resolved.path(),
+    ))
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
   "provides": [
     {
       "id": "launcher",
-      "contract": "swawkit.proj-build-launcher/v1"
+      "contract": "swawkit.proj-build-launcher/v2"
     }
   ]
 }

@@ -1,5 +1,4 @@
 import { createCatalog } from "./catalog-model.js";
-import { createDataRootClaimView } from "./claim.js";
 import {
   createSubjectFacetView,
   defaultCommandFacet,
@@ -28,20 +27,6 @@ import {
 
 const elements = {
   cliCommand: document.querySelector("#cli-command"),
-  claimConfirmation: document.querySelector("#claim-confirmation"),
-  claimConfirmationName: document.querySelector("#claim-confirmation-name"),
-  claimDataRoot: document.querySelector("#claim-data-root"),
-  claimEntryFile: document.querySelector("#claim-entry-file"),
-  claimEntryName: document.querySelector("#claim-entry-name"),
-  claimFeedback: document.querySelector("#claim-feedback"),
-  claimFileId: document.querySelector("#claim-file-id"),
-  claimForm: document.querySelector("#claim-form"),
-  claimKind: document.querySelector("#claim-kind"),
-  claimReason: document.querySelector("#claim-reason"),
-  claimSourceDataRoot: document.querySelector("#claim-source-data-root"),
-  claimState: document.querySelector("#claim-state"),
-  claimSubmit: document.querySelector("#claim-submit"),
-  claimVolumeId: document.querySelector("#claim-volume-id"),
   commandDetail: document.querySelector("#command-detail"),
   commandHelpPane: document.querySelector("#command-help-pane"),
   commandHelpAddress: document.querySelector("#command-help-address"),
@@ -367,12 +352,6 @@ contextTray = createContextTrayView(elements, {
   },
   storage: window.sessionStorage,
 });
-const dataRootClaim = createDataRootClaimView(elements, {
-  onClaimRequired() {
-    setLoadState("claim");
-  },
-  onReady: loadApplication,
-});
 runtimeControl = createRuntimeControlView(elements, {
   onRuntimeState(state) {
     explorer.setCommandState(".runtime", state);
@@ -385,7 +364,6 @@ function setLoadState(status, message = "") {
 
   elements.loadingState.hidden = !loading;
   elements.errorState.hidden = !failed;
-  elements.claimState.hidden = status !== "claim";
   elements.explorerFlow.hidden = status !== "ready";
   elements.explorerFrame.setAttribute("aria-busy", String(loading));
 
@@ -397,13 +375,13 @@ function setLoadState(status, message = "") {
 async function startApplication() {
   setLoadState("loading");
   try {
-    await dataRootClaim.ensureReady();
+    await loadApplication();
   } catch (error) {
     const message = error instanceof Error
       ? error.message
       : t(
         "读取 DataRoot 状态时发生未知错误。",
-        "An unknown error occurred while reading DataRoot state.",
+        "An unknown error occurred while loading the application.",
       );
     setLoadState("error", message);
   }

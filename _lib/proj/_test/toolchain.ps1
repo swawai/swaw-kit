@@ -15,13 +15,15 @@ function Assert-ProjShellToolchainTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+. (Join-Path $RepoRoot '_lib\proj\_bootstrap\layout.ps1')
+$Layout = Get-ProjBootstrapLayout
 if ([string]::IsNullOrWhiteSpace($DevPath)) {
     $Current = [IO.File]::ReadAllText(
-        (Join-Path $RepoRoot '_lib\proj\_bin\current'),
+        $Layout.RuntimeCurrentPath,
         [Text.Encoding]::UTF8
     ).TrimEnd("`r", "`n")
-    $DevPath = Join-Path $RepoRoot (
-        "_lib\proj\_bin\releases\$Current\swawkit-proj-dev.exe"
+    $DevPath = Join-Path $Layout.RuntimeRoot (
+        "releases\$Current\swawkit-proj-dev.exe"
     )
 }
 $DevPath = [IO.Path]::GetFullPath($DevPath)

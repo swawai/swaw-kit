@@ -16,6 +16,7 @@ function Assert-ProjAppBuildTest {
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
 . (Join-Path $RepoRoot '_lib\proj\_bootstrap\toolchain.ps1')
+$Layout = Get-ProjBootstrapLayout
 $BuildScript = Join-Path $RepoRoot '_lib\proj\_app\build.ps1'
 $ModuleManifest = Join-Path $RepoRoot '_lib\proj\system\module\Cargo.toml'
 $DevManifest = Join-Path $RepoRoot '_lib\proj\system\dev\Cargo.toml'
@@ -26,7 +27,7 @@ $FakeCargo = Join-Path $TemporaryRoot 'cargo.cmd'
 $TargetRoot = Join-Path $TemporaryRoot 'target with spaces'
 $ModuleTargetRoot = Join-Path $TemporaryRoot 'module target with spaces'
 $DevTargetRoot = Join-Path $TemporaryRoot 'dev target with spaces'
-$RuntimePath = Join-Path $RepoRoot '_lib\proj\_bin\current'
+$RuntimePath = $Layout.RuntimeCurrentPath
 $RuntimeHash = if ([IO.File]::Exists($RuntimePath)) {
     (Get-FileHash -LiteralPath $RuntimePath -Algorithm SHA256).Hash
 } else {

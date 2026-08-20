@@ -21,7 +21,7 @@ $TemporaryRoot = Join-Path $RepoRoot (
 )
 $ProjHome = Join-Path $TemporaryRoot 'home'
 $CacheRoot = Join-Path $ProjHome 'data\proj_cache'
-$RuntimeRoot = Join-Path $ProjHome '_lib\proj\_bin'
+$RuntimeRoot = Join-Path $ProjHome 'arbitrary\runtime-storage'
 $JunctionPath = Join-Path $TemporaryRoot 'junction-runtime\releases'
 $PreviousCore = Join-Path $TemporaryRoot 'previous\swawkit-proj.exe'
 $PreviousHost = Join-Path $TemporaryRoot 'previous\swawkit-proj-host.exe'
@@ -61,6 +61,7 @@ try {
         -CommandRuntimeId $CommandRuntimeId
     $PreviousRelease = Publish-ProjRuntimeReleaseSet `
         -ReleaseSet $PreviousSet `
+        -RuntimeRoot $RuntimeRoot `
         -ProjHome $ProjHome `
         -CacheDataRoot $CacheRoot
 
@@ -117,6 +118,7 @@ try {
         -CommandRuntimeId $CommandRuntimeId
     $Published = Publish-ProjRuntimeReleaseSet `
         -ReleaseSet $ReleaseSet `
+        -RuntimeRoot $RuntimeRoot `
         -ProjHome $ProjHome `
         -CacheDataRoot $CacheRoot
     $ReleaseRoot = Join-Path (Join-Path $RuntimeRoot 'releases') $ReleaseSet.ReleaseId
@@ -129,13 +131,16 @@ try {
                 [Text.Encoding]::UTF8
             ) -ceq ([string]$ReleaseSet.ReleaseId + "`n") -and
             [IO.File]::Exists((Join-Path $ReleaseRoot 'manifest.json')) -and
+            -not [IO.Directory]::Exists((Join-Path $ProjHome '_lib\proj\_bin')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj.exe')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-host.exe')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-module.exe')) -and
             -not [IO.File]::Exists((Join-Path $RuntimeRoot 'swawkit-proj-dev.exe'))
         ) `
         -Message 'a complete Release Set was not atomically selected beside a running old release'
-    $Selected = Read-ProjSelectedRuntimeReleaseSet -RuntimeRoot $RuntimeRoot
+    $Selected = Read-ProjSelectedRuntimeReleaseSet `
+        -RuntimeRoot $RuntimeRoot `
+        -ProjHome $ProjHome
     Assert-ProjAppPublishTest `
         -Condition ([string]$Selected.ReleaseId -ceq [string]$ReleaseSet.ReleaseId) `
         -Message 'the selected Release Set did not pass the Bootstrap read contract'
@@ -157,7 +162,8 @@ try {
             -ReleaseRoot (Join-Path (
                 Join-Path $JunctionRuntime 'releases'
             ) $ReleaseSet.ReleaseId) `
-            -ReleaseId $ReleaseSet.ReleaseId |
+            -ReleaseId $ReleaseSet.ReleaseId `
+            -ProjHome $ProjHome |
             Out-Null
         throw 'a Release Set behind a parent junction unexpectedly passed validation'
     } catch {
@@ -169,6 +175,7 @@ try {
     $Before = (Get-Item -LiteralPath $ReleaseRoot).CreationTimeUtc
     [void](Publish-ProjRuntimeReleaseSet `
         -ReleaseSet $ReleaseSet `
+        -RuntimeRoot $RuntimeRoot `
         -ProjHome $ProjHome `
         -CacheDataRoot $CacheRoot)
     Assert-ProjAppPublishTest `
@@ -184,7 +191,9 @@ try {
     $UnexpectedMember = Join-Path $ReleaseRoot 'unexpected.bin'
     [IO.File]::WriteAllText($UnexpectedMember, 'unexpected')
     try {
-        Read-ProjSelectedRuntimeReleaseSet -RuntimeRoot $RuntimeRoot |
+        Read-ProjSelectedRuntimeReleaseSet `
+            -RuntimeRoot $RuntimeRoot `
+            -ProjHome $ProjHome |
             Out-Null
         throw 'a Release Set with an unexpected member passed validation'
     } catch {
@@ -216,7 +225,8 @@ try {
     try {
         Read-ProjRuntimeReleaseSet `
             -ReleaseRoot $OversizedManifestRoot `
-            -ReleaseId $OversizedManifestId |
+            -ReleaseId $OversizedManifestId `
+            -ProjHome $ProjHome |
             Out-Null
         throw 'an oversized runtime manifest unexpectedly passed validation'
     } catch {
@@ -247,7 +257,8 @@ try {
     )
     try {
         Read-ProjSelectedRuntimeReleaseSet `
-            -RuntimeRoot $RuntimeRoot |
+            -RuntimeRoot $RuntimeRoot `
+            -ProjHome $ProjHome |
             Out-Null
         throw 'a Release Set with a stale content identity unexpectedly passed validation'
     } catch {

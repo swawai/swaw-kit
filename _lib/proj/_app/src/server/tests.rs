@@ -14,12 +14,12 @@ use tower::ServiceExt;
 use super::*;
 use crate::{
     context::EntryContext,
-    data_root::{DataRootClaim, DataRootSession, ResolveDataRootRequest, resolve_data_root},
+    data_root::{DataRootSession, ResolveDataRootRequest, resolve_data_root},
+    entry::EntryId,
     profile::EntryProfileStore,
 };
 
 mod catalog;
-mod claim;
 mod command_run;
 mod command_run_native;
 mod facet_resolution;
@@ -29,9 +29,13 @@ mod runtime;
 const AUTHORITY: &str = "127.0.0.1:43127";
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
-fn test_host_runtime() -> HostRuntimeDocument {
+fn test_host_runtime(context: &EntryContext) -> HostRuntimeDocument {
+    let runtime =
+        crate::host_runtime::HostRuntimeLocator::new(context).expect("locate test Host runtime");
     HostRuntimeDocument::new(
-        "0".repeat(64),
+        context.entry_id.as_str(),
+        runtime.instance_key().as_str(),
+        &context.release_id,
         "test-host",
         std::process::id(),
         format!("http://{AUTHORITY}/"),
@@ -49,11 +53,13 @@ impl Fixture {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root =
             std::env::temp_dir().join(format!("swawkit-server-{}-{sequence}", std::process::id()));
-        let runtime_root = root.join("home/_lib/proj/_bin");
+        let data_root = root.join("home/data/proj.swawkit");
+        let runtime_root = data_root.join("runtime");
         fs::create_dir_all(runtime_root.join("releases")).expect("create fixture root");
         fs::create_dir_all(root.join("home/_lib/proj/system")).expect("create System root");
         fs::create_dir_all(root.join("home/_lib/proj/modules")).expect("create swaw Module root");
         let release_id = crate::runtime_release::tests::write_release(
+            &root.join("home"),
             &runtime_root.join("releases"),
             &[
                 ("swawkit-proj.exe", b"core"),
@@ -64,18 +70,15 @@ impl Fixture {
         );
         fs::write(runtime_root.join("current"), format!("{release_id}\n"))
             .expect("write Runtime selector");
-        fs::write(root.join("swawkit.exe"), b"fixture").expect("create fixture entry");
+        fs::write(root.join("home/swawkit.exe"), b"fixture").expect("create fixture entry");
+        EntryId::create_once(&data_root).expect("create fixture Entry ID");
         let fixture = Self { root, release_id };
         let context = fixture.context();
-        let mut approve = |_claim: &DataRootClaim| Ok(true);
-        resolve_data_root(
-            ResolveDataRootRequest {
-                swawkit_home: &context.swawkit_home,
-                entry_file: &context.entry_file,
-            },
-            &mut approve,
-        )
-        .expect("bind fixture DataRoot");
+        resolve_data_root(ResolveDataRootRequest {
+            swawkit_home: &context.swawkit_home,
+            entry_file: &context.entry_file,
+        })
+        .expect("open fixture DataRoot");
         fixture
     }
 
@@ -93,14 +96,18 @@ impl Fixture {
     }
 
     fn context(&self) -> EntryContext {
+        let data_root = self.root.join("home/data/proj.swawkit");
         EntryContext {
             swawkit_home: self.root.join("home"),
-            entry_file: self.root.join("swawkit.exe"),
+            entry_id: EntryId::read(&data_root).expect("read fixture Entry ID"),
+            data_root,
+            runtime_root: self.root.join("home/data/proj.swawkit/runtime"),
+            entry_file: self.root.join("home/swawkit.exe"),
             entry_name: "swawkit".to_owned(),
             invocation_directory: self.root.clone(),
             product_executable: self
                 .root
-                .join("home/_lib/proj/_bin/releases")
+                .join("home/data/proj.swawkit/runtime/releases")
                 .join(&self.release_id)
                 .join("swawkit-proj-host.exe"),
             release_id: self.release_id.clone(),
@@ -114,12 +121,6 @@ impl Fixture {
             entry_file: &context.entry_file,
         })
         .expect("pin fixture Entry for DataRoot session")
-    }
-
-    fn replace_entry(&self, content: &[u8]) {
-        let path = self.context().entry_file;
-        fs::remove_file(&path).expect("remove fixture entry");
-        fs::write(path, content).expect("replace fixture entry");
     }
 
     fn profile_store(&self) -> EntryProfileStore {
@@ -179,9 +180,35 @@ async fn exposes_status_and_requires_explicit_authority_for_shutdown() {
         crate::runtime_control::HOST_STATUS_PROTOCOL
     );
     assert_eq!(document["pid"], std::process::id());
+    assert_eq!(document["entryId"], fixture.context().entry_id.as_str());
+    assert!(
+        document["instanceKeySha256"]
+            .as_str()
+            .is_some_and(|value| value.len() == 64)
+    );
     assert_eq!(document["runningReleaseId"], fixture.release_id);
     assert_eq!(document["selectedReleaseId"], fixture.release_id);
     assert_eq!(document["updateAvailable"], false);
+    let fields = document
+        .as_object()
+        .expect("Host status object")
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        fields,
+        std::collections::BTreeSet::from([
+            "bootId",
+            "entryId",
+            "instanceKeySha256",
+            "pid",
+            "protocol",
+            "runningReleaseId",
+            "selectedReleaseId",
+            "updateAvailable",
+            "url",
+        ])
+    );
 
     let unauthorized = send(
         app.clone(),
@@ -301,7 +328,6 @@ async fn serves_only_the_declared_local_surface() {
             "/assets/styles/runtime-control.css",
             "text/css; charset=utf-8",
         ),
-        ("/assets/styles/claim.css", "text/css; charset=utf-8"),
         ("/assets/styles/command-run.css", "text/css; charset=utf-8"),
         (
             "/assets/styles/run-projection.css",
@@ -352,7 +378,6 @@ async fn serves_only_the_declared_local_surface() {
             "/assets/runtime-control.js",
             "text/javascript; charset=utf-8",
         ),
-        ("/assets/claim.js", "text/javascript; charset=utf-8"),
         (
             "/assets/command-run-client.js",
             "text/javascript; charset=utf-8",

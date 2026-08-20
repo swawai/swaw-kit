@@ -5,9 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sha2::{Digest, Sha256};
 use swawkit_proj::context::EntryContext;
-use swawkit_proj::data_root::{
-    ClaimApprovalError, DataRootClaim, ResolveDataRootRequest, read_entry_record, resolve_data_root,
-};
+use swawkit_proj::data_root::{ResolveDataRootRequest, resolve_data_root};
+use swawkit_proj::entry::EntryId;
 use swawkit_proj::profile::{EntryProfileRecord, EntryProfileStore};
 
 use super::*;
@@ -18,7 +17,7 @@ mod runs;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
-fn write_runtime_fixture(root: &Path) -> String {
+fn write_runtime_fixture(root: &Path, runtime_root: &Path) -> String {
     let bootstrap = root.join("data/proj_cache/bootstrap");
     let tool_root = bootstrap.join("fixture-tools");
     fs::create_dir_all(&tool_root).expect("create Framework Command Runtime tools");
@@ -93,7 +92,7 @@ fn write_runtime_fixture(root: &Path) -> String {
         ]);
     }
     let release_id = format!("{:x}", Sha256::digest(identity.join("\n").as_bytes()));
-    let release = root.join("_lib/proj/_bin/releases").join(&release_id);
+    let release = runtime_root.join("releases").join(&release_id);
     fs::create_dir_all(&release).expect("create Runtime release");
     for (name, bytes) in artifacts {
         fs::write(release.join(name), bytes).expect("write Runtime artifact");
@@ -133,7 +132,7 @@ impl Fixture {
         let swaw_module_root = command_root.join("modules");
         let project_root = root.join("project");
         let project_module_root = project_root.join(".swaw");
-        let entry_file = root.join("launchers/fixture.exe");
+        let entry_file = root.join("fixture.exe");
         for directory in [
             &system_root,
             &swaw_module_root,
@@ -144,20 +143,21 @@ impl Fixture {
             fs::create_dir_all(directory).expect("create fixture directory");
         }
         fs::write(&entry_file, "fixture").expect("write entry file");
-        let release_id = write_runtime_fixture(&root);
-        let product_executable = root
-            .join("_lib/proj/_bin/releases")
+        let runtime_root = root.join("runtime-fixture");
+        let release_id = write_runtime_fixture(&root, &runtime_root);
+        let product_executable = runtime_root
+            .join("releases")
             .join(&release_id)
             .join("swawkit-proj.exe");
-        fs::write(
-            root.join("_lib/proj/_bin/current"),
-            format!("{release_id}\n"),
-        )
-        .expect("write Runtime selector fixture");
+        fs::write(runtime_root.join("current"), format!("{release_id}\n"))
+            .expect("write Runtime selector fixture");
         let context = EntryContext {
             swawkit_home: root.clone(),
+            data_root: root.join("data/proj.fixture"),
+            runtime_root,
             entry_file,
             entry_name: "fixture".to_owned(),
+            entry_id: EntryId::parse(&"c".repeat(64)).expect("fixture Entry ID"),
             invocation_directory: project_root.clone(),
             product_executable,
             release_id,
@@ -169,19 +169,32 @@ impl Fixture {
         }
     }
 
+    fn with_entry_runtime() -> Self {
+        let mut fixture = Self::new();
+        fixture.initialize();
+        let runtime_root = fixture.data_root().join("runtime");
+        let release_id = write_runtime_fixture(&fixture.root, &runtime_root);
+        fs::write(runtime_root.join("current"), format!("{release_id}\n"))
+            .expect("write Entry Runtime selector fixture");
+        fixture.context.runtime_root = runtime_root.clone();
+        fixture.context.product_executable = runtime_root
+            .join("releases")
+            .join(&release_id)
+            .join("swawkit-proj.exe");
+        fixture.context.release_id = release_id;
+        fixture
+    }
+
     fn data_root(&self) -> PathBuf {
         self.root.join("data/proj.fixture")
     }
 
     fn bind(&self) {
-        let mut approve = |_claim: &DataRootClaim| Ok(true);
-        let resolved = resolve_data_root(
-            ResolveDataRootRequest {
-                swawkit_home: &self.context.swawkit_home,
-                entry_file: &self.context.entry_file,
-            },
-            &mut approve,
-        )
+        self.initialize();
+        let resolved = resolve_data_root(ResolveDataRootRequest {
+            swawkit_home: &self.context.swawkit_home,
+            entry_file: &self.context.entry_file,
+        })
         .expect("resolve fixture DataRoot");
         let mut profile = EntryProfileRecord::default();
         profile.target_project_root = self
@@ -192,6 +205,17 @@ impl Fixture {
         EntryProfileStore::new(&self.context.swawkit_home, resolved.path())
             .save(profile)
             .expect("save fixture profile");
+    }
+
+    fn initialize(&self) {
+        fs::create_dir_all(self.data_root()).expect("create fixture DataRoot");
+        if !self.data_root().join("entry.id").exists() {
+            fs::write(
+                self.data_root().join("entry.id"),
+                format!("{}\n", self.context.entry_id),
+            )
+            .expect("write fixture Entry ID");
+        }
     }
 
     fn command(&self, address: &str, entry_name: &str, body: &str) -> PathBuf {
@@ -230,7 +254,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn protocol_help_initializes_the_entry_without_requiring_an_entry_profile() {
+fn protocol_help_uses_an_explicitly_initialized_entry_without_requiring_a_profile() {
     let fixture = Fixture::new();
     fixture.command("", "run.ps1", "exit 0");
     fs::create_dir_all(fixture.context.system_root().join("_help")).unwrap();
@@ -239,18 +263,17 @@ fn protocol_help_initializes_the_entry_without_requiring_an_entry_profile() {
         "Root help",
     )
     .unwrap();
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
+    fixture.initialize();
 
-    let exit_code =
-        run_with_approver(&fixture.context, &argv(&["--help"]), &mut unexpected).unwrap();
+    let exit_code = run(
+        &fixture.context,
+        &argv(&["--help"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap();
 
     assert_eq!(exit_code, 0);
-    assert!(
-        read_entry_record(&fixture.data_root())
-            .valid_record()
-            .is_some()
-    );
+    assert!(fixture.data_root().join("entry.id").is_file());
 }
 
 #[test]
@@ -264,68 +287,62 @@ fn local_help_is_read_only_but_command_owned_help_obeys_command_exit_status() {
         "run.cmd",
         "@echo off\r\nif \"%~1\"==\"--help\" exit /b 13\r\nexit /b 99\r\n",
     );
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
+    fixture.initialize();
 
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".help", ".local"]),
-            &mut unexpected,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
     );
     fixture.bind();
-    let exit_code = run_with_approver(
+    let exit_code = run(
         &fixture.context,
         &argv(&[".local", "--help"]),
-        &mut unexpected,
+        CommandProcessMode::InheritConsole,
     )
     .unwrap();
     assert_eq!(exit_code, 99);
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".owned", "--help"]),
-            &mut unexpected,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         13
     );
-    let unavailable = run_with_approver(
+    let unavailable = run(
         &fixture.context,
         &argv(&[".help", ".owned"]),
-        &mut unexpected,
+        CommandProcessMode::InheritConsole,
     )
     .unwrap_err();
     assert!(unavailable.to_string().contains("not enabled"));
-    assert!(
-        read_entry_record(&fixture.data_root())
-            .valid_record()
-            .is_some()
-    );
+    assert!(fixture.data_root().join("entry.id").is_file());
 }
 
 #[test]
-fn command_execution_creates_and_reuses_the_entry_data_root() {
+fn command_execution_reuses_the_initialized_entry_data_root() {
     let fixture = Fixture::new();
     fixture.command(".tool", "run.cmd", "@exit /b 29\r\n");
     fixture.bind();
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     for _ in 0..2 {
         assert_eq!(
-            run_with_approver(&fixture.context, &argv(&[".tool"]), &mut unexpected,).unwrap(),
+            run(
+                &fixture.context,
+                &argv(&[".tool"]),
+                CommandProcessMode::InheritConsole,
+            )
+            .unwrap(),
             29
         );
     }
-    assert!(
-        read_entry_record(&fixture.data_root())
-            .valid_record()
-            .is_some()
-    );
+    assert!(fixture.data_root().join("entry.id").is_file());
 }
 
 #[test]
@@ -333,116 +350,50 @@ fn invalid_or_unsupported_commands_fail_before_process_execution() {
     let fixture = Fixture::new();
     fixture.command(".future", "run.ts", "");
     fixture.bind();
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
-    let missing =
-        run_with_approver(&fixture.context, &argv(&[".missing"]), &mut unexpected).unwrap_err();
+    let missing = run(
+        &fixture.context,
+        &argv(&[".missing"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap_err();
     assert!(missing.to_string().contains("command not found"));
-    let product_owned_script =
-        run_with_approver(&fixture.context, &argv(&[".future"]), &mut unexpected).unwrap_err();
+    let product_owned_script = run(
+        &fixture.context,
+        &argv(&[".future"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap_err();
     assert!(
         product_owned_script
             .to_string()
             .contains("run.ts is restricted to Module commands")
     );
-    assert!(
-        read_entry_record(&fixture.data_root())
-            .valid_record()
-            .is_some()
-    );
+    assert!(fixture.data_root().join("entry.id").is_file());
 }
 
 #[test]
-fn an_unbound_candidate_requires_approval_before_execution() {
-    let fixture = Fixture::new();
-    fixture.command(".tool", "run.cmd", "@exit /b 0\r\n");
-    fs::create_dir_all(fixture.data_root()).unwrap();
-    let mut saw_claim = false;
-    let mut approve = |claim: &DataRootClaim| {
-        saw_claim = claim.data_root == fixture.data_root() && claim.entry_name == "fixture";
-        Ok(true)
-    };
-
-    let error = run_with_approver(&fixture.context, &argv(&[".tool"]), &mut approve).unwrap_err();
-    assert!(error.to_string().contains("no profile"));
-    assert!(saw_claim);
-    assert!(
-        read_entry_record(&fixture.data_root())
-            .valid_record()
-            .is_some()
-    );
-
-    fixture.bind();
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
-    assert_eq!(
-        run_with_approver(&fixture.context, &argv(&[".tool"]), &mut unexpected,).unwrap(),
-        0
-    );
-}
-
-#[test]
-fn ordinary_cli_rejects_a_claim_immediately_with_dedicated_commands() {
+fn unmanaged_and_legacy_candidates_fail_closed_before_execution() {
     let fixture = Fixture::new();
     fixture.command(".tool", "run.cmd", "@exit /b 0\r\n");
     fs::create_dir_all(fixture.data_root()).unwrap();
 
-    let mut reject = |pending: &DataRootClaim| Err(claim::rejection(&fixture.context, pending));
-    let error = run_with_approver(&fixture.context, &argv(&[".tool"]), &mut reject)
-        .expect_err("ordinary command must not claim DataRoot");
-    let message = error.to_string();
-    assert!(message.contains("Status: claimRequired"));
-    assert!(message.contains("Review: fixture .entry/claim"));
-    assert!(message.contains("Apply: fixture .entry/claim --yes"));
-    assert!(
-        read_entry_record(&fixture.data_root())
-            .valid_record()
-            .is_none()
-    );
-}
+    let unmanaged = run(
+        &fixture.context,
+        &argv(&[".tool"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap_err();
+    assert!(unmanaged.to_string().contains("entry.id is missing"));
 
-#[test]
-fn dedicated_claim_preview_is_read_only_and_yes_applies_it() {
-    let fixture = Fixture::new();
-    fixture.core_command(".entry/claim", "entry.claim");
-    fs::create_dir_all(fixture.data_root()).unwrap();
-    let record_path = fixture.data_root().join("_entry.json");
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim callback was not expected"));
-
-    assert_eq!(
-        run_with_approver(&fixture.context, &argv(&[".entry/claim"]), &mut unexpected,).unwrap(),
-        0
-    );
-    assert!(!record_path.exists());
-    assert!(!fixture.root.join("data/_proj-entry.lock").exists());
-
-    assert_eq!(
-        run_with_approver(
-            &fixture.context,
-            &argv(&[".entry/claim", "--yes"]),
-            &mut unexpected,
-        )
-        .unwrap(),
-        0
-    );
-    assert!(
-        read_entry_record(&fixture.data_root())
-            .valid_record()
-            .is_some()
-    );
-}
-
-#[test]
-fn help_shape_keeps_non_help_invocations_for_the_executor() {
-    assert_eq!(help_target(&argv(&[".tool"])).unwrap(), None);
-    assert_eq!(help_target(&argv(&[".tool", "value"])).unwrap(), None);
-    assert_eq!(help_target(&argv(&[".tool", "--help"])).unwrap(), None);
-    assert_eq!(
-        help_target(&argv(&[".help", ".tool"])).unwrap(),
-        Some(".tool".to_owned())
-    );
+    fs::write(fixture.data_root().join("_entry.json"), b"legacy").unwrap();
+    let legacy = run(
+        &fixture.context,
+        &argv(&[".tool"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap_err();
+    assert!(legacy.to_string().contains("explicit migration"));
 }
 
 fn argv(values: &[&str]) -> Vec<OsString> {

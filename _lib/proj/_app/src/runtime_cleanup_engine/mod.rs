@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::context::EntryContext;
 use crate::runtime_cleanup::{
     RuntimeCleanupAction, RuntimeCleanupDocument, RuntimeCleanupItem, RuntimeCleanupState,
 };
@@ -15,9 +16,9 @@ use process::InUseReleases;
 
 static NEXT_TOMBSTONE: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) fn run(swawkit_home: &Path, apply: bool) -> Result<RuntimeCleanupDocument, String> {
-    let _lock = PublicationLock::acquire(swawkit_home)?;
-    let store = RuntimeReleaseStore::open(swawkit_home)
+pub(crate) fn run(context: &EntryContext, apply: bool) -> Result<RuntimeCleanupDocument, String> {
+    let _lock = PublicationLock::acquire(&context.swawkit_home)?;
+    let store = RuntimeReleaseStore::open(&context.runtime_root, &context.swawkit_home)
         .map_err(|error| format!("cannot open Runtime Release storage: {error}"))?;
     let selected = store
         .selected_release_id()

@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { publishBuildArtifact, readReadyBuildArtifact } from "./artifact.ts";
 
 const roots: string[] = [];
@@ -26,7 +26,7 @@ test("publishes and reads one coherent Launcher Provider snapshot", async () => 
     inputRevision: `sha256-${published.sha256}`,
     exports: [{
       id: "launcher",
-      contract: "swawkit.proj-build-launcher/v1",
+      contract: "swawkit.proj-build-launcher/v2",
     }],
   });
 
@@ -63,6 +63,19 @@ test("a failed publication revokes Ready without replacing the previous export",
   expect(failed.status).toBe("unavailable");
 });
 
+test("the native build contract owns the complete Launcher input set", async () => {
+  const contractPath = resolve(
+    import.meta.dir,
+    "../../../../../_lib/proj/_launcher/build.json",
+  );
+  const contract = JSON.parse(await readFile(contractPath, "utf8"));
+  expect(contract).toMatchObject({
+    schema: "swawkit.proj-launcher-build/v2",
+    sources: ["launcher.c", "layout.c", "path.c"],
+    headers: ["layout.h", "path.h"],
+  });
+});
+
 async function makeFixture() {
   const root = await mkdtemp(join(tmpdir(), "swawkit-launcher-artifact-"));
   roots.push(root);
@@ -72,6 +85,6 @@ async function makeFixture() {
   return {
     dataRoot,
     commandRoot,
-    candidate: join(commandRoot, "work", "launcher", "release", "template.proj1.exe"),
+    candidate: join(commandRoot, "work", "launcher", "release", "swawkit.exe"),
   };
 }

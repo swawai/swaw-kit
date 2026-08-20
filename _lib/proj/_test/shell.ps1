@@ -127,7 +127,7 @@ try {
     $script:ProjShellEntry = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
-    $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
+    $DataRoot = [string]$Runtime.DataRoot
 
     foreach ($Name in $PoisonedAdapterEnvironment.Keys) {
         $SavedAdapterEnvironment[$Name] = [Environment]::GetEnvironmentVariable(

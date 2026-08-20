@@ -20,6 +20,7 @@ const MAX_ARTIFACT_BYTES = 512 * 1024 * 1024;
 
 export async function publishRuntimeReleaseSet(
   projHome: string,
+  dataRoot: string,
   cacheDataRoot: string,
   release: BuildReleaseSet,
 ): Promise<string> {
@@ -27,12 +28,8 @@ export async function publishRuntimeReleaseSet(
     throw new Error("the application Release Set ID does not match its artifacts");
   }
   await validateCommandRuntime(projHome, release.commandRuntimeId);
-  const projRoot = await requireControlledDirectory(
-    projHome,
-    ["_lib", "proj"],
-    "Proj root",
-  );
-  const runtimeRoot = await ensureControlledDirectory(projRoot, ["_bin"], "runtime root");
+  const ownerDataRoot = await requireControlledDirectory(dataRoot, [], "entry DataRoot");
+  const runtimeRoot = await ensureControlledDirectory(ownerDataRoot, ["runtime"], "runtime root");
   const cacheRoot = await ensureControlledDirectory(cacheDataRoot, [], "shared cache");
   const locks = await ensureControlledDirectory(cacheRoot, ["locks"], "runtime locks");
   using lock = await acquireExclusiveFileLock(join(locks, "release-publish.lock"), 120_000);

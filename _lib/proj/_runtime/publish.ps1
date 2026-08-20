@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory = $true)][string]$CandidateModulePath,
     [Parameter(Mandatory = $true)][string]$CandidateDevPath,
     [Parameter(Mandatory = $true)][string]$CommandRuntimeId,
+    [Parameter(Mandatory = $true)][string]$RuntimeRoot,
     [Parameter(Mandatory = $true)][string]$ProjHome,
     [Parameter(Mandatory = $true)][string]$CandidateRoot
 )
@@ -42,5 +43,6 @@ $ReleaseSet = New-ProjRuntimeReleaseSetFromFiles `
     -CommandRuntimeId $CommandRuntimeId
 Publish-ProjRuntimeReleaseSet `
     -ReleaseSet $ReleaseSet `
+    -RuntimeRoot $RuntimeRoot `
     -ProjHome $ProjHome `
     -CacheDataRoot (Join-Path $ProjHome 'data\proj_cache') | Out-Null

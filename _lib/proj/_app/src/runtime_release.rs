@@ -26,6 +26,7 @@ const MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeReleaseStore {
+    swawkit_home: PathBuf,
     runtime_root: PathBuf,
     releases_root: PathBuf,
 }
@@ -62,18 +63,14 @@ struct ArtifactRecord {
 }
 
 impl RuntimeReleaseStore {
-    pub fn open(swawkit_home: &Path) -> io::Result<Self> {
+    pub fn open(runtime_root: &Path, swawkit_home: &Path) -> io::Result<Self> {
         regular_directory(swawkit_home, "Swaw Kit Home")?;
-        let library_root = swawkit_home.join("_lib");
-        regular_directory(&library_root, "Swaw Kit library root")?;
-        let proj_root = library_root.join("proj");
-        regular_directory(&proj_root, "Proj root")?;
-        let runtime_root = proj_root.join("_bin");
-        regular_directory(&runtime_root, "Runtime root")?;
+        regular_directory(runtime_root, "Runtime root")?;
         let releases_root = runtime_root.join("releases");
         regular_directory(&releases_root, "Runtime releases directory")?;
         Ok(Self {
-            runtime_root,
+            swawkit_home: swawkit_home.to_path_buf(),
+            runtime_root: runtime_root.to_path_buf(),
             releases_root,
         })
     }
@@ -91,7 +88,7 @@ impl RuntimeReleaseStore {
             return Err(invalid_data("Runtime Release ID is invalid"));
         }
         let root = self.releases_root.join(release_id);
-        let inspected = validate_release(&root, release_id, &swawkit_home_from_root(&root)?)?;
+        let inspected = validate_release(&root, release_id, &self.swawkit_home)?;
         Ok(ValidatedRuntimeRelease {
             release_id: release_id.to_owned(),
             root,
@@ -101,7 +98,7 @@ impl RuntimeReleaseStore {
 }
 
 pub fn selected_release_id(context: &EntryContext) -> io::Result<String> {
-    RuntimeReleaseStore::open(&context.swawkit_home)?.selected_release_id()
+    RuntimeReleaseStore::open(&context.runtime_root, &context.swawkit_home)?.selected_release_id()
 }
 
 /// Validates the cheap, immutable structure of the release that owns this
@@ -113,8 +110,8 @@ pub fn validate_running_release(context: &EntryContext) -> io::Result<()> {
         .parent()
         .ok_or_else(|| invalid_data("Runtime product executable has no Release directory"))?;
     let expected_root = context
-        .command_root()
-        .join("_bin/releases")
+        .runtime_root
+        .join("releases")
         .join(&context.release_id);
     if root != expected_root {
         return Err(invalid_data(format!(
@@ -328,29 +325,6 @@ fn inspect_release(root: &Path, expected_id: &str) -> io::Result<InspectedReleas
         command_runtime_id: manifest.command_runtime_id,
         records,
     })
-}
-
-fn swawkit_home_from_root(release_root: &Path) -> io::Result<PathBuf> {
-    let releases_root = release_root
-        .parent()
-        .filter(|path| path.file_name().is_some_and(|name| name == "releases"))
-        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))?;
-    let runtime_root = releases_root
-        .parent()
-        .filter(|path| path.file_name().is_some_and(|name| name == "_bin"))
-        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))?;
-    let proj_root = runtime_root
-        .parent()
-        .filter(|path| path.file_name().is_some_and(|name| name == "proj"))
-        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))?;
-    let library_root = proj_root
-        .parent()
-        .filter(|path| path.file_name().is_some_and(|name| name == "_lib"))
-        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))?;
-    library_root
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| invalid_data("Runtime Release path is invalid"))
 }
 
 fn digest_regular_file(path: &Path, expected_length: u64) -> io::Result<String> {

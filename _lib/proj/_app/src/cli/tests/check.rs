@@ -1,59 +1,42 @@
 use std::fs;
 
-use swawkit_proj::data_root::{ClaimApprovalError, DataRootClaim};
-
 use super::super::*;
 use super::{Fixture, argv};
 
 #[test]
-fn command_check_is_read_only_for_a_fresh_entry() {
+fn command_check_requires_an_explicitly_initialized_entry() {
     let fixture = Fixture::new();
     fixture.core_command(".check", "meta.check");
     fixture.command(".target", "run.exe", "fixture");
-    let mut unexpected = |_claim: &DataRootClaim| -> Result<bool, ClaimApprovalError> {
-        panic!("read-only command check must not invoke the DataRoot approver")
-    };
 
-    assert_eq!(
-        run_with_approver(
-            &fixture.context,
-            &argv(&[".check", ".target", "--json"]),
-            &mut unexpected,
-        )
-        .unwrap(),
-        0
-    );
+    let error = run(
+        &fixture.context,
+        &argv(&[".check", ".target", "--json"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap_err();
 
+    assert!(error.to_string().contains("is not initialized"));
     assert!(!fixture.data_root().exists());
-    assert!(!fixture.data_root().join("_entry.json").exists());
-    assert!(!fixture.root.join("data/_proj-entry.lock").exists());
 }
 
 #[test]
-fn command_check_fails_closed_when_data_root_claim_is_required() {
+fn command_check_fails_closed_for_a_legacy_data_root() {
     let fixture = Fixture::new();
     fixture.core_command(".check", "meta.check");
     fixture.command(".target", "run.exe", "fixture");
     fs::create_dir_all(fixture.data_root()).unwrap();
-    let mut unexpected = |_claim: &DataRootClaim| -> Result<bool, ClaimApprovalError> {
-        panic!("read-only command check must not invoke the DataRoot approver")
-    };
+    fs::write(fixture.data_root().join("_entry.json"), b"legacy").unwrap();
 
-    let error = run_with_approver(
+    let error = run(
         &fixture.context,
         &argv(&[".check", ".target", "--json"]),
-        &mut unexpected,
+        CommandProcessMode::InheritConsole,
     )
     .unwrap_err();
 
-    assert!(
-        error
-            .to_string()
-            .contains("DataRoot ownership claim is required")
-    );
-    assert!(error.to_string().contains(".entry/claim"));
-    assert!(!fixture.data_root().join("_entry.json").exists());
-    assert!(!fixture.root.join("data/_proj-entry.lock").exists());
+    assert!(error.to_string().contains("explicit migration"));
+    assert!(!fixture.data_root().join("entry.id").exists());
 }
 
 #[test]
@@ -73,14 +56,12 @@ fn command_check_uses_declared_provider_state_and_returns_a_machine_exit_code() 
     )
     .unwrap();
     fixture.bind();
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".check", ".provider", "--json"]),
-            &mut unexpected,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
@@ -96,10 +77,10 @@ fn command_check_uses_declared_provider_state_and_returns_a_machine_exit_code() 
     .unwrap();
 
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".check", ".consumer", "--json"]),
-            &mut unexpected,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
@@ -107,10 +88,10 @@ fn command_check_uses_declared_provider_state_and_returns_a_machine_exit_code() 
 
     fs::remove_file(provider_data.join("_state.json")).unwrap();
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".check", ".consumer"]),
-            &mut unexpected,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         1
@@ -122,12 +103,10 @@ fn command_check_rejects_ambiguous_arguments() {
     let fixture = Fixture::new();
     fixture.core_command(".check", "meta.check");
     fixture.bind();
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
-    let error = run_with_approver(
+    let error = run(
         &fixture.context,
         &argv(&[".check", ".consumer", "--json", "extra"]),
-        &mut unexpected,
+        CommandProcessMode::InheritConsole,
     )
     .unwrap_err();
     assert_eq!(

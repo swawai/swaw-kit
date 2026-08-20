@@ -196,9 +196,9 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -ModulePath $ModulePath `
     -DevPath $DevPath
 $TemporaryRoot = Join-Path $RepoRoot (
-    "data\_test\swawkit-proj-journal-abandon-$([Guid]::NewGuid().ToString('N'))"
+    "data\_test\swawkit-proj-journal-$([Guid]::NewGuid().ToString('N'))"
 )
-$EntryName = "journal-abandon-$([Guid]::NewGuid().ToString('N'))"
+$EntryName = "journal-$([Guid]::NewGuid().ToString('N'))"
 $Tree = $null
 $DescendantIdentity = $null
 
@@ -238,7 +238,7 @@ try {
             -Message "cannot disable ${Tool}: $($Disabled.Text)"
     }
 
-    $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
+    $DataRoot = [string]$Runtime.DataRoot
     $ActionDataRoot = Join-Path $DataRoot "modules\project\$ActionAddress"
     $RunsRoot = Join-Path $ActionDataRoot '_runs'
     $DescendantIdentity = Join-Path $ActionDataRoot 'descendant.identity'

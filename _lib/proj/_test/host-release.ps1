@@ -76,7 +76,7 @@ try {
     Assert-ProjHostReleaseTest `
         -Condition ($PrimaryTree.ExitCode -eq 0) `
         -Message 'the first Launcher reported a failed Core handoff'
-    $RuntimeDirectory = Join-Path $Runtime.Home 'data\proj.swawkit\runtime\hosts'
+    $RuntimeDirectory = Join-Path $Runtime.RuntimeRoot 'hosts'
     $Deadline = [DateTime]::UtcNow.AddSeconds(10)
     $Document = $null
     while ([DateTime]::UtcNow -lt $Deadline) {
@@ -181,6 +181,7 @@ try {
         -CommandRuntimeId ([string]$Runtime.CommandRuntimeId)
     $SelectedPublication = Publish-ProjRuntimeReleaseSet `
         -ReleaseSet $SelectedSet `
+        -RuntimeRoot $Runtime.RuntimeRoot `
         -ProjHome $Runtime.Home `
         -CacheDataRoot (Join-Path $Runtime.Home 'data\proj_cache')
     $SelectedReleaseId = [string]$SelectedPublication.ReleaseId
@@ -193,7 +194,8 @@ try {
         ConvertFrom-Json
     Assert-ProjHostReleaseTest `
         -Condition (
-            [string]$HostStatus.protocol -ceq 'swawkit.host-status/v1' -and
+            [string]$HostStatus.protocol -ceq 'swawkit.host-status/v2' -and
+            [string]$HostStatus.entryId -ceq [string]$Runtime.EntryId -and
             [string]$HostStatus.runningReleaseId -ceq $RunningReleaseId -and
             [string]$HostStatus.selectedReleaseId -ceq $SelectedReleaseId -and
             [bool]$HostStatus.updateAvailable
@@ -213,11 +215,14 @@ try {
     $HostProcess = $null
 
     $RestartDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    $RestartedDocumentPath = Join-Path (
+        $Runtime.RuntimeRoot
+    ) "hosts\$SelectedReleaseId.json"
     $RestartedDocument = $null
     while ([DateTime]::UtcNow -lt $RestartDeadline) {
         try {
             $CandidateDocument = [IO.File]::ReadAllText(
-                $DocumentPath,
+                $RestartedDocumentPath,
                 [Text.Encoding]::UTF8
             ) | ConvertFrom-Json
             if ([int]$CandidateDocument.pid -ne [int]$Document.pid -and

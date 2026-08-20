@@ -80,7 +80,7 @@ try {
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
-    $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
+    $DataRoot = [string]$Runtime.DataRoot
 
     foreach ($Name in $PoisonedEnvironment.Keys) {
         $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable(

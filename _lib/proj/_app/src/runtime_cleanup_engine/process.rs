@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn maps_only_exact_runtime_release_paths() {
-        let root = PathBuf::from(r"C:\kit\_lib\proj\_bin\releases");
+        let root = PathBuf::from(r"C:\kit\data\proj.example\runtime\releases");
         let id = "a".repeat(64);
         assert_eq!(
             release_id_from_path(&root.join(&id).join("swawkit-proj-host.exe"), &root),

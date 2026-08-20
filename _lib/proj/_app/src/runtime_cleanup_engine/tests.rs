@@ -19,12 +19,12 @@ impl Fixture {
             "swawkit-runtime-cleanup-{}-{sequence}",
             std::process::id()
         ));
-        let releases = root.join("_lib/proj/_bin/releases");
+        let runtime_root = root.join("entry-runtime");
+        let releases = runtime_root.join("releases");
         fs::create_dir_all(&releases).expect("create releases root");
-        let selected = publish_release(&releases, b"selected");
-        fs::write(root.join("_lib/proj/_bin/current"), format!("{selected}\n"))
-            .expect("write selector");
-        let store = RuntimeReleaseStore::open(&root).expect("open store");
+        let selected = publish_release(&releases, &root, b"selected");
+        fs::write(runtime_root.join("current"), format!("{selected}\n")).expect("write selector");
+        let store = RuntimeReleaseStore::open(&runtime_root, &root).expect("open store");
         Self {
             root,
             store,
@@ -33,7 +33,7 @@ impl Fixture {
     }
 
     fn release(&self, seed: &[u8]) -> String {
-        publish_release(self.store.releases_root(), seed)
+        publish_release(self.store.releases_root(), &self.root, seed)
     }
 }
 
@@ -140,11 +140,7 @@ fn state<'a>(plan: &'a [PlanItem], release_id: &str) -> &'a PlanState {
         .state
 }
 
-fn publish_release(releases: &Path, seed: &[u8]) -> String {
-    let swawkit_home = releases
-        .ancestors()
-        .nth(4)
-        .expect("derive Swaw Kit Home from Runtime releases");
+fn publish_release(releases: &Path, swawkit_home: &Path, seed: &[u8]) -> String {
     let command_runtime_id = crate::runtime_release::tests::write_command_runtime(swawkit_home);
     let artifacts = [
         ("swawkit-proj.exe", [seed, b"-core"].concat()),

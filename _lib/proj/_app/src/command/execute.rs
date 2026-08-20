@@ -1,15 +1,14 @@
 use std::ffi::OsString;
-use std::path::Path;
 
 use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSpace};
 use crate::command_runtime::CommandRuntime;
 use crate::native_command;
-use crate::run_journal::{RunJournal, RunJournalPhase, RunJournalSource, StartRunJournal};
+use crate::run_journal::{RunJournal, RunJournalSource, StartRunJournal};
 
 use super::{
     CommandError, CommandExecutionContext, CommandResult, ConsoleCancellation, Invocation,
-    ProcessEnvironment, ResolvedCommand, command_data_root,
-    process::{AdapterLaunch, run_process, run_process_journaled, validate_adapter},
+    PlannedCommand, PreparedCommand, ProcessEnvironment, ResolvedCommand, command_data_root,
+    process::{AdapterLaunch, validate_adapter},
     validate_dev_executable, validate_module_executable,
 };
 
@@ -30,9 +29,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     pub fn execute(&self, argv: &[OsString]) -> CommandResult<i32> {
-        let invocation = Invocation::resolve(self.catalog, argv)?;
-        self.assert_dependencies_ready(&invocation)?;
-        self.execute_invocation(&invocation, None)
+        self.prepare(argv)?.execute()
     }
 
     pub fn execute_journaled(&self, argv: &[OsString]) -> CommandResult<i32> {
@@ -52,17 +49,21 @@ impl<'a> CommandExecutor<'a> {
         argv: &[OsString],
         cancellation: Option<&ConsoleCancellation>,
     ) -> CommandResult<i32> {
-        let invocation = Invocation::resolve(self.catalog, argv)?;
-        self.assert_dependencies_ready(&invocation)?;
+        let plan = self.plan(argv)?;
         let journal = RunJournal::start(StartRunJournal {
-            module_data_root: command_data_root(self.context, &invocation.command)?,
-            address: invocation.command.address.clone(),
+            module_data_root: command_data_root(self.context, plan.command())?,
+            address: plan.command().address.clone(),
             source: RunJournalSource::Cli,
-            argument_count: invocation.arguments.len(),
+            argument_count: plan.argument_count(),
             profile_revision: self.context.profile_revision.clone(),
         })
         .map_err(|error| CommandError::new(format!("cannot start command journal: {error}")))?;
-        let result = self.execute_invocation(&invocation, Some(&journal));
+        // Keep the existing side-effect boundary: adapter/runtime/native and
+        // ProcessEnvironment preparation happens after the Journal starts, so
+        // a preparation failure is still persisted as a failed CLI run.
+        let result = self
+            .materialize(plan)
+            .and_then(|prepared| prepared.execute_journaled(&journal));
         if cancellation.is_some_and(|cancellation| {
             cancellation.requested() && !cancellation.termination_failed()
         }) {
@@ -89,6 +90,20 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    pub(crate) fn prepare(&self, argv: &[OsString]) -> CommandResult<PreparedCommand> {
+        let plan = self.plan(argv)?;
+        self.materialize(plan)
+    }
+
+    /// Resolves only the logical invocation and its declared dependencies.
+    /// Adapter artifacts, command environment, and OS launch state are
+    /// intentionally deferred until after a Run Journal has started.
+    pub(crate) fn plan(&self, argv: &[OsString]) -> CommandResult<PlannedCommand> {
+        let invocation = Invocation::resolve(self.catalog, argv)?;
+        self.assert_dependencies_ready(&invocation)?;
+        Ok(PlannedCommand::new(invocation))
+    }
+
     fn assert_dependencies_ready(&self, invocation: &Invocation) -> CommandResult<()> {
         crate::command_check::assert_dependencies_ready(
             &self.context.data_root,
@@ -99,11 +114,9 @@ impl<'a> CommandExecutor<'a> {
         .map_err(CommandError::new)
     }
 
-    fn execute_invocation(
-        &self,
-        invocation: &Invocation,
-        journal: Option<&RunJournal>,
-    ) -> CommandResult<i32> {
+    /// Materializes adapter/runtime/native state for an already checked plan.
+    pub(crate) fn materialize(&self, plan: PlannedCommand) -> CommandResult<PreparedCommand> {
+        let invocation = plan.into_invocation();
         validate_command_adapter(&invocation.command)?;
         let mut native_resolution = None;
         let adapter_launch = match invocation.command.adapter {
@@ -162,16 +175,15 @@ impl<'a> CommandExecutor<'a> {
                 &resolution.owner_data_root,
             );
         }
-        run(
+        Ok(PreparedCommand::new(
             invocation.command.adapter,
-            &invocation.command.entry_path,
-            &invocation.arguments,
-            &self.context.target_project_root,
-            &adapter_launch,
-            &environment,
+            invocation.command.entry_path,
+            invocation.arguments,
+            self.context.target_project_root.clone(),
+            adapter_launch,
+            environment,
             self.context.process_mode,
-            journal,
-        )
+        ))
     }
 
     fn command_runtime_tool(&self, name: &str) -> CommandResult<std::path::PathBuf> {
@@ -183,41 +195,6 @@ impl<'a> CommandExecutor<'a> {
         runtime
             .tool(&self.context.swawkit_home, name)
             .map_err(|error| CommandError::new(format!("Command Runtime tool is invalid: {error}")))
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn run(
-    adapter: crate::catalog::CommandAdapter,
-    entry_path: &Path,
-    arguments: &[OsString],
-    working_directory: &Path,
-    adapter_launch: &AdapterLaunch,
-    environment: &ProcessEnvironment,
-    process_mode: super::CommandProcessMode,
-    journal: Option<&RunJournal>,
-) -> CommandResult<i32> {
-    match journal {
-        Some(journal) => run_process_journaled(
-            adapter,
-            entry_path,
-            arguments,
-            working_directory,
-            adapter_launch,
-            environment,
-            process_mode,
-            journal,
-            RunJournalPhase::Run,
-        ),
-        None => run_process(
-            adapter,
-            entry_path,
-            arguments,
-            working_directory,
-            adapter_launch,
-            environment,
-            process_mode,
-        ),
     }
 }
 

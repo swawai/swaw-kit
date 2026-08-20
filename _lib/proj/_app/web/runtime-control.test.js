@@ -12,8 +12,9 @@ import {
 
 function hostStatus(updateAvailable = true) {
   return {
-    protocol: "swawkit.host-status/v1",
-    entryKeySha256: "0".repeat(64),
+    protocol: "swawkit.host-status/v2",
+    entryId: "0".repeat(64),
+    instanceKeySha256: "a".repeat(64),
     bootId: "123-boot",
     pid: 123,
     url: "http://127.0.0.1:43127/",
@@ -62,7 +63,7 @@ function runtimeElements() {
 describe("Runtime control client", () => {
   test("reads and validates the aggregate Runtime protocol", async () => {
     const document = {
-      protocol: "swawkit.runtime-status/v1",
+      protocol: "swawkit.runtime-status/v2",
       selectedReleaseId: "2".repeat(64),
       releaseCount: 3,
       host: hostStatus(true),
@@ -84,12 +85,34 @@ describe("Runtime control client", () => {
     await expect(readRuntimeStatus(async () => ({
       ok: true,
       json: async () => ({
-        protocol: "swawkit.runtime-status/v1",
+        protocol: "swawkit.runtime-status/v2",
         selectedReleaseId: "3".repeat(64),
         releaseCount: 2,
         host: hostStatus(true),
       }),
     }))).rejects.toBeInstanceOf(RuntimeControlError);
+  });
+
+  test("rejects legacy or extended Runtime v2 documents", async () => {
+    const valid = {
+      protocol: "swawkit.runtime-status/v2",
+      selectedReleaseId: "2".repeat(64),
+      releaseCount: 1,
+      host: hostStatus(true),
+    };
+    const invalidDocuments = [
+      { ...valid, protocol: "swawkit.runtime-status/v1" },
+      { ...valid, unexpected: true },
+      { ...valid, host: { ...valid.host, unexpected: true } },
+      { ...valid, host: { ...valid.host, bootId: "invalid boot" } },
+    ];
+
+    for (const document of invalidDocuments) {
+      await expect(readRuntimeStatus(async () => ({
+        ok: true,
+        json: async () => document,
+      }))).rejects.toBeInstanceOf(RuntimeControlError);
+    }
   });
 
   test("uses exact non-form headers for Host controls", async () => {
@@ -115,7 +138,7 @@ describe("Runtime control client", () => {
   test("keeps the Runtime root read-only and actions local to their subcommands", async () => {
     const elements = runtimeElements();
     const document = {
-      protocol: "swawkit.runtime-status/v1",
+      protocol: "swawkit.runtime-status/v2",
       selectedReleaseId: "1".repeat(64),
       releaseCount: 3,
       host: hostStatus(false),

@@ -2,6 +2,7 @@ mod console_cancel;
 mod environment;
 mod execute;
 mod invocation;
+mod prepared;
 mod process;
 mod resolve;
 
@@ -15,6 +16,7 @@ pub(crate) use environment::{
 };
 pub use execute::CommandExecutor;
 pub(crate) use invocation::Invocation;
+pub(crate) use prepared::{PlannedCommand, PreparedCommand};
 pub(crate) use resolve::ResolvedCommand;
 
 use std::error::Error;

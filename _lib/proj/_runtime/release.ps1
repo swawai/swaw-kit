@@ -85,6 +85,7 @@ function New-ProjRuntimeReleaseSetFromFiles {
 function Publish-ProjRuntimeReleaseSet {
     param(
         [Parameter(Mandatory = $true)][object]$ReleaseSet,
+        [Parameter(Mandatory = $true)][string]$RuntimeRoot,
         [Parameter(Mandatory = $true)][string]$ProjHome,
         [Parameter(Mandatory = $true)][string]$CacheDataRoot
     )
@@ -115,7 +116,7 @@ function Publish-ProjRuntimeReleaseSet {
     $CacheDataRoot = Assert-ProjDevControlledRoot `
         -Root $CacheDataRoot `
         -Description 'shared project cache data root'
-    $RuntimeRoot = Join-Path $ProjHome '_lib\proj\_bin'
+    $RuntimeRoot = [IO.Path]::GetFullPath($RuntimeRoot)
     Assert-ProjRuntimeDirectory -Path $RuntimeRoot -Create
     $PublishLock = Enter-ProjDevFileLock `
         -Path (Join-Path $CacheDataRoot 'locks\release-publish.lock') `
@@ -133,7 +134,8 @@ function Publish-ProjRuntimeReleaseSet {
         }
         $RuntimeRelease = Read-ProjRuntimeReleaseSet `
             -ReleaseRoot $ReleaseRoot `
-            -ReleaseId $ReleaseId
+            -ReleaseId $ReleaseId `
+            -ProjHome $ProjHome
 
         Publish-ProjRuntimeSelector `
             -RuntimeRoot $RuntimeRoot `
@@ -197,7 +199,8 @@ function Publish-ProjRuntimeReleaseDirectory {
 function Read-ProjRuntimeReleaseSet {
     param(
         [Parameter(Mandatory = $true)][string]$ReleaseRoot,
-        [Parameter(Mandatory = $true)][string]$ReleaseId
+        [Parameter(Mandatory = $true)][string]$ReleaseId,
+        [Parameter(Mandatory = $true)][string]$ProjHome
     )
 
     $ReleaseRoot = [IO.Path]::GetFullPath($ReleaseRoot)
@@ -330,9 +333,7 @@ function Read-ProjRuntimeReleaseSet {
     if ($ComputedId -cne $ReleaseId) {
         throw "The runtime Release Set ID does not match its artifacts: $ManifestPath"
     }
-    $ProjRoot = Split-Path $RuntimeRoot -Parent
-    $LibraryRoot = Split-Path $ProjRoot -Parent
-    $ProjHome = Split-Path $LibraryRoot -Parent
+    $ProjHome = Get-ProjDevFullPath -Path $ProjHome
     [void](Read-ProjCommandRuntime `
         -BootstrapDataRoot (Join-Path $ProjHome 'data\proj_cache\bootstrap') `
         -RuntimeId ([string]$Manifest.commandRuntimeId))
@@ -346,7 +347,10 @@ function Read-ProjRuntimeReleaseSet {
 }
 
 function Read-ProjSelectedRuntimeReleaseSet {
-    param([Parameter(Mandatory = $true)][string]$RuntimeRoot)
+    param(
+        [Parameter(Mandatory = $true)][string]$RuntimeRoot,
+        [Parameter(Mandatory = $true)][string]$ProjHome
+    )
 
     $RuntimeRoot = [IO.Path]::GetFullPath($RuntimeRoot)
     Assert-ProjRuntimeDirectory -Path $RuntimeRoot
@@ -374,7 +378,8 @@ function Read-ProjSelectedRuntimeReleaseSet {
     }
     return Read-ProjRuntimeReleaseSet `
         -ReleaseRoot (Join-Path (Join-Path $RuntimeRoot 'releases') $ReleaseId) `
-        -ReleaseId $ReleaseId
+        -ReleaseId $ReleaseId `
+        -ProjHome $ProjHome
 }
 
 function Publish-ProjRuntimeSelector {

@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 use std::io;
+use std::path::PathBuf;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, Ordering},
@@ -11,21 +12,24 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use super::*;
-use crate::entry_runner::{
-    EntryOutputStream, EntryRunControl, EntryRunObserver, EntryRunOutcome, EntryRunSpec,
-    EntryRunner,
-};
+use crate::process_runner::{ProcessControl, ProcessObserver, ProcessOutcome, ProcessOutputStream};
 use crate::profile::EntryProfileRecord;
-use crate::server::command_run::CommandRuns;
+use crate::runtime_service::{PreparedExecution, RuntimeExecutionRunner, RuntimeService};
+
+#[derive(Clone)]
+struct RecordedExecution {
+    working_directory: PathBuf,
+    argv: Vec<OsString>,
+}
 
 #[derive(Default)]
 struct FakeRunner {
-    specs: Mutex<Vec<EntryRunSpec>>,
+    specs: Mutex<Vec<RecordedExecution>>,
     runs: Mutex<Vec<Arc<FakeRun>>>,
 }
 
 impl FakeRunner {
-    fn specs(&self) -> Vec<EntryRunSpec> {
+    fn specs(&self) -> Vec<RecordedExecution> {
         self.specs.lock().expect("fake specs").clone()
     }
 
@@ -34,12 +38,16 @@ impl FakeRunner {
     }
 }
 
-impl EntryRunner for FakeRunner {
+impl RuntimeExecutionRunner for FakeRunner {
     fn start(
         &self,
-        spec: EntryRunSpec,
-        observer: Arc<dyn EntryRunObserver>,
-    ) -> io::Result<Arc<dyn EntryRunControl>> {
+        execution: PreparedExecution,
+        observer: Arc<dyn ProcessObserver>,
+    ) -> io::Result<Arc<dyn ProcessControl>> {
+        let spec = RecordedExecution {
+            working_directory: execution.working_directory().to_path_buf(),
+            argv: execution.argv().to_vec(),
+        };
         let run = Arc::new(FakeRun {
             observer: Mutex::new(Some(observer)),
             canceled: AtomicBool::new(false),
@@ -47,26 +55,26 @@ impl EntryRunner for FakeRunner {
         });
         self.specs.lock().expect("fake specs").push(spec);
         self.runs.lock().expect("fake runs").push(Arc::clone(&run));
-        let control: Arc<dyn EntryRunControl> = run;
+        let control: Arc<dyn ProcessControl> = run;
         Ok(control)
     }
 }
 
 struct FakeRun {
-    observer: Mutex<Option<Arc<dyn EntryRunObserver>>>,
+    observer: Mutex<Option<Arc<dyn ProcessObserver>>>,
     canceled: AtomicBool,
     joined: AtomicBool,
 }
 
 impl FakeRun {
-    fn output(&self, stream: EntryOutputStream, text: &str) {
+    fn output(&self, stream: ProcessOutputStream, text: &str) {
         let observer = self.observer.lock().expect("fake observer").clone();
         if let Some(observer) = observer {
             observer.output(stream, text.to_owned());
         }
     }
 
-    fn complete(&self, outcome: EntryRunOutcome) {
+    fn complete(&self, outcome: ProcessOutcome) {
         let observer = self.observer.lock().expect("fake observer").take();
         if let Some(observer) = observer {
             observer.completed(outcome);
@@ -74,10 +82,10 @@ impl FakeRun {
     }
 }
 
-impl EntryRunControl for FakeRun {
+impl ProcessControl for FakeRun {
     fn cancel(&self) -> io::Result<()> {
         self.canceled.store(true, Ordering::Release);
-        self.complete(EntryRunOutcome::Exited(1223));
+        self.complete(ProcessOutcome::Exited(1223));
         Ok(())
     }
 
@@ -100,18 +108,21 @@ fn ready_fixture(fixture: &Fixture) {
         .expect("save ready fixture profile");
 }
 
-fn command_app(fixture: &Fixture, runner: Arc<FakeRunner>) -> (Router, CommandRuns) {
-    let runner: Arc<dyn EntryRunner> = runner;
-    let runs = CommandRuns::new(runner);
-    let app = router_with_runs(
+fn command_app(fixture: &Fixture, runner: Arc<FakeRunner>) -> (Router, RuntimeService) {
+    let runner: Arc<dyn RuntimeExecutionRunner> = runner;
+    let context = fixture.context();
+    let data_root = fixture.data_root_session();
+    let runtime_service = RuntimeService::new(context.clone(), data_root.clone(), runner);
+    let host_runtime = test_host_runtime(&context);
+    let app = router_with_runtime_service(
         AUTHORITY.to_owned(),
-        fixture.context(),
-        fixture.data_root_session(),
-        runs.clone(),
-        test_host_runtime(),
+        context,
+        data_root,
+        runtime_service.clone(),
+        host_runtime,
         HostControl::new(),
     );
-    (app, runs)
+    (app, runtime_service)
 }
 
 async fn post_run(app: Router, document: Value) -> Response {
@@ -170,7 +181,6 @@ async fn publishes_the_contract_and_incremental_output_cursor() {
 
     let specs = runner.specs();
     let spec = &specs[0];
-    assert_eq!(spec.entry_file, fixture.context().entry_file);
     assert_eq!(spec.working_directory, fixture.root.join("home"));
     assert_eq!(
         spec.argv,
@@ -178,8 +188,8 @@ async fn publishes_the_contract_and_incremental_output_cursor() {
     );
 
     let run = runner.run(0);
-    run.output(EntryOutputStream::Stdout, "first\n");
-    run.output(EntryOutputStream::Stderr, "second\n");
+    run.output(ProcessOutputStream::Stdout, "first\n");
+    run.output(ProcessOutputStream::Stderr, "second\n");
     let all = response_json(
         send(
             app.clone(),
@@ -226,7 +236,7 @@ async fn publishes_the_contract_and_incremental_output_cursor() {
         StatusCode::BAD_REQUEST
     );
 
-    run.complete(EntryRunOutcome::Exited(7));
+    run.complete(ProcessOutcome::Exited(7));
     let exited =
         response_json(send(app.clone(), Method::GET, &location, Some(AUTHORITY)).await).await;
     assert_eq!(exited["state"], "exited");
@@ -357,10 +367,6 @@ async fn accepts_only_exact_runnable_non_control_catalog_commands() {
         "home/_lib/proj/system/entry/swawkit.module.json",
         r#"{"schema":"swawkit.command-module/v11"}"#,
     );
-    fixture.file(
-        "home/_lib/proj/system/entry/claim/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"core","handler":"entry.claim"}}"#,
-    );
     let runner = Arc::new(FakeRunner::default());
     let (app, runs) = command_app(&fixture, Arc::clone(&runner));
 
@@ -368,7 +374,7 @@ async fn accepts_only_exact_runnable_non_control_catalog_commands() {
         ("", StatusCode::UNPROCESSABLE_ENTITY),
         (".missing", StatusCode::NOT_FOUND),
         (".group", StatusCode::UNPROCESSABLE_ENTITY),
-        (".entry/claim", StatusCode::UNPROCESSABLE_ENTITY),
+        (".entry", StatusCode::UNPROCESSABLE_ENTITY),
     ] {
         assert_eq!(
             post_run(app.clone(), json!({"address": address}))
@@ -426,7 +432,7 @@ async fn bounds_retained_output_without_stopping_the_stream_cursor() {
     let run = runner.run(0);
     let chunk = "x".repeat(8192);
     for _ in 0..129 {
-        run.output(EntryOutputStream::Stdout, &chunk);
+        run.output(ProcessOutputStream::Stdout, &chunk);
     }
 
     let document = response_json(send(app, Method::GET, &location, Some(AUTHORITY)).await).await;
@@ -437,7 +443,7 @@ async fn bounds_retained_output_without_stopping_the_stream_cursor() {
     assert_eq!(events[0]["sequence"], 2);
     assert_eq!(events.last().expect("last output event")["sequence"], 129);
 
-    run.complete(EntryRunOutcome::Exited(0));
+    run.complete(ProcessOutcome::Exited(0));
     runs.shutdown().expect("shutdown command runs");
 }
 
@@ -457,7 +463,7 @@ async fn retains_only_the_latest_thirty_two_terminal_runs() {
             "/api/v2/command-runs/{}",
             document["id"].as_str().expect("command run id")
         ));
-        runner.run(index).complete(EntryRunOutcome::Exited(0));
+        runner.run(index).complete(ProcessOutcome::Exited(0));
     }
 
     assert_eq!(

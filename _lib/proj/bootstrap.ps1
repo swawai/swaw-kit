@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param()
+param([switch]$MigrateLegacyManagerDataRoot)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
@@ -7,7 +7,12 @@ Set-StrictMode -Version 2.0
 
 . (Join-Path $PSScriptRoot '_bootstrap\toolchain.ps1')
 . (Join-Path $PSScriptRoot '_runtime\release.ps1')
+. (Join-Path $PSScriptRoot '_runtime\manager-data-root.ps1')
 $Layout = Get-ProjBootstrapLayout
+[void](Initialize-ProjManagerDataRoot `
+    -DataRoot $Layout.ManagerDataRoot `
+    -MigrateLegacy:$MigrateLegacyManagerDataRoot)
+
 function Test-ProjBootstrapRuntime {
     param([Parameter(Mandatory = $true)][object]$BuildLayout)
 
@@ -28,7 +33,8 @@ function Test-ProjBootstrapRuntime {
     }
     try {
         [void](Read-ProjSelectedRuntimeReleaseSet `
-            -RuntimeRoot $BuildLayout.RuntimeRoot)
+            -RuntimeRoot $BuildLayout.RuntimeRoot `
+            -ProjHome $BuildLayout.ProjHome)
         return $true
     } catch {
         return $false
@@ -111,6 +117,7 @@ try {
                 -CandidateModulePath $BuildLayout.ModuleCandidatePath `
                 -CandidateDevPath $BuildLayout.DevCandidatePath `
                 -CommandRuntimeId ([string]$Toolchain.CommandRuntimeId) `
+                -RuntimeRoot $BuildLayout.RuntimeRoot `
                 -ProjHome $BuildLayout.ProjHome `
                 -CandidateRoot $Toolchain.Context.DataRoot
         }

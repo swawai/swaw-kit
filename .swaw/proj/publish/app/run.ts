@@ -20,7 +20,12 @@ const locks = await requireControlledDirectory(
 );
 using providerLock = await acquireExclusiveFileLock(join(locks, "build.lock"), 120_000);
 const release = await readReadyBuildReleaseSet(dataRoot, entryCommand);
-const id = await publishRuntimeReleaseSet(projHome, join(projHome, "data", "proj_cache"), release);
+const id = await publishRuntimeReleaseSet(
+  projHome,
+  dataRoot,
+  join(projHome, "data", "proj_cache"),
+  release,
+);
 console.log(`[PUBLISHED] Release Set ${id}`);
 
 function requiredAbsolute(name: string): string {

@@ -591,3 +591,4 @@ fn module_directory(module_root: &Path, path: &str) -> PathBuf {
 
 mod dependency;
 mod native;
+mod prepared;

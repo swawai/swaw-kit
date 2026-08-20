@@ -1,6 +1,8 @@
-use std::fs::{self, File, OpenOptions};
+use std::env;
+use std::fs;
 use std::io;
 use std::os::windows::io::{FromRawHandle, OwnedHandle};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use axum::body::{Body, to_bytes};
@@ -14,25 +16,41 @@ use windows_sys::Win32::System::Threading::{
 
 use super::*;
 use crate::profile::{EntryProfileRecord, ModuleMountProfile};
-use crate::server::command_run::CommandRuns;
+use crate::runtime_service::RuntimeService;
 
-const NORMAL_ACTION: &str = "webnativeworkerfixture";
-const CANCEL_ACTION: &str = "webnativeworkercancelfixture";
-const NORMAL_MARKER: &str = "web-native-worker.marker";
-const CANCEL_PID_MARKER: &str = "web-native-worker-descendant.pid";
-const STDOUT_SENTINEL: &str = "SWAWKIT_WEB_NATIVE_STDOUT_SENTINEL";
-const STDERR_SENTINEL: &str = "SWAWKIT_WEB_NATIVE_STDERR_SENTINEL";
+const NORMAL_ACTION: &str = "webdirectnormal";
+const CANCEL_ACTION: &str = "webdirectcancel";
+const NORMAL_MARKER: &str = "web-direct-command.marker";
+const CANCEL_PID_MARKER: &str = "web-direct-command-descendant.pid";
+const STDOUT_SENTINEL: &str = "SWAWKIT_WEB_DIRECT_STDOUT_SENTINEL";
+const STDERR_SENTINEL: &str = "SWAWKIT_WEB_DIRECT_STDERR_SENTINEL";
+const PROGRESS_FRAME: &str = "\u{001e}swawkit-event-v1 {\"schema\":\"swawkit.command-event/v1\",\"kind\":\"progress\",\"id\":\"download:fixture.zip\",\"state\":\"completed\",\"current\":42,\"total\":42,\"unit\":\"bytes\",\"message\":\"Downloaded fixture.zip\"}";
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[tokio::test]
-async fn executes_and_cancels_native_workers_through_the_http_router() {
+async fn executes_and_cancels_direct_commands_through_the_http_router() {
     let fixture = Fixture::new();
-    install_current_test_executable(&fixture);
     fixture.directory("home/_lib/proj");
     let normal_root = fixture.directory("external/normal");
     let cancel_root = fixture.directory("external/cancel");
-    fixture.file("external/normal/run.exe", "fixture");
-    fixture.file("external/cancel/run.exe", "fixture");
+    install_command_executable(&normal_root.join("run.exe"));
+    install_command_executable(&cancel_root.join("run.exe"));
+    let normal_script = normal_root.join("fixture.cmd");
+    let cancel_script = cancel_root.join("fixture.cmd");
+    fs::write(
+        &normal_script,
+        format!(
+            "@echo off\r\nif not \"%SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL%\"==\"2\" exit /b 91\r\nif not \"%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%\"==\"{NORMAL_ACTION}\" exit /b 92\r\nif /I not \"%CD%\"==\"%SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR%\" exit /b 93\r\n>\"{NORMAL_MARKER}\" echo command cwd reached\r\necho {STDOUT_SENTINEL}\r\n1>&2 echo {PROGRESS_FRAME}\r\n1>&2 echo {STDERR_SENTINEL}\r\n",
+        ),
+    )
+    .expect("write normal direct command script");
+    fs::write(
+        &cancel_script,
+        format!(
+            "@echo off\r\npowershell.exe -NoLogo -NoProfile -NonInteractive -Command \"[IO.File]::WriteAllText('{CANCEL_PID_MARKER}', $PID.ToString()); Start-Sleep -Seconds 60\"\r\n",
+        ),
+    )
+    .expect("write cancel direct command script");
     let mut profile = EntryProfileRecord::default();
     profile.module_mounts = vec![
         ModuleMountProfile {
@@ -47,19 +65,23 @@ async fn executes_and_cancels_native_workers_through_the_http_router() {
     fixture
         .profile_store()
         .save(profile)
-        .expect("save native worker fixture profile");
+        .expect("save direct command fixture profile");
 
-    let runs = CommandRuns::native();
-    let app = router_with_runs(
+    let context = fixture.context();
+    let data_root = fixture.data_root_session();
+    let runtime_service = RuntimeService::native(context.clone(), data_root.clone());
+    let host_runtime = test_host_runtime(&context);
+    let app = router_with_runtime_service(
         AUTHORITY.to_owned(),
-        fixture.context(),
-        fixture.data_root_session(),
-        runs.clone(),
-        test_host_runtime(),
+        context,
+        data_root,
+        runtime_service.clone(),
+        host_runtime,
         HostControl::new(),
     );
 
-    let (normal_location, normal_created) = start_native_run(&app, NORMAL_ACTION).await;
+    let (normal_location, normal_created) =
+        start_native_run(&app, NORMAL_ACTION, &normal_script).await;
     assert_eq!(normal_created["address"], NORMAL_ACTION);
     let normal = wait_for_terminal(&app, &normal_location).await;
     assert_eq!(normal["state"], "exited");
@@ -67,8 +89,8 @@ async fn executes_and_cancels_native_workers_through_the_http_router() {
     assert_eq!(normal["error"], Value::Null);
     assert_eq!(
         fs::read_to_string(fixture.root.join("home").join(NORMAL_MARKER))
-            .expect("read native worker cwd marker"),
-        "worker cwd reached\n"
+            .expect("read direct command cwd marker"),
+        "command cwd reached\r\n"
     );
     let (stdout, stderr) = output_text(&normal);
     assert!(stdout.contains(STDOUT_SENTINEL), "stdout was: {stdout:?}");
@@ -78,20 +100,21 @@ async fn executes_and_cancels_native_workers_through_the_http_router() {
         .expect("native run events")
         .iter()
         .find(|event| event["kind"] == "progress")
-        .expect("native worker progress event");
+        .expect("direct command progress event");
     assert_eq!(progress["id"], "download:fixture.zip");
     assert_eq!(progress["state"], "completed");
     assert_eq!(progress["current"], 42);
     assert_eq!(progress["total"], 42);
 
-    let (cancel_location, cancel_created) = start_native_run(&app, CANCEL_ACTION).await;
+    let (cancel_location, cancel_created) =
+        start_native_run(&app, CANCEL_ACTION, &cancel_script).await;
     assert_eq!(cancel_created["state"], "running");
     let descendant_pid = wait_for_pid_file(&fixture.root.join("home").join(CANCEL_PID_MARKER));
     let descendant = open_process_for_wait(descendant_pid);
     assert_eq!(
         unsafe { WaitForSingleObject(raw_handle(&descendant), 0) },
         WAIT_TIMEOUT,
-        "native worker descendant exited before cancellation"
+        "direct command descendant exited before cancellation"
     );
 
     let canceled = send(
@@ -109,28 +132,32 @@ async fn executes_and_cancels_native_workers_through_the_http_router() {
     assert_eq!(
         unsafe { WaitForSingleObject(raw_handle(&descendant), TEST_TIMEOUT.as_millis() as u32,) },
         WAIT_OBJECT_0,
-        "DELETE did not terminate the native worker descendant"
+        "DELETE did not terminate the direct command descendant"
     );
 
-    runs.shutdown().expect("shut down native command runs");
+    runtime_service
+        .shutdown()
+        .expect("shut down native command runs");
 }
 
-fn install_current_test_executable(fixture: &Fixture) {
-    let source_path = std::env::current_exe().expect("resolve current libtest executable");
-    let mut source = File::open(&source_path).expect("open current libtest executable");
-    let entry_path = fixture.context().entry_file;
-    let mut entry = OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open(&entry_path)
-        .expect("open bound fixture Entry without replacing its file identity");
-    io::copy(&mut source, &mut entry).expect("copy current libtest executable into fixture Entry");
-    entry
-        .sync_all()
-        .expect("flush copied fixture Entry executable");
+fn install_command_executable(target: &Path) {
+    let source_path = env::var_os("ComSpec").expect("resolve the system command interpreter");
+    let source_path = Path::new(&source_path);
+    fs::copy(&source_path, target).unwrap_or_else(|error| {
+        panic!(
+            "copy system command interpreter '{}' to '{}': {error}",
+            source_path.display(),
+            target.display()
+        )
+    });
 }
 
-async fn start_native_run(app: &Router, address: &str) -> (String, Value) {
+async fn start_native_run(app: &Router, address: &str, script: &Path) -> (String, Value) {
+    let arguments = vec![
+        "/d".to_owned(),
+        "/c".to_owned(),
+        script.to_string_lossy().into_owned(),
+    ];
     let response = app
         .clone()
         .oneshot(
@@ -142,7 +169,7 @@ async fn start_native_run(app: &Router, address: &str) -> (String, Value) {
                 .body(Body::from(
                     json!({
                         "address": address,
-                        "arguments": ["--nocapture", "--test-threads=1"]
+                        "arguments": arguments
                     })
                     .to_string(),
                 ))
@@ -219,7 +246,7 @@ fn wait_for_pid_file(path: &std::path::Path) -> u32 {
         }
         assert!(
             Instant::now() < deadline,
-            "native worker did not publish its descendant PID"
+            "direct command did not publish its descendant PID"
         );
         std::thread::sleep(Duration::from_millis(20));
     }
@@ -229,7 +256,7 @@ fn open_process_for_wait(pid: u32) -> OwnedHandle {
     let handle = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, pid) };
     assert!(
         !handle.is_null(),
-        "open native worker descendant {pid}: {}",
+        "open direct command descendant {pid}: {}",
         io::Error::last_os_error()
     );
     unsafe { OwnedHandle::from_raw_handle(handle) }
