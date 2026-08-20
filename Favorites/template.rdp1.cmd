@@ -52,7 +52,6 @@ use multimon:i:0
 
 :: Win 按键是否发送到远程机：0=不发送（进本机），1=发送，2=仅全屏时发送:
 keyboardhook:i:1
-
 :: 剪贴板重定向：0=禁用，1=启用:
 redirectclipboard:i:1
 :: 驱动器重定向；多个盘符以分号分隔，空值表示禁用:
@@ -65,6 +64,15 @@ redirectcomports:i:0
 redirectwebauthn:i:0
 :: 智能卡重定向：0=禁用，1=启用:
 redirectsmartcards:i:0
+:: 对端音频在哪里播放：0=本机播放，1=留着对端，2=不播放：
+audiomode:i:0
+
+:: 本机麦克风重定向到对端：0=禁用，1=启用
+:: 一次实试对端是 winserver 2025 需要安装 RDS server 否则麦克风重定向不会成功
+:: 安装：Install-WindowsFeature RDS-RD-Server -IncludeManagementTools
+:: 卸载：Uninstall-WindowsFeature RDS-RD-Server
+audiocapturemode:i:0
+
 
 :: RemoteApp 模式：0=禁用，1=启用:
 remoteapplicationmode:i:0
