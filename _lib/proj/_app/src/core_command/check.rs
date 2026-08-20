@@ -7,10 +7,15 @@ use crate::context::EntryContext;
 
 use super::{CoreCommandError, CoreCommandOutcome};
 
+mod directory;
+mod resource;
+
 const CHECK_ADDRESS: &str = ".check";
 
 pub fn is_invocation(argv: &[OsString]) -> bool {
-    argv.first().is_some_and(|address| address == CHECK_ADDRESS)
+    argv.first().is_some_and(|address| {
+        address == CHECK_ADDRESS || address == directory::DIRECTORY_EXISTS_ADDRESS
+    })
 }
 
 pub fn execute(
@@ -22,10 +27,22 @@ pub fn execute(
     let Some(address) = argv.first().and_then(|value| value.to_str()) else {
         return Ok(None);
     };
-    if address != CHECK_ADDRESS {
-        return Ok(None);
+    match address {
+        CHECK_ADDRESS => execute_command_check(snapshot, argv, context, data_root).map(Some),
+        directory::DIRECTORY_EXISTS_ADDRESS => {
+            directory::execute(snapshot, argv, data_root).map(Some)
+        }
+        _ => Ok(None),
     }
-    require_check_command(snapshot)?;
+}
+
+fn execute_command_check(
+    snapshot: &CatalogSnapshot,
+    argv: &[OsString],
+    context: &EntryContext,
+    data_root: &Path,
+) -> Result<CoreCommandOutcome, CoreCommandError> {
+    require_core_command(snapshot, CHECK_ADDRESS, "meta.check")?;
     let (target, json) = match argv {
         [_, target] => (unicode(target, "command address")?, false),
         [_, target, format] if format == "--json" => (unicode(target, "command address")?, true),
@@ -40,23 +57,29 @@ pub fn execute(
     } else {
         render_text(&document)
     };
-    Ok(Some(CoreCommandOutcome::with_exit_code(
+    Ok(CoreCommandOutcome::with_exit_code(
         if document.ready { 0 } else { 1 },
         format!("{output}\n"),
-    )))
+    ))
 }
 
-fn require_check_command(snapshot: &CatalogSnapshot) -> Result<(), CoreCommandError> {
+fn require_core_command(
+    snapshot: &CatalogSnapshot,
+    address: &str,
+    handler: &str,
+) -> Result<(), CoreCommandError> {
     if snapshot.commands.iter().any(|command| {
         command.space == CommandSpace::System
-            && command.address == CHECK_ADDRESS
+            && command.address == address
             && command.adapter.as_deref() == Some("core")
-            && command.handler.as_deref() == Some("meta.check")
+            && command.handler.as_deref() == Some(handler)
             && command.runnable
     }) {
         Ok(())
     } else {
-        Err(CoreCommandError::domain("command not found: .check"))
+        Err(CoreCommandError::domain(format!(
+            "command not found: {address}"
+        )))
     }
 }
 

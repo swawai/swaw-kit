@@ -5,6 +5,13 @@ use crate::catalog::{CATALOG_PROTOCOL, CommandNode};
 use crate::command_check::{COMMAND_CHECK_PROTOCOL, CheckedCommand};
 
 #[test]
+fn read_only_dispatch_accepts_only_the_registered_check_addresses() {
+    assert!(is_invocation(&argv(&[".check"])));
+    assert!(is_invocation(&argv(&[".check/dir/exists"])));
+    assert!(!is_invocation(&argv(&[".check/unknown"])));
+}
+
+#[test]
 fn text_report_has_stable_sections() {
     let document = CommandCheckDocument {
         protocol: COMMAND_CHECK_PROTOCOL,

@@ -67,6 +67,7 @@ fn runtime_preparation_is_explicit_for_every_supported_handler() {
     for (address, handler) in [
         (".help", "meta.help"),
         (".check", "meta.check"),
+        (".check/dir/exists", "meta.check.dir.exists"),
         (".runs", "meta.runs"),
         (".dev/bun/mode", "entry.profile.set"),
     ] {

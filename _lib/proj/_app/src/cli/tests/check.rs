@@ -113,3 +113,38 @@ fn command_check_rejects_ambiguous_arguments() {
         "usage: .check <command-address> [--json]"
     );
 }
+
+#[test]
+fn directory_check_is_read_only_and_does_not_require_a_profile() {
+    let fixture = Fixture::new();
+    fixture.core_command(".check/dir/exists", "meta.check.dir.exists");
+    let provider = fixture.command(".provider", "run.exe", "fixture");
+    fs::write(
+        provider.join("swawkit.module.json"),
+        r#"{"schema":"swawkit.command-module/v11","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+    )
+    .unwrap();
+    fixture.initialize();
+    fs::create_dir_all(
+        fixture
+            .data_root()
+            .join("modules/system/provider/export/tool"),
+    )
+    .unwrap();
+
+    let exit_code = run(
+        &fixture.context,
+        &argv(&[".check/dir/exists", ".provider::export/tool", "--json"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap();
+
+    assert_eq!(exit_code, 0);
+    assert!(!fixture.data_root().join("_profile.json").exists());
+    assert!(
+        !fixture
+            .data_root()
+            .join("modules/system/check/dir/exists/_runs")
+            .exists()
+    );
+}

@@ -213,6 +213,21 @@ fn core_execution_handlers_remain_exact_and_system_owned() {
     let fixture = Fixture::new();
     fixture.file(
         &fixture.system,
+        "check/swawkit.module.json",
+        &core_manifest("meta.check"),
+    );
+    fixture.file(
+        &fixture.system,
+        "check/dir/swawkit.module.json",
+        module_manifest(),
+    );
+    fixture.file(
+        &fixture.system,
+        "check/dir/exists/swawkit.module.json",
+        &core_manifest("meta.check.dir.exists"),
+    );
+    fixture.file(
+        &fixture.system,
         "wrong-core/swawkit.module.json",
         &core_manifest("meta.help"),
     );
@@ -223,6 +238,13 @@ fn core_execution_handlers_remain_exact_and_system_owned() {
     );
 
     let snapshot = fixture.discover();
+    let directory_check = node(&snapshot, ".check/dir/exists");
+    assert!(directory_check.runnable, "{:?}", directory_check.diagnostic);
+    assert_eq!(directory_check.adapter.as_deref(), Some("core"));
+    assert_eq!(
+        directory_check.handler.as_deref(),
+        Some("meta.check.dir.exists")
+    );
     for address in [".wrong-core", "swaw/wrong-space"] {
         let command = node(&snapshot, address);
         assert!(!command.runnable, "{address}");

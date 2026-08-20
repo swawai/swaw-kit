@@ -1,0 +1,9 @@
+检查 Provider 公开 export 子树中的物理资源是否为现存的安全目录。
+
+用法：
+  {{INVOCATION}} <provider>::export[/<path>]
+  {{INVOCATION}} <provider>::export[/<path>] --json
+
+资源定位符由一个 Provider 命令及其公开 export 子树中的路径组成。本命令只读取 Catalog 和文件系统元数据，不会运行 Provider，也不会修改资源。它不检查 Provider State，也不证明逻辑 Export 或 Contract 已就绪。
+
+退出码 0 表示资源是现存目录。退出码 1 表示资源缺失、不是目录，或路径经过不安全的文件系统项。无效定位符和无效 Provider 声明属于命令错误。JSON 输出使用 swawkit.check.dir-exists/v1。

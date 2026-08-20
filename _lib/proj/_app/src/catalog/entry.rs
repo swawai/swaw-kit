@@ -50,6 +50,7 @@ impl ResolvedEntry {
                     | (".runtime/host/exit", Some("host.exit"))
                     | (".runtime/host/restart", Some("host.restart"))
                     | (".check", Some("meta.check"))
+                    | (".check/dir/exists", Some("meta.check.dir.exists"))
                     | (".help", Some("meta.help"))
                     | (".runs", Some("meta.runs"))
             ) || (self.handler.as_deref() == Some("entry.profile.set")

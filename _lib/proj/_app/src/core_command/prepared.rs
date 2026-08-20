@@ -68,7 +68,7 @@ impl PreparedCoreCommand {
 
         match command.handler.as_deref() {
             Some("meta.help") => Ok(Self::Help { snapshot, argv }),
-            Some("meta.check") => Ok(Self::Check {
+            Some("meta.check" | "meta.check.dir.exists") => Ok(Self::Check {
                 snapshot,
                 argv,
                 context,
