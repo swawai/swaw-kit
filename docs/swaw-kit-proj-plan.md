@@ -25,6 +25,10 @@ Entry Launcher
 
 Entry 是直接位于 `SWAWKIT_HOME` 根目录的薄原生 Launcher。Launcher 以自身文件名选择 `data/proj.<entry>/`；唯一例外是大小写不敏感的 manager `swawkit.exe`，其 DataRoot 固定为 `data/proj.swawkit/`。每个已初始化 Entry 都以 DataRoot 根部严格的 `entry.id`（64 位小写十六进制加换行）持有稳定身份，并从 `runtime/current` 选择 `runtime/releases/<release-id>/` 中的不可变 Core Release Set。Launcher 原样传递 argv，但不再以 Launcher FileId 或 `_entry.json` claim 绑定实例；替换同路径 Launcher 不会改变 `entry.id`。旧 `_entry.json` 只作为“需要显式迁移”的证据，不再是身份事实，迁移也不会擅自删除它。
 
+普通 Entry 的实例生命周期只由 manager `swawkit.exe` 管理：`.entry/instances` 检查实例，`.entry/instances/create <entry-name>` 创建实例，`.entry/instances/migrate <entry-name>` 只显式迁移同名旧 DataRoot。Entry name 是 1..48 字节的规范 lower-kebab ASCII：以小写字母开头，以小写字母或数字结尾，中间只允许小写字母、数字和不连续的连字符；`swawkit` 保留给 manager，Windows DOS 设备名也明确拒绝。Core 领域服务同时为 CLI 与 Host/Web 提供同一套 inspect/create/migrate 规则，非 manager Entry 即使绕过界面也会被领域边界拒绝。
+
+fresh create 先固定读取 manager 根 Launcher，再要求 manager `runtime/current` 仍等于当前 Host 的 running Release；只有两者属于同一代时，才在 `data/` 下准备并验证完整 DataRoot，其中包含新的 `entry.id`、该 running Runtime Release 副本以及记录目标 Entry name、Launcher 长度和 SHA-256 的 `launcher.json` 摘要回执。回执用于拒绝跨名称复制误认领，不是第二份实例身份。DataRoot 原子提交后才发布根 `<entry-name>.exe`。因此中断最多留下“DataRoot 已就绪、Launcher 待补齐”的可重试状态，不会留下可启动却没有身份的 Launcher；若 manager 在重试前升级，未激活实例的 Runtime、回执和 Launcher 会一起前滚到新的 running generation，而 stale Host 必须先重启。同名旧实例迁移采用另一条明确顺序：验证精确的 `swawkit.proj-entry.v0` 证据，先准备 Runtime、替换 Launcher 并发布 `launcher.json`，最后以 `entry.id` 作为迁移提交点。系统不自动迁移，也不在这个切片提供 rename、delete、repair 或桌面 shortcut；这些能力不能通过猜测路径或兼容 fallback 偷渡进主流程。
+
 只有 manager `swawkit.exe` 可以在 fresh manager DataRoot 尚未建立，或 selector/Runtime 缺失时调用 `_lib/proj/bootstrap.ps1` 完成冷 Bootstrap。普通 Entry 缺少任一必备状态都会 fail closed；它不会自行构建 Runtime，也不会隐式认领现有目录。已有 manager DataRoot 缺少 `entry.id` 时同样 fail closed，只有确认是旧 manager DataRoot 后才能显式执行 `bootstrap.ps1 -MigrateLegacyManagerDataRoot` 补建；畸形 `entry.id` 始终拒绝。
 
 冷 Bootstrap 只构建和原子发布四个必备产品制品：`swawkit-proj.exe`、`swawkit-proj-host.exe`、`swawkit-proj-module.exe` 与 `swawkit-proj-dev.exe`。其中 Module manager 直接以 `system/module/` 为独立 Cargo 根，只依赖一个很小的共享协议 crate，不静态依赖 Core。Bootstrap 不扫描、编译或链接领域 Native Command，因此增加或修改 `.context` 等原生领域不会扩大产品 Runtime 的 Rust 编译集合。
@@ -314,6 +318,7 @@ CLI 与 Host RuntimeService 复用同一 Catalog、Profile、cwd、只读依赖�
 11. Launcher protocol v4 传递并复验 `entry.id`；FileId、DataRoot claim 与共享 `_bin` 主路径已删除，只有 manager `swawkit.exe` 可以冷 Bootstrap。
 12. Rust、Web、Context、TypeScript 与关键 Launcher/CLI/进程树/Journal 黑盒回归。
 13. Host RuntimeService 直接执行 Core handler 与领域进程；Host Runtime/Status v2 以 `entryId + instanceKeySha256 + releaseId + bootId` 绑定 generation，Run 与无 Journal query 共用容量和 shutdown 生命周期，可取消的领域进程统一由 Job Object 监督。旧 Entry worker launch protocol 只作为已运行旧 Host 跨版本切换的暂时兼容栅栏。
+14. manager-only Entry lifecycle 已统一到 `EntryManager`：inventory/inspect、可重试 create 与同名显式 legacy migration 共用同一领域规则；`launcher.json` 绑定目标名称与 Launcher 摘要，`entry.id` 是唯一身份事实和迁移的最终提交点。manager 自身的冷迁移仍由 Bootstrap 完成。
 
 后续按真实收益推进，而不是为“纯模块化”迁移一切：
 
