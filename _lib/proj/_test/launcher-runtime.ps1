@@ -174,7 +174,7 @@ try {
         -Condition (
             $AlphaRun.ExitCode -eq 37 -and
             $AlphaRun.StandardOutput.Contains(
-                "SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL=4"
+                "SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL=5"
             ) -and
             $AlphaRun.StandardOutput.Contains(
                 "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID=$AlphaId"
@@ -197,41 +197,6 @@ try {
             -not $BetaRun.StandardOutput.Contains($AlphaReleaseId)
         ) `
         -Message "beta did not use only its own selector: $($BetaRun.StandardOutput)"
-
-    $WorkerRun = Invoke-Launcher `
-        -Executable $AlphaEntry `
-        -Arguments $Command `
-        -WorkingDirectory $Invocation `
-        -EnvironmentVariables @{
-            SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL = '2'
-        }
-    Assert-LauncherRuntime `
-        -Condition (
-            $WorkerRun.ExitCode -eq 37 -and
-            $WorkerRun.StandardOutput.Contains(
-                'SWAWKIT_PROJ_CORE_LAUNCH_MODE=worker'
-            ) -and
-            -not $WorkerRun.StandardOutput.Contains(
-                'SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL='
-            )
-        ) `
-        -Message 'Launcher did not consume the worker transition declaration'
-
-    $InvalidWorkerRun = Invoke-Launcher `
-        -Executable $AlphaEntry `
-        -Arguments $Command `
-        -WorkingDirectory $Invocation `
-        -EnvironmentVariables @{
-            SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL = 'invalid'
-        }
-    Assert-LauncherRuntime `
-        -Condition (
-            $InvalidWorkerRun.ExitCode -eq 1 -and
-            $InvalidWorkerRun.StandardError.Contains(
-                'Web worker launch declaration'
-            )
-        ) `
-        -Message 'Launcher accepted an invalid worker transition declaration'
 
     $BootstrapMarker = Join-Path $EntryHome 'bootstrap-ran.txt'
     $BootstrapPath = Join-Path $EntryHome '_lib\proj\bootstrap.ps1'

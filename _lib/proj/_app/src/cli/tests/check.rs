@@ -1,7 +1,7 @@
 use std::fs;
 
 use super::super::*;
-use super::{Fixture, argv};
+use super::{Fixture, argv, run};
 
 #[test]
 fn command_check_requires_an_explicitly_initialized_entry() {

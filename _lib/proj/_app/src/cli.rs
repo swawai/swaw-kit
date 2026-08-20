@@ -15,14 +15,6 @@ use swawkit_proj::{
     profile::{EntryProfileState, EntryProfileStore},
 };
 
-pub fn run(
-    context: &EntryContext,
-    argv: &[OsString],
-    process_mode: CommandProcessMode,
-) -> Result<i32, CliError> {
-    run_with_cancellation(context, argv, process_mode, None)
-}
-
 pub fn run_cancelable(
     context: &EntryContext,
     argv: &[OsString],

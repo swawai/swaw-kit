@@ -11,20 +11,17 @@ pub const ENTRY_FILE_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE";
 pub const ENTRY_ID_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_ID";
 pub const LAUNCH_MODE_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_MODE";
 pub const LAUNCH_PROTOCOL_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL";
-pub const LAUNCH_PROTOCOL_VERSION: &str = "4";
-pub const WORKER_PROTOCOL_ENV: &str = "SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL";
-pub const WORKER_PROTOCOL_VERSION: &str = "2";
+pub const LAUNCH_PROTOCOL_VERSION: &str = "5";
 const PROJECT_ENVIRONMENT_PREFIX: &str = "SWAWKIT_PROJ_";
 const SWAWKIT_HOME_ENV: &str = "SWAWKIT_HOME";
 
 /// Selects the composition root without consuming a user argument.
 ///
 /// A native launcher passes user arguments directly and selects `cli` or
-/// `worker` or `internal-host` without consuming a user argument.
+/// `internal-host` without consuming a user argument.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchMode {
     Cli,
-    Worker,
     InternalHost,
 }
 
@@ -32,7 +29,6 @@ impl LaunchMode {
     pub const fn as_env_value(self) -> &'static str {
         match self {
             Self::Cli => "cli",
-            Self::Worker => "worker",
             Self::InternalHost => "internal-host",
         }
     }
@@ -69,7 +65,6 @@ impl LaunchRequest {
         mut lookup: impl FnMut(&str) -> Option<OsString>,
     ) -> Result<Self, LaunchError> {
         validate_launch_protocol(&mut lookup)?;
-        reject_unconsumed_worker_declaration(&mut lookup)?;
         let mode = read_mode(&mut lookup)?;
         let entry_file = read_entry_file(&mut lookup)?;
         let entry_id = read_entry_id(&mut lookup)?;
@@ -128,17 +123,6 @@ fn validate_launch_protocol(
     )))
 }
 
-fn reject_unconsumed_worker_declaration(
-    lookup: &mut impl FnMut(&str) -> Option<OsString>,
-) -> Result<(), LaunchError> {
-    if lookup(WORKER_PROTOCOL_ENV).is_some() {
-        return Err(LaunchError::new(format!(
-            "the native Launcher did not consume its Web worker declaration: {WORKER_PROTOCOL_ENV}; rebuild or replace the Entry Launcher"
-        )));
-    }
-    Ok(())
-}
-
 fn os_ascii_eq_ignore_case(value: &OsStr, expected: &str) -> bool {
     let mut units = value.encode_wide();
     expected.bytes().all(|expected| {
@@ -173,15 +157,12 @@ fn read_mode(lookup: &mut impl FnMut(&str) -> Option<OsString>) -> Result<Launch
     if value == OsStr::new(LaunchMode::Cli.as_env_value()) {
         return Ok(LaunchMode::Cli);
     }
-    if value == OsStr::new(LaunchMode::Worker.as_env_value()) {
-        return Ok(LaunchMode::Worker);
-    }
     if value == OsStr::new(LaunchMode::InternalHost.as_env_value()) {
         return Ok(LaunchMode::InternalHost);
     }
 
     Err(LaunchError::new(format!(
-        "unsupported {LAUNCH_MODE_ENV} value '{}'; expected 'cli', 'worker', or 'internal-host'",
+        "unsupported {LAUNCH_MODE_ENV} value '{}'; expected 'cli' or 'internal-host'",
         value.to_string_lossy()
     )))
 }

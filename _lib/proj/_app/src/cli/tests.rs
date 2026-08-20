@@ -18,6 +18,14 @@ mod runs;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
+fn run(
+    context: &EntryContext,
+    argv: &[OsString],
+    process_mode: CommandProcessMode,
+) -> Result<i32, CliError> {
+    run_with_cancellation(context, argv, process_mode, None)
+}
+
 fn write_runtime_fixture(root: &Path, runtime_root: &Path) -> String {
     let bootstrap = root.join("data/proj_cache/bootstrap");
     let tool_root = bootstrap.join("fixture-tools");

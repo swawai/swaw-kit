@@ -315,9 +315,9 @@ CLI 与 Host RuntimeService 复用同一 Catalog、Profile、cwd、只读依赖�
 8. 项目 `.swaw/proj/...` 命令迁到 `project/proj/...` 地址和 DataRoot。
 9. Manifest v11 具名 Export、Provider State v2 发布集合、CommandCheck v1 与执行前递归依赖断言。
 10. Runtime Release v4 固定 Framework Command Runtime v1；每个 Entry 独享 `data/proj.<entry>/runtime/current` 与 `runtime/releases/`，Core 的 Bun/Pwsh adapter 与目标 `.dev` 环境完全解耦，`.dev/*` 只在被显式调用时导入目标环境。
-11. Launcher protocol v4 传递并复验 `entry.id`；FileId、DataRoot claim 与共享 `_bin` 主路径已删除，只有 manager `swawkit.exe` 可以冷 Bootstrap。
+11. Launcher protocol v5 传递并复验 `entry.id`，且只允许 `cli` 与 `internal-host` 两个 composition root；FileId、DataRoot claim、共享 `_bin` 与旧 worker launch 主路径已删除，只有 manager `swawkit.exe` 可以冷 Bootstrap。
 12. Rust、Web、Context、TypeScript 与关键 Launcher/CLI/进程树/Journal 黑盒回归。
-13. Host RuntimeService 直接执行 Core handler 与领域进程；Host Runtime/Status v2 以 `entryId + instanceKeySha256 + releaseId + bootId` 绑定 generation，Run 与无 Journal query 共用容量和 shutdown 生命周期，可取消的领域进程统一由 Job Object 监督。旧 Entry worker launch protocol 只作为已运行旧 Host 跨版本切换的暂时兼容栅栏。
+13. Host RuntimeService 直接执行 Core handler 与领域进程；Host Runtime/Status v2 以 `entryId + instanceKeySha256 + releaseId + bootId` 绑定 generation，Run 与无 Journal query 共用容量和 shutdown 生命周期，可取消的领域进程统一由 Job Object 监督。Launch v5 仅保留 `cli` 与 `internal-host` 两个 composition root，旧 Entry worker launch protocol 已硬删除。
 14. manager-only Entry lifecycle 已统一到 `EntryManager`：inventory/inspect、可重试 create 与同名显式 legacy migration 共用同一领域规则；`launcher.json` 绑定目标名称与 Launcher 摘要，`entry.id` 是唯一身份事实和迁移的最终提交点。manager 自身的冷迁移仍由 Bootstrap 完成。
 
 后续按真实收益推进，而不是为“纯模块化”迁移一切：

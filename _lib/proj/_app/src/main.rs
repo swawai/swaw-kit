@@ -65,9 +65,6 @@ fn run(request: LaunchRequest) -> Result<i32, Box<dyn Error>> {
             )
             .map_err(Into::into)
         }
-        LaunchMode::Worker => {
-            cli::run(&context, &request.argv, CommandProcessMode::NoWindow).map_err(Into::into)
-        }
         LaunchMode::InternalHost => launch_host(&request, &context),
     }
 }
