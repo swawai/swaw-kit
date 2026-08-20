@@ -4,6 +4,7 @@ Usage:
   {{INVOCATION}}
   {{INVOCATION}} --json
 
-Project binding, interface language, and Git settings use typed commands below {{ADDRESS}}. Development-tool settings live below the matching .dev tool node. Use {{ADDRESS}}.apply for a complete replacement and {{ADDRESS}}.claim to inspect and explicitly accept a DataRoot ownership change.
+Project binding, interface language, and Git settings use typed commands below {{ADDRESS}}. Development-tool settings live below the matching .dev tool node. Entry instances must be created explicitly, and legacy DataRoots require an explicit migration.
+Instance identity comes from data/proj.<entry>/entry.id, not a Launcher FileId. Replacing the EXE at the same path neither reclaims nor changes the Entry identity.
 
 This Entry command remains available when the Profile is missing or invalid.

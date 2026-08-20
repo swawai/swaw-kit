@@ -3,5 +3,6 @@
 用法：
   {{INVOCATION}}
 
-退出会终止当前 Host 内仍在运行的 Web 命令。该命令通过已发布的 Host Runtime 描述定位并
-验证当前 Entry Host，再请求现有的产品级 shutdown 路径；不会按 PID 猜测或直接结束进程。
+退出会终止当前 Host 内仍在运行的 Web 命令。该命令通过已发布的 Host Runtime v2 描述及
+entry/instance/release/boot 健康身份定位当前 generation，再请求现有的产品级 shutdown
+路径；不会按 PID 猜测或直接结束进程。

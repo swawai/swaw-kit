@@ -3,4 +3,4 @@ Restart the current Entry Host into the Runtime release selected by the selector
 Usage:
   {{INVOCATION}}
 
-This is available only when the running and selected releases differ. Restart switches an already published release; it is not a publish operation.
+This is available only when the running and selected releases differ. The coordinator verifies the old Host generation, releases its instance-key plus release-id lease, and starts the selected release through the original Entry Launcher. The replaceable Launcher file is not a generation identity. Restart switches an already published release; it is not a publish operation.

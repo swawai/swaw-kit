@@ -3,4 +3,4 @@ Run one Windows CMD command in the current project environment.
 Usage:
   {{INVOCATION}} <command...>
 
-The project root is the working directory. The command inherits the verified Entry context and development-tool PATH. It is non-interactive and does not modify user or system PATH.
+The run.ps1 adapter uses the Framework Pwsh pinned by the current product Runtime. This command then validates and imports the current Entry's .dev/setup Ready environment before starting cmd.exe with the project root as its working directory; Core does not inject the target Dev PATH into ordinary commands. The import affects only this process and its children, does not modify user or system PATH, and does not depend on the legacy Proj _bin layout. The command is non-interactive.

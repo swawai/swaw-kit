@@ -12,7 +12,7 @@
   export/current
   _state.json
 
-swawkit-proj.exe 是高频 CLI/Worker Core；swawkit-proj-host.exe 独立承载 Web、托盘与
+swawkit-proj.exe 是高频 CLI Core；swawkit-proj-host.exe 独立承载 Web、托盘与
 常驻 Host；swawkit-proj-dev.exe 承载低频下载、校验与解压原语。该命令只构建
 不可变候选 Release Set，不切换正式运行版本。
 

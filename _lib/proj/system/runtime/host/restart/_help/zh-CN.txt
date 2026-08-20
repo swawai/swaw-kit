@@ -3,5 +3,6 @@
 用法：
   {{INVOCATION}}
 
-仅当 Host 运行 Release 与 selector Release 不同时可用。短生命周期协调进程会先固定旧
-Host，再释放单实例租约并通过原 Entry Launcher 启动新 Release；不会把“重启”误作发布更新。
+仅当 Host 运行 Release 与 selector Release 不同时可用。短生命周期协调进程会验证并固定
+旧 Host generation，再释放其 instance-key + release-id 租约，并通过原 Entry Launcher
+启动新 Release；Launcher 文件可替换，不参与 generation 身份校验，也不会把“重启”误作发布更新。

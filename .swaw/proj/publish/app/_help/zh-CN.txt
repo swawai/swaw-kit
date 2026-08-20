@@ -7,10 +7,13 @@
   {{ENTRY}} project/proj/build/app
 
 发布先完整写入不可变目录：
-  _lib/proj/_bin/releases/<release-id>/
+  <SWAWKIT_PROJ_DATA_ROOT>/runtime/releases/<release-id>/
+
+其中 SWAWKIT_PROJ_DATA_ROOT 是当前 Entry 独享的 data/proj.<entry>，其稳定身份记录在
+根部 entry.id；不同 Entry 不共享 Runtime selector。
 
 确认 Core、Host、Module、Dev、Manifest 的长度与 SHA-256 后，只原子更新：
-  _lib/proj/_bin/current
+  <SWAWKIT_PROJ_DATA_ROOT>/runtime/current
 
-正在运行的旧 Host 会继续使用旧 Release Set；新调用读取 current。_bin 根目录不再保留
-可执行文件副本。新建 Entry 的 Launcher 模板由 project/proj/publish/launcher 单独发布。
+正在运行的旧 Host 会继续使用旧 Release Set；新调用读取 current。runtime 根目录不再保留
+可执行文件副本。该命令不发布或替换任何 Entry Launcher。

@@ -5,6 +5,7 @@ Usage:
   {{INVOCATION}} --json
 
 The state includes the selected release, published release count, Host PID, running release, and whether a restart into a newer release is available.
+JSON uses swawkit.runtime-status/v2. Its swawkit.host-status/v2 member carries the Entry ID, the instance key derived from the canonical DataRoot and entry.id, the running release, and the boot ID. Status is therefore bound to one Host generation rather than guessed from a PID or Launcher file.
 
 Subcommands:
   host.exit       Gracefully exit this Entry Host.

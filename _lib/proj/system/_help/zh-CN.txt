@@ -11,12 +11,15 @@ contract。可使用纯只读检查：
 目标进程之前复用同一只读依赖断言。检查不会安装、编译、修复或运行领域代码。
 动态业务前提由所属 run.* 自己验证。
 
-极薄 EXE Launcher 负责入口身份、Host/CLI 分流和原生 argv 边界；
-每个项目入口都是同一模板的独立副本：共享 Core 缺失时调用 Bootstrap，
-随后把参数原样交给 Rust；入口自身不声明项目配置，也不承担公开命令路由。
-根 swawkit.exe 和 Launcher 模板是随仓库发布的必备制品；需要从源码生成候选时，
-直接运行 _lib\proj\build.ps1，它会准备固定 Bootstrap 工具链并构建 App 与 Launcher
-候选；只写入 data/proj_cache/bootstrap/build，不替换任何发布制品。
+极薄 EXE Launcher 负责 Entry 寻址、Host/CLI 分流和原生 argv 边界。入口文件名
+<entry>.exe 映射到 data/proj.<entry>，稳定实例身份来自其中的 entry.id；Runtime selector
+位于该 DataRoot 的 runtime/current。替换同路径 Launcher 不会改变 Entry 身份。
+只有 manager swawkit.exe 能在 Runtime 缺失时冷 Bootstrap；普通 Entry 会 fail closed，
+并要求先通过 manager 创建或修复。入口自身不声明项目配置，也不承担公开命令路由。
+
+_lib\proj\build.ps1 只在 data/proj_cache/bootstrap/build 下生成 App 与 Launcher 候选，
+project/proj/build/launcher 也只发布命令自己的 export/swawkit.exe；二者都不替换根
+Launcher。当前没有 publish/launcher、Launcher 模板或 Favorites 自动发布路径。
 
 System 命令以一个点开头，层级使用斜杠，例如 {{COMMAND}} .entry/language 或
 {{COMMAND}} .context；模块命令从显式命名空间开始，例如
