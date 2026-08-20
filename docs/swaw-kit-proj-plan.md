@@ -128,7 +128,7 @@ System 是框架自带的稳定命名空间，不等于 Core。Entry Profile、D
 
 `.module/instantiate` 与 `.module/status` 由 `product: "module"` 的独立 `swawkit-proj-module.exe` 提供。它随四制品 Runtime Release Set 一起升级、回滚和校验，源码、依赖和测试则直接位于标准 Cargo 根 `system/module/`。Core 只根据 Catalog 中的 product ID 路由到同一已选择 Release 中的兄弟制品，不内置 `.module` 的构建与发布实现。
 
-`.dev/setup` 与 `.dev/status` 同理由 `product: "dev"` 的独立 `swawkit-proj-dev.exe` 提供，源码、依赖和测试直接位于 `system/dev/`。setup 成功后先发布有版本的 `environment.json`/`env.ps1` Export，再原子发布绑定同一 `inputRevision + publicationToken` 的 Provider State。Core 只传递当前 Profile 的 Dev 配置声明和 input revision，不消费产出的 PATH 或工具路径；`.dev/*` 薄命令在自身进程内显式验证并导入目标环境。`.check` 与 `.dev/status` 承担显式诊断，普通领域 `run.ts`/`run.ps1` 完全不依赖目标 Dev publication。
+`.dev/setup`、`.dev/setup/check` 与 `.dev/status` 同理由 `product: "dev"` 的独立 `swawkit-proj-dev.exe` 提供，源码、依赖和测试直接位于 `system/dev/`。setup 成功后先发布有版本的 `environment.json`/`env.ps1` Export，再原子发布绑定同一 `inputRevision + publicationToken` 的 Provider State。Core 只传递当前 Profile 的 Dev 配置声明和 input revision，不消费产出的 PATH 或工具路径；`.dev/*` 薄命令在自身进程内显式验证并导入目标环境。`.dev/setup/check environment` 对领域文档、脚本、PATH 与可执行物做显式深检；`.check` 与 `.dev/status` 继续承担框架依赖和状态诊断。普通领域 `run.ts`/`run.ps1` 完全不依赖目标 Dev publication。
 
 Core recovery/control 命令可能在 DataRoot 建立前直接 dispatch，因此不消费模块 Export，Manifest v11 明确禁止 `execution.core` 与 `requires` 组合。需要依赖 Export 的 System 命令应使用受统一依赖断言保护的普通 `run.*`、`execution.runtime` 或 `execution.native`，不能在 control dispatch 中另加一条时序不同的特殊门禁。
 
@@ -239,7 +239,7 @@ Manifest v11 使用具名 Export，而不是把一个 Provider 等同于一个�
 
 `provider + export` 是被依赖能力的逻辑身份，`contract` 是其精确数据或 IO 协议身份。Provider State v2 在一次原子发布中列出实际 Ready 的 `{id, contract}` 集合；Manifest 声明、Provider State 和消费要求三者必须精确相交。框架当前不在声明中增加泛化 `kind`：文件、目录、Release Set 与 EXE 的内容完整性继续由各自领域 Manifest 验证，避免用一个过早的万能 Artifact schema 抹平真实差异。
 
-`.check <command-address> --json` 只读报告命令入口及其输入依赖能否立即执行，不评价目标自身声明的 `provides`，不猜测领域私有文件格式，也不执行安装、编译、修复或领域代码。普通 CLI 与 Web 执行会在 Journal 和目标进程之前复用同一递归依赖断言；任一依赖缺失、契约不匹配或传递依赖未就绪时直接失败。显式 `.check && run` 适合人和 CI 提前取得诊断，但执行边界仍必须重新读取状态，不能把协议正确性寄托在调用者记忆或存在竞态的旧检查结果上。
+`.check <command-address> --json` 只读报告命令入口及其输入依赖能否立即执行，不评价目标自身声明的 `provides`，不猜测领域私有文件格式，也不执行安装、编译、修复或领域代码。Provider 可以提供普通命令 `<provider>/check <export-id>` 深检自己的发布物；CommandCheck v2 只把这个 checker 作为结构化修复入口返回，不会在普通执行前自动运行它。CLI 展示完整调用命令，Web 由同一结构化命令身份计算站内相对 URL 并携带参数提示。普通 CLI 与 Web 执行仍在 Journal 和目标进程之前复用同一静态递归依赖断言；任一依赖缺失、契约不匹配或传递依赖未就绪时直接失败。显式 `.check && run` 适合人和 CI 提前取得诊断，但执行边界仍必须重新读取状态，不能把协议正确性寄托在调用者记忆或存在竞态的旧检查结果上。
 
 `requires` 只表达已发布能力能否消费，不是命令调用路由。`run.*` 应直接消费声明的 Export/artifact，不在领域进程内递归启动另一个 Entry；Launcher 检测到 command protocol 时拒绝 nested Entry，这是执行环境、Job 与 Journal 的隔离边界。多个命令的串联属于未来 Playbook 或更上层 orchestrator，不由叶子命令暗中编排。
 
@@ -255,7 +255,7 @@ Manifest、解析结果与 Playbook 必须分层：`swawkit.module.json` 是作�
 - `Facet`：Subject 可浏览、投影或执行的能力。
 - `SubjectCollection`：某个 collection Facet 的解析结果。
 
-当前关键协议是 Catalog v19、SubjectCollection v3、Context v2、CommandCheck v1、CommandRunEvent v2、CommandRunJournal 查询文档 v2 与 Web live CommandRun v2；未改变字段的持久 Journal State 与不含事件的 CommandRunHistory 保持 v1。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
+当前关键协议是 Catalog v19、SubjectCollection v3、Context v2、CommandCheck v2、CommandRunEvent v2、CommandRunJournal 查询文档 v2 与 Web live CommandRun v2；未改变字段的持久 Journal State 与不含事件的 CommandRunHistory 保持 v1。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
 
 Web 路由与身份一致：
 
@@ -285,7 +285,9 @@ SWAWKIT_PROJ_PROJECT_MODULE_ROOT
 SWAWKIT_PROJ_MODULE_ROOTS
 ```
 
-Command environment v2 表示一次真实的 command invocation；`SWAWKIT_PROJ_MODULE_ROOTS` 是 Core 对实际存在的固定 `swaw`、`project` 来源生成的 resolved projection，不属于 Profile 配置，也不改变该 wire 或升级协议。环境不再包含 `phase` 或 Guard scope。`COMMAND_RUNTIME_ID` 只描述当前产品 Runtime 固定的框架脚本解释器，不是 `.dev/setup` 的 target environment。Core 可以把 Profile 中的 Dev 选版声明传给 Dev Runtime Component，但不会把 Dev Export 的变量或 PATH 注入普通命令。需要 Python 3.9 等目标项目工具的脚本，应显式调用 `.dev/python`、`.dev/uv` 等领域入口；脚本自身使用的解释器版本属于 Framework Command Runtime。
+Command environment v2 表示一次真实的 command invocation；`SWAWKIT_PROJ_MODULE_ROOTS` 是 Core 对实际存在的固定 `swaw`、`project` 来源生成的 resolved projection，不属于 Profile 配置，也不改变该 wire 或升级协议。环境不再包含 `phase` 或 Guard scope。`COMMAND_RUNTIME_ID` 只描述当前产品 Runtime 固定的框架脚本解释器，不是 `.dev/setup` 的 target environment。Core 可以把 Profile 中的 Dev 选版声明传给 Dev Runtime Component，但不会把 Dev Export 的变量或 PATH 注入普通命令。需要特定目标项目工具的脚本，应由相应领域命令显式验证并导入自己的环境；脚本自身使用的解释器版本属于 Framework Command Runtime。
+
+Entry Profile v4 已删除没有产品消费者的 Git identity、GH/VS Code/Cursor mode，以及当前不可启用的 Go/Python/UV 占位声明；旧 v3 与退役字段直接 fail closed，不保留兼容读取。当前 Profile 仅暂存 Entry 的 `targetProjectRoot + language` 与 Bun/Pwsh/MSVC/Rust 的有效 Dev 声明。下一阶段先将前两者下沉为最小 EntryConfig、后四组下沉为 `.dev` 自有 Settings，再删除全局 Profile gate 与 Profile 环境投影；调用时的工作目录不能冒充稳定的目标项目绑定。
 
 CLI 与 Host RuntimeService 复用同一 Catalog、Profile、cwd、只读依赖断言、Adapter、DataRoot、进程物化和 Journal 规则。Web command 与 Facet query 直接调用 Host 内的 RuntimeService；RuntimeService 在 Journal 建立后直接执行 Core handler 或启动领域进程，不再递归启动 Entry Launcher 与第二个 Core。动态领域前提由目标命令自己验证，框架不执行通用的有副作用 Guard。Windows Job Object 管理整棵命令进程树；取消和 Host 退出都会回收后代。
 
@@ -303,7 +305,7 @@ CLI 与 Host RuntimeService 复用同一 Catalog、Profile、cwd、只读依赖�
 6. `.context` 以 System identity + Native execution 完整领域下沉；Core 中旧 Context 业务实现已移除。
 7. `.dev/setup` 和 Context 领域数据均采用一次性显式迁移；运行时代码不保留旧地址根的双写或 fallback。
 8. 项目 `.swaw/proj/...` 命令迁到 `project/proj/...` 地址和 DataRoot。
-9. Manifest v11 具名 Export、Provider State v2 发布集合、CommandCheck v1 与执行前递归依赖断言。
+9. Manifest v11 具名 Export、Provider State v2 发布集合、CommandCheck v2、Provider 自有显式 checker 与执行前静态递归依赖断言。
 10. Runtime Release v4 固定 Framework Command Runtime v1；每个 Entry 独享 `data/proj.<entry>/runtime/current` 与 `runtime/releases/`，Core 的 Bun/Pwsh adapter 与目标 `.dev` 环境完全解耦，`.dev/*` 只在被显式调用时导入目标环境。
 11. Launcher protocol v6 只传递规范 Entry 路径事实，且只允许 `cli` 与 `internal-host` 两个 composition root；额外 `entry.id`、FileId、DataRoot claim、共享 `_bin` 与旧 worker launch 主路径已删除，只有 manager `swawkit.exe` 可以冷 Bootstrap。
 12. Rust、Web、Context、TypeScript 与关键 Launcher/CLI/进程树/Journal 黑盒回归。
