@@ -25,7 +25,6 @@ struct Setting {
 struct Module {
     name: &'static str,
     mode: &'static str,
-    setup_implemented: bool,
     settings: &'static [Setting],
 }
 
@@ -41,7 +40,6 @@ const BUN_SETTINGS: &[Setting] = &[
         InputNormalization::Exact,
     ),
 ];
-const GO_SETTINGS: &[Setting] = &[literal("SWAWKIT_PROJ_GO_VERSION")];
 const MSVC_SETTINGS: &[Setting] = &[input(
     "SWAWKIT_PROJ_MSVC_CHANNEL",
     SnapshotNormalization::Literal,
@@ -59,7 +57,6 @@ const PWSH_SETTINGS: &[Setting] = &[
         InputNormalization::Exact,
     ),
 ];
-const PYTHON_SETTINGS: &[Setting] = &[literal("SWAWKIT_PROJ_PYTHON_VERSION")];
 const RUST_SETTINGS: &[Setting] = &[
     input(
         "SWAWKIT_PROJ_RUST_HOST",
@@ -77,28 +74,17 @@ const RUST_SETTINGS: &[Setting] = &[
         InputNormalization::Lowercase,
     ),
 ];
-const UV_SETTINGS: &[Setting] = &[literal("SWAWKIT_PROJ_UV_VERSION")];
-
 const MODULES: &[Module] = &[
-    module("bun", "SWAWKIT_PROJ_BUN_MODE", true, BUN_SETTINGS),
-    module("go", "SWAWKIT_PROJ_GO_MODE", false, GO_SETTINGS),
-    module("msvc", "SWAWKIT_PROJ_MSVC_MODE", true, MSVC_SETTINGS),
-    module("pwsh", "SWAWKIT_PROJ_PWSH_MODE", true, PWSH_SETTINGS),
-    module("python", "SWAWKIT_PROJ_PYTHON_MODE", false, PYTHON_SETTINGS),
-    module("rust", "SWAWKIT_PROJ_RUST_MODE", true, RUST_SETTINGS),
-    module("uv", "SWAWKIT_PROJ_UV_MODE", false, UV_SETTINGS),
+    module("bun", "SWAWKIT_PROJ_BUN_MODE", BUN_SETTINGS),
+    module("msvc", "SWAWKIT_PROJ_MSVC_MODE", MSVC_SETTINGS),
+    module("pwsh", "SWAWKIT_PROJ_PWSH_MODE", PWSH_SETTINGS),
+    module("rust", "SWAWKIT_PROJ_RUST_MODE", RUST_SETTINGS),
 ];
 
-const fn module(
-    name: &'static str,
-    mode: &'static str,
-    setup_implemented: bool,
-    settings: &'static [Setting],
-) -> Module {
+const fn module(name: &'static str, mode: &'static str, settings: &'static [Setting]) -> Module {
     Module {
         name,
         mode,
-        setup_implemented,
         settings,
     }
 }
@@ -109,13 +95,6 @@ const fn input(
     _input: InputNormalization,
 ) -> Setting {
     Setting { name, snapshot }
-}
-
-const fn literal(name: &'static str) -> Setting {
-    Setting {
-        name,
-        snapshot: SnapshotNormalization::Literal,
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -134,26 +113,6 @@ impl DeclarationSnapshot {
             .filter(|module| self.values[module.mode] != "disabled")
             .map(|module| module.name)
             .collect()
-    }
-
-    pub fn pending_modules(&self) -> Vec<&'static str> {
-        MODULES
-            .iter()
-            .filter(|module| !module.setup_implemented && self.values[module.mode] != "disabled")
-            .map(|module| module.name)
-            .collect()
-    }
-
-    pub fn require_supported(&self) -> Result<(), DeclarationError> {
-        let pending = self.pending_modules();
-        if pending.is_empty() {
-            Ok(())
-        } else {
-            Err(DeclarationError(format!(
-                ".dev/setup does not yet handle these enabled declarations: {}.",
-                pending.join(", ")
-            )))
-        }
     }
 
     pub fn archive_request(
@@ -321,18 +280,12 @@ mod tests {
             ("SWAWKIT_PROJ_BUN_MODE", " MANAGED "),
             ("SWAWKIT_PROJ_BUN_VERSION", "1.2.15"),
             ("SWAWKIT_PROJ_BUN_SHA256", " SHA256:AAAA "),
-            ("SWAWKIT_PROJ_GO_MODE", "managed"),
-            ("SWAWKIT_PROJ_GO_VERSION", "1.25"),
         ]);
         let snapshot = snapshot(|name| values.get(name).map(|value| (*value).to_owned()));
 
         assert_eq!(snapshot.values()["SWAWKIT_PROJ_BUN_MODE"], "managed");
         assert_eq!(snapshot.values()["SWAWKIT_PROJ_BUN_SHA256"], "aaaa");
-        assert_eq!(snapshot.pending_modules(), ["go"]);
-        assert_eq!(
-            snapshot.require_supported().unwrap_err().to_string(),
-            ".dev/setup does not yet handle these enabled declarations: go."
-        );
+        assert_eq!(snapshot.enabled_modules(), ["bun"]);
     }
 
     #[test]
@@ -342,7 +295,6 @@ mod tests {
             provider_input_normalization("SWAWKIT_PROJ_RUST_TOOLCHAIN"),
             Some(InputNormalization::Lowercase)
         );
-        assert_eq!(provider_input_normalization("SWAWKIT_PROJ_GO_MODE"), None);
     }
 
     #[test]

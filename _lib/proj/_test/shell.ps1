@@ -170,15 +170,6 @@ try {
     Assert-ProjShellTest `
         -Condition ($LASTEXITCODE -eq 0) `
         -Message "Entry Profile setup failed for managed PowerShell: $PwshVersionOutput"
-    $IdentityOutput = @(
-        & $script:ProjShellEntry `
-            '.entry/git/name' `
-            'Shell Fixture' `
-            2>&1
-    )
-    Assert-ProjShellTest `
-        -Condition ($LASTEXITCODE -eq 0) `
-        -Message "Entry identity setup failed: $IdentityOutput"
     $ManagedPwshRoot = Join-Path $DataRoot (
         'modules\system\dev\setup\export\pwsh\installs\7.6.4'
     )
@@ -210,7 +201,6 @@ try {
         'echo COMMAND_PROTOCOL=%SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL%'
         'echo COMMAND_ADDRESS=%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%'
         'echo COMMAND_DATA_ROOT=%SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT%'
-        'echo GIT_ID_NAME=%SWAWKIT_PROJ_GIT_ID_NAME%'
         'echo PROJ_HOME=%SWAWKIT_HOME%'
         'echo DATA_ROOT=%SWAWKIT_PROJ_DATA_ROOT%'
         'echo PATH_VALUE=%PATH%'
@@ -232,7 +222,6 @@ try {
         'COMMAND_PROTOCOL=2',
         'COMMAND_ADDRESS=.dev/cmd',
         "COMMAND_DATA_ROOT=$DataRoot\modules\system\dev\cmd",
-        'GIT_ID_NAME=Shell Fixture',
         "PROJ_HOME=$($Runtime.Home)",
         "DATA_ROOT=$DataRoot",
         "PATH_VALUE=$ManagedPwshRoot;",
@@ -257,7 +246,6 @@ try {
         'Write-Output "COMMAND_PROTOCOL=$env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL"'
         'Write-Output "COMMAND_ADDRESS=$env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS"'
         'Write-Output "COMMAND_DATA_ROOT=$env:SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT"'
-        'Write-Output "GIT_ID_NAME=$env:SWAWKIT_PROJ_GIT_ID_NAME"'
         'Write-Output "PROJ_HOME=$env:SWAWKIT_HOME"'
         'Write-Output "DATA_ROOT=$env:SWAWKIT_PROJ_DATA_ROOT"'
         'Write-Output "PATH_VALUE=$env:PATH"'
@@ -280,7 +268,6 @@ try {
         'COMMAND_PROTOCOL=2',
         'COMMAND_ADDRESS=.dev/pwsh',
         "COMMAND_DATA_ROOT=$DataRoot\modules\system\dev\pwsh",
-        'GIT_ID_NAME=Shell Fixture',
         "PROJ_HOME=$($Runtime.Home)",
         "DATA_ROOT=$DataRoot",
         "WORKING_DIR=$($Runtime.Home)",

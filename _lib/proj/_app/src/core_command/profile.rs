@@ -86,37 +86,28 @@ mod tests {
     fn setting_returns_the_complete_json_stdout_and_updates_the_store() {
         let fixture = Fixture::new();
 
-        let outcome = set(
-            ".entry/git/name",
-            &[OsString::from("Core Writer")],
-            &fixture.store,
-        )
-        .expect("set profile field");
+        let outcome = set(".entry/language", &[OsString::from("en")], &fixture.store)
+            .expect("set profile field");
 
         assert_eq!(outcome.exit_code, 0);
         assert!(outcome.stdout.ends_with('\n'));
         let output: Value = serde_json::from_str(&outcome.stdout).expect("profile JSON stdout");
-        assert_eq!(output["profile"]["git"]["name"], "Core Writer");
+        assert_eq!(output["profile"]["language"], "en");
         let EntryProfileState::Ready(profile) = fixture.store.read() else {
             panic!("expected ready profile");
         };
-        assert_eq!(profile.record().git.name, "Core Writer");
+        assert_eq!(profile.record().language, "en");
     }
 
     #[test]
     fn malformed_invocations_are_typed_and_do_not_write_the_profile() {
         let fixture = Fixture::new();
 
-        let error = set(".entry/git/name", &[], &fixture.store).unwrap_err();
+        let error = set(".entry/language", &[], &fixture.store).unwrap_err();
         assert!(matches!(error, CoreCommandError::Arguments { .. }));
-        assert_eq!(error.to_string(), "usage: .entry/git/name <value>");
+        assert_eq!(error.to_string(), "usage: .entry/language <value>");
 
-        let error = set(
-            ".entry/git/unknown",
-            &[OsString::from("value")],
-            &fixture.store,
-        )
-        .unwrap_err();
+        let error = set(".entry/unknown", &[OsString::from("value")], &fixture.store).unwrap_err();
         assert!(matches!(error, CoreCommandError::Domain { .. }));
         assert!(error.to_string().contains("Catalog invariant failed"));
         assert!(!fixture.store.path().exists());
@@ -125,17 +116,13 @@ mod tests {
     #[test]
     fn provider_inputs_keep_the_store_provider_state_transaction() {
         let fixture = Fixture::new();
-        set(
-            ".entry/git/name",
-            &[OsString::from("Fixture User")],
-            &fixture.store,
-        )
-        .expect("create profile through a non-provider setting");
+        set(".entry/language", &[OsString::from("en")], &fixture.store)
+            .expect("create profile through a non-provider setting");
         let initial = fs::read(fixture.provider_state_path()).expect("initial provider state");
 
         set(
-            ".entry/git/email",
-            &[OsString::from("dev@example.com")],
+            ".entry/language",
+            &[OsString::from("zh-CN")],
             &fixture.store,
         )
         .expect("update non-provider setting");

@@ -26,12 +26,10 @@ struct SettingSpec {
     field: &'static str,
 }
 
-const SETTING_SPECS: [SettingSpec; 18] = [
+const SETTING_SPECS: [SettingSpec; 12] = [
     setting(".dev/bun/mode", "development.bun.mode"),
     setting(".dev/bun/sha256", "development.bun.sha256"),
     setting(".dev/bun/version", "development.bun.version"),
-    setting(".dev/cursor/mode", "development.cursor.mode"),
-    setting(".dev/gh/mode", "development.gh.mode"),
     setting(".dev/msvc/channel", "development.msvc.channel"),
     setting(".dev/msvc/mode", "development.msvc.mode"),
     setting(".dev/pwsh/mode", "development.pwsh.mode"),
@@ -39,24 +37,14 @@ const SETTING_SPECS: [SettingSpec; 18] = [
     setting(".dev/pwsh/version", "development.pwsh.version"),
     setting(".dev/rust/mode", "development.rust.mode"),
     setting(".dev/rust/toolchain", "development.rust.toolchain"),
-    setting(".dev/vscode/mode", "development.vscode.mode"),
-    setting(".entry/git/access", "git.access"),
-    setting(".entry/git/email", "git.email"),
-    setting(".entry/git/name", "git.name"),
     setting(".entry/language", "language"),
     setting(".entry/project/root", "targetProjectRoot"),
 ];
 
-const VARIABLE_SPECS: [VariableSpec; 29] = [
+const VARIABLE_SPECS: [VariableSpec; 14] = [
     variable("SWAWKIT_PROJ_BUN_MODE", "development.bun.mode"),
     optional("SWAWKIT_PROJ_BUN_SHA256", "development.bun.sha256"),
     variable("SWAWKIT_PROJ_BUN_VERSION", "development.bun.version"),
-    optional("SWAWKIT_PROJ_GIT_ID_ACCESS", "git.access"),
-    optional("SWAWKIT_PROJ_GIT_ID_EMAIL", "git.email"),
-    optional("SWAWKIT_PROJ_GIT_ID_NAME", "git.name"),
-    variable("SWAWKIT_PROJ_GO_MODE", "development.go.mode"),
-    optional("SWAWKIT_PROJ_GO_SHA256", "development.go.sha256"),
-    optional("SWAWKIT_PROJ_GO_VERSION", "development.go.version"),
     variable("SWAWKIT_PROJ_MSVC_CHANNEL", "development.msvc.channel"),
     variable("SWAWKIT_PROJ_MSVC_MODE", "development.msvc.mode"),
     variable("SWAWKIT_PROJ_LANGUAGE", "language"),
@@ -64,19 +52,10 @@ const VARIABLE_SPECS: [VariableSpec; 29] = [
     variable("SWAWKIT_PROJ_PWSH_MODE", "development.pwsh.mode"),
     optional("SWAWKIT_PROJ_PWSH_SHA256", "development.pwsh.sha256"),
     variable("SWAWKIT_PROJ_PWSH_VERSION", "development.pwsh.version"),
-    variable("SWAWKIT_PROJ_PYTHON_MODE", "development.python.mode"),
-    optional("SWAWKIT_PROJ_PYTHON_SHA256", "development.python.sha256"),
-    variable("SWAWKIT_PROJ_PYTHON_VERSION", "development.python.version"),
     variable("SWAWKIT_PROJ_RUST_HOST", "development.rust.host"),
     variable("SWAWKIT_PROJ_RUST_MODE", "development.rust.mode"),
     variable("SWAWKIT_PROJ_RUST_PROFILE", "development.rust.profile"),
     variable("SWAWKIT_PROJ_RUST_TOOLCHAIN", "development.rust.toolchain"),
-    variable("SWAWKIT_PROJ_CURSOR_MODE", "development.cursor.mode"),
-    variable("SWAWKIT_PROJ_GH_MODE", "development.gh.mode"),
-    variable("SWAWKIT_PROJ_VSCODE_MODE", "development.vscode.mode"),
-    variable("SWAWKIT_PROJ_UV_MODE", "development.uv.mode"),
-    optional("SWAWKIT_PROJ_UV_SHA256", "development.uv.sha256"),
-    variable("SWAWKIT_PROJ_UV_VERSION", "development.uv.version"),
 ];
 
 const fn setting(address: &'static str, field: &'static str) -> SettingSpec {

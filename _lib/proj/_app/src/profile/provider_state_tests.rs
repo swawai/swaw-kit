@@ -66,10 +66,7 @@ fn dev_setup_inputs_are_an_explicit_normalized_subset_of_profile_variables() {
 
     let mut non_provider = baseline.clone();
     non_provider.target_project_root = fixture_absolute_path("unrelated-target");
-    non_provider.git.name = "Fixture User".to_owned();
     non_provider.language = "en".to_owned();
-    non_provider.development.go.version = "1.25".to_owned();
-    non_provider.development.gh.mode = "disabled".to_owned();
     assert_eq!(non_provider.environment_input_revision(), baseline_revision);
 
     let mut uppercase = baseline.clone();
@@ -122,7 +119,7 @@ fn profile_transactions_invalidate_the_dev_setup_provider_only_when_inputs_chang
 
     fixture
         .store
-        .update_setting(".entry/git/name", "Fixture User".to_owned())
+        .update_setting(".entry/language", "en".to_owned())
         .expect("update a non-provider variable");
     assert_eq!(fs::read(&state_path).unwrap(), first_state_bytes);
 
@@ -256,10 +253,10 @@ fn non_provider_profile_updates_do_not_wait_for_the_provider_state_lock() {
 
     let document = fixture
         .store
-        .update_setting(".entry/git/name", "Fixture User".to_owned())
+        .update_setting(".entry/language", "en".to_owned())
         .expect("non-provider update must not acquire the provider state lock");
 
-    assert_eq!(document.profile.git.name, "Fixture User");
+    assert_eq!(document.profile.language, "en");
     assert_eq!(fs::read(&state_path).unwrap(), state_before);
 }
 

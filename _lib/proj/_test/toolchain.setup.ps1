@@ -86,9 +86,6 @@ try {
         SWAWKIT_PROJ_PWSH_MODE = 'disabled'
         SWAWKIT_PROJ_MSVC_MODE = 'disabled'
         SWAWKIT_PROJ_RUST_MODE = 'disabled'
-        SWAWKIT_PROJ_GO_MODE = 'disabled'
-        SWAWKIT_PROJ_PYTHON_MODE = 'disabled'
-        SWAWKIT_PROJ_UV_MODE = 'disabled'
     }
     $Legacy = Join-Path $DataRoot (
         'modules\system\dev\setup\export\_state.json'

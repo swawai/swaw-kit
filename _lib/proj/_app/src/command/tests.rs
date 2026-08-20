@@ -322,7 +322,10 @@ fn process_environment_is_declarative() {
         run.value("SWAWKIT_PROJ_BUN_VERSION"),
         Some(Some(OsStr::new("1.2.15")))
     );
-    assert_eq!(run.value("SWAWKIT_PROJ_GIT_ID_EMAIL"), Some(None));
+    assert_eq!(
+        run.value("SWAWKIT_PROJ_LANGUAGE"),
+        Some(Some(OsStr::new("zh-CN")))
+    );
     for name in [
         "SWAWKIT_PROJ_CORE_COMMAND_OWNER_ADDRESS",
         "SWAWKIT_PROJ_CORE_COMMAND_OWNER_DIR",

@@ -4,8 +4,8 @@ Usage:
   {{INVOCATION}}
   {{INVOCATION}} --json
 
-Project binding, interface language, and Git settings use typed commands below
-{{ADDRESS}}. Development-tool settings live below the matching .dev tool node.
+Project binding and interface language use typed commands below {{ADDRESS}}.
+Development-tool settings live below the matching .dev tool node.
 Entry instances must be created explicitly, and legacy DataRoots require an
 explicit migration. The Launcher basename maps uniquely to canonical
 data/proj.<entry>; neither a Launcher FileId nor a second identity file is read.

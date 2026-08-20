@@ -65,7 +65,7 @@ fn profile_settings_are_independent_typed_catalog_commands() {
         .filter(|command| command.handler.as_deref() == Some("entry.profile.set"))
         .collect::<Vec<_>>();
 
-    assert_eq!(setters.len(), 18);
+    assert_eq!(setters.len(), 12);
     assert!(setters.iter().all(|command| {
         let expected_parent = command.address.rsplit_once('/').map(|(parent, _)| parent);
         command.parent.as_deref() == expected_parent
@@ -77,16 +77,21 @@ fn profile_settings_are_independent_typed_catalog_commands() {
 fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     let fixture = Fixture::new();
     fixture.core_command(".entry", "entry.profile");
-    fixture.core_command(".entry/git/name", "entry.profile.set");
+    fixture.core_command(".entry/language", "entry.profile.set");
     fixture.core_command(".dev/bun/mode", "entry.profile.set");
     fixture.core_command(".entry/apply", "entry.profile.apply");
-    fs::create_dir_all(fixture.context.system_root().join("entry/git/_help")).unwrap();
+    fixture.command(
+        ".entry/project",
+        "swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v11"}"#,
+    );
+    fs::create_dir_all(fixture.context.system_root().join("entry/project/_help")).unwrap();
     fs::write(
         fixture
             .context
             .system_root()
-            .join("entry/git/_help/zh-CN.txt"),
-        "Set Entry Profile Git settings",
+            .join("entry/project/_help/zh-CN.txt"),
+        "Set Entry Profile project settings",
     )
     .unwrap();
     fixture.initialize();
@@ -105,7 +110,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert_eq!(
         run(
             &fixture.context,
-            &argv(&[".entry/git", "--help"]),
+            &argv(&[".entry/project", "--help"]),
             CommandProcessMode::InheritConsole,
         )
         .unwrap(),
@@ -116,7 +121,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     assert_eq!(
         run(
             &fixture.context,
-            &argv(&[".entry/git/name", "Fixture User"]),
+            &argv(&[".entry/language", "en"]),
             CommandProcessMode::InheritConsole,
         )
         .unwrap(),
@@ -127,7 +132,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     else {
         panic!("expected ready profile");
     };
-    assert_eq!(profile.record().git.name, "Fixture User");
+    assert_eq!(profile.record().language, "en");
 
     assert_eq!(
         run(
@@ -148,7 +153,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     let before_invalid_update = fs::read(fixture.data_root().join("_profile.json")).unwrap();
     let invalid_update = run(
         &fixture.context,
-        &argv(&[".entry/git/unknown", "value"]),
+        &argv(&[".entry/unknown", "value"]),
         CommandProcessMode::InheritConsole,
     )
     .unwrap_err();
@@ -159,7 +164,7 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     );
 
     let mut replacement = profile.record().clone();
-    replacement.git.name = "Applied User".to_owned();
+    replacement.language = "zh-CN".to_owned();
     let input = fixture.target_project_root.join("profile.json");
     fs::write(&input, serde_json::to_string(&replacement).unwrap()).unwrap();
     assert_eq!(
@@ -176,5 +181,5 @@ fn entry_control_commands_create_and_update_a_profile_before_profile_gating() {
     else {
         panic!("expected applied profile");
     };
-    assert_eq!(profile.record().git.name, "Applied User");
+    assert_eq!(profile.record().language, "zh-CN");
 }

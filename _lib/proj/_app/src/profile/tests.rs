@@ -81,7 +81,7 @@ fn rejects_a_profile_document_without_an_explicit_schema() {
 }
 
 #[test]
-fn profile_v3_rejects_the_removed_module_mount_registry() {
+fn profile_v4_rejects_the_removed_module_mount_registry() {
     let mut document = serde_json::to_value(EntryProfileRecord::default()).unwrap();
     document.as_object_mut().unwrap().insert(
         "moduleMounts".to_owned(),
@@ -97,9 +97,9 @@ fn profile_v3_rejects_the_removed_module_mount_registry() {
 }
 
 #[test]
-fn profile_v2_is_not_silently_accepted_as_v3() {
+fn profile_v3_is_not_silently_accepted_as_v4() {
     let mut profile = EntryProfileRecord::default();
-    profile.schema = "swawkit.entry-profile/v2".to_owned();
+    profile.schema = "swawkit.entry-profile/v3".to_owned();
 
     let error = profile.validate().unwrap_err();
 
@@ -108,6 +108,23 @@ fn profile_v2_is_not_silently_accepted_as_v3() {
             .to_string()
             .contains("unsupported entry profile schema")
     );
+}
+
+#[test]
+fn profile_v4_rejects_retired_git_and_development_fields() {
+    let mut with_git = serde_json::to_value(EntryProfileRecord::default()).unwrap();
+    with_git.as_object_mut().unwrap().insert(
+        "git".to_owned(),
+        serde_json::json!({ "name": "User", "email": "", "access": "" }),
+    );
+    let error = serde_json::from_value::<EntryProfileRecord>(with_git).unwrap_err();
+    assert!(error.to_string().contains("unknown field `git`"));
+
+    let mut with_uv = serde_json::to_value(EntryProfileRecord::default()).unwrap();
+    with_uv["development"]["uv"] =
+        serde_json::json!({ "mode": "disabled", "version": "", "sha256": "" });
+    let error = serde_json::from_value::<EntryProfileRecord>(with_uv).unwrap_err();
+    assert!(error.to_string().contains("unknown field `uv`"));
 }
 
 #[test]
@@ -120,11 +137,11 @@ fn maps_every_mutable_profile_field_to_one_environment_variable_and_public_setti
     let setting_values = EntryProfileRecord::default().profile_setting_values();
     let values = EntryProfileRecord::default().environment_variable_values();
 
-    assert_eq!(fields.len(), 29);
+    assert_eq!(fields.len(), 14);
     assert_eq!(mapped_fields.len(), fields.len());
     assert_eq!(names.len(), fields.len());
     assert_eq!(values.len(), fields.len());
-    assert_eq!(settings.len(), 18);
+    assert_eq!(settings.len(), 12);
     assert_eq!(setting_fields.len(), settings.len());
     assert_eq!(setting_values.len(), settings.len());
     assert_eq!(
@@ -150,6 +167,35 @@ fn maps_every_mutable_profile_field_to_one_environment_variable_and_public_setti
             .iter()
             .all(|field| mapped_fields.contains(field))
     );
+    for address in [
+        ".dev/cursor/mode",
+        ".dev/gh/mode",
+        ".dev/vscode/mode",
+        ".entry/git/access",
+        ".entry/git/email",
+        ".entry/git/name",
+    ] {
+        assert!(!EntryProfileRecord::is_profile_setting_address(address));
+    }
+    for name in [
+        "SWAWKIT_PROJ_CURSOR_MODE",
+        "SWAWKIT_PROJ_GH_MODE",
+        "SWAWKIT_PROJ_GIT_ID_ACCESS",
+        "SWAWKIT_PROJ_GIT_ID_EMAIL",
+        "SWAWKIT_PROJ_GIT_ID_NAME",
+        "SWAWKIT_PROJ_GO_MODE",
+        "SWAWKIT_PROJ_GO_SHA256",
+        "SWAWKIT_PROJ_GO_VERSION",
+        "SWAWKIT_PROJ_PYTHON_MODE",
+        "SWAWKIT_PROJ_PYTHON_SHA256",
+        "SWAWKIT_PROJ_PYTHON_VERSION",
+        "SWAWKIT_PROJ_UV_MODE",
+        "SWAWKIT_PROJ_UV_SHA256",
+        "SWAWKIT_PROJ_UV_VERSION",
+        "SWAWKIT_PROJ_VSCODE_MODE",
+    ] {
+        assert!(!names.contains(&name));
+    }
 }
 
 #[test]
@@ -163,11 +209,11 @@ fn profile_document_and_variable_updates_share_the_atomic_store() {
 
     let ready = fixture
         .store
-        .update_setting(".entry/git/email", "dev@example.com".to_owned())
+        .update_setting(".entry/language", "en".to_owned())
         .expect("update known setting");
     assert_eq!(ready.status, "ready");
     assert!(ready.revision.starts_with("sha256-"));
-    assert_eq!(ready.profile.git.email, "dev@example.com");
+    assert_eq!(ready.profile.language, "en");
 
     let before = fs::read(fixture.store.path()).unwrap();
     assert!(
@@ -185,7 +231,7 @@ fn profile_document_and_variable_updates_share_the_atomic_store() {
     assert!(
         fixture
             .store
-            .update_setting(".entry/git/name", "User".to_owned())
+            .update_setting(".entry/language", "en".to_owned())
             .unwrap_err()
             .to_string()
             .contains("current profile is unreadable")
@@ -204,20 +250,20 @@ fn revision_is_stable_for_the_same_file_and_detects_stale_replacements() {
 
     let second = fixture
         .store
-        .update_setting(".entry/git/name", "CLI Writer".to_owned())
+        .update_setting(".entry/language", "en".to_owned())
         .expect("update profile");
     assert_ne!(second.revision, first.revision);
 
     assert!(matches!(
         fixture.store.update_setting_if_revision(
             &first.revision,
-            ".entry/git/email",
-            "stale@example.com".to_owned(),
+            ".entry/language",
+            "zh-CN".to_owned(),
         ),
         Err(ProfileUpdateError::Conflict { current_revision })
             if current_revision == second.revision
     ));
-    assert_eq!(fixture.store.document().profile.git.name, "CLI Writer");
+    assert_eq!(fixture.store.document().profile.language, "en");
 }
 
 #[test]
@@ -229,7 +275,7 @@ fn variable_updates_wait_for_the_cross_process_data_lock() {
     let store = fixture.store.clone();
     let (finished, result) = mpsc::channel();
     let worker = thread::spawn(move || {
-        let update = store.update_setting(".entry/git/name", "Serialized Writer".to_owned());
+        let update = store.update_setting(".entry/language", "en".to_owned());
         finished.send(update).unwrap();
     });
 
@@ -240,10 +286,7 @@ fn variable_updates_wait_for_the_cross_process_data_lock() {
         .expect("update completes after lock release")
         .expect("update succeeds");
     worker.join().unwrap();
-    assert_eq!(
-        fixture.store.document().profile.git.name,
-        "Serialized Writer"
-    );
+    assert_eq!(fixture.store.document().profile.language, "en");
 }
 
 #[test]
@@ -258,7 +301,10 @@ fn saves_the_complete_explicit_profile_atomically() {
     assert!(document.get("moduleMounts").is_none());
     assert_eq!(document["language"], DEFAULT_LANGUAGE);
     assert_eq!(document["development"]["rust"]["profile"], "minimal");
-    assert_eq!(document["git"]["name"], "");
+    assert!(document.get("git").is_none());
+    for retired in ["uv", "python", "go", "gh", "vscode", "cursor"] {
+        assert!(document["development"].get(retired).is_none());
+    }
     assert!(fs::read_dir(&fixture.data_root).unwrap().all(|item| {
         !item
             .unwrap()
@@ -289,11 +335,6 @@ fn rejects_invalid_conditional_fields_without_overwriting() {
 
     let mut invalid = EntryProfileRecord::default();
     invalid.development.rust.host = "aarch64-pc-windows-msvc".to_owned();
-    assert!(fixture.store.save(invalid).is_err());
-    assert_eq!(fs::read(fixture.store.path()).unwrap(), original);
-
-    let mut invalid = EntryProfileRecord::default();
-    invalid.development.uv.mode = "managed".to_owned();
     assert!(fixture.store.save(invalid).is_err());
     assert_eq!(fs::read(fixture.store.path()).unwrap(), original);
 }

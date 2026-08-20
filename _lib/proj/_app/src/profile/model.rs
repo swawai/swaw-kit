@@ -9,7 +9,6 @@ pub struct EntryProfileRecord {
     pub target_project_root: String,
     pub language: String,
     pub development: DevelopmentProfile,
-    pub git: GitProfile,
 }
 
 impl EntryProfileRecord {
@@ -38,16 +37,6 @@ impl EntryProfileRecord {
         validate_pwsh(&self.development.pwsh)?;
         validate_channel_tool("development.msvc", &self.development.msvc)?;
         validate_rust(&self.development.rust)?;
-        validate_declared_only_tool("development.uv", &self.development.uv)?;
-        validate_declared_only_tool("development.python", &self.development.python)?;
-        validate_declared_only_tool("development.go", &self.development.go)?;
-        validate_system_tool("development.gh", &self.development.gh)?;
-        validate_system_tool("development.vscode", &self.development.vscode)?;
-        validate_system_tool("development.cursor", &self.development.cursor)?;
-
-        optional_trimmed("git.name", &self.git.name)?;
-        optional_trimmed("git.email", &self.git.email)?;
-        optional_trimmed("git.access", &self.git.access)?;
         Ok(())
     }
 
@@ -115,7 +104,6 @@ impl Default for EntryProfileRecord {
             target_project_root: "${SWAWKIT_HOME}".to_owned(),
             language: DEFAULT_LANGUAGE.to_owned(),
             development: DevelopmentProfile::default(),
-            git: GitProfile::default(),
         }
     }
 }
@@ -127,12 +115,6 @@ pub struct DevelopmentProfile {
     pub pwsh: VersionedTool,
     pub msvc: ChannelTool,
     pub rust: RustTool,
-    pub uv: VersionedTool,
-    pub python: VersionedTool,
-    pub go: VersionedTool,
-    pub gh: ModeTool,
-    pub vscode: ModeTool,
-    pub cursor: ModeTool,
 }
 
 impl Default for DevelopmentProfile {
@@ -150,12 +132,6 @@ impl Default for DevelopmentProfile {
                 profile: "minimal".to_owned(),
                 host: "x86_64-pc-windows-msvc".to_owned(),
             },
-            uv: VersionedTool::disabled("0.10.2"),
-            python: VersionedTool::disabled("3.13"),
-            go: VersionedTool::disabled(""),
-            gh: ModeTool::system(),
-            vscode: ModeTool::system(),
-            cursor: ModeTool::system(),
         }
     }
 }
@@ -176,14 +152,6 @@ impl VersionedTool {
             sha256: String::new(),
         }
     }
-
-    fn disabled(version: &str) -> Self {
-        Self {
-            mode: "disabled".to_owned(),
-            version: version.to_owned(),
-            sha256: String::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,28 +168,6 @@ pub struct RustTool {
     pub toolchain: String,
     pub profile: String,
     pub host: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ModeTool {
-    pub mode: String,
-}
-
-impl ModeTool {
-    fn system() -> Self {
-        Self {
-            mode: "system".to_owned(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct GitProfile {
-    pub name: String,
-    pub email: String,
-    pub access: String,
 }
 
 fn validate_versioned_tool(
@@ -279,16 +225,6 @@ fn validate_rust(tool: &RustTool) -> Result<(), ProfileError> {
         ));
     }
     Ok(())
-}
-
-fn validate_declared_only_tool(path: &str, tool: &VersionedTool) -> Result<(), ProfileError> {
-    allowed_mode(path, &tool.mode, &["disabled"])?;
-    optional_trimmed(&format!("{path}.version"), &tool.version)?;
-    validate_sha256(&format!("{path}.sha256"), &tool.sha256)
-}
-
-fn validate_system_tool(path: &str, tool: &ModeTool) -> Result<(), ProfileError> {
-    allowed_mode(path, &tool.mode, &["system", "disabled"])
 }
 
 fn allowed_mode(path: &str, actual: &str, allowed: &[&str]) -> Result<(), ProfileError> {

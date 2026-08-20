@@ -62,7 +62,7 @@ async fn publishes_one_validated_setting_and_enables_actions() {
         document["settings"][".entry/project/root"],
         SWAWKIT_HOME_PLACEHOLDER
     );
-    assert_eq!(document["settings"].as_object().unwrap().len(), 18);
+    assert_eq!(document["settings"].as_object().unwrap().len(), 12);
     assert!(command(&catalog_document(app.clone()).await, "project/demo").is_none());
 
     let invalid = send_setting(
@@ -107,8 +107,7 @@ async fn requires_a_revision_and_rejects_a_stale_setting_without_overwriting() {
     fixture.directory("home/_lib/proj");
     let app = fixture.app();
 
-    let missing_precondition =
-        send_setting(app.clone(), ".entry/git/name", "Web Writer", None).await;
+    let missing_precondition = send_setting(app.clone(), ".entry/language", "en", None).await;
     assert_eq!(
         missing_precondition.status(),
         StatusCode::PRECONDITION_REQUIRED
@@ -117,29 +116,17 @@ async fn requires_a_revision_and_rejects_a_stale_setting_without_overwriting() {
     let initial = send(app.clone(), Method::GET, "/api/v2/profile", Some(AUTHORITY)).await;
     let initial = response_document(initial).await;
     let initial_revision = initial["revision"].as_str().unwrap();
-    let saved = send_setting(
-        app.clone(),
-        ".entry/git/name",
-        "Web Writer",
-        Some(initial_revision),
-    )
-    .await;
+    let saved = send_setting(app.clone(), ".entry/language", "en", Some(initial_revision)).await;
     assert_eq!(saved.status(), StatusCode::OK);
     let saved = response_document(saved).await;
     let stale_revision = saved["revision"].as_str().unwrap();
 
     fixture
         .profile_store()
-        .update_setting(".entry/git/name", "CLI Writer".to_owned())
+        .update_setting(".entry/language", "zh-CN".to_owned())
         .expect("concurrent CLI update");
 
-    let conflict = send_setting(
-        app,
-        ".entry/git/email",
-        "web@example.com",
-        Some(stale_revision),
-    )
-    .await;
+    let conflict = send_setting(app, ".entry/language", "en", Some(stale_revision)).await;
     assert_eq!(conflict.status(), StatusCode::CONFLICT);
     assert!(
         response_document(conflict).await["error"]
@@ -148,8 +135,7 @@ async fn requires_a_revision_and_rejects_a_stale_setting_without_overwriting() {
     );
 
     let document = fixture.profile_store().document();
-    assert_eq!(document.profile.git.name, "CLI Writer");
-    assert_eq!(document.profile.git.email, "");
+    assert_eq!(document.profile.language, "zh-CN");
 }
 
 #[tokio::test]
@@ -161,20 +147,14 @@ async fn stale_host_rejects_profile_mutations_with_the_runtime_update_code() {
     let initial = response_document(initial).await;
     fixture.select_update();
 
-    let response = send_setting(
-        app,
-        ".entry/git/name",
-        "Stale Writer",
-        initial["revision"].as_str(),
-    )
-    .await;
+    let response = send_setting(app, ".entry/language", "en", initial["revision"].as_str()).await;
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let error = response_document(response).await;
     assert_eq!(
         error["code"],
         crate::server::command_run::RUNTIME_UPDATE_REQUIRED_CODE
     );
-    assert_eq!(fixture.profile_store().document().profile.git.name, "");
+    assert_eq!(fixture.profile_store().document().profile.language, "zh-CN");
 }
 
 #[tokio::test]
@@ -213,8 +193,8 @@ async fn web_profile_updates_share_the_provider_invalidation_transaction() {
 
     let created = send_setting(
         app.clone(),
-        ".entry/git/name",
-        "Web Writer",
+        ".entry/language",
+        "en",
         initial["revision"].as_str(),
     )
     .await;
@@ -227,8 +207,8 @@ async fn web_profile_updates_share_the_provider_invalidation_transaction() {
 
     let non_provider = send_setting(
         app.clone(),
-        ".entry/git/email",
-        "web@example.com",
+        ".entry/language",
+        "zh-CN",
         created["revision"].as_str(),
     )
     .await;

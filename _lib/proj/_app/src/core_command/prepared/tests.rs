@@ -11,7 +11,7 @@ use super::*;
 #[test]
 fn runtime_preparation_rejects_lifecycle_and_unknown_core_handlers() {
     let fixture = Fixture::new();
-    let lifecycle = fixture.command(".entry/git/name", "entry.profile.set");
+    let lifecycle = fixture.command(".entry/language", "entry.profile.set");
     let error = match fixture.prepare(&lifecycle) {
         Ok(_) => panic!("lifecycle command unexpectedly prepared"),
         Err(error) => error,

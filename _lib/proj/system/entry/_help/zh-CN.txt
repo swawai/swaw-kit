@@ -5,7 +5,7 @@
   {{INVOCATION}} --json
 
 不带参数时输出精简状态；--json 输出供 Agent 使用的完整结构化文档。
-项目绑定、界面语言和 Git 等设置使用 {{ADDRESS}} 下的类型化子命令；开发工具设置
+项目绑定和界面语言使用 {{ADDRESS}} 下的类型化子命令；开发工具设置
 位于 .dev 对应工具节点。完整替换使用 {{ADDRESS}}/apply。
 Entry 实例必须由管理器显式创建；旧 DataRoot 也必须先显式迁移。Launcher basename
 唯一映射到规范 data/proj.<entry>，普通运行既不读取 Launcher FileId，也不读取第二份身份文件。

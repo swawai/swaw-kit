@@ -12,17 +12,14 @@ use std::path::PathBuf;
 pub use document::{EntryProfileDocument, PROFILE_DOCUMENT_PROTOCOL};
 pub use error::{ProfileError, ProfileUpdateError};
 pub use language::{DEFAULT_LANGUAGE, EntryLanguage};
-pub use model::{
-    ChannelTool, DevelopmentProfile, EntryProfileRecord, GitProfile, ModeTool, RustTool,
-    VersionedTool,
-};
+pub use model::{ChannelTool, DevelopmentProfile, EntryProfileRecord, RustTool, VersionedTool};
 use storage::{read_record, revision, validate_data_root, validate_publication_target};
 
 use crate::atomic_file;
 use crate::binding::ProjectBinding;
 use crate::data_root::DataRootLock;
 
-pub const PROFILE_SCHEMA: &str = "swawkit.entry-profile/v3";
+pub const PROFILE_SCHEMA: &str = "swawkit.entry-profile/v4";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryProfile {

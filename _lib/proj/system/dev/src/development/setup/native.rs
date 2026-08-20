@@ -209,9 +209,6 @@ pub fn run_native(
     )?;
     let publication = provider.start()?;
 
-    declarations
-        .require_supported()
-        .map_err(|error| error.to_string())?;
     require_native_domains(declarations)?;
     let archive_requests = [&BUN, &PWSH]
         .into_iter()

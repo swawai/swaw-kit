@@ -4,10 +4,32 @@ import {
   runtimeGenerationMessage,
 } from "./runtime-generation.js";
 
-const PROFILE_PROTOCOL = "swawkit.entry-profile-state/v6";
+const PROFILE_PROTOCOL = "swawkit.entry-profile-state/v7";
+const PROFILE_SCHEMA = "swawkit.entry-profile/v4";
 const SETTER_HANDLER = "entry.profile.set";
 
 export class EntryProfileConflictError extends Error {}
+
+function hasExactFields(value, fields) {
+  const actual = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  return actual.length === expected.length
+    && actual.every((field, index) => field === expected[index]);
+}
+
+function requireStringRecord(value, name, fields) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Entry Profile protocol is invalid: ${name} must be an object.`);
+  }
+  if (!hasExactFields(value, fields)) {
+    throw new Error(`Entry Profile protocol is invalid: ${name} has an unexpected shape.`);
+  }
+  for (const field of fields) {
+    if (typeof value[field] !== "string") {
+      throw new Error(`Entry Profile protocol is invalid: ${name}.${field} must be a string.`);
+    }
+  }
+}
 
 function normalizeProfileDocument(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -30,6 +52,40 @@ function normalizeProfileDocument(value) {
   if (!value.profile || typeof value.profile !== "object" || Array.isArray(value.profile)) {
     throw new Error("Entry Profile 协议无效：profile 必须是对象。");
   }
+  if (value.profile.schema !== PROFILE_SCHEMA) {
+    throw new Error(`Entry Profile 协议无效：profile.schema 必须是 ${PROFILE_SCHEMA}。`);
+  }
+  if (!hasExactFields(value.profile, [
+    "schema", "targetProjectRoot", "language", "development",
+  ])) {
+    throw new Error("Entry Profile 协议无效：profile 包含意外字段。");
+  }
+  if (typeof value.profile.targetProjectRoot !== "string") {
+    throw new Error("Entry Profile 协议无效：profile.targetProjectRoot 必须是字符串。");
+  }
+  const development = value.profile.development;
+  if (!development || typeof development !== "object" || Array.isArray(development)) {
+    throw new Error("Entry Profile 协议无效：profile.development 必须是对象。");
+  }
+  if (!hasExactFields(development, ["bun", "pwsh", "msvc", "rust"])) {
+    throw new Error("Entry Profile 协议无效：profile.development 包含意外字段。");
+  }
+  requireStringRecord(
+    development.bun,
+    "profile.development.bun",
+    ["mode", "version", "sha256"],
+  );
+  requireStringRecord(
+    development.pwsh,
+    "profile.development.pwsh",
+    ["mode", "version", "sha256"],
+  );
+  requireStringRecord(development.msvc, "profile.development.msvc", ["mode", "channel"]);
+  requireStringRecord(
+    development.rust,
+    "profile.development.rust",
+    ["mode", "toolchain", "profile", "host"],
+  );
   if (!new Set(["zh-CN", "en"]).has(value.profile.language)) {
     throw new Error("Entry Profile 协议无效：profile.language 只能是 zh-CN 或 en。");
   }

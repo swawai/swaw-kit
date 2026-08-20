@@ -25,13 +25,7 @@ $EnvironmentNames = @(
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256',
-    'SWAWKIT_PROJ_UV_MODE',
-    'SWAWKIT_PROJ_UV_VERSION',
-    'SWAWKIT_PROJ_PYTHON_MODE',
-    'SWAWKIT_PROJ_PYTHON_VERSION',
     'SWAWKIT_PROJ_PWSH_MODE',
-    'SWAWKIT_PROJ_GO_MODE',
-    'SWAWKIT_PROJ_GO_VERSION',
     'SWAWKIT_PROJ_TEST_BUN_CAPTURE'
 )
 $EnvironmentSnapshot = Enter-ProjBunIsolatedEnvironment `
@@ -348,45 +342,6 @@ try {
                 -Path (Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.ps1')
             ) -ceq $SetupEnvHash) `
         -Message '.dev/setup accepted arguments or changed state after rejection'
-
-    $PendingDataRoot = Join-Path $TemporaryRoot 'pending setup data'
-    [void][IO.Directory]::CreateDirectory($PendingDataRoot)
-    $PendingProfilePath = Join-Path $PendingDataRoot '_profile.json'
-    [IO.File]::WriteAllText($PendingProfilePath, '{}')
-    $env:SWAWKIT_PROJ_DATA_ROOT = $PendingDataRoot
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $PendingProfilePath
-    )
-    $env:SWAWKIT_PROJ_GO_MODE = 'managed'
-    $env:SWAWKIT_PROJ_GO_VERSION = '1.22.4'
-    $env:SWAWKIT_PROJ_PYTHON_MODE = 'uv'
-    $env:SWAWKIT_PROJ_PYTHON_VERSION = '3.13'
-    $env:SWAWKIT_PROJ_UV_MODE = 'managed'
-    $env:SWAWKIT_PROJ_UV_VERSION = '0.10.2'
-    $PendingSetup = Invoke-ProjToolchainCommandFixture `
-        -Executable $ResolvedDevPath `
-        -Handler '.dev/setup'
-    Assert-ProjBunTest `
-        -Condition ($PendingSetup.ExitCode -eq 1 -and
-            $PendingSetup.Output.Contains(
-                '.dev/setup does not yet handle these enabled declarations: go, python, uv.'
-            ) -and
-            [IO.File]::Exists((Join-Path $PendingDataRoot 'modules\system\dev\setup\_state.json')) -and
-            -not [IO.Directory]::Exists((Join-Path $PendingDataRoot 'modules\system\dev\setup\export')) -and
-            -not [IO.Directory]::Exists(
-                (Join-Path $ProjectRoot 'data\proj_cache')
-            )) `
-        -Message 'an unsupported enabled module did not fail before side effects'
-    foreach ($Name in @(
-        'SWAWKIT_PROJ_GO_MODE',
-        'SWAWKIT_PROJ_GO_VERSION',
-        'SWAWKIT_PROJ_PYTHON_MODE',
-        'SWAWKIT_PROJ_PYTHON_VERSION',
-        'SWAWKIT_PROJ_UV_MODE',
-        'SWAWKIT_PROJ_UV_VERSION'
-    )) {
-        [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
-    }
 
     Assert-ProjBunTest `
         -Condition (
