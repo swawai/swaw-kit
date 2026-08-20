@@ -96,6 +96,17 @@
   overflow-wrap: anywhere;
 }
 
+.command-check-item-action {
+  display: block;
+  margin: 4px 0 0 24px;
+  color: var(--ui-text-muted);
+}
+
+.command-check-item-action a {
+  color: var(--ui-text);
+  overflow-wrap: anywhere;
+}
+
 .command-check-tree .command-check-tree {
   margin: 8px 0 0 24px;
 }

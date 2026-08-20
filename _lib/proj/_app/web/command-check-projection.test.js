@@ -34,6 +34,7 @@ function dependency(overrides = {}) {
     ready: false,
     status: "not-ready",
     message: "Build the provider first.",
+    checker: null,
     dependencies: [],
     ...overrides,
   };
@@ -69,6 +70,74 @@ describe("Command check projection renderer", () => {
     expect(nodes.commandCheckState.dataset.state).toBe("blocked");
     expect(nodes.commandCheckDependencies.children[0].dataset.state).toBe("blocked");
     expect(nodes.commandCheckDependencies.children[0].children.at(-1).children).toHaveLength(1);
+  });
+
+  test("renders a checker as a relative command URL with explicit arguments", () => {
+    const nodes = elements();
+    const renderer = createCommandCheckProjectionRenderer(nodes, {
+      document: { createElement: () => element() },
+    });
+    renderer.render({ address: ".tool", space: "system" }, {
+      protocol: COMMAND_CHECK_PROTOCOL,
+      command: {
+        address: ".tool",
+        space: "system",
+        namespace: null,
+        runnable: true,
+        adapter: "pwsh",
+        diagnostic: null,
+      },
+      dependencies: [dependency({
+        checker: {
+          address: ".dev/setup/check",
+          arguments: ["environment"],
+          namespace: null,
+          space: "system",
+        },
+      })],
+      ready: false,
+    });
+
+    const action = nodes.commandCheckDependencies.children[0].children[2];
+    expect(action.textContent).toBe("检查：");
+    expect(action.children[0].href).toBe("/commands/system/dev/setup/check");
+    expect(action.children[0].textContent).toBe("/commands/system/dev/setup/check");
+    expect(action.children[1].textContent).toBe(" environment");
+  });
+
+  test("renders a module provider checker with its namespace path", () => {
+    const nodes = elements();
+    const renderer = createCommandCheckProjectionRenderer(nodes, {
+      document: { createElement: () => element() },
+    });
+    renderer.render({
+      address: "project/consumer",
+      namespace: "project",
+      space: "module",
+    }, {
+      protocol: COMMAND_CHECK_PROTOCOL,
+      command: {
+        address: "project/consumer",
+        space: "module",
+        namespace: "project",
+        runnable: true,
+        adapter: "pwsh",
+        diagnostic: null,
+      },
+      dependencies: [dependency({
+        provider: "project/provider",
+        checker: {
+          address: "project/provider/check",
+          arguments: ["fixture"],
+          namespace: "project",
+          space: "module",
+        },
+      })],
+      ready: false,
+    });
+
+    const link = nodes.commandCheckDependencies.children[0].children[2].children[0];
+    expect(link.href).toBe("/commands/module/project/provider/check");
   });
 
   test("renders a dependency-free command as ready to run", () => {

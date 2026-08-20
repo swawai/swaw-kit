@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::catalog::{CATALOG_PROTOCOL, CommandNode};
-use crate::command_check::{COMMAND_CHECK_PROTOCOL, CheckedCommand};
+use crate::command_check::{COMMAND_CHECK_PROTOCOL, CheckedCommand, DependencyChecker};
 
 #[test]
 fn read_only_dispatch_accepts_only_the_registered_check_addresses() {
@@ -26,12 +26,47 @@ fn text_report_has_stable_sections() {
         dependencies: Vec::new(),
         ready: true,
     };
-    let output = render_text(&document);
+    let output = render_text(&document, "fixture");
     assert!(output.contains("Command: .tool"));
     assert!(output.contains("Ready: yes"));
     assert!(output.contains("Dependencies:\n  none declared"));
     assert!(!output.contains("Guards:"));
     assert!(!output.contains("Publications:"));
+}
+
+#[test]
+fn text_report_prints_the_structured_checker_invocation() {
+    let document = CommandCheckDocument {
+        protocol: COMMAND_CHECK_PROTOCOL,
+        command: CheckedCommand {
+            address: ".consumer".to_owned(),
+            space: CommandSpace::System,
+            namespace: None,
+            runnable: true,
+            adapter: Some("exe".to_owned()),
+            diagnostic: None,
+        },
+        dependencies: vec![DependencyCheck {
+            provider: ".dev/setup".to_owned(),
+            export: "environment".to_owned(),
+            contract: "swawkit.proj.dev-setup/v3".to_owned(),
+            ready: false,
+            status: "state-missing".to_owned(),
+            message: None,
+            checker: Some(DependencyChecker {
+                address: ".dev/setup/check".to_owned(),
+                space: CommandSpace::System,
+                namespace: None,
+                arguments: vec!["environment".to_owned()],
+            }),
+            dependencies: Vec::new(),
+        }],
+        ready: false,
+    };
+
+    let output = render_text(&document, "proj1");
+
+    assert!(output.contains("Check: proj1 .dev/setup/check environment"));
 }
 
 #[test]

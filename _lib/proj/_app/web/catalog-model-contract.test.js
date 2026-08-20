@@ -255,7 +255,15 @@ describe("Catalog v19 execution contract", () => {
         adapter: "runtime",
         product: "dev",
       }),
+      node(".dev/setup/check", {
+        parent: ".dev/setup",
+        runnable: true,
+        entry: "swawkit.module.json",
+        adapter: "runtime",
+        product: "dev",
+      }),
     ]));
     expect(dev.commandByAddress.get(".dev/setup").product).toBe("dev");
+    expect(dev.commandByAddress.get(".dev/setup/check").product).toBe("dev");
   });
 });

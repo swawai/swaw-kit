@@ -297,7 +297,7 @@ function normalizeCommand(value, index) {
     );
   }
   const runtimeOwners = {
-    dev: new Set([".dev/setup", ".dev/status"]),
+    dev: new Set([".dev/setup", ".dev/setup/check", ".dev/status"]),
     module: new Set([".module/instantiate", ".module/status"]),
   };
   if (

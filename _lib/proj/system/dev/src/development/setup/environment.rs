@@ -14,6 +14,10 @@ use super::storage::{ensure_directory_chain, read_replaceable_bounded, regular_f
 
 const MAX_ENVIRONMENT_SCRIPT_BYTES: u64 = 1024 * 1024;
 
+mod verification;
+
+pub use verification::verify_ready_export;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EnvironmentPlan {
     variables: Vec<(String, Option<String>)>,

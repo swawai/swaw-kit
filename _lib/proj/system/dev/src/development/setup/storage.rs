@@ -157,6 +157,19 @@ pub(crate) fn read_replaceable_bounded(
     Ok(content)
 }
 
+pub(super) fn regular_file_length(path: &Path, subject: &str) -> io::Result<u64> {
+    let file = OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || is_reparse(&metadata) {
+        return Err(unsafe_path(subject, path));
+    }
+    Ok(metadata.len())
+}
+
 fn is_reparse(metadata: &fs::Metadata) -> bool {
     metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
 }

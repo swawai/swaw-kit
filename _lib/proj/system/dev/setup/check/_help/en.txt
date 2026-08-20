@@ -1,0 +1,9 @@
+Deeply verify one Export published by .dev/setup.
+
+Usage:
+  {{INVOCATION}} environment
+  {{INVOCATION}} environment --json
+
+The environment check validates the current Provider State, environment.json schema and publication identity, generated env.cmd and env.ps1 bytes, declared PATH directories, and declared Bun or PowerShell executables. It is read-only and never runs .dev/setup or another Entry command.
+
+Exit code 0 means the Export is ready. Exit code 1 means the publication is missing, outdated, invalid, or physically incomplete. Invalid arguments are command errors. JSON output uses swawkit.proj.dev-setup-check/v1.

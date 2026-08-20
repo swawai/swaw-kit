@@ -3,6 +3,7 @@ import {
   COMMAND_CHECK_PROTOCOL,
   createCommandCheckProjection,
 } from "./command-check-projection-model.js";
+import { commandPath } from "./navigation.js";
 
 export function createCommandCheckProjectionRenderer(elements, options = {}) {
   const documentObject = options.document ?? globalThis.document;
@@ -38,6 +39,21 @@ export function createCommandCheckProjectionRenderer(elements, options = {}) {
     heading.append(marker, name);
     row.append(heading);
     detail(row, dependency.message);
+    if (dependency.checker) {
+      const action = documentObject.createElement("span");
+      const link = documentObject.createElement("a");
+      const arguments_ = documentObject.createElement("code");
+      const path = commandPath(dependency.checker);
+      action.className = "command-check-item-action";
+      action.textContent = t("检查：", "Check: ");
+      link.href = path;
+      link.textContent = path;
+      arguments_.textContent = dependency.checker.arguments.length === 0
+        ? ""
+        : ` ${dependency.checker.arguments.join(" ")}`;
+      action.append(link, arguments_);
+      row.append(action);
+    }
     if (dependency.dependencies.length > 0) {
       const children = documentObject.createElement("ul");
       children.className = "command-check-tree";

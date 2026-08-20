@@ -9,7 +9,7 @@ mod publication;
 
 use publication::inspect_publication;
 
-pub const COMMAND_CHECK_PROTOCOL: &str = "swawkit.command-check/v1";
+pub const COMMAND_CHECK_PROTOCOL: &str = "swawkit.command-check/v2";
 const MAX_DEPENDENCY_DEPTH: usize = 32;
 const MAX_DEPENDENCY_ITEMS: usize = 512;
 
@@ -42,7 +42,17 @@ pub struct DependencyCheck {
     pub ready: bool,
     pub status: String,
     pub message: Option<String>,
+    pub checker: Option<DependencyChecker>,
     pub dependencies: Vec<DependencyCheck>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyChecker {
+    pub address: String,
+    pub space: CommandSpace,
+    pub namespace: Option<String>,
+    pub arguments: Vec<String>,
 }
 
 pub fn inspect(
@@ -81,7 +91,7 @@ pub(crate) fn assert_dependencies_ready(
     let failures = dependencies
         .iter()
         .filter(|dependency| !dependency.ready)
-        .map(runtime_failure_summary)
+        .map(|dependency| runtime_failure_summary(dependency, entry_name))
         .collect::<Vec<_>>();
     if failures.is_empty() {
         Ok(())
@@ -217,7 +227,33 @@ fn evaluate_dependency(
         ready,
         status,
         message,
+        checker: dependency_checker(snapshot, provider, &requirement.export),
         dependencies,
+    })
+}
+
+fn dependency_checker(
+    snapshot: &CatalogSnapshot,
+    provider: &CommandNode,
+    export: &str,
+) -> Option<DependencyChecker> {
+    let address = format!("{}/check", provider.address);
+    let mut matches = snapshot.commands.iter().filter(|command| {
+        command.address == address
+            && command.space == provider.space
+            && command.namespace == provider.namespace
+            && command.alias_of.is_none()
+            && command.runnable
+    });
+    let checker = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    Some(DependencyChecker {
+        address: checker.address.clone(),
+        space: checker.space,
+        namespace: checker.namespace.clone(),
+        arguments: vec![export.to_owned()],
     })
 }
 
@@ -245,30 +281,43 @@ impl DependencyBudget {
     }
 }
 
-fn runtime_failure_summary(dependency: &DependencyCheck) -> String {
-    if let Some(message) = &dependency.message {
-        return format!(
+fn runtime_failure_summary(dependency: &DependencyCheck, entry_name: &str) -> String {
+    let summary = if let Some(message) = &dependency.message {
+        format!(
             "{}#{} -> {} [{}]: {message}",
             dependency.provider, dependency.export, dependency.contract, dependency.status
-        );
-    }
-    if let Some(child) = dependency
+        )
+    } else if let Some(child) = dependency
         .dependencies
         .iter()
         .find(|dependency| !dependency.ready)
     {
-        return format!(
+        format!(
             "{}#{} -> {} depends on {}",
             dependency.provider,
             dependency.export,
             dependency.contract,
-            runtime_failure_summary(child)
-        );
+            runtime_failure_summary(child, entry_name)
+        )
+    } else {
+        format!(
+            "{}#{} -> {} [{}]: provider dependency is not ready",
+            dependency.provider, dependency.export, dependency.contract, dependency.status
+        )
+    };
+    match &dependency.checker {
+        Some(checker) => format!(
+            "{summary}; check with '{} {}{}'",
+            entry_name,
+            checker.address,
+            checker
+                .arguments
+                .iter()
+                .map(|argument| format!(" {argument}"))
+                .collect::<String>()
+        ),
+        None => summary,
     }
-    format!(
-        "{}#{} -> {} [{}]: provider dependency is not ready",
-        dependency.provider, dependency.export, dependency.contract, dependency.status
-    )
 }
 
 fn resolve_target<'a>(
@@ -303,6 +352,7 @@ fn dependency_failure(
         ready: false,
         status: status.to_owned(),
         message: Some(message.to_owned()),
+        checker: None,
         dependencies: Vec::new(),
     }
 }

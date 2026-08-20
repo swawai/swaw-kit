@@ -18,9 +18,9 @@ describe("Facet resolution client", () => {
     const facet = {
       id: "status",
       kind: "projection",
-      resolver: { returns: "swawkit.command-check/v1", type: "command" },
+      resolver: { returns: "swawkit.command-check/v2", type: "command" },
     };
-    const document = { protocol: "swawkit.command-check/v1" };
+    const document = { protocol: "swawkit.command-check/v2" };
     const result = await resolveFacet({}, command, facet, {
       fetchImpl: async (url, options) => {
         request = { options, url };
@@ -78,7 +78,7 @@ describe("Facet resolution client", () => {
     const facet = {
       id: "status",
       kind: "projection",
-      resolver: { returns: "swawkit.command-check/v1", type: "command" },
+      resolver: { returns: "swawkit.command-check/v2", type: "command" },
     };
     const error = await resolveFacet({}, command, facet, {
       fetchImpl: async () => ({

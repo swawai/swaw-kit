@@ -11,7 +11,7 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     match run(std::env::args_os().skip(1).collect()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(exit_code) => ExitCode::from(exit_code),
         Err(error) => {
             eprintln!("swawkit-proj-dev: {error}");
             ExitCode::FAILURE
@@ -19,7 +19,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(arguments: Vec<OsString>) -> Result<(), String> {
+fn run(arguments: Vec<OsString>) -> Result<u8, String> {
     let mut arguments = arguments.into_iter();
     let protocol = arguments
         .next()

@@ -3,7 +3,7 @@ import {
   sameCommandIdentity,
 } from "./command-identity.js";
 
-export const COMMAND_CHECK_PROTOCOL = "swawkit.command-check/v1";
+export const COMMAND_CHECK_PROTOCOL = "swawkit.command-check/v2";
 
 const MAX_ITEMS = 512;
 
@@ -51,6 +51,29 @@ function array(value, field) {
   return value;
 }
 
+function checker(value, field) {
+  if (value === null) {
+    return null;
+  }
+  const item = object(value, field);
+  exactKeys(item, field, ["address", "arguments", "namespace", "space"]);
+  const identity = normalizeCommandIdentity(item, field, invalid);
+  const arguments_ = array(item.arguments, `${field}.arguments`);
+  if (
+    arguments_.length > 32
+    || arguments_.some((argument) => typeof argument !== "string" || argument.length > 4096)
+  ) {
+    throw invalid(`${field}.arguments 必须是最多 32 项、每项最多 4096 字符的字符串数组。`);
+  }
+  return {
+    address: identity.address,
+    arguments: [...arguments_],
+    namespace: identity.namespace,
+    path: identity.path,
+    space: identity.space,
+  };
+}
+
 function dependency(value, field, budget, depth = 0) {
   if (depth > 32) {
     throw invalid("依赖层级过深。");
@@ -62,6 +85,7 @@ function dependency(value, field, budget, depth = 0) {
   const item = object(value, field);
   exactKeys(item, field, [
     "contract",
+    "checker",
     "dependencies",
     "export",
     "message",
@@ -81,6 +105,7 @@ function dependency(value, field, budget, depth = 0) {
   }
   return {
     contract: string(item.contract, `${field}.contract`),
+    checker: checker(item.checker, `${field}.checker`),
     dependencies,
     export: string(item.export, `${field}.export`),
     message: nullableString(item.message, `${field}.message`),

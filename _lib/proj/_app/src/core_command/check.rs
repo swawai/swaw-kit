@@ -55,7 +55,7 @@ fn execute_command_check(
             CoreCommandError::serialization("cannot serialize command check", error)
         })?
     } else {
-        render_text(&document)
+        render_text(&document, &context.entry_name)
     };
     Ok(CoreCommandOutcome::with_exit_code(
         if document.ready { 0 } else { 1 },
@@ -83,7 +83,7 @@ fn require_core_command(
     }
 }
 
-fn render_text(document: &CommandCheckDocument) -> String {
+fn render_text(document: &CommandCheckDocument, entry_name: &str) -> String {
     let mut lines = vec![
         format!("Command: {}", document.command.address),
         format!("Ready: {}", yes_no(document.ready)),
@@ -103,14 +103,19 @@ fn render_text(document: &CommandCheckDocument) -> String {
         lines.push("  none declared".to_owned());
     } else {
         for dependency in &document.dependencies {
-            append_dependency(&mut lines, dependency, 1);
+            append_dependency(&mut lines, dependency, entry_name, 1);
         }
     }
 
     lines.join("\n")
 }
 
-fn append_dependency(lines: &mut Vec<String>, dependency: &DependencyCheck, depth: usize) {
+fn append_dependency(
+    lines: &mut Vec<String>,
+    dependency: &DependencyCheck,
+    entry_name: &str,
+    depth: usize,
+) {
     let indent = "  ".repeat(depth);
     lines.push(format!(
         "{indent}{} {}#{} [{}]",
@@ -122,8 +127,19 @@ fn append_dependency(lines: &mut Vec<String>, dependency: &DependencyCheck, dept
     if let Some(message) = &dependency.message {
         lines.push(format!("{indent}  {message}"));
     }
+    if let Some(checker) = &dependency.checker {
+        let arguments = checker
+            .arguments
+            .iter()
+            .map(|argument| format!(" {argument}"))
+            .collect::<String>();
+        lines.push(format!(
+            "{indent}  Check: {entry_name} {}{arguments}",
+            checker.address
+        ));
+    }
     for child in &dependency.dependencies {
-        append_dependency(lines, child, depth + 1);
+        append_dependency(lines, child, entry_name, depth + 1);
     }
 }
 

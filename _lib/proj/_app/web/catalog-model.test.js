@@ -380,7 +380,7 @@ describe("Catalog v19 model", () => {
               type: "command",
               address: ".check",
               arguments: [".context/list", "--json"],
-              returns: "swawkit.command-check/v1",
+              returns: "swawkit.command-check/v2",
             },
           },
         ],
@@ -394,7 +394,7 @@ describe("Catalog v19 model", () => {
       address: ".check",
       arguments: [".context/list", "--json"],
       confirmation: null,
-      returns: "swawkit.command-check/v1",
+      returns: "swawkit.command-check/v2",
       type: "command",
     });
     expect(() => createCatalog(payload([

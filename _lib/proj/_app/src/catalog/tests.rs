@@ -294,6 +294,11 @@ fn runtime_components_are_exact_and_have_no_handler() {
     );
     fixture.file(
         &fixture.system,
+        "dev/setup/check/swawkit.module.json",
+        &runtime_manifest("dev"),
+    );
+    fixture.file(
+        &fixture.system,
         "wrong-runtime/swawkit.module.json",
         &runtime_manifest("module"),
     );
@@ -313,6 +318,7 @@ fn runtime_components_are_exact_and_have_no_handler() {
         (".module/instantiate", "module"),
         (".module/status", "module"),
         (".dev/setup", "dev"),
+        (".dev/setup/check", "dev"),
         (".dev/status", "dev"),
     ] {
         let command = node(&snapshot, address);

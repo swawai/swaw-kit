@@ -25,7 +25,7 @@ fn provider_own_publications_do_not_affect_its_readiness_or_wire_shape() {
 
     assert!(document.ready);
     assert!(document.dependencies.is_empty());
-    assert_eq!(document.protocol, "swawkit.command-check/v1");
+    assert_eq!(document.protocol, "swawkit.command-check/v2");
     assert_exact_fields(&value, &["protocol", "command", "dependencies", "ready"]);
     assert_exact_fields(
         &value["command"],
@@ -105,8 +105,86 @@ fn inspection_and_execution_gate_share_provider_state_failure() {
             "ready",
             "status",
             "message",
+            "checker",
             "dependencies",
         ],
+    );
+}
+
+#[test]
+fn declared_provider_checker_is_a_structured_optional_action() {
+    let snapshot = snapshot(vec![
+        command(
+            ".provider",
+            Vec::new(),
+            vec![provision("fixture", CONTRACT)],
+        ),
+        command(".provider/check", Vec::new(), Vec::new()),
+        command(
+            ".consumer",
+            vec![requirement(".provider", "fixture", CONTRACT)],
+            Vec::new(),
+        ),
+    ]);
+    let data_root = TestDataRoot::new();
+
+    let document = inspect(&data_root.path, "swawkit", &snapshot, ".consumer").unwrap();
+    let checker = document.dependencies[0].checker.as_ref().unwrap();
+
+    assert_eq!(checker.address, ".provider/check");
+    assert_eq!(checker.space, CommandSpace::System);
+    assert_eq!(checker.namespace, None);
+    assert_eq!(checker.arguments, ["fixture"]);
+    assert!(
+        !document.ready,
+        "a checker is not an automatic readiness gate"
+    );
+    let error =
+        assert_dependencies_ready(&data_root.path, "swawkit", &snapshot, ".consumer").unwrap_err();
+    assert!(error.contains("check with 'swawkit .provider/check fixture'"));
+}
+
+#[test]
+fn module_checker_identity_is_preserved_and_invalid_children_are_not_exposed() {
+    let provider = module_command(
+        "project/provider",
+        Vec::new(),
+        vec![provision("fixture", CONTRACT)],
+    );
+    let checker = module_command("project/provider/check", Vec::new(), Vec::new());
+    let consumer = command(
+        ".consumer",
+        vec![requirement("project/provider", "fixture", CONTRACT)],
+        Vec::new(),
+    );
+    let catalog = snapshot(vec![provider.clone(), checker.clone(), consumer.clone()]);
+
+    let document = inspect(Path::new("unused"), "swawkit", &catalog, ".consumer").unwrap();
+    let action = document.dependencies[0].checker.as_ref().unwrap();
+    assert_eq!(action.space, CommandSpace::Module);
+    assert_eq!(action.namespace.as_deref(), Some("project"));
+    assert_eq!(action.address, "project/provider/check");
+
+    let mut invalid = checker.clone();
+    invalid.runnable = false;
+    let catalog = snapshot(vec![provider.clone(), invalid, consumer.clone()]);
+    assert!(
+        inspect(Path::new("unused"), "swawkit", &catalog, ".consumer")
+            .unwrap()
+            .dependencies[0]
+            .checker
+            .is_none()
+    );
+
+    let mut invalid = checker;
+    invalid.alias_of = Some("project/provider".to_owned());
+    let catalog = snapshot(vec![provider, invalid, consumer]);
+    assert!(
+        inspect(Path::new("unused"), "swawkit", &catalog, ".consumer")
+            .unwrap()
+            .dependencies[0]
+            .checker
+            .is_none()
     );
 }
 
@@ -372,6 +450,24 @@ fn command(
         directory: PathBuf::new(),
         native_owner: None,
     }
+}
+
+fn module_command(
+    address: &str,
+    requires: Vec<ModuleRequirement>,
+    provides: Vec<ModuleProvision>,
+) -> CommandNode {
+    let mut command = command(address, requires, provides);
+    command.space = CommandSpace::Module;
+    command.namespace = Some("project".to_owned());
+    command.path = address
+        .strip_prefix("project/")
+        .unwrap_or_default()
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .map(str::to_owned)
+        .collect();
+    command
 }
 
 fn requirement(provider: &str, export: &str, contract: &str) -> ModuleRequirement {

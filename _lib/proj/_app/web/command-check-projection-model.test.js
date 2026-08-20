@@ -30,6 +30,7 @@ function dependency(overrides = {}) {
     ready: true,
     status: "ready",
     message: null,
+    checker: null,
     dependencies: [],
     ...overrides,
   };
@@ -61,6 +62,27 @@ describe("Command check projection model", () => {
     })).toThrow("ready");
   });
 
+  test("normalizes a structured provider checker without executing it", () => {
+    const result = createCommandCheckProjection(document({
+      dependencies: [dependency({
+        checker: {
+          address: ".provider/check",
+          arguments: ["fixture"],
+          namespace: null,
+          space: "system",
+        },
+      })],
+    }), { address: ".tool", space: "system" });
+
+    expect(result.dependencies[0].checker).toEqual({
+      address: ".provider/check",
+      arguments: ["fixture"],
+      namespace: null,
+      path: ["provider", "check"],
+      space: "system",
+    });
+  });
+
   test("rejects internally inconsistent dependency readiness", () => {
     const subject = { address: ".tool", space: "system" };
     expect(() => createCommandCheckProjection(document({
@@ -75,7 +97,7 @@ describe("Command check projection model", () => {
 
   test("rejects the old protocol and removed publication fields", () => {
     expect(() => createCommandCheckProjection(document({
-      protocol: "swawkit.command-check/v0",
+      protocol: "swawkit.command-check/v1",
     }), {
       address: ".tool",
       space: "system",

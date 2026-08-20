@@ -24,7 +24,7 @@ pub(super) struct SetupCommandContext {
 impl CommandContext {
     pub(super) fn from_environment(address: &str) -> Result<Self, String> {
         validate_command_protocol(&required("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL")?)?;
-        if !matches!(address, ".dev/setup" | ".dev/status") {
+        if !matches!(address, ".dev/setup" | ".dev/setup/check" | ".dev/status") {
             return Err(format!("unsupported Dev command address '{address}'"));
         }
         require_exact("SWAWKIT_PROJ_CORE_COMMAND_ADDRESS", address)?;

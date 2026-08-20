@@ -79,7 +79,7 @@ impl ResolvedEntry {
         }
         match self.product.as_deref() {
             Some("module") => matches!(address, ".module/instantiate" | ".module/status"),
-            Some("dev") => matches!(address, ".dev/setup" | ".dev/status"),
+            Some("dev") => matches!(address, ".dev/setup" | ".dev/setup/check" | ".dev/status"),
             _ => false,
         }
     }

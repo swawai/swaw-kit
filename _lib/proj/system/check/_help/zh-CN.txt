@@ -10,5 +10,6 @@
 
 swawkit.module.json 使用 swawkit.command-module/v11，消费方通过 requires 声明
 Provider 命令、具名 Export 与 contract。检查不评价目标自身的 provides；要确认某个
-Provider 的产物能否消费，应检查实际 Consumer。--json 输出
-swawkit.command-check/v1，适合 Agent、脚本和可视化消费。
+Provider 的产物能否消费，应检查实际 Consumer。Provider 若提供普通子命令
+<provider>/check，结果会给出可显式运行的检查命令，但不会自动执行它。
+--json 输出 swawkit.command-check/v2，适合 Agent、脚本和可视化消费。
