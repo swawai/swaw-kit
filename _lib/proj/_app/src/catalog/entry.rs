@@ -42,6 +42,9 @@ impl ResolvedEntry {
                 (address, self.handler.as_deref()),
                 (".entry", Some("entry.profile"))
                     | (".entry/apply", Some("entry.profile.apply"))
+                    | (".entry/instances", Some("entry.instances"))
+                    | (".entry/instances/create", Some("entry.instances.create"))
+                    | (".entry/instances/migrate", Some("entry.instances.migrate"))
                     | (".runtime", Some("runtime.status"))
                     | (".runtime/cleanup", Some("runtime.cleanup"))
                     | (".runtime/host/exit", Some("host.exit"))

@@ -8,16 +8,15 @@ use crate::runtime_cleanup::{
 };
 use crate::runtime_release::RuntimeReleaseStore;
 
-mod lock;
 mod process;
 
-use lock::PublicationLock;
+use crate::runtime_publication_lock::RuntimePublicationLock;
 use process::InUseReleases;
 
 static NEXT_TOMBSTONE: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn run(context: &EntryContext, apply: bool) -> Result<RuntimeCleanupDocument, String> {
-    let _lock = PublicationLock::acquire(&context.swawkit_home)?;
+    let _lock = RuntimePublicationLock::acquire(&context.swawkit_home)?;
     let store = RuntimeReleaseStore::open(&context.runtime_root, &context.swawkit_home)
         .map_err(|error| format!("cannot open Runtime Release storage: {error}"))?;
     let selected = store

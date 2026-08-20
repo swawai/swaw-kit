@@ -13,6 +13,8 @@ use windows_sys::Win32::Storage::FileSystem::{
 use crate::command_runtime::CommandRuntime;
 use crate::context::EntryContext;
 
+mod publication;
+
 pub const RUNTIME_RELEASE_SCHEMA: &str = "swawkit.proj-release-set/v4";
 pub const RUNTIME_ARTIFACT_NAMES: [&str; 4] = [
     "swawkit-proj-dev.exe",

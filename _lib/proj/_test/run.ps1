@@ -19,6 +19,7 @@ $CandidateArguments = @{
 & (Join-Path $PSScriptRoot 'launcher-long-path.ps1') `
     -LauncherPath $CandidateArguments.LauncherPath
 & (Join-Path $PSScriptRoot 'smoke-entry.ps1') @CandidateArguments
+& (Join-Path $PSScriptRoot 'entry-manager.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'dev-setup-interruption.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'run-journal-abandonment.ps1') @CandidateArguments
 & (Join-Path $PSScriptRoot 'host-release.ps1') @CandidateArguments

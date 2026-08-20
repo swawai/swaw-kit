@@ -1,12 +1,15 @@
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+    MOVEFILE_WRITE_THROUGH, MoveFileExW,
 };
 use windows_sys::Win32::System::Com::CoCreateGuid;
 use windows_sys::core::GUID;
@@ -43,29 +46,33 @@ impl EntryId {
         validate_data_root(data_root)?;
         let id = fresh_id()?;
         let path = data_root.join(ENTRY_ID_FILE_NAME);
+        let temporary = data_root.join(format!(".entry.id.{}.tmp", id.as_str()));
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-            .open(&path)
-            .map_err(|error| {
-                if error.kind() == std::io::ErrorKind::AlreadyExists {
-                    EntryIdError::new(
-                        EntryIdErrorKind::AlreadyExists,
-                        format!("Entry ID already exists: {}", path.display()),
-                    )
-                } else {
-                    io_error("create Entry ID", &path, error)
-                }
-            })?;
+            .open(&temporary)
+            .map_err(|error| io_error("create staged Entry ID", &temporary, error))?;
         let content = format!("{}\n", id.as_str());
         if let Err(error) = file
             .write_all(content.as_bytes())
             .and_then(|()| file.sync_all())
         {
             drop(file);
-            let _ = fs::remove_file(&path);
-            return Err(io_error("publish Entry ID", &path, error));
+            let _ = fs::remove_file(&temporary);
+            return Err(io_error("write staged Entry ID", &temporary, error));
+        }
+        drop(file);
+        if let Err(error) = move_create_new(&temporary, &path) {
+            let _ = fs::remove_file(&temporary);
+            return if fs::symlink_metadata(&path).is_ok() {
+                Err(EntryIdError::new(
+                    EntryIdErrorKind::AlreadyExists,
+                    format!("Entry ID already exists: {}", path.display()),
+                ))
+            } else {
+                Err(io_error("publish Entry ID", &path, error))
+            };
         }
         Ok(id)
     }
@@ -77,6 +84,39 @@ impl EntryId {
     pub(crate) fn open_pinned(data_root: &Path) -> Result<(File, Self), EntryIdError> {
         open_entry_id(data_root)
     }
+}
+
+fn move_create_new(source: &Path, target: &Path) -> std::io::Result<()> {
+    let source = canonical_sibling(source)?;
+    let target = canonical_sibling(target)?;
+    let source = null_terminated(source.as_os_str());
+    let target = null_terminated(target.as_os_str());
+    let result = unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), MOVEFILE_WRITE_THROUGH) };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+fn canonical_sibling(path: &Path) -> std::io::Result<PathBuf> {
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Entry ID path has no parent",
+        )
+    })?;
+    let name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Entry ID path has no file name",
+        )
+    })?;
+    Ok(fs::canonicalize(parent)?.join(name))
+}
+
+fn null_terminated(value: &OsStr) -> Vec<u16> {
+    value.encode_wide().chain(std::iter::once(0)).collect()
 }
 
 impl fmt::Display for EntryId {
@@ -225,6 +265,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Barrier};
 
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
@@ -279,5 +320,43 @@ mod tests {
                 EntryIdErrorKind::Invalid
             );
         }
+    }
+
+    #[test]
+    fn concurrent_create_once_has_one_complete_winner_and_no_partial_document() {
+        let fixture = Fixture::new();
+        let root = Arc::new(fixture.0.clone());
+        let barrier = Arc::new(Barrier::new(9));
+        let workers = (0..8)
+            .map(|_| {
+                let root = Arc::clone(&root);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    EntryId::create_once(&root)
+                })
+            })
+            .collect::<Vec<_>>();
+        barrier.wait();
+        let results = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert!(
+            results
+                .iter()
+                .filter_map(|result| result.as_ref().err())
+                .all(|error| { error.kind() == EntryIdErrorKind::AlreadyExists })
+        );
+        EntryId::read(&fixture.0).expect("read the one complete winner");
+        assert!(fs::read_dir(&fixture.0).unwrap().all(|item| {
+            !item
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")
+        }));
     }
 }

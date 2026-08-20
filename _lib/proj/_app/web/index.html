@@ -11,8 +11,94 @@
   </head>
   <body>
     <div class="app-shell">
-      <main class="workspace">
-        <section class="catalog-canvas" aria-labelledby="browser-title">
+      <main class="workspace" id="workspace">
+        <nav class="entry-manager-navigation" id="entry-manager-navigation"
+          aria-label="Manager 视图" data-i18n-aria-label-zh="Manager 视图"
+          data-i18n-aria-label-en="Manager views" hidden>
+          <button id="entry-manager-tab" type="button" aria-pressed="true"
+            data-i18n-zh="Entry 实例" data-i18n-en="Entry instances">Entry 实例</button>
+          <button id="entry-console-tab" type="button" aria-pressed="false"
+            data-i18n-zh="命令控制台" data-i18n-en="Command console">命令控制台</button>
+        </nav>
+
+        <section class="entry-manager-panel" id="entry-manager-panel"
+          aria-labelledby="entry-manager-title" hidden>
+          <div class="entry-manager-shell">
+            <header class="entry-manager-heading">
+              <div>
+                <p class="entry-manager-eyebrow">Swaw Kit Manager</p>
+                <h1 id="entry-manager-title" data-i18n-zh="Entry 实例"
+                  data-i18n-en="Entry instances">Entry 实例</h1>
+                <p data-i18n-zh="创建新的独立 Entry，或显式迁移旧 DataRoot。"
+                  data-i18n-en="Create an independent Entry or explicitly migrate a legacy DataRoot.">创建新的独立 Entry，或显式迁移旧 DataRoot。</p>
+              </div>
+              <button class="secondary-button" id="entry-manager-refresh" type="button"
+                data-i18n-zh="刷新状态" data-i18n-en="Refresh status">刷新状态</button>
+            </header>
+
+            <div class="entry-manager-grid">
+              <form class="entry-manager-form" id="entry-manager-form">
+                <div class="entry-manager-card">
+                  <h2 data-i18n-zh="创建或迁移" data-i18n-en="Create or migrate">创建或迁移</h2>
+                  <label for="entry-manager-input" data-i18n-zh="Entry 名称"
+                    data-i18n-en="Entry name">Entry 名称</label>
+                  <div class="entry-manager-input-row">
+                    <input id="entry-manager-input" name="entryName" type="text"
+                      maxlength="48" autocomplete="off" spellcheck="false"
+                      aria-describedby="entry-manager-name-hint">
+                    <span aria-hidden="true">.exe</span>
+                  </div>
+                  <p class="entry-manager-hint" id="entry-manager-name-hint"
+                    data-i18n-zh="使用小写字母、数字和单个连字符；须以字母开头，最多 48 个字符，且不能使用保留名称。"
+                    data-i18n-en="Use lowercase letters, digits, and single hyphens; start with a letter, up to 48 characters, and avoid reserved names.">使用小写字母、数字和单个连字符；须以字母开头，最多 48 个字符，且不能使用保留名称。</p>
+
+                  <dl class="entry-manager-paths">
+                    <div>
+                      <dt>SWAWKIT_HOME</dt>
+                      <dd><code id="entry-manager-home">—</code></dd>
+                    </div>
+                    <div>
+                      <dt data-i18n-zh="Entry 文件" data-i18n-en="Entry file">Entry 文件</dt>
+                      <dd><code id="entry-manager-entry-file">—</code></dd>
+                    </div>
+                    <div>
+                      <dt>DataRoot</dt>
+                      <dd><code id="entry-manager-data-root">—</code></dd>
+                    </div>
+                  </dl>
+
+                  <div class="entry-manager-state-line">
+                    <span data-i18n-zh="状态" data-i18n-en="Status">状态</span>
+                    <strong id="entry-manager-state" data-status="idle">等待检查</strong>
+                  </div>
+                  <ul class="entry-manager-issues" id="entry-manager-issues" hidden></ul>
+                  <p class="entry-manager-feedback" id="entry-manager-feedback"
+                    role="status" aria-live="polite"></p>
+                  <div class="entry-manager-actions">
+                    <button class="entry-manager-primary" id="entry-manager-create"
+                      type="button" disabled data-i18n-zh="创建 Entry"
+                      data-i18n-en="Create Entry">创建 Entry</button>
+                    <button class="secondary-button" id="entry-manager-migrate"
+                      type="button" disabled data-i18n-zh="显式迁移"
+                      data-i18n-en="Explicitly migrate">显式迁移</button>
+                  </div>
+                </div>
+              </form>
+
+              <section class="entry-manager-card entry-manager-inventory"
+                aria-labelledby="entry-manager-inventory-title">
+                <h2 id="entry-manager-inventory-title" data-i18n-zh="已发现的 Entry"
+                  data-i18n-en="Discovered Entries">已发现的 Entry</h2>
+                <p class="entry-manager-inventory-empty" id="entry-manager-inventory-empty"
+                  data-i18n-zh="尚未发现其它 Entry。"
+                  data-i18n-en="No other Entries were discovered.">尚未发现其它 Entry。</p>
+                <ul id="entry-manager-inventory"></ul>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="catalog-canvas" id="catalog-canvas" aria-labelledby="browser-title">
           <h1 class="sr-only" id="browser-title">Swaw Kit Project Console</h1>
 
           <div class="explorer-frame" id="explorer-frame">

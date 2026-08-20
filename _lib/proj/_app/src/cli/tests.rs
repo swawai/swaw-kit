@@ -13,6 +13,7 @@ use super::*;
 
 mod check;
 mod control;
+mod entry_manager;
 mod runs;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
@@ -186,7 +187,7 @@ impl Fixture {
     }
 
     fn data_root(&self) -> PathBuf {
-        self.root.join("data/proj.fixture")
+        self.context.data_root.clone()
     }
 
     fn bind(&self) {

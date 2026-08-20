@@ -29,6 +29,23 @@ pub struct EntryContext {
 }
 
 impl EntryContext {
+    /// Returns whether this process is bound to the one manager Entry.
+    ///
+    /// Manager authority is a derived layout fact, never a caller supplied
+    /// mode bit. Entry lifecycle mutations must check this at their domain
+    /// boundary even when their transport already hides the operation.
+    pub fn is_manager(&self) -> bool {
+        self.entry_name == "swawkit"
+            && self.data_root == self.swawkit_home.join("data/proj.swawkit")
+            && self.runtime_root == self.data_root.join("runtime")
+            && self.entry_file.parent() == Some(self.swawkit_home.as_path())
+            && self
+                .entry_file
+                .file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| name.eq_ignore_ascii_case("swawkit.exe"))
+    }
+
     pub fn from_launch(request: &LaunchRequest) -> Result<Self, ContextError> {
         Self::from_product_launch(request, "swawkit-proj.exe")
     }

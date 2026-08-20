@@ -1,4 +1,5 @@
 mod control;
+mod entry_manager;
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -57,6 +58,9 @@ fn run_with_dependencies(
     let resolved = resolve_owned_data_root(context)?;
 
     if let Some(exit_code) = control::dispatch_runtime(context, argv, &resolved)? {
+        return Ok(exit_code);
+    }
+    if let Some(exit_code) = entry_manager::dispatch(context, argv)? {
         return Ok(exit_code);
     }
 

@@ -14,12 +14,12 @@ const RETRY_INTERVAL: Duration = Duration::from_millis(200);
 const ERROR_SHARING_VIOLATION: i32 = 32;
 const ERROR_LOCK_VIOLATION: i32 = 33;
 
-pub(super) struct PublicationLock {
+pub(crate) struct RuntimePublicationLock {
     _file: File,
 }
 
-impl PublicationLock {
-    pub(super) fn acquire(swawkit_home: &Path) -> Result<Self, String> {
+impl RuntimePublicationLock {
+    pub(crate) fn acquire(swawkit_home: &Path) -> Result<Self, String> {
         let locks = ensure_lock_directory(swawkit_home)?;
         let path = locks.join("release-publish.lock");
         let started = Instant::now();
@@ -70,22 +70,21 @@ fn ensure_lock_directory(swawkit_home: &Path) -> Result<PathBuf, String> {
                     current.display()
                 ));
             }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                match fs::create_dir(&current) {
-                    Ok(()) => {}
-                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                        let metadata = fs::symlink_metadata(&current)
-                            .map_err(|error| storage(&current, error))?;
-                        if !metadata.is_dir() || is_reparse(&metadata) {
-                            return Err(format!(
-                                "Runtime lock path must be a regular directory: {}",
-                                current.display()
-                            ));
-                        }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => match fs::create_dir(&current)
+            {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    let metadata =
+                        fs::symlink_metadata(&current).map_err(|error| storage(&current, error))?;
+                    if !metadata.is_dir() || is_reparse(&metadata) {
+                        return Err(format!(
+                            "Runtime lock path must be a regular directory: {}",
+                            current.display()
+                        ));
                     }
-                    Err(error) => return Err(storage(&current, error)),
                 }
-            }
+                Err(error) => return Err(storage(&current, error)),
+            },
             Err(error) => return Err(storage(&current, error)),
         }
     }

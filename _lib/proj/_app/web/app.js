@@ -14,6 +14,7 @@ import { setLanguage, t } from "./i18n.js";
 import { createCommandCheckProjectionRenderer } from "./command-check-projection.js";
 import { createRuntimeControlView } from "./runtime-control.js";
 import { createRunProjectionRenderer } from "./run-projection.js";
+import { createEntryManagerView } from "./entry-manager-view.js";
 import {
   createCollectionResolutionLoader,
   resolveFacet,
@@ -159,6 +160,25 @@ const elements = {
   entryProfileDetail: document.querySelector("#entry-profile-detail"),
   entryProfileSummary: document.querySelector("#entry-profile-summary"),
   entryProfileTitle: document.querySelector("#entry-profile-title"),
+  workspace: document.querySelector("#workspace"),
+  catalogCanvas: document.querySelector("#catalog-canvas"),
+  entryManagerNavigation: document.querySelector("#entry-manager-navigation"),
+  entryManagerTab: document.querySelector("#entry-manager-tab"),
+  entryConsoleTab: document.querySelector("#entry-console-tab"),
+  entryManagerPanel: document.querySelector("#entry-manager-panel"),
+  entryManagerForm: document.querySelector("#entry-manager-form"),
+  entryManagerInput: document.querySelector("#entry-manager-input"),
+  entryManagerHome: document.querySelector("#entry-manager-home"),
+  entryManagerEntryFile: document.querySelector("#entry-manager-entry-file"),
+  entryManagerDataRoot: document.querySelector("#entry-manager-data-root"),
+  entryManagerState: document.querySelector("#entry-manager-state"),
+  entryManagerIssues: document.querySelector("#entry-manager-issues"),
+  entryManagerFeedback: document.querySelector("#entry-manager-feedback"),
+  entryManagerCreate: document.querySelector("#entry-manager-create"),
+  entryManagerMigrate: document.querySelector("#entry-manager-migrate"),
+  entryManagerRefresh: document.querySelector("#entry-manager-refresh"),
+  entryManagerInventory: document.querySelector("#entry-manager-inventory"),
+  entryManagerInventoryEmpty: document.querySelector("#entry-manager-inventory-empty"),
 };
 
 let catalog = null;
@@ -357,6 +377,7 @@ runtimeControl = createRuntimeControlView(elements, {
     explorer.setCommandState(".runtime", state);
   },
 });
+const entryManager = createEntryManagerView(elements);
 
 function setLoadState(status, message = "") {
   const loading = status === "loading";
@@ -465,6 +486,7 @@ async function loadCatalog() {
     const document = await entryProfile.loadProfile();
     await applyCatalogRoute(document);
     await contextTray.restore();
+    await entryManager.activate(catalog.entryName);
     setLoadState("ready");
   } catch (error) {
     const message = error instanceof Error
@@ -492,6 +514,7 @@ async function loadApplication() {
     catalog = createCatalog(await response.json());
     await applyCatalogRoute(document);
     await contextTray.restore();
+    await entryManager.activate(catalog.entryName);
     setLoadState("ready");
   } catch (error) {
     const message = error instanceof Error

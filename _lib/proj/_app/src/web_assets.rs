@@ -20,6 +20,7 @@ const RUN_PROJECTION_CSS: &str = include_str!("../web/styles/run-projection.css"
 const CONTEXT_PROJECTION_CSS: &str = include_str!("../web/styles/context-projection.css");
 const COMMAND_CHECK_PROJECTION_CSS: &str =
     include_str!("../web/styles/command-check-projection.css");
+const ENTRY_MANAGER_CSS: &str = include_str!("../web/styles/entry-manager.css");
 
 const APP_JS: &str = include_str!("../web/app.js");
 const I18N_JS: &str = include_str!("../web/i18n.js");
@@ -55,6 +56,9 @@ const SUBJECT_COLLECTION_MODEL_JS: &str = include_str!("../web/subject-collectio
 const SUBJECT_KIND_MODEL_JS: &str = include_str!("../web/subject-kind-model.js");
 const SUBJECT_EXPLORER_JS: &str = include_str!("../web/subject-explorer.js");
 const SUBJECT_FACET_JS: &str = include_str!("../web/subject-facet.js");
+const ENTRY_MANAGER_MODEL_JS: &str = include_str!("../web/entry-manager-model.js");
+const ENTRY_MANAGER_CLIENT_JS: &str = include_str!("../web/entry-manager-client.js");
+const ENTRY_MANAGER_VIEW_JS: &str = include_str!("../web/entry-manager-view.js");
 
 pub(crate) async fn index() -> Html<&'static str> {
     Html(INDEX_HTML)
@@ -79,6 +83,7 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "styles/command-check-projection.css" => {
             Some(("text/css; charset=utf-8", COMMAND_CHECK_PROJECTION_CSS))
         }
+        "styles/entry-manager.css" => Some(("text/css; charset=utf-8", ENTRY_MANAGER_CSS)),
         "app.js" => Some(("text/javascript; charset=utf-8", APP_JS)),
         "i18n.js" => Some(("text/javascript; charset=utf-8", I18N_JS)),
         "command-identity.js" => Some(("text/javascript; charset=utf-8", COMMAND_IDENTITY_JS)),
@@ -136,6 +141,13 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "subject-kind-model.js" => Some(("text/javascript; charset=utf-8", SUBJECT_KIND_MODEL_JS)),
         "subject-explorer.js" => Some(("text/javascript; charset=utf-8", SUBJECT_EXPLORER_JS)),
         "subject-facet.js" => Some(("text/javascript; charset=utf-8", SUBJECT_FACET_JS)),
+        "entry-manager-model.js" => {
+            Some(("text/javascript; charset=utf-8", ENTRY_MANAGER_MODEL_JS))
+        }
+        "entry-manager-client.js" => {
+            Some(("text/javascript; charset=utf-8", ENTRY_MANAGER_CLIENT_JS))
+        }
+        "entry-manager-view.js" => Some(("text/javascript; charset=utf-8", ENTRY_MANAGER_VIEW_JS)),
         _ => None,
     };
 

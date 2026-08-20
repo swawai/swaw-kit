@@ -31,6 +31,7 @@ use crate::{
 };
 
 mod command_run;
+mod entry_manager;
 mod facet_resolution;
 mod host_control;
 mod runtime_control;
@@ -177,7 +178,8 @@ fn router_with_runtime_service(
     host_runtime: HostRuntimeDocument,
     host_control: HostControl,
 ) -> Router {
-    Router::new()
+    let manager_routes = context.is_manager().then(entry_manager::routes);
+    let mut router = Router::new()
         .route("/", get(web_assets::index))
         .route("/commands", get(web_assets::index))
         .route("/commands/{*path}", get(web_assets::index))
@@ -214,7 +216,11 @@ fn router_with_runtime_service(
             "/api/v2/profile/settings/{address}",
             axum::routing::put(put_profile_setting),
         )
-        .route("/healthz", get(host_control::health))
+        .route("/healthz", get(host_control::health));
+    if let Some(routes) = manager_routes {
+        router = router.merge(routes);
+    }
+    router
         .layer(middleware::from_fn(security_headers))
         .layer(middleware::from_fn_with_state(
             Arc::<str>::from(expected_authority),

@@ -22,6 +22,7 @@ use crate::{
 mod catalog;
 mod command_run;
 mod command_run_native;
+mod entry_manager;
 mod facet_resolution;
 mod profile;
 mod runtime;
@@ -295,6 +296,7 @@ async fn serves_only_the_declared_local_surface() {
     assert!(index_html.contains("class=\"command-run-output\" id=\"command-run-output\""));
     assert!(index_html.contains("class=\"run-projection-output\" id=\"run-projection-output\""));
     assert!(index_html.contains("id=\"command-check-pane\""));
+    assert!(index_html.contains("id=\"entry-manager-panel\""));
 
     for path in [
         "/commands",
@@ -339,6 +341,10 @@ async fn serves_only_the_declared_local_surface() {
         ),
         (
             "/assets/styles/command-check-projection.css",
+            "text/css; charset=utf-8",
+        ),
+        (
+            "/assets/styles/entry-manager.css",
             "text/css; charset=utf-8",
         ),
         ("/assets/app.js", "text/javascript; charset=utf-8"),
@@ -433,6 +439,18 @@ async fn serves_only_the_declared_local_surface() {
             "text/javascript; charset=utf-8",
         ),
         ("/assets/subject-facet.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/entry-manager-model.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/entry-manager-client.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/entry-manager-view.js",
+            "text/javascript; charset=utf-8",
+        ),
     ] {
         let response = send(app.clone(), Method::GET, path, Some(AUTHORITY)).await;
         assert_eq!(response.status(), StatusCode::OK, "{path}");

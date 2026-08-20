@@ -1,0 +1,10 @@
+显式迁移同名旧 Entry DataRoot。
+
+用法：.entry/instances/migrate <entry-name> [--json]
+
+只有严格有效的 swawkit.proj-entry.v0 旧身份记录才可迁移。命令不会猜测来源、移动其它 DataRoot 或覆盖冲突状态。
+
+该命令只能由 swawkit manager 执行。迁移先准备 Runtime、替换 Launcher 并发布
+launcher.json 摘要回执，最后以 entry.id 提交新身份。它不会自动迁移、改名、删除或修复实例；
+若 manager Host 已落后于所选 Runtime，迁移会先要求重启，避免混合两代制品。
+manager 自身的冷迁移仍由 bootstrap.ps1 -MigrateLegacyManagerDataRoot 完成。

@@ -72,7 +72,15 @@ try {
     $LegacyRoot = Join-Path $TemporaryRoot 'legacy\data\proj.swawkit'
     [void][IO.Directory]::CreateDirectory($LegacyRoot)
     $LegacyDocumentPath = Join-Path $LegacyRoot '_entry.json'
-    $LegacyDocument = '{"legacy":true}'
+    $LegacyDocument = @'
+{
+  "schema": "swawkit.proj-entry.v0",
+  "entryName": "swawkit",
+  "entryFile": "swawkit.exe",
+  "volumeId": "\\\\?\\volume{91cf565a-694f-4232-be2d-368578d28629}",
+  "fileId": "0000000000000000001400000000685d"
+}
+'@
     [IO.File]::WriteAllText(
         $LegacyDocumentPath,
         $LegacyDocument,
@@ -101,6 +109,41 @@ try {
             ).Count -eq 0
         ) `
         -Message 'explicit migration did not add only a stable entry.id'
+
+    foreach ($InvalidLegacyDocument in @(
+        '{"legacy":true}',
+        '{"schema":"swawkit.proj-entry.v0","entryName":"other","entryFile":"swawkit.exe","volumeId":"\\\\?\\volume{91cf565a-694f-4232-be2d-368578d28629}","fileId":"0000000000000000001400000000685d"}',
+        '{"schema":"swawkit.proj-entry.v0","entryName":"swawkit","entryFile":"swawkit.exe","volumeId":"\\\\?\\volume{91cf565a-694f-4232-be2d-368578d28629}","fileId":"0000000000000000001400000000685d","unexpected":true}'
+    )) {
+        $RejectedRoot = Join-Path $TemporaryRoot (
+            "rejected-$([Guid]::NewGuid().ToString('N'))\data\proj.swawkit"
+        )
+        [void][IO.Directory]::CreateDirectory($RejectedRoot)
+        [IO.File]::WriteAllText(
+            (Join-Path $RejectedRoot '_entry.json'),
+            $InvalidLegacyDocument,
+            [Text.UTF8Encoding]::new($false)
+        )
+        [void](Invoke-ProjManagerDataRootExpectedFailure {
+            Initialize-ProjManagerDataRoot `
+                -DataRoot $RejectedRoot `
+                -MigrateLegacy
+        })
+        Assert-ProjManagerDataRootTest `
+            -Condition (-not [IO.File]::Exists((Join-Path $RejectedRoot 'entry.id'))) `
+            -Message 'invalid legacy evidence was claimed as the manager identity'
+    }
+
+    $MissingEvidenceRoot = Join-Path $TemporaryRoot 'missing-evidence\data\proj.swawkit'
+    [void][IO.Directory]::CreateDirectory($MissingEvidenceRoot)
+    [void](Invoke-ProjManagerDataRootExpectedFailure {
+        Initialize-ProjManagerDataRoot `
+            -DataRoot $MissingEvidenceRoot `
+            -MigrateLegacy
+    })
+    Assert-ProjManagerDataRootTest `
+        -Condition (-not [IO.File]::Exists((Join-Path $MissingEvidenceRoot 'entry.id'))) `
+        -Message 'a manager DataRoot without legacy evidence was claimed'
 
     $InvalidRoot = Join-Path $TemporaryRoot 'invalid\data\proj.swawkit'
     [void][IO.Directory]::CreateDirectory($InvalidRoot)

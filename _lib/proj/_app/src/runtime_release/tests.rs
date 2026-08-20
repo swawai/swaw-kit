@@ -243,6 +243,114 @@ fn rejects_a_v4_release_without_the_module_artifact() {
     assert!(validate_release(&release, &release_id, &fixture.root).is_err());
 }
 
+#[test]
+fn clones_an_explicit_release_without_linking_source_bytes() {
+    let fixture = Fixture::new();
+    let releases = fixture.context.runtime_root.join("releases");
+    let selected_id = write_release(
+        &fixture.root,
+        &releases,
+        &[
+            ("swawkit-proj.exe", b"selected-core"),
+            ("swawkit-proj-host.exe", b"selected-host"),
+            ("swawkit-proj-module.exe", b"selected-module"),
+            ("swawkit-proj-dev.exe", b"selected-dev"),
+        ],
+    );
+    let explicit_id = write_release(
+        &fixture.root,
+        &releases,
+        &[
+            ("swawkit-proj.exe", b"explicit-core"),
+            ("swawkit-proj-host.exe", b"explicit-host"),
+            ("swawkit-proj-module.exe", b"explicit-module"),
+            ("swawkit-proj-dev.exe", b"explicit-dev"),
+        ],
+    );
+    fs::write(
+        fixture.context.runtime_root.join("current"),
+        format!("{selected_id}\n"),
+    )
+    .unwrap();
+    let source = RuntimeReleaseStore::open(&fixture.context.runtime_root, &fixture.root).unwrap();
+    let target_root = fixture.root.join("data/proj.target/runtime");
+    fs::create_dir_all(target_root.parent().unwrap()).unwrap();
+    let target = RuntimeReleaseStore::initialize(&target_root, &fixture.root).unwrap();
+
+    target
+        .publish_clone_from(&source, &explicit_id)
+        .expect("clone explicit non-selected Release");
+    target.select(&explicit_id).expect("select cloned Release");
+    assert_eq!(target.selected_release_id().unwrap(), explicit_id);
+    target.validate(&explicit_id).unwrap();
+    assert!(!target.releases_root().join(&selected_id).exists());
+
+    fs::write(
+        releases.join(&explicit_id).join("swawkit-proj.exe"),
+        b"source changed after clone",
+    )
+    .unwrap();
+    target
+        .validate(&explicit_id)
+        .expect("target bytes are physically independent");
+}
+
+#[test]
+fn clone_is_idempotent_but_never_repairs_an_invalid_same_id_target() {
+    let fixture = Fixture::new();
+    let source_releases = fixture.context.runtime_root.join("releases");
+    let release_id = write_release(
+        &fixture.root,
+        &source_releases,
+        &[
+            ("swawkit-proj.exe", b"core"),
+            ("swawkit-proj-host.exe", b"host"),
+            ("swawkit-proj-module.exe", b"module"),
+            ("swawkit-proj-dev.exe", b"dev"),
+        ],
+    );
+    let source = RuntimeReleaseStore::open(&fixture.context.runtime_root, &fixture.root).unwrap();
+    let valid_root = fixture.root.join("data/proj.valid/runtime");
+    fs::create_dir_all(valid_root.parent().unwrap()).unwrap();
+    let valid = RuntimeReleaseStore::initialize(&valid_root, &fixture.root).unwrap();
+    valid.publish_clone_from(&source, &release_id).unwrap();
+    valid.publish_clone_from(&source, &release_id).unwrap();
+
+    let invalid_root = fixture.root.join("data/proj.invalid/runtime");
+    fs::create_dir_all(invalid_root.parent().unwrap()).unwrap();
+    let invalid = RuntimeReleaseStore::initialize(&invalid_root, &fixture.root).unwrap();
+    let collision = invalid.releases_root().join(&release_id);
+    fs::create_dir(&collision).unwrap();
+    fs::write(collision.join("foreign"), b"preserve me").unwrap();
+    assert!(invalid.publish_clone_from(&source, &release_id).is_err());
+    assert_eq!(fs::read(collision.join("foreign")).unwrap(), b"preserve me");
+}
+
+#[test]
+fn selecting_an_invalid_release_preserves_the_complete_old_selector() {
+    let fixture = Fixture::new();
+    let releases = fixture.context.runtime_root.join("releases");
+    let valid_id = write_release(
+        &fixture.root,
+        &releases,
+        &[
+            ("swawkit-proj.exe", b"core"),
+            ("swawkit-proj-host.exe", b"host"),
+            ("swawkit-proj-module.exe", b"module"),
+            ("swawkit-proj-dev.exe", b"dev"),
+        ],
+    );
+    fs::write(
+        fixture.context.runtime_root.join("current"),
+        format!("{valid_id}\n"),
+    )
+    .unwrap();
+    let store = RuntimeReleaseStore::open(&fixture.context.runtime_root, &fixture.root).unwrap();
+
+    assert!(store.select(&"f".repeat(64)).is_err());
+    assert_eq!(store.selected_release_id().unwrap(), valid_id);
+}
+
 pub(crate) fn write_release(
     swawkit_home: &Path,
     root: &Path,
