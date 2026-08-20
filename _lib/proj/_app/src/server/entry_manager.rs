@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::entry_manager::{EntryManager, EntryManagerError, EntryManagerErrorKind};
 
-use super::{ServerState, api_error};
+use super::{ServerState, api_error, command_run::runtime_service_error};
 
 const CREATE_CONTROL: &str = "entry-instance-create";
 const MIGRATE_CONTROL: &str = "entry-instance-migrate";
@@ -61,6 +61,9 @@ async fn post_create(
     if !has_exact_control_header(&headers, CREATE_CONTROL) {
         return StatusCode::FORBIDDEN.into_response();
     }
+    if let Err(error) = state.runtime_service.require_current_generation() {
+        return runtime_service_error(error).into_response();
+    }
     let context = state.context;
     match tokio::task::spawn_blocking(move || {
         EntryManager::new(&context).create(&request.entry_name)
@@ -80,6 +83,9 @@ async fn post_migrate(
 ) -> Response {
     if !has_exact_control_header(&headers, MIGRATE_CONTROL) {
         return StatusCode::FORBIDDEN.into_response();
+    }
+    if let Err(error) = state.runtime_service.require_current_generation() {
+        return runtime_service_error(error).into_response();
     }
     let context = state.context;
     match tokio::task::spawn_blocking(move || {

@@ -201,6 +201,40 @@ try {
         ) `
         -Message 'the Host did not report the pending Runtime Release update'
 
+    Add-Type -AssemblyName System.Net.Http
+    $GenerationClient = [Net.Http.HttpClient]::new()
+    try {
+        $GenerationContent = [Net.Http.StringContent]::new(
+            '{"address":".check","arguments":[]}',
+            [Text.Encoding]::UTF8,
+            'application/json'
+        )
+        try {
+            $GenerationGateResponse = $GenerationClient.PostAsync(
+                ([string]$Document.url + 'api/v2/command-runs'),
+                $GenerationContent
+            ).GetAwaiter().GetResult()
+            try {
+                $GenerationGateStatus = [int]$GenerationGateResponse.StatusCode
+                $GenerationGate = $GenerationGateResponse.Content.
+                    ReadAsStringAsync().GetAwaiter().GetResult() |
+                    ConvertFrom-Json
+            } finally {
+                $GenerationGateResponse.Dispose()
+            }
+        } finally {
+            $GenerationContent.Dispose()
+        }
+    } finally {
+        $GenerationClient.Dispose()
+    }
+    Assert-ProjHostReleaseTest `
+        -Condition (
+            $GenerationGateStatus -eq 409 -and
+            [string]$GenerationGate.code -ceq 'runtimeUpdateRequired'
+        ) `
+        -Message 'the old Host accepted new work after the Runtime selector changed'
+
     Invoke-WebRequest `
         -UseBasicParsing `
         -Method Post `

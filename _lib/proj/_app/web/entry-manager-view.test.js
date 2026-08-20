@@ -201,4 +201,40 @@ describe("Entry manager view", () => {
     await view.migrate();
     expect(ui.entryManagerState.dataset.status).toBe("ready");
   });
+
+  test("refreshes Runtime status when stale manager mutation is rejected", async () => {
+    const ui = elements();
+    let notifications = 0;
+    const fetchImpl = async (url, options = {}) => {
+      if (url === "/api/v2/entries/inspect") {
+        return response({
+          protocol: "swawkit.entry-instance-state/v2",
+          entry: entry("available"),
+        });
+      }
+      if (url === "/api/v2/entries" && options.method === "POST") {
+        return response({
+          code: "runtimeUpdateRequired",
+          error: "server detail",
+        }, 409);
+      }
+      return response({
+        protocol: "swawkit.entry-inventory/v2",
+        swawkitHome: "D:\\kit",
+        entries: [],
+      });
+    };
+    const view = createEntryManagerView(ui, {
+      documentImpl,
+      fetchImpl,
+      onRuntimeUpdateRequired() { notifications += 1; },
+    });
+    await view.activate("swawkit");
+    ui.entryManagerInput.value = "proj1";
+    await view.inspect();
+
+    expect(await view.create()).toBeNull();
+    expect(notifications).toBe(1);
+    expect(ui.entryManagerFeedback.textContent).toContain("Runtime 已更新");
+  });
 });

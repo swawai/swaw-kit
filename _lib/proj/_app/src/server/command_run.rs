@@ -9,7 +9,10 @@ use serde::Deserialize;
 use crate::run_journal::RunJournalSource;
 use crate::runtime_service::{RuntimeServiceError, StartCommandRunRequest};
 
-use super::{ServerState, api_error};
+use super::{ServerState, api_error, coded_api_error};
+
+pub(super) const RUNTIME_UPDATE_REQUIRED_CODE: &str = "runtimeUpdateRequired";
+pub(super) const RUNTIME_GENERATION_UNAVAILABLE_CODE: &str = "runtimeGenerationUnavailable";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -76,7 +79,9 @@ fn parse_after(query: Option<&str>) -> Result<u64, &'static str> {
         .map_err(|_| "the command run 'after' cursor must be an unsigned integer")
 }
 
-fn runtime_service_error(error: RuntimeServiceError) -> (StatusCode, Json<super::ApiError>) {
+pub(super) fn runtime_service_error(
+    error: RuntimeServiceError,
+) -> (StatusCode, Json<super::ApiError>) {
     let status = match &error {
         RuntimeServiceError::InvalidRequest(_)
         | RuntimeServiceError::ProfileInvalid(_)
@@ -84,12 +89,14 @@ fn runtime_service_error(error: RuntimeServiceError) -> (StatusCode, Json<super:
         | RuntimeServiceError::LifecycleCommandUnsupported => StatusCode::UNPROCESSABLE_ENTITY,
         RuntimeServiceError::ProfileSetupRequired
         | RuntimeServiceError::DependenciesNotReady(_)
-        | RuntimeServiceError::RunNotCancelable => StatusCode::CONFLICT,
+        | RuntimeServiceError::RunNotCancelable
+        | RuntimeServiceError::RuntimeUpdateRequired { .. } => StatusCode::CONFLICT,
         RuntimeServiceError::CommandNotFound | RuntimeServiceError::RunNotFound => {
             StatusCode::NOT_FOUND
         }
         RuntimeServiceError::Capacity => StatusCode::TOO_MANY_REQUESTS,
-        RuntimeServiceError::ShuttingDown => StatusCode::SERVICE_UNAVAILABLE,
+        RuntimeServiceError::ShuttingDown
+        | RuntimeServiceError::RuntimeGenerationUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
         RuntimeServiceError::CatalogDiscovery
         | RuntimeServiceError::ExecutionContext(_)
         | RuntimeServiceError::CommandDataRoot(_)
@@ -103,6 +110,13 @@ fn runtime_service_error(error: RuntimeServiceError) -> (StatusCode, Json<super:
         | RuntimeServiceError::Query(_)
         | RuntimeServiceError::Shutdown(_) => StatusCode::INTERNAL_SERVER_ERROR,
     };
+    let code = match &error {
+        RuntimeServiceError::RuntimeUpdateRequired { .. } => Some(RUNTIME_UPDATE_REQUIRED_CODE),
+        RuntimeServiceError::RuntimeGenerationUnavailable(_) => {
+            Some(RUNTIME_GENERATION_UNAVAILABLE_CODE)
+        }
+        _ => None,
+    };
     let message = match error {
         RuntimeServiceError::LifecycleCommandUnsupported => {
             "in-process System lifecycle commands cannot run through the Web command API".to_owned()
@@ -110,7 +124,7 @@ fn runtime_service_error(error: RuntimeServiceError) -> (StatusCode, Json<super:
         RuntimeServiceError::ShuttingDown => "the Runtime service is shutting down".to_owned(),
         error => error.to_string(),
     };
-    api_error(status, message)
+    coded_api_error(status, message, code)
 }
 
 #[cfg(test)]
@@ -133,5 +147,20 @@ mod tests {
             runtime_service_error(RuntimeServiceError::RunNotCancelable);
         assert_eq!(status, StatusCode::CONFLICT);
         assert_eq!(non_cancelable.error, "command run is not cancelable");
+        assert_eq!(non_cancelable.code, None);
+
+        let (status, Json(update)) =
+            runtime_service_error(RuntimeServiceError::RuntimeUpdateRequired {
+                running_release_id: "a".repeat(64),
+                selected_release_id: "b".repeat(64),
+            });
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(update.code, Some(RUNTIME_UPDATE_REQUIRED_CODE));
+
+        let (status, Json(unavailable)) = runtime_service_error(
+            RuntimeServiceError::RuntimeGenerationUnavailable("invalid selector".to_owned()),
+        );
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(unavailable.code, Some(RUNTIME_GENERATION_UNAVAILABLE_CODE));
     }
 }

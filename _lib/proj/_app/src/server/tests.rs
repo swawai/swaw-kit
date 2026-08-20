@@ -126,6 +126,23 @@ impl Fixture {
         EntryProfileStore::new(self.root.join("home"), data_root)
     }
 
+    fn select_update(&self) -> String {
+        let runtime_root = self.root.join("home/data/proj.swawkit/runtime");
+        let release_id = crate::runtime_release::tests::write_release(
+            &self.root.join("home"),
+            &runtime_root.join("releases"),
+            &[
+                ("swawkit-proj.exe", b"updated-core"),
+                ("swawkit-proj-host.exe", b"updated-host"),
+                ("swawkit-proj-module.exe", b"updated-module"),
+                ("swawkit-proj-dev.exe", b"updated-dev"),
+            ],
+        );
+        fs::write(runtime_root.join("current"), format!("{release_id}\n"))
+            .expect("select updated Runtime release");
+        release_id
+    }
+
     fn app(&self) -> Router {
         router(
             AUTHORITY.to_owned(),
@@ -376,6 +393,10 @@ async fn serves_only_the_declared_local_surface() {
         ("/assets/entry-profile.js", "text/javascript; charset=utf-8"),
         (
             "/assets/runtime-control.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/runtime-generation.js",
             "text/javascript; charset=utf-8",
         ),
         (

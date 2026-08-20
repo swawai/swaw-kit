@@ -198,4 +198,28 @@ describe("Context tray", () => {
     expect(tray.pinnedRef()).toBe("::context/other");
     expect(dom.contextTrayFeedback.textContent).toBe("");
   });
+
+  test("refreshes Runtime status when its operation reaches a stale Host", async () => {
+    const dom = elements();
+    const instance = subject();
+    let notifications = 0;
+    const tray = createContextTrayView(dom, {
+      async executeOperation() {
+        const error = new Error("Runtime 已更新");
+        error.code = "runtimeUpdateRequired";
+        throw error;
+      },
+      async loadDocument() { return document_(); },
+      async loadSubject() { return instance; },
+      onRuntimeUpdateRequired() { notifications += 1; },
+      renderFields() {},
+      storage: storage(),
+    });
+    await tray.pin(instance, document_());
+    tray.selectCommand({ address: ".dev/status", space: "system" });
+
+    expect(await tray.addCurrentCommand()).toBe(false);
+    expect(notifications).toBe(1);
+    expect(dom.contextTrayFeedback.textContent).toBe("Runtime 已更新");
+  });
 });

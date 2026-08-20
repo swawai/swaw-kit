@@ -122,6 +122,23 @@ impl Fixture {
         .expect("save fixture profile");
     }
 
+    fn select_update(&self) -> String {
+        let runtime_root = self.root.join("home/data/proj.swawkit/runtime");
+        let release_id = crate::runtime_release::tests::write_release(
+            &self.root.join("home"),
+            &runtime_root.join("releases"),
+            &[
+                ("swawkit-proj.exe", b"updated-core"),
+                ("swawkit-proj-host.exe", b"updated-host"),
+                ("swawkit-proj-module.exe", b"updated-module"),
+                ("swawkit-proj-dev.exe", b"updated-dev"),
+            ],
+        );
+        fs::write(runtime_root.join("current"), format!("{release_id}\n"))
+            .expect("select updated Runtime release");
+        release_id
+    }
+
     fn command_runs_root(&self) -> PathBuf {
         self.root
             .join("home/data/proj.swawkit/modules/system/demo/_runs")
@@ -187,6 +204,80 @@ async fn shutdown_rejects_submit_and_query_with_typed_errors() {
         Err(error) => error,
     };
     assert!(matches!(query_error, RuntimeServiceError::ShuttingDown));
+    assert_eq!(runner.start_count(), 0);
+    assert!(!fixture.command_runs_root().exists());
+}
+
+#[tokio::test]
+async fn updated_runtime_rejects_new_work_without_gating_existing_run_controls() {
+    let fixture = Fixture::new();
+    fixture.install_command();
+    fixture.save_profile();
+    let runner = Arc::new(RecordingRunner::default());
+    let service = RuntimeService::new(
+        fixture.context(),
+        fixture.data_root_session(),
+        runner.clone(),
+    );
+    let selected_release_id = fixture.select_update();
+
+    let submit_error = service
+        .submit(request())
+        .await
+        .expect_err("reject stale Host submit");
+    assert!(matches!(
+        submit_error,
+        RuntimeServiceError::RuntimeUpdateRequired {
+            ref running_release_id,
+            selected_release_id: ref selected,
+        } if running_release_id == &fixture.release_id && selected == &selected_release_id
+    ));
+    let query_error = match service.query(".demo", &[]) {
+        Ok(_) => panic!("stale Host query must be rejected"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        query_error,
+        RuntimeServiceError::RuntimeUpdateRequired { .. }
+    ));
+
+    assert!(matches!(
+        service.read("missing", 0),
+        Err(RuntimeServiceError::RunNotFound)
+    ));
+    assert!(matches!(
+        service.cancel("missing".to_owned()).await,
+        Err(RuntimeServiceError::RunNotFound)
+    ));
+    assert_eq!(runner.start_count(), 0);
+    assert!(!fixture.command_runs_root().exists());
+}
+
+#[tokio::test]
+async fn invalid_runtime_selector_fails_closed_before_new_work() {
+    let fixture = Fixture::new();
+    fixture.install_command();
+    fixture.save_profile();
+    let runner = Arc::new(RecordingRunner::default());
+    let service = RuntimeService::new(
+        fixture.context(),
+        fixture.data_root_session(),
+        runner.clone(),
+    );
+    fs::write(
+        fixture.root.join("home/data/proj.swawkit/runtime/current"),
+        "invalid\n",
+    )
+    .expect("corrupt Runtime selector");
+
+    assert!(matches!(
+        service.submit(request()).await,
+        Err(RuntimeServiceError::RuntimeGenerationUnavailable(_))
+    ));
+    assert!(matches!(
+        service.query(".demo", &[]),
+        Err(RuntimeServiceError::RuntimeGenerationUnavailable(_))
+    ));
     assert_eq!(runner.start_count(), 0);
     assert!(!fixture.command_runs_root().exists());
 }

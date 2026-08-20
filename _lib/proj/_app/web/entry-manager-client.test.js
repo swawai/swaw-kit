@@ -7,6 +7,7 @@ import {
   migrateEntryInstance,
   readEntryInventory,
 } from "./entry-manager-client.js";
+import { RuntimeGenerationError } from "./runtime-generation.js";
 
 function entry(status = "ready") {
   return {
@@ -110,5 +111,16 @@ describe("Entry manager client", () => {
       changed: true,
       entry: entry(),
     }))).rejects.toThrow("different operation");
+  });
+
+  test("preserves the Runtime generation code for mutation callers", async () => {
+    const error = await createEntryInstance("proj1", async () => response({
+      code: "runtimeUpdateRequired",
+      error: "server detail",
+    }, 409)).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(RuntimeGenerationError);
+    expect(error.code).toBe("runtimeUpdateRequired");
+    expect(error.message).toContain("Runtime 已更新");
   });
 });

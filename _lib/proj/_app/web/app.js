@@ -17,8 +17,10 @@ import { createRunProjectionRenderer } from "./run-projection.js";
 import { createEntryManagerView } from "./entry-manager-view.js";
 import {
   createCollectionResolutionLoader,
+  FacetResolutionError,
   resolveFacet,
 } from "./facet-resolution-client.js";
+import { isRuntimeGenerationCode } from "./runtime-generation.js";
 import {
   commandAtPath,
   parseCommandSelection,
@@ -191,6 +193,9 @@ const commandRun = createCommandRunView(elements, {
     }
     contextTray?.operationCompleted(snapshot.address);
   },
+  onRuntimeUpdateRequired() {
+    void runtimeControl?.load();
+  },
 });
 const commandFacet = createSubjectFacetView(elements, {
   defaultFacet: defaultCommandFacet,
@@ -209,18 +214,35 @@ const documentProjection = createDocumentProjectionView(elements, {
     createRunProjectionRenderer(elements),
   ],
   resolveDocument(subject, facet) {
-    return resolveFacet(catalog, subject, facet, { via: subject.via });
+    return resolveRuntimeFacet(catalog, subject, facet, { via: subject.via });
   },
 });
 let selectedSubject = null;
 let selectedSubjectFacet = null;
 let runtimeControl = null;
+
+async function resolveRuntimeFacet(...arguments_) {
+  try {
+    return await resolveFacet(...arguments_);
+  } catch (error) {
+    if (
+      error instanceof FacetResolutionError
+      && isRuntimeGenerationCode(error.code)
+    ) {
+      void runtimeControl?.load();
+    }
+    throw error;
+  }
+}
 const entryProfile = createEntryProfileView(elements, {
   async onProfileChanged(document) {
     setLanguage(document.profile.language);
     void runtimeControl?.load();
     explorer.setSetupRequired(!document.requiredComplete);
     await loadCatalog();
+  },
+  onRuntimeUpdateRequired() {
+    void runtimeControl?.load();
   },
 });
 const explorer = createExplorerView({
@@ -343,7 +365,7 @@ const collectionLoader = createCollectionResolutionLoader({
     if (!command || selectedFacet?.kind !== "collection") {
       throw new Error(`Cannot resolve missing collection Facet ${owner}#${facet}.`);
     }
-    return resolveFacet(catalog, command, selectedFacet);
+    return resolveRuntimeFacet(catalog, command, selectedFacet);
   },
 });
 contextTray = createContextTrayView(elements, {
@@ -359,7 +381,7 @@ contextTray = createContextTrayView(elements, {
         "The pinned Context no longer provides an overview capability.",
       ));
     }
-    return resolveFacet(catalog, subject, overview, { via: subject.via });
+    return resolveRuntimeFacet(catalog, subject, overview, { via: subject.via });
   },
   async loadSubject(record) {
     const owner = record.via.subject.address;
@@ -370,6 +392,9 @@ contextTray = createContextTrayView(elements, {
   onPinnedChange(reference) {
     contextProjection.setPinnedRef(reference);
   },
+  onRuntimeUpdateRequired() {
+    void runtimeControl?.load();
+  },
   storage: window.sessionStorage,
 });
 runtimeControl = createRuntimeControlView(elements, {
@@ -377,7 +402,11 @@ runtimeControl = createRuntimeControlView(elements, {
     explorer.setCommandState(".runtime", state);
   },
 });
-const entryManager = createEntryManagerView(elements);
+const entryManager = createEntryManagerView(elements, {
+  onRuntimeUpdateRequired() {
+    void runtimeControl?.load();
+  },
+});
 
 function setLoadState(status, message = "") {
   const loading = status === "loading";

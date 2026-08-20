@@ -1,18 +1,43 @@
 import { createSubjectCollection } from "./subject-collection-model.js";
 import { commandRef } from "./command-identity.js";
+import { runtimeGenerationMessage } from "./runtime-generation.js";
+
+export {
+  RUNTIME_GENERATION_UNAVAILABLE_CODE,
+  RUNTIME_UPDATE_REQUIRED_CODE,
+} from "./runtime-generation.js";
+
+export class FacetResolutionError extends Error {
+  constructor(message, status = 0, code = null) {
+    super(message);
+    this.name = "FacetResolutionError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 async function responseJson(response) {
   if (!response.ok) {
     let message = `Host returned HTTP ${response.status}`;
+    let code = null;
     try {
       const body = await response.json();
       if (typeof body?.error === "string" && body.error) {
         message = body.error;
       }
+      if (typeof body?.code === "string") {
+        code = body.code;
+      }
     } catch {
       // The HTTP status remains the useful failure signal.
     }
-    throw new Error(`Cannot resolve Subject Facet: ${message}`);
+    const generationMessage = runtimeGenerationMessage(code);
+    if (generationMessage) {
+      message = generationMessage;
+    } else {
+      message = `Cannot resolve Subject Facet: ${message}`;
+    }
+    throw new FacetResolutionError(message, response.status, code);
   }
   return response.json();
 }

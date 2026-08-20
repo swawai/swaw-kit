@@ -147,6 +147,59 @@ async fn response_json(response: Response) -> Value {
 }
 
 #[tokio::test]
+async fn stale_host_rejects_new_runs_with_a_machine_readable_update_error() {
+    let fixture = Fixture::new();
+    ready_fixture(&fixture);
+    let runner = Arc::new(FakeRunner::default());
+    let (app, _) = command_app(&fixture, runner.clone());
+    let running = post_run(app.clone(), json!({"address": ".demo", "arguments": []})).await;
+    assert_eq!(running.status(), StatusCode::CREATED);
+    let running = response_json(running).await;
+    let run_id = running["id"].as_str().expect("running id").to_owned();
+    let selected_release_id = fixture.select_update();
+
+    let response = post_run(app.clone(), json!({"address": ".demo", "arguments": []})).await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let document = response_json(response).await;
+    assert_eq!(
+        document["code"],
+        crate::server::command_run::RUNTIME_UPDATE_REQUIRED_CODE
+    );
+    assert!(document["error"].as_str().is_some_and(
+        |error| error.contains(&fixture.release_id) && error.contains(&selected_release_id)
+    ));
+    assert_eq!(runner.specs().len(), 1);
+
+    let read = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(format!("/api/v2/command-runs/{run_id}?after=0"))
+                .header(HOST, AUTHORITY)
+                .body(Body::empty())
+                .expect("valid read request"),
+        )
+        .await
+        .expect("read response");
+    assert_eq!(read.status(), StatusCode::OK);
+
+    let cancel = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri(format!("/api/v2/command-runs/{run_id}"))
+                .header(HOST, AUTHORITY)
+                .body(Body::empty())
+                .expect("valid cancel request"),
+        )
+        .await
+        .expect("cancel response");
+    assert_eq!(cancel.status(), StatusCode::NO_CONTENT);
+    assert!(runner.run(0).canceled.load(Ordering::Acquire));
+}
+
+#[tokio::test]
 async fn publishes_the_contract_and_incremental_output_cursor() {
     let fixture = Fixture::new();
     ready_fixture(&fixture);

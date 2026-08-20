@@ -6,6 +6,7 @@ import {
   createEntryProfileView,
   putEntryProfileSetting,
 } from "./entry-profile.js";
+import { RuntimeGenerationError } from "./runtime-generation.js";
 
 function profileDocument(revision, settings) {
   return {
@@ -76,6 +77,25 @@ test("profile conflicts are distinguishable from validation failures", async () 
     })),
     EntryProfileConflictError,
   );
+});
+
+test("Runtime update conflicts remain distinct from Profile revision conflicts", async () => {
+  const error = await putEntryProfileSetting(
+    ".entry/language",
+    "en",
+    "loaded",
+    async () => ({
+      ok: false,
+      status: 409,
+      async json() {
+        return { code: "runtimeUpdateRequired", error: "server detail" };
+      },
+    }),
+  ).catch((caught) => caught);
+
+  assert(error instanceof RuntimeGenerationError);
+  assert.equal(error.code, "runtimeUpdateRequired");
+  assert.match(error.message, /Runtime 已更新/);
 });
 
 test("a completed save does not overwrite a newer Profile command selection", async () => {

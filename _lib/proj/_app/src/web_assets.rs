@@ -38,6 +38,7 @@ const DETAIL_JS: &str = include_str!("../web/detail.js");
 const DOCUMENT_PROJECTION_JS: &str = include_str!("../web/document-projection.js");
 const ENTRY_PROFILE_JS: &str = include_str!("../web/entry-profile.js");
 const RUNTIME_CONTROL_JS: &str = include_str!("../web/runtime-control.js");
+const RUNTIME_GENERATION_JS: &str = include_str!("../web/runtime-generation.js");
 const COMMAND_RUN_JS: &str = include_str!("../web/command-run.js");
 const COMMAND_RUN_OPERATIONS_JS: &str = include_str!("../web/command-run-operations.js");
 const COMMAND_RUN_CLIENT_JS: &str = include_str!("../web/command-run-client.js");
@@ -108,6 +109,7 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         }
         "entry-profile.js" => Some(("text/javascript; charset=utf-8", ENTRY_PROFILE_JS)),
         "runtime-control.js" => Some(("text/javascript; charset=utf-8", RUNTIME_CONTROL_JS)),
+        "runtime-generation.js" => Some(("text/javascript; charset=utf-8", RUNTIME_GENERATION_JS)),
         "command-run.js" => Some(("text/javascript; charset=utf-8", COMMAND_RUN_JS)),
         "command-run-operations.js" => {
             Some(("text/javascript; charset=utf-8", COMMAND_RUN_OPERATIONS_JS))

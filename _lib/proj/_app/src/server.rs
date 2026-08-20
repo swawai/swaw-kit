@@ -288,8 +288,11 @@ async fn get_catalog(
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ApiError {
     error: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    code: Option<&'static str>,
 }
 
 async fn get_profile(State(state): State<ServerState>) -> Response {
@@ -323,6 +326,10 @@ async fn put_profile_setting(
     Json(update): Json<ProfileSettingUpdate>,
 ) -> Result<Response, (StatusCode, Json<ApiError>)> {
     let expected_revision = expected_revision(&headers, "entry profile")?.to_owned();
+    state
+        .runtime_service
+        .require_current_generation()
+        .map_err(command_run::runtime_service_error)?;
     let profile_store = ready_profile_store(&state).await?;
     let update = tokio::task::spawn_blocking(move || {
         profile_store.update_setting_if_revision(&expected_revision, &address, update.value)
@@ -382,10 +389,19 @@ fn profile_response(document: EntryProfileDocument) -> Response {
 }
 
 fn api_error(status: StatusCode, error: impl Into<String>) -> (StatusCode, Json<ApiError>) {
+    coded_api_error(status, error, None)
+}
+
+fn coded_api_error(
+    status: StatusCode,
+    error: impl Into<String>,
+    code: Option<&'static str>,
+) -> (StatusCode, Json<ApiError>) {
     (
         status,
         Json(ApiError {
             error: error.into(),
+            code,
         }),
     )
 }

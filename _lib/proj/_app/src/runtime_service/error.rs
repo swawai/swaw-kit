@@ -19,6 +19,11 @@ pub(crate) enum RuntimeServiceError {
     Capacity,
     RunNotFound,
     RunNotCancelable,
+    RuntimeUpdateRequired {
+        running_release_id: String,
+        selected_release_id: String,
+    },
+    RuntimeGenerationUnavailable(String),
     ShuttingDown,
     Start(io::Error),
     Journal(io::Error),
@@ -58,6 +63,19 @@ impl fmt::Display for RuntimeServiceError {
             Self::Capacity => formatter.write_str("too many command runs are active"),
             Self::RunNotFound => formatter.write_str("command run not found"),
             Self::RunNotCancelable => formatter.write_str("command run is not cancelable"),
+            Self::RuntimeUpdateRequired {
+                running_release_id,
+                selected_release_id,
+            } => write!(
+                formatter,
+                "the Runtime was updated from release {running_release_id} to {selected_release_id}; reopen this Entry before starting new work"
+            ),
+            Self::RuntimeGenerationUnavailable(error) => {
+                write!(
+                    formatter,
+                    "cannot determine the selected Runtime release: {error}"
+                )
+            }
             Self::ShuttingDown => formatter.write_str("the runtime service is shutting down"),
             Self::Start(error) => write!(formatter, "cannot start command execution: {error}"),
             Self::Journal(error) => {

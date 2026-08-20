@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   cancelCommandRun,
   CommandRunError,
+  RUNTIME_UPDATE_REQUIRED_CODE,
   normalizeCommandRunSnapshot,
   readCommandRun,
   startCommandRun,
@@ -163,6 +164,20 @@ describe("command run protocol client", () => {
       requested = true;
     })).rejects.toThrow("命令地址不能为空");
     expect(requested).toBe(false);
+  });
+
+  test("preserves the machine-readable Runtime update code", async () => {
+    const error = await startCommandRun(".dev/status", [], async () => (
+      response(409, {
+        code: RUNTIME_UPDATE_REQUIRED_CODE,
+        error: "server detail",
+      })
+    )).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(CommandRunError);
+    expect(error.status).toBe(409);
+    expect(error.code).toBe(RUNTIME_UPDATE_REQUIRED_CODE);
+    expect(error.message).toContain("Runtime 已更新");
   });
 
   test("polls from the declared cursor and URL-encodes the run id", async () => {

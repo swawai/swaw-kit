@@ -55,6 +55,8 @@ fresh create 先固定读取 manager 根 Launcher，再要求 manager `runtime/c
 
 Host 的持久发现与控制协议已经硬切到 `swawkit.host-runtime/v3`、`swawkit.host-status/v3` 与 `swawkit.runtime-status/v3`。Instance key 是规范 DataRoot 路径的 SHA-256；Host 单实例租约再加入运行 `release-id`，所以它表达的是一个明确 Runtime generation，而不是某个可替换 Launcher 文件。Host Runtime 文档位于 `runtime/hosts/<running-release-id>.json`，并以 `instanceKeySha256 + releaseId + bootId + pid + loopback URL` 绑定健康端点；health response 同时回显 boot、instance 与 release，任何不一致都 fail closed。Runtime Status v3 汇总 selector、Release 数量与这一代 Host 状态，不按 PID 猜测实例。
 
+Host 只在自己的 running Release 仍等于该 Entry 的 `runtime/current` 时接受新工作。selector 切到新 generation 后，旧 Host 对新 Command Run、可执行 Facet query、Profile 写入和 Entry create/migrate 返回稳定的 `runtimeUpdateRequired` 冲突；Catalog/Profile/Entry 检查、Runtime/Host 状态以及既有 Run 的读取和取消继续可用。这样旧任务不会因发布被强杀，旧 Web 页面也不能继续产生新事实；用户通过稳定 Entry 重新打开控制台或显式重启 Host 后，由 Launcher 选择新 Release。
+
 Runtime v3 → v4 与 per-Entry Runtime layout 都是硬切升级：四个 EXE 的精确集合保持不变，v4 新增 `commandRuntimeId`，并把脚本 adapter 的 Bun/Pwsh 版本从隐式 `.dev` 状态提升为 Runtime 的发布依赖。新 Launcher、Core 与 Runtime publisher 不读取或创建旧 `_lib/proj/_bin`；该目录只可留在显式的旧部署壳层回退中，不属于产品运行主路径，也不是兼容 selector。
 
 Launcher 构建与部署同样分离。`project/proj/build/launcher` 只发布命令自身的 `export/swawkit.exe`，物理 `_lib/proj/build.ps1` 只生成 `data/proj_cache/bootstrap/build/launcher/release/swawkit.exe` 候选；两者都不替换根 Launcher。当前没有 `project/proj/publish/launcher`、Launcher template 或 `Favorites` 自动发布路径；根 `swawkit.exe` 及其改名副本只能由源码包或显式部署提供。

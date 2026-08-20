@@ -153,6 +153,31 @@ async fn requires_a_revision_and_rejects_a_stale_setting_without_overwriting() {
 }
 
 #[tokio::test]
+async fn stale_host_rejects_profile_mutations_with_the_runtime_update_code() {
+    let fixture = Fixture::new();
+    fixture.directory("home/_lib/proj");
+    let app = fixture.app();
+    let initial = send(app.clone(), Method::GET, "/api/v2/profile", Some(AUTHORITY)).await;
+    let initial = response_document(initial).await;
+    fixture.select_update();
+
+    let response = send_setting(
+        app,
+        ".entry/git/name",
+        "Stale Writer",
+        initial["revision"].as_str(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let error = response_document(response).await;
+    assert_eq!(
+        error["code"],
+        crate::server::command_run::RUNTIME_UPDATE_REQUIRED_CODE
+    );
+    assert_eq!(fixture.profile_store().document().profile.git.name, "");
+}
+
+#[tokio::test]
 async fn entry_language_selects_the_catalog_help_document() {
     let fixture = Fixture::new();
     fixture.file("home/_lib/proj/system/_help/zh-CN.txt", "中文帮助");

@@ -61,6 +61,7 @@ impl RuntimeService {
         request
             .validate()
             .map_err(RuntimeServiceError::InvalidRequest)?;
+        self.require_current_generation()?;
         let prepared = self
             .prepare_submission(request.address, request.arguments)
             .await?;
@@ -98,6 +99,7 @@ impl RuntimeService {
         arguments: &[String],
     ) -> Result<RuntimeQueryOutput, RuntimeServiceError> {
         validate_invocation(address, arguments).map_err(RuntimeServiceError::InvalidRequest)?;
+        self.require_current_generation()?;
         let data_root = self.data_root.resolved();
         let prepared = prepare_command(
             self.context.clone(),
@@ -111,6 +113,20 @@ impl RuntimeService {
 
     pub(crate) fn shutdown(&self) -> Result<(), RuntimeServiceError> {
         self.runs.shutdown()
+    }
+
+    pub(crate) fn require_current_generation(&self) -> Result<(), RuntimeServiceError> {
+        let selected_release_id = crate::runtime_release::selected_release_id(&self.context)
+            .map_err(|error| {
+                RuntimeServiceError::RuntimeGenerationUnavailable(error.to_string())
+            })?;
+        if selected_release_id != self.context.release_id {
+            return Err(RuntimeServiceError::RuntimeUpdateRequired {
+                running_release_id: self.context.release_id.clone(),
+                selected_release_id,
+            });
+        }
+        Ok(())
     }
 
     async fn prepare_submission(

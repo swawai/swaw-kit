@@ -9,6 +9,7 @@ import {
   pinnedContextRef,
 } from "./context-tray-model.js";
 import { t } from "./i18n.js";
+import { isRuntimeGenerationCode } from "./runtime-generation.js";
 
 const TERMINAL_STATES = new Set(["exited", "canceled", "failed"]);
 
@@ -29,6 +30,7 @@ export function createContextTrayView(elements, options) {
   const loadDocument = options.loadDocument;
   const loadSubject = options.loadSubject;
   const onPinnedChange = options.onPinnedChange ?? (() => {});
+  const onRuntimeUpdateRequired = options.onRuntimeUpdateRequired ?? (() => {});
   const renderFields = options.renderFields ?? renderContextFields;
   const storage = options.storage;
   let currentCommand = null;
@@ -207,6 +209,9 @@ export function createContextTrayView(elements, options) {
     } catch (error) {
       if (pinnedRecord !== targetRecord) {
         return false;
+      }
+      if (isRuntimeGenerationCode(error?.code)) {
+        onRuntimeUpdateRequired(error);
       }
       setFeedback(
         error instanceof Error ? error.message : t(

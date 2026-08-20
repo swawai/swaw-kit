@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   createCollectionResolutionLoader,
+  FacetResolutionError,
+  RUNTIME_UPDATE_REQUIRED_CODE,
   resolveFacet,
 } from "./facet-resolution-client.js";
 
@@ -69,6 +71,30 @@ describe("Facet resolution client", () => {
         subject: { address: ".runs", space: "system", type: "command" },
       },
     })).rejects.toThrow("recursive provenance");
+  });
+
+  test("preserves the Runtime generation error for the application boundary", async () => {
+    const command = { address: ".check", space: "system" };
+    const facet = {
+      id: "status",
+      kind: "projection",
+      resolver: { returns: "swawkit.command-check/v1", type: "command" },
+    };
+    const error = await resolveFacet({}, command, facet, {
+      fetchImpl: async () => ({
+        json: async () => ({
+          code: RUNTIME_UPDATE_REQUIRED_CODE,
+          error: "server detail",
+        }),
+        ok: false,
+        status: 409,
+      }),
+    }).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(FacetResolutionError);
+    expect(error.status).toBe(409);
+    expect(error.code).toBe(RUNTIME_UPDATE_REQUIRED_CODE);
+    expect(error.message).toContain("Runtime 已更新");
   });
 
   test("does not let stale collection responses or errors replace the latest state", async () => {

@@ -4,6 +4,7 @@ import {
   readCommandRun,
   startCommandRun,
 } from "./command-run-client.js";
+import { isRuntimeGenerationCode } from "./runtime-generation.js";
 import {
   argumentValues,
   commandRunStatus,
@@ -44,6 +45,7 @@ export function createCommandRunView(elements, options = {}) {
   const clearTimer = options.clearTimer ?? globalThis.clearTimeout;
   const pollDelay = options.pollDelay ?? 400;
   const onCompleted = options.onCompleted ?? (() => {});
+  const onRuntimeUpdateRequired = options.onRuntimeUpdateRequired ?? (() => {});
   const commandOutput = createCommandRunOutput(elements, options);
   const commandOperations = createCommandRunOperations(elements, {
     document: documentObject,
@@ -316,6 +318,12 @@ export function createCommandRunView(elements, options = {}) {
         schedulePoll(pollVersion);
       }
     } catch (error) {
+      if (
+        error instanceof CommandRunError
+        && isRuntimeGenerationCode(error.code)
+      ) {
+        onRuntimeUpdateRequired(error);
+      }
       setFeedback(
         error instanceof Error
           ? error.message

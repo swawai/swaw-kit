@@ -1,4 +1,8 @@
 import { t } from "./i18n.js";
+import {
+  RuntimeGenerationError,
+  runtimeGenerationMessage,
+} from "./runtime-generation.js";
 
 const PROFILE_PROTOCOL = "swawkit.entry-profile-state/v5";
 const SETTER_HANDLER = "entry.profile.set";
@@ -54,6 +58,14 @@ export async function putEntryProfileSetting(
     },
   );
   const document = await response.json();
+  const generationMessage = runtimeGenerationMessage(document?.code);
+  if (generationMessage) {
+    throw new RuntimeGenerationError(
+      generationMessage,
+      response.status,
+      document.code,
+    );
+  }
   if (response.status === 409) {
     throw new EntryProfileConflictError(document.error);
   }
@@ -68,7 +80,11 @@ export async function putEntryProfileSetting(
 
 export function createEntryProfileView(
   elements,
-  { fetchImpl = fetch, onProfileChanged },
+  {
+    fetchImpl = fetch,
+    onProfileChanged,
+    onRuntimeUpdateRequired = () => {},
+  },
 ) {
   let currentDocument = null;
   let currentCommand = null;
@@ -179,7 +195,13 @@ export function createEntryProfileView(
         elements.profileFeedback.textContent = t("设置已保存", "Setting saved");
       }
     } catch (error) {
-      if (error instanceof EntryProfileConflictError) {
+      if (error instanceof RuntimeGenerationError) {
+        onRuntimeUpdateRequired(error);
+        if (operationIsCurrent()) {
+          elements.profileFeedback.dataset.state = "error";
+          elements.profileFeedback.textContent = error.message;
+        }
+      } else if (error instanceof EntryProfileConflictError) {
         try {
           const latest = await loadProfile();
           await onProfileChanged(latest);

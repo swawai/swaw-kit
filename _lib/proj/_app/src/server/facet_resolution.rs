@@ -11,11 +11,11 @@ use crate::{
     command_check::COMMAND_CHECK_PROTOCOL,
     facet::{Facet, FacetKind, FacetResolver, valid_facet_id},
     profile::EntryProfileStore,
-    runtime_service::RuntimeService,
+    runtime_service::{RuntimeService, RuntimeServiceError},
     subject::{SUBJECT_COLLECTION_PROTOCOL, SubjectCollection, SubjectRef},
 };
 
-use super::{ServerState, api_error};
+use super::{ServerState, api_error, command_run::runtime_service_error};
 
 mod collection;
 
@@ -304,12 +304,7 @@ fn resolve_command_document(
     let output = context
         .runtime_service
         .query(address, arguments)
-        .map_err(|_| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "facet resolver command failed",
-            )
-        })?;
+        .map_err(facet_query_error)?;
     let value: serde_json::Value = serde_json::from_str(&output.stdout).map_err(|_| {
         api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -337,6 +332,19 @@ fn resolve_command_document(
         None
     };
     Ok(FacetResolutionDocument { value, collection })
+}
+
+fn facet_query_error(error: RuntimeServiceError) -> (StatusCode, Json<super::ApiError>) {
+    match error {
+        error @ RuntimeServiceError::RuntimeUpdateRequired { .. }
+        | error @ RuntimeServiceError::RuntimeGenerationUnavailable(_) => {
+            runtime_service_error(error)
+        }
+        _ => api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "facet resolver command failed",
+        ),
+    }
 }
 
 fn validate_resolver_exit(

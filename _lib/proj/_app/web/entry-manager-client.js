@@ -1,5 +1,9 @@
 import { t } from "./i18n.js";
 import {
+  RuntimeGenerationError,
+  runtimeGenerationMessage,
+} from "./runtime-generation.js";
+import {
   normalizeEntryInspection,
   normalizeEntryInventory,
   normalizeEntryMutation,
@@ -14,6 +18,14 @@ async function responseError(response, action) {
   let detail = "";
   try {
     const document = await response.json();
+    const generationMessage = runtimeGenerationMessage(document?.code);
+    if (generationMessage) {
+      return new RuntimeGenerationError(
+        generationMessage,
+        response.status,
+        document.code,
+      );
+    }
     if (typeof document?.error === "string" && document.error.length > 0) {
       detail = `: ${document.error}`;
     }

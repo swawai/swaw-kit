@@ -476,6 +476,50 @@ async fn executes_any_declared_query_command_without_a_domain_handler() {
 }
 
 #[tokio::test]
+async fn stale_host_rejects_executable_facet_queries_with_the_update_code() {
+    let fixture = Fixture::new();
+    fixture.file(
+        "home/_lib/proj/system/report/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v11","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
+    );
+    fixture.file(
+        "home/_lib/proj/system/report/json/swawkit.module.json",
+        r#"{"schema":"swawkit.command-module/v11"}"#,
+    );
+    fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
+    fixture
+        .profile_store()
+        .save(crate::profile::EntryProfileRecord::default())
+        .expect("ready profile");
+    let app = facet_app(
+        &fixture,
+        BTreeMap::from([(
+            vec![".report/json".to_owned()],
+            r#"{"protocol":"fixture.report/v1","value":42}"#.to_owned(),
+        )]),
+    );
+    fixture.select_update();
+
+    let response = resolve(
+        app,
+        json!({
+            "subject": {"type":"command", "space":"system", "address":".report"},
+            "facet": "status"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("update error body");
+    let document: Value = serde_json::from_slice(&body).expect("update error JSON");
+    assert_eq!(
+        document["code"],
+        crate::server::command_run::RUNTIME_UPDATE_REQUIRED_CODE
+    );
+}
+
+#[tokio::test]
 async fn validates_resolved_collections_before_using_their_subject_facets() {
     let fixture = Fixture::new();
     context_surface(&fixture);

@@ -17,6 +17,29 @@ import {
 } from "./command-run-test-support.js";
 
 describe("command run view", () => {
+  test("refreshes Runtime status when a stale Host refuses new work", async () => {
+    const ui = elements();
+    let updateNotifications = 0;
+    const view = createCommandRunView(ui, {
+      document: documentObject(),
+      storage: storage(),
+      onRuntimeUpdateRequired() { updateNotifications += 1; },
+      async fetchRun() {
+        return response(409, {
+          code: "runtimeUpdateRequired",
+          error: "server detail",
+        });
+      },
+    });
+    view.select({ address: ".demo", runnable: true, space: "system" });
+
+    await view.execute();
+
+    expect(updateNotifications).toBe(1);
+    expect(ui.commandRunFeedback.dataset.state).toBe("error");
+    expect(ui.commandRunFeedback.textContent).toContain("Runtime 已更新");
+  });
+
   test("renders declared operations and confirms destructive argv before execution", async () => {
     const ui = elements();
     const bodies = [];

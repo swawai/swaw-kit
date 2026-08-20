@@ -170,6 +170,40 @@ async fn create_requires_authority_and_converges_idempotently() {
 }
 
 #[tokio::test]
+async fn stale_host_rejects_entry_mutations_but_keeps_inspection_available() {
+    let fixture = Fixture::new();
+    let app = fixture.app();
+    fixture.select_update();
+
+    let inspection = request(
+        app.clone(),
+        Method::POST,
+        "/api/v2/entries/inspect",
+        json!({"entryName": "proj1"}),
+        None,
+    )
+    .await;
+    assert_eq!(inspection.status(), StatusCode::OK);
+
+    let created = request(
+        app,
+        Method::POST,
+        "/api/v2/entries",
+        json!({"entryName": "proj1"}),
+        Some("entry-instance-create"),
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CONFLICT);
+    let error = document(created).await;
+    assert_eq!(
+        error["code"],
+        crate::server::command_run::RUNTIME_UPDATE_REQUIRED_CODE
+    );
+    assert!(!fixture.root.join("home/proj1.exe").exists());
+    assert!(!fixture.root.join("home/data/proj.proj1").exists());
+}
+
+#[tokio::test]
 async fn migrate_requires_exact_legacy_evidence_and_control_header() {
     let fixture = Fixture::new();
     let data_root = fixture.directory("home/data/proj.legacy-one");

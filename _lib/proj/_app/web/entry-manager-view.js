@@ -6,6 +6,7 @@ import {
   readEntryInventory,
 } from "./entry-manager-client.js";
 import { previewEntryPaths } from "./entry-manager-model.js";
+import { RuntimeGenerationError } from "./runtime-generation.js";
 
 const INSPECT_DELAY_MS = 250;
 
@@ -26,6 +27,7 @@ export function createEntryManagerView(
     documentImpl = document,
     schedule = (callback) => globalThis.setTimeout(callback, INSPECT_DELAY_MS),
     cancelSchedule = (token) => globalThis.clearTimeout(token),
+    onRuntimeUpdateRequired = () => {},
   } = {},
 ) {
   let active = false;
@@ -199,6 +201,9 @@ export function createEntryManagerView(
       }
       return document;
     } catch (error) {
+      if (error instanceof RuntimeGenerationError) {
+        onRuntimeUpdateRequired(error);
+      }
       feedback(
         error instanceof Error ? error.message : t("Entry 操作失败。", "Entry operation failed."),
         "error",
