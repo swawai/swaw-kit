@@ -36,20 +36,18 @@ fn resolves_home_children_and_direct_absolute_paths() {
     fs::create_dir_all(&child).expect("create home child");
     fs::create_dir_all(&external).expect("create external project");
 
-    let home = ProjectBinding::resolve(&fixture.home, SWAWKIT_HOME_PLACEHOLDER, &[])
+    let home = ProjectBinding::resolve(&fixture.home, SWAWKIT_HOME_PLACEHOLDER)
         .expect("resolve home binding");
     assert_eq!(home.target_project_root(), fixture.home);
     assert_eq!(home.project_module_root(), fixture.home.join(".swaw"));
 
-    let child_binding =
-        ProjectBinding::resolve(&fixture.home, "${SWAWKIT_HOME}/projects/example", &[])
-            .expect("resolve home child");
+    let child_binding = ProjectBinding::resolve(&fixture.home, "${SWAWKIT_HOME}/projects/example")
+        .expect("resolve home child");
     assert_eq!(child_binding.target_project_root(), child);
 
     let external_binding = ProjectBinding::resolve(
         &fixture.home,
         external.to_str().expect("Unicode fixture path"),
-        &[],
     )
     .expect("resolve absolute project");
     assert_eq!(external_binding.target_project_root(), external);
@@ -68,7 +66,7 @@ fn rejects_ambiguous_unsafe_or_missing_targets() {
         "${SWAWKIT_HOME}/missing",
     ] {
         assert!(
-            ProjectBinding::resolve(&fixture.home, invalid, &[]).is_err(),
+            ProjectBinding::resolve(&fixture.home, invalid).is_err(),
             "accepted {invalid:?}"
         );
     }

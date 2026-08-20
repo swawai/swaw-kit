@@ -81,7 +81,6 @@ swawkit .module/instantiate .context
 swawkit .context/list --json
 swawkit .context/add my-context project/proj/build/app
 swawkit project/proj/build/app
-swawkit user-custom/something
 ```
 
 规则：
@@ -92,30 +91,19 @@ swawkit user-custom/something
 4. 不接受 `..entry`、`.dev.setup`、`system/help`、`module/project/build`、`.h` 等旧地址或别名。
 5. `::context/<id>` 是动态 Subject 的显示与寻址身份，不是 CLI 命令地址。
 
-## 4. 物理目录与挂载
+## 4. 物理目录与固定来源
 
 | 身份 | 物理根 | namespace | 示例地址 |
 | --- | --- | --- | --- |
 | System | `_lib/proj/system/` | 无 | `.context`、`.dev/setup` |
 | 官方 Module | `_lib/proj/modules/` | `swaw` | `swaw/example` |
 | 当前项目 Module | `<targetProjectRoot>/.swaw/` | `project` | `project/proj/build/app` |
-| 外部 Module | Profile `moduleMounts[]` | 显式声明 | `user-custom/something` |
 
-某种 Module 来源没有任何命令时，其挂载根可以不存在；Catalog 与命令环境只发布实际存在的挂载，不用靠空目录占位。显式声明但已经失效的外部挂载仍应 fail closed，不能被当作自然空集合忽略。
+`swaw` 与 `project` 是仅有的 Module 来源；namespace 与物理根由 Core 固定映射，不属于 Profile 配置。某种来源没有任何命令时，其根目录可以不存在；Catalog 与命令环境只发布实际存在的来源，不用靠空目录占位。
 
-Catalog 扫描这些显式根并生成 `swawkit.command-catalog/v19`。除显式挂载根外，只有拥有规范 `swawkit.module.json` 且目录名满足 lower-kebab-case CommandId 语法的目录才形成命令；没有 Manifest 的目录整棵剪枝。下划线不承担额外发现语义，普通 `src/` 等实现目录只是自然地不具备 Manifest。目录、CLI 地址与 namespace 的映射只有这一处事实源；Web、CLI、Journal、DataRoot 和 Subject 协议都消费同一个结构化身份。
+Catalog 扫描这两个固定来源根并生成 `swawkit.command-catalog/v19`。只有拥有规范 `swawkit.module.json` 且目录名满足 lower-kebab-case CommandId 语法的目录才形成命令；没有 Manifest 的目录整棵剪枝。下划线不承担额外发现语义，普通 `src/` 等实现目录只是自然地不具备 Manifest。目录、CLI 地址与 namespace 的映射只有这一处事实源；Web、CLI、Journal、DataRoot 和 Subject 协议都消费同一个结构化身份。
 
-Profile 中的外部挂载形如：
-
-```json
-{
-  "moduleMounts": [
-    { "namespace": "user-custom", "root": "D:\\modules\\user-custom" }
-  ]
-}
-```
-
-挂载必须显式，不能靠扫描任意父目录或环境变量猜测。Core 在每次命令执行时发布规范 `SWAWKIT_PROJ_SYSTEM_ROOT` 与 `SWAWKIT_PROJ_MODULE_ROOTS` JSON；`SWAWKIT_PROJ_PROJECT_MODULE_ROOT` 只是 `project` 挂载的便捷投影。
+Core 在每次命令执行时发布规范 `SWAWKIT_PROJ_SYSTEM_ROOT`，并把实际存在的 `swaw`、`project` 来源解析为 `SWAWKIT_PROJ_MODULE_ROOTS` JSON。后者是 Core 生成的只读 resolved fixed projection，不是可扩展挂载配置；`SWAWKIT_PROJ_PROJECT_MODULE_ROOT` 只是其中 `project` 来源的便捷投影。
 
 ## 5. 目录命令协议
 
@@ -171,7 +159,7 @@ swawkit .module/instantiate .context
 
 `.module/instantiate` 的职责是：
 
-1. 从显式 System 根或 Module 挂载根读取 Manifest v11，将 delegate 目标归一到 native owner，并生成与 Core 相同的规范执行契约。
+1. 从显式 System 根或固定 Module 来源根读取 Manifest v11，将 delegate 目标归一到 native owner，并生成与 Core 相同的规范执行契约。
 2. 读取与 `bootstrap.json` 精确匹配的 Bootstrap builder projection，验证变量集合、受控目录以及 Cargo、Rustc、MSVC compiler/linker 的长度与摘要；不消费 `.dev/setup`。
 3. 直接启动投影声明并验证过的真实 `cargo.exe`，只把投影环境注入该构建子进程，不回退系统 PATH 或 rustup proxy。
 4. 对 owner 受控树中的源码、`Cargo.toml`、`Cargo.lock`、全部 Manifest、帮助与资源做确定性快照，并把规范化执行契约作为一个合成构建输入；只排除明确生成的 `target/` 和由另一 selector 管理的嵌套 native owner，不读取或要求 Git。
@@ -283,7 +271,7 @@ Finder 先分 System 与 Module，再按 Module namespace 分组。Web 不自建
 
 ## 9. 环境、执行与 Journal
 
-环境变量是一次执行的边界，不是长期状态。Core 清除继承的 `SWAWKIT_HOME` 与全部 `SWAWKIT_PROJ_*`，再从当前 Entry、Profile、CommandId 与挂载表生成新环境。关键字段包括：
+环境变量是一次执行的边界，不是长期状态。Core 清除继承的 `SWAWKIT_HOME` 与全部 `SWAWKIT_PROJ_*`，再从当前 Entry、Profile、CommandId 与固定来源投影生成新环境。关键字段包括：
 
 ```text
 SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL=2
@@ -297,7 +285,7 @@ SWAWKIT_PROJ_PROJECT_MODULE_ROOT
 SWAWKIT_PROJ_MODULE_ROOTS
 ```
 
-Command environment v2 表示一次真实的 command invocation；不再包含 `phase` 或 Guard scope。`COMMAND_RUNTIME_ID` 只描述当前产品 Runtime 固定的框架脚本解释器，不是 `.dev/setup` 的 target environment。Core 可以把 Profile 中的 Dev 选版声明传给 Dev Runtime Component，但不会把 Dev Export 的变量或 PATH 注入普通命令。需要 Python 3.9 等目标项目工具的脚本，应显式调用 `.dev/python`、`.dev/uv` 等领域入口；脚本自身使用的解释器版本属于 Framework Command Runtime。
+Command environment v2 表示一次真实的 command invocation；`SWAWKIT_PROJ_MODULE_ROOTS` 是 Core 对实际存在的固定 `swaw`、`project` 来源生成的 resolved projection，不属于 Profile 配置，也不改变该 wire 或升级协议。环境不再包含 `phase` 或 Guard scope。`COMMAND_RUNTIME_ID` 只描述当前产品 Runtime 固定的框架脚本解释器，不是 `.dev/setup` 的 target environment。Core 可以把 Profile 中的 Dev 选版声明传给 Dev Runtime Component，但不会把 Dev Export 的变量或 PATH 注入普通命令。需要 Python 3.9 等目标项目工具的脚本，应显式调用 `.dev/python`、`.dev/uv` 等领域入口；脚本自身使用的解释器版本属于 Framework Command Runtime。
 
 CLI 与 Host RuntimeService 复用同一 Catalog、Profile、cwd、只读依赖断言、Adapter、DataRoot、进程物化和 Journal 规则。Web command 与 Facet query 直接调用 Host 内的 RuntimeService；RuntimeService 在 Journal 建立后直接执行 Core handler 或启动领域进程，不再递归启动 Entry Launcher 与第二个 Core。动态领域前提由目标命令自己验证，框架不执行通用的有副作用 Guard。Windows Job Object 管理整棵命令进程树；取消和 Host 退出都会回收后代。
 
@@ -308,7 +296,7 @@ CLI 与 Host RuntimeService 复用同一 Catalog、Profile、cwd、只读依赖�
 已经完成：
 
 1. `CommandSpace::{System, Module}`、显式 namespace 与唯一规范 CLI 地址。
-2. `_lib/proj/system`、官方 `swaw`、项目 `project` 和 Profile 外部挂载扫描；System/Module 身份与执行 adapter 正交。
+2. `_lib/proj/system`、固定官方 `swaw` 与当前项目 `project` 来源扫描；System/Module 身份与执行 adapter 正交。
 3. Catalog v19、Web 路由/分组、结构化 Subject CommandRef 与共享 DataRoot 映射。
 4. Manifest v11 的 `execution` 统一 Core、Runtime、Native 与 Delegate；`.module` 与 `.dev` 都是独立 Cargo 项目和必备 Runtime Component，不静态链接 Core。
 5. `.module/instantiate` 与 `.module/status` 管理 Native Command Release v3：显式构建、候选自描述、构建输入状态、不可变内容寻址发布和原子 selector；instantiate 消费独立 Bootstrap builder projection，普通执行不扫描源码。

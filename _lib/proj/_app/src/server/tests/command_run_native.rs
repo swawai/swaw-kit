@@ -15,11 +15,11 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use super::*;
-use crate::profile::{EntryProfileRecord, ModuleMountProfile};
+use crate::profile::EntryProfileRecord;
 use crate::runtime_service::RuntimeService;
 
-const NORMAL_ACTION: &str = "webdirectnormal";
-const CANCEL_ACTION: &str = "webdirectcancel";
+const NORMAL_ACTION: &str = "swaw/webdirectnormal";
+const CANCEL_ACTION: &str = "swaw/webdirectcancel";
 const NORMAL_MARKER: &str = "web-direct-command.marker";
 const CANCEL_PID_MARKER: &str = "web-direct-command-descendant.pid";
 const STDOUT_SENTINEL: &str = "SWAWKIT_WEB_DIRECT_STDOUT_SENTINEL";
@@ -31,8 +31,15 @@ const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 async fn executes_and_cancels_direct_commands_through_the_http_router() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
-    let normal_root = fixture.directory("external/normal");
-    let cancel_root = fixture.directory("external/cancel");
+    let normal_root = fixture.directory("home/_lib/proj/modules/webdirectnormal");
+    let cancel_root = fixture.directory("home/_lib/proj/modules/webdirectcancel");
+    for command_root in [&normal_root, &cancel_root] {
+        fs::write(
+            command_root.join("swawkit.module.json"),
+            r#"{"schema":"swawkit.command-module/v11"}"#,
+        )
+        .expect("write direct command manifest");
+    }
     install_command_executable(&normal_root.join("run.exe"));
     install_command_executable(&cancel_root.join("run.exe"));
     let normal_script = normal_root.join("fixture.cmd");
@@ -51,20 +58,9 @@ async fn executes_and_cancels_direct_commands_through_the_http_router() {
         ),
     )
     .expect("write cancel direct command script");
-    let mut profile = EntryProfileRecord::default();
-    profile.module_mounts = vec![
-        ModuleMountProfile {
-            namespace: NORMAL_ACTION.to_owned(),
-            root: normal_root.to_string_lossy().into_owned(),
-        },
-        ModuleMountProfile {
-            namespace: CANCEL_ACTION.to_owned(),
-            root: cancel_root.to_string_lossy().into_owned(),
-        },
-    ];
     fixture
         .profile_store()
-        .save(profile)
+        .save(EntryProfileRecord::default())
         .expect("save direct command fixture profile");
 
     let context = fixture.context();

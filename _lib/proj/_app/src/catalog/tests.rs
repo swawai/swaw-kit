@@ -361,33 +361,40 @@ fn private_and_noncanonical_directories_do_not_become_commands() {
 }
 
 #[test]
-fn mounted_roots_are_explicit_and_keep_their_namespace_identity() {
+fn discovery_is_limited_to_the_fixed_swaw_and_project_roots() {
     let fixture = Fixture::new();
-    let external = fixture.root.join("external/acme");
-    fs::create_dir_all(external.join("release")).unwrap();
-    fs::write(
-        external.join("release/swawkit.module.json"),
+    fixture.file(
+        &fixture.swaw,
+        "release/swawkit.module.json",
         module_manifest(),
-    )
-    .unwrap();
-    fs::write(external.join("release/run.ps1"), "exit 0").unwrap();
-    let roots = BTreeMap::from([
-        ("swaw".to_owned(), fixture.swaw.clone()),
-        ("project".to_owned(), fixture.project.clone()),
-        ("acme".to_owned(), external),
-    ]);
+    );
+    fixture.file(
+        &fixture.project,
+        "build/swawkit.module.json",
+        module_manifest(),
+    );
+    let external = fixture.root.join("external/acme");
+    fixture.file(&external, "hidden/swawkit.module.json", module_manifest());
 
-    let snapshot =
-        CatalogSnapshot::discover_mounted_roots(&fixture.system, &roots, "fixture").unwrap();
-    assert_eq!(
-        node(&snapshot, "acme/release").namespace.as_deref(),
-        Some("acme")
+    let snapshot = fixture.discover();
+
+    assert!(
+        snapshot
+            .commands
+            .iter()
+            .any(|node| node.address == "swaw/release")
     );
     assert!(
         snapshot
             .commands
             .iter()
-            .all(|node| node.address != "release")
+            .any(|node| node.address == "project/build")
+    );
+    assert!(
+        snapshot
+            .commands
+            .iter()
+            .all(|node| node.address != "acme/hidden")
     );
 }
 

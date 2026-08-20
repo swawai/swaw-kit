@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use super::{EntryProfileRecord, EntryProfileState};
 
-pub const PROFILE_DOCUMENT_PROTOCOL: &str = "swawkit.entry-profile-state/v5";
+pub const PROFILE_DOCUMENT_PROTOCOL: &str = "swawkit.entry-profile-state/v6";
 
 /// Transport-neutral representation shared by the CLI and Web API.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

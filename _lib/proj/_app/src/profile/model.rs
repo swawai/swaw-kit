@@ -7,8 +7,6 @@ use super::{DEFAULT_LANGUAGE, EntryLanguage, PROFILE_SCHEMA, ProfileError};
 pub struct EntryProfileRecord {
     pub schema: String,
     pub target_project_root: String,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub module_mounts: Vec<ModuleMountProfile>,
     pub language: String,
     pub development: DevelopmentProfile,
     pub git: GitProfile,
@@ -34,7 +32,6 @@ impl EntryProfileRecord {
             )));
         }
         require_trimmed("targetProjectRoot", &self.target_project_root)?;
-        validate_module_mounts(&self.module_mounts)?;
         EntryLanguage::parse(&self.language)?;
 
         validate_versioned_tool("development.bun", &self.development.bun, "managed")?;
@@ -116,19 +113,11 @@ impl Default for EntryProfileRecord {
         Self {
             schema: PROFILE_SCHEMA.to_owned(),
             target_project_root: "${SWAWKIT_HOME}".to_owned(),
-            module_mounts: Vec::new(),
             language: DEFAULT_LANGUAGE.to_owned(),
             development: DevelopmentProfile::default(),
             git: GitProfile::default(),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ModuleMountProfile {
-    pub namespace: String,
-    pub root: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -341,31 +330,4 @@ fn validate_sha256(path: &str, value: &str) -> Result<(), ProfileError> {
             "{path} must be empty or contain exactly 64 hexadecimal characters"
         )))
     }
-}
-
-fn validate_module_mounts(mounts: &[ModuleMountProfile]) -> Result<(), ProfileError> {
-    let mut namespaces = std::collections::BTreeSet::new();
-    for mount in mounts {
-        if !valid_module_namespace(&mount.namespace) {
-            return Err(ProfileError::new(format!(
-                "moduleMounts namespace '{}' must match [a-z][a-z0-9-]* and cannot be reserved",
-                mount.namespace
-            )));
-        }
-        if !namespaces.insert(mount.namespace.as_str()) {
-            return Err(ProfileError::new(format!(
-                "moduleMounts contains duplicate namespace '{}'",
-                mount.namespace
-            )));
-        }
-        require_trimmed(
-            &format!("moduleMounts.{}.root", mount.namespace),
-            &mount.root,
-        )?;
-    }
-    Ok(())
-}
-
-fn valid_module_namespace(value: &str) -> bool {
-    !matches!(value, "swaw" | "project") && crate::catalog::valid_namespace(value)
 }

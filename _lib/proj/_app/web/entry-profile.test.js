@@ -10,7 +10,7 @@ import { RuntimeGenerationError } from "./runtime-generation.js";
 
 function profileDocument(revision, settings) {
   return {
-    protocol: "swawkit.entry-profile-state/v5",
+    protocol: "swawkit.entry-profile-state/v6",
     revision,
     status: "ready",
     requiredComplete: true,
@@ -36,7 +36,7 @@ function profileElements() {
 test("setting updates use the typed command address and loaded revision", async () => {
   let request;
   const document = {
-    protocol: "swawkit.entry-profile-state/v5",
+    protocol: "swawkit.entry-profile-state/v6",
     revision: "sha256-next",
     settings: { ".entry/language": "en" },
     profile: { language: "en" },

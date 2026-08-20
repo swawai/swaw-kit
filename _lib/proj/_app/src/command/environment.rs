@@ -73,12 +73,6 @@ impl CommandExecutionContext {
                 module_roots.insert(namespace.to_owned(), root);
             }
         }
-        module_roots.extend(
-            binding
-                .external_module_mounts()
-                .iter()
-                .map(|mount| (mount.namespace().to_owned(), mount.root().to_owned())),
-        );
         let command_runtime_id = crate::runtime_release::command_runtime(entry)
             .map_err(|error| CommandError::new(format!("Command Runtime is invalid: {error}")))?
             .runtime_id;

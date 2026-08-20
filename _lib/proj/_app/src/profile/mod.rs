@@ -13,8 +13,8 @@ pub use document::{EntryProfileDocument, PROFILE_DOCUMENT_PROTOCOL};
 pub use error::{ProfileError, ProfileUpdateError};
 pub use language::{DEFAULT_LANGUAGE, EntryLanguage};
 pub use model::{
-    ChannelTool, DevelopmentProfile, EntryProfileRecord, GitProfile, ModeTool, ModuleMountProfile,
-    RustTool, VersionedTool,
+    ChannelTool, DevelopmentProfile, EntryProfileRecord, GitProfile, ModeTool, RustTool,
+    VersionedTool,
 };
 use storage::{read_record, revision, validate_data_root, validate_publication_target};
 
@@ -22,7 +22,7 @@ use crate::atomic_file;
 use crate::binding::ProjectBinding;
 use crate::data_root::DataRootLock;
 
-pub const PROFILE_SCHEMA: &str = "swawkit.entry-profile/v2";
+pub const PROFILE_SCHEMA: &str = "swawkit.entry-profile/v3";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryProfile {
@@ -290,12 +290,8 @@ impl EntryProfileStore {
         profile_revision: String,
     ) -> Result<EntryProfile, ProfileError> {
         record.validate()?;
-        let binding = ProjectBinding::resolve(
-            &self.swawkit_home,
-            &record.target_project_root,
-            &record.module_mounts,
-        )
-        .map_err(|error| ProfileError::new(error.to_string()))?;
+        let binding = ProjectBinding::resolve(&self.swawkit_home, &record.target_project_root)
+            .map_err(|error| ProfileError::new(error.to_string()))?;
         let environment_input_revision = environment_input_revision(&record);
         Ok(EntryProfile {
             record,

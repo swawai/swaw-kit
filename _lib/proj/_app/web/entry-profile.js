@@ -4,7 +4,7 @@ import {
   runtimeGenerationMessage,
 } from "./runtime-generation.js";
 
-const PROFILE_PROTOCOL = "swawkit.entry-profile-state/v5";
+const PROFILE_PROTOCOL = "swawkit.entry-profile-state/v6";
 const SETTER_HANDLER = "entry.profile.set";
 
 export class EntryProfileConflictError extends Error {}

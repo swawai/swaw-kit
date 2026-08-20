@@ -297,6 +297,24 @@ fn process_environment_is_declarative() {
         Some(Some(fixture.system_root.as_os_str()))
     );
     assert_eq!(
+        run.value("SWAWKIT_PROJ_PROJECT_MODULE_ROOT"),
+        Some(Some(fixture.project_module_root.as_os_str()))
+    );
+    let module_roots: BTreeMap<String, PathBuf> = serde_json::from_str(
+        run.value("SWAWKIT_PROJ_MODULE_ROOTS")
+            .flatten()
+            .and_then(OsStr::to_str)
+            .expect("fixed Module root projection"),
+    )
+    .expect("parse fixed Module root projection");
+    assert_eq!(
+        module_roots,
+        BTreeMap::from([
+            ("project".to_owned(), fixture.project_module_root.clone()),
+            ("swaw".to_owned(), fixture.swaw_module_root.clone()),
+        ])
+    );
+    assert_eq!(
         run.value("SWAWKIT_HOME"),
         Some(Some(fixture.root.as_os_str()))
     );

@@ -1,66 +1,26 @@
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
-
-use crate::profile::ModuleMountProfile;
 
 pub const SWAWKIT_HOME_PLACEHOLDER: &str = "${SWAWKIT_HOME}";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectBinding {
     target_project_root: PathBuf,
-    external_module_mounts: Vec<ModuleMount>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModuleMount {
-    namespace: String,
-    root: PathBuf,
-}
-
-impl ModuleMount {
-    pub fn namespace(&self) -> &str {
-        &self.namespace
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
 }
 
 impl ProjectBinding {
     pub(crate) fn resolve(
         swawkit_home: &Path,
         configured_target_project_root: &str,
-        configured_module_mounts: &[ModuleMountProfile],
     ) -> Result<Self, BindingError> {
         let target_project_root = resolve_root(
             swawkit_home,
             configured_target_project_root,
             "targetProjectRoot",
         )?;
-        let mut namespaces = BTreeSet::new();
-        let mut external_module_mounts = Vec::new();
-        for mount in configured_module_mounts {
-            if !namespaces.insert(mount.namespace.as_str()) {
-                return Err(BindingError::new(format!(
-                    "duplicate module mount namespace '{}'",
-                    mount.namespace
-                )));
-            }
-            external_module_mounts.push(ModuleMount {
-                namespace: mount.namespace.clone(),
-                root: resolve_root(
-                    swawkit_home,
-                    &mount.root,
-                    &format!("moduleMounts.{}.root", mount.namespace),
-                )?,
-            });
-        }
         Ok(Self {
             target_project_root,
-            external_module_mounts,
         })
     }
 
@@ -70,10 +30,6 @@ impl ProjectBinding {
 
     pub fn project_module_root(&self) -> PathBuf {
         self.target_project_root.join(".swaw")
-    }
-
-    pub fn external_module_mounts(&self) -> &[ModuleMount] {
-        &self.external_module_mounts
     }
 }
 

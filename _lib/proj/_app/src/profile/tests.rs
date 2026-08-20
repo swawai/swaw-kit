@@ -81,31 +81,33 @@ fn rejects_a_profile_document_without_an_explicit_schema() {
 }
 
 #[test]
-fn module_mount_namespaces_share_the_command_identity_grammar() {
-    for namespace in [
-        "con",
-        "nul",
-        "com1",
-        "System",
-        "user_custom",
-        "swaw",
-        "project",
-    ] {
-        let mut profile = EntryProfileRecord::default();
-        profile.module_mounts.push(ModuleMountProfile {
-            namespace: namespace.to_owned(),
-            root: "D:/modules".to_owned(),
-        });
+fn profile_v3_rejects_the_removed_module_mount_registry() {
+    let mut document = serde_json::to_value(EntryProfileRecord::default()).unwrap();
+    document.as_object_mut().unwrap().insert(
+        "moduleMounts".to_owned(),
+        serde_json::json!([{
+            "namespace": "user-custom",
+            "root": "D:/modules"
+        }]),
+    );
 
-        assert!(profile.validate().is_err(), "{namespace}");
-    }
+    let error = serde_json::from_value::<EntryProfileRecord>(document).unwrap_err();
 
+    assert!(error.to_string().contains("unknown field `moduleMounts`"));
+}
+
+#[test]
+fn profile_v2_is_not_silently_accepted_as_v3() {
     let mut profile = EntryProfileRecord::default();
-    profile.module_mounts.push(ModuleMountProfile {
-        namespace: "user-custom".to_owned(),
-        root: "D:/modules".to_owned(),
-    });
-    assert!(profile.validate().is_ok());
+    profile.schema = "swawkit.entry-profile/v2".to_owned();
+
+    let error = profile.validate().unwrap_err();
+
+    assert!(
+        error
+            .to_string()
+            .contains("unsupported entry profile schema")
+    );
 }
 
 #[test]
@@ -253,6 +255,7 @@ fn saves_the_complete_explicit_profile_atomically() {
 
     assert_eq!(document["schema"], PROFILE_SCHEMA);
     assert_eq!(document["targetProjectRoot"], SWAWKIT_HOME_PLACEHOLDER);
+    assert!(document.get("moduleMounts").is_none());
     assert_eq!(document["language"], DEFAULT_LANGUAGE);
     assert_eq!(document["development"]["rust"]["profile"], "minimal");
     assert_eq!(document["git"]["name"], "");

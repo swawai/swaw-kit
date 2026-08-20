@@ -1,5 +1,7 @@
 pub use swawkit_proj_protocol::CommandSpace;
-use swawkit_proj_protocol::{CommandIdentity, valid_command_segment, valid_module_namespace};
+#[cfg(test)]
+use swawkit_proj_protocol::valid_module_namespace;
+use swawkit_proj_protocol::{CommandIdentity, valid_command_segment};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct CommandId {
@@ -62,6 +64,7 @@ impl CommandId {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn valid_namespace(value: &str) -> bool {
     valid_module_namespace(value)
 }

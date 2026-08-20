@@ -4,7 +4,7 @@ use crate::{
     subject::SubjectRef,
 };
 use serde::Serialize;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::VecDeque;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -29,7 +29,6 @@ use filesystem::{
 };
 use identity::CommandId;
 pub use identity::CommandSpace;
-pub(crate) use identity::valid_namespace;
 pub(crate) use module_contract::MODULE_CONTRACT_FILE;
 use module_contract::read_local_module_contract;
 pub use module_contract::{
@@ -66,13 +65,6 @@ impl CatalogSnapshot {
                 "project",
                 profile.binding().project_module_root(),
             ));
-            module_roots.extend(
-                profile
-                    .binding()
-                    .external_module_mounts()
-                    .iter()
-                    .map(|mount| ModuleRoot::new(mount.namespace(), mount.root().to_owned())),
-            );
         }
         let language = profile.map(EntryProfile::language).unwrap_or_default();
         Self::discover_optional_roots(
@@ -93,23 +85,6 @@ impl CatalogSnapshot {
             ModuleRoot::new("swaw", swaw_module_root.to_owned()),
             ModuleRoot::new("project", project_module_root.to_owned()),
         ];
-        Self::discover_optional_roots(
-            system_root,
-            &module_roots,
-            entry_name,
-            EntryLanguage::default(),
-        )
-    }
-
-    pub fn discover_mounted_roots(
-        system_root: &Path,
-        module_roots: &BTreeMap<String, PathBuf>,
-        entry_name: &str,
-    ) -> io::Result<Self> {
-        let module_roots = module_roots
-            .iter()
-            .map(|(namespace, path)| ModuleRoot::new(namespace, path.to_owned()))
-            .collect::<Vec<_>>();
         Self::discover_optional_roots(
             system_root,
             &module_roots,
