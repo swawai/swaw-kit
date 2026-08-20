@@ -2,10 +2,10 @@ SWAW Kit is a portable development and project-control Entry bound to a project 
 
 The command directory is the command address. Every runnable command directory contains exactly one supported run.* entry, and Proj Core derives the Catalog from the real directory tree.
 
-Commands declare required Provider contracts and provided Export contracts in swawkit.module.json. Inspect execution readiness with the read-only command:
+Commands identify required Provider Exports and their own named Exports in swawkit.module.json. Inspect static publication readiness with the read-only command:
   {{COMMAND}} .check <command-address> [--json]
 
-`.check` reports whether the command entry and its declared inbound dependencies are ready. Normal execution repeats the same read-only dependency assertion before the Journal and target process. Checks never install, build, repair, or execute domain code; each run.* owns its dynamic domain validation.
+`.check` reports whether the command entry and its declared Provider publications are statically ready. Normal execution repeats the same read-only dependency assertion before the Journal and target process. Checks never install, build, repair, or execute domain code; each Consumer owns validation of the payload it actually uses.
 
 The thin EXE Launcher owns Entry addressing, Host/CLI routing, and the native argv boundary. `<entry>.exe` maps uniquely to canonical `data/proj.<entry>`, whose Runtime selector is `runtime/current`. Normal execution reads no second identity file. Only the manager `swawkit.exe` may cold Bootstrap a missing Runtime; ordinary Entries fail closed and must be created or repaired through the manager.
 

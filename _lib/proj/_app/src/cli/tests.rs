@@ -229,7 +229,7 @@ impl Fixture {
                 fs::create_dir_all(&directory).expect("create command directory");
                 let manifest = directory.join("swawkit.module.json");
                 if !manifest.exists() {
-                    fs::write(manifest, r#"{"schema":"swawkit.command-module/v11"}"#)
+                    fs::write(manifest, r#"{"schema":"swawkit.command-module/v12"}"#)
                         .expect("write command manifest");
                 }
             }
@@ -244,7 +244,7 @@ impl Fixture {
             address,
             "swawkit.module.json",
             &format!(
-                "{{\"schema\":\"swawkit.command-module/v11\",\"execution\":{{\"type\":\"core\",\"handler\":\"{handler}\"}}}}"
+                "{{\"schema\":\"swawkit.command-module/v12\",\"execution\":{{\"type\":\"core\",\"handler\":\"{handler}\"}}}}"
             ),
         )
     }

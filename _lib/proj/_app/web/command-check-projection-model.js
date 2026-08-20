@@ -3,7 +3,7 @@ import {
   sameCommandIdentity,
 } from "./command-identity.js";
 
-export const COMMAND_CHECK_PROTOCOL = "swawkit.command-check/v2";
+export const COMMAND_CHECK_PROTOCOL = "swawkit.command-check/v3";
 
 const MAX_ITEMS = 512;
 
@@ -84,7 +84,6 @@ function dependency(value, field, budget, depth = 0) {
   }
   const item = object(value, field);
   exactKeys(item, field, [
-    "contract",
     "checker",
     "dependencies",
     "export",
@@ -104,7 +103,6 @@ function dependency(value, field, budget, depth = 0) {
     throw invalid(`${field}.ready 与 status 及子依赖状态不一致。`);
   }
   return {
-    contract: string(item.contract, `${field}.contract`),
     checker: checker(item.checker, `${field}.checker`),
     dependencies,
     export: string(item.export, `${field}.export`),

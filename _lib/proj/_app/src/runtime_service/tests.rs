@@ -106,7 +106,7 @@ impl Fixture {
         fs::create_dir_all(&root).expect("create fixture command");
         fs::write(
             root.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v11"}"#,
+            r#"{"schema":"swawkit.command-module/v12"}"#,
         )
         .expect("write fixture command manifest");
         fs::write(root.join("run.ps1"), "").expect("write fixture command entry");

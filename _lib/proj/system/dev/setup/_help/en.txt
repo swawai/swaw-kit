@@ -3,6 +3,6 @@ Install declared development tools and publish the project environment Export.
 Usage:
   {{INVOCATION}}
 
-V0 handles Bun, PowerShell, MSVC, and Rust below the .dev/setup module workspace. It publishes env.cmd, env.ps1, tool installations, and _state.json. Consumers load the Export only when Provider State is ready and the contract matches.
+V0 handles Bun, PowerShell, MSVC, and Rust below the .dev/setup module workspace. It publishes env.cmd, env.ps1, tool installations, and _state.json. Consumers load the Export only when Provider State v3 is ready and the domain document matches the same input revision and publication token.
 
 Changing a managed version, channel, mode, or hash marks the Provider unavailable before the Dev Settings update is published. Run .dev/setup again to publish the current inputs. Setup does not modify user or system PATH.

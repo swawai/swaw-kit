@@ -7,7 +7,7 @@ import {
 } from "./catalog-model.js";
 import { node, payload } from "./catalog-model-fixture.js";
 
-describe("Catalog v19 model", () => {
+describe("Catalog v20 model", () => {
   test("derives a non-runnable group only from its children", () => {
     const catalog = createCatalog(payload([
       node(".dev"),
@@ -81,7 +81,7 @@ describe("Catalog v19 model", () => {
     const catalog = createCatalog(payload([
       node("swaw/broken", {
         module: {
-          schema: "swawkit.command-module/v11",
+          schema: "swawkit.command-module/v12",
           execution: {
             type: "delegate",
             owner: {
@@ -117,9 +117,9 @@ describe("Catalog v19 model", () => {
     expect(command.issue).toBe("help file is empty");
   });
 
-  test("rejects the previous Catalog v18 protocol", () => {
-    expect(() => createCatalog(payload([], { protocol: "swawkit.command-catalog/v18" })))
-      .toThrow("protocol 必须是 swawkit.command-catalog/v19");
+  test("rejects the previous Catalog v19 protocol", () => {
+    expect(() => createCatalog(payload([], { protocol: "swawkit.command-catalog/v19" })))
+      .toThrow("protocol 必须是 swawkit.command-catalog/v20");
   });
 
   test("normalizes the parent-owned child column width", () => {
@@ -340,7 +340,7 @@ describe("Catalog v19 model", () => {
               type: "command",
               address: ".check",
               arguments: [".context/list", "--json"],
-              returns: "swawkit.command-check/v2",
+              returns: "swawkit.command-check/v3",
             },
           },
         ],
@@ -354,7 +354,7 @@ describe("Catalog v19 model", () => {
       address: ".check",
       arguments: [".context/list", "--json"],
       confirmation: null,
-      returns: "swawkit.command-check/v2",
+      returns: "swawkit.command-check/v3",
       type: "command",
     });
     expect(() => createCatalog(payload([

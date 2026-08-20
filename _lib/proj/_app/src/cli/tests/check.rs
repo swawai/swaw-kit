@@ -45,13 +45,13 @@ fn command_check_uses_declared_provider_state_and_returns_a_machine_exit_code() 
     let provider = fixture.command(".provider", "run.exe", "fixture");
     fs::write(
         provider.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","provides":[{"id":"fixture"}]}"#,
     )
     .unwrap();
     let consumer = fixture.command(".consumer", "run.exe", "fixture");
     fs::write(
         consumer.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11","requires":[{"provider":".provider","export":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","requires":[{"provider":".provider","export":"fixture"}]}"#,
     )
     .unwrap();
     fixture.bind();
@@ -71,7 +71,7 @@ fn command_check_uses_declared_provider_state_and_returns_a_machine_exit_code() 
     fs::write(provider_data.join("export/sentinel.txt"), "ready").unwrap();
     fs::write(
         provider_data.join("_state.json"),
-        r#"{"schema":"swawkit.command-provider-state/v2","status":"ready","inputRevision":"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","exports":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-provider-state/v3","status":"ready","inputRevision":"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#,
     )
     .unwrap();
 
@@ -121,7 +121,7 @@ fn directory_check_is_read_only_and_does_not_require_entry_config() {
     let provider = fixture.command(".provider", "run.exe", "fixture");
     fs::write(
         provider.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11","provides":[{"id":"fixture","contract":"swawkit.fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","provides":[{"id":"fixture"}]}"#,
     )
     .unwrap();
     fixture.initialize();

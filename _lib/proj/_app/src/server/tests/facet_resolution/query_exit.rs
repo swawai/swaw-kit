@@ -7,7 +7,7 @@ fn check_surface(fixture: &Fixture) {
     );
     fixture.file(
         "home/_lib/proj/system/tool/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","requires":[{"provider":".provider","export":"fixture","contract":"fixture.report/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","requires":[{"provider":".provider","export":"fixture"}]}"#,
     );
     fixture.file("home/_lib/proj/system/tool/run.cmd", "");
 }
@@ -19,7 +19,6 @@ fn command_check_document(ready: bool) -> Value {
         json!([{
             "provider": ".provider",
             "export": "fixture",
-            "contract": "fixture.report/v1",
             "ready": false,
             "status": "provider-missing",
             "message": "provider command is absent from the Catalog",
@@ -112,11 +111,11 @@ async fn rejects_exit_codes_that_violate_the_declared_return_protocol() {
     check_surface(&fixture);
     fixture.file(
         "home/_lib/proj/system/report/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
     );
     fixture.file(
         "home/_lib/proj/system/report/json/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
     fixture

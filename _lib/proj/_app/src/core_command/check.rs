@@ -118,11 +118,10 @@ fn append_dependency(
 ) {
     let indent = "  ".repeat(depth);
     lines.push(format!(
-        "{indent}{} {}#{} [{}]",
+        "{indent}{} {}#{}",
         marker(dependency.ready),
         dependency.provider,
-        dependency.export,
-        dependency.contract
+        dependency.export
     ));
     if let Some(message) = &dependency.message {
         lines.push(format!("{indent}  {message}"));

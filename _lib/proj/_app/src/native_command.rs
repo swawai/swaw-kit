@@ -2,7 +2,6 @@ use std::path::{Path, PathBuf};
 
 use swawkit_proj_protocol::{
     CommandIdentity, ExecutionContract, ExecutionContractCommand, ExecutionSemantics,
-    ModuleProvision as ProtocolProvision, ModuleRequirement as ProtocolRequirement,
     command_data_root as identity_data_root, native_command_root,
 };
 #[cfg(test)]
@@ -152,23 +151,8 @@ fn execution_contract_command(
     Ok(ExecutionContractCommand {
         address: command.address.clone(),
         execution,
-        requires: module
-            .requires
-            .iter()
-            .map(|requirement| ProtocolRequirement {
-                provider: requirement.provider.clone(),
-                export: requirement.export.clone(),
-                contract: requirement.contract.clone(),
-            })
-            .collect(),
-        provides: module
-            .provides
-            .iter()
-            .map(|provision| ProtocolProvision {
-                id: provision.id.clone(),
-                contract: provision.contract.clone(),
-            })
-            .collect(),
+        requires: module.requires.iter().cloned().collect(),
+        provides: module.provides.iter().cloned().collect(),
     })
 }
 

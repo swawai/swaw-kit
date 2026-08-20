@@ -96,7 +96,7 @@ function Add-ProjFixtureCommandManifest {
 
     [void][IO.Directory]::CreateDirectory($CommandRoot)
     $Manifest = [ordered]@{
-        schema = 'swawkit.command-module/v11'
+        schema = 'swawkit.command-module/v12'
         requires = @()
         provides = @()
     }

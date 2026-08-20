@@ -82,7 +82,7 @@ fn entry_control_commands_create_and_update_entry_config() {
     fixture.command(
         ".entry/project",
         "swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fs::create_dir_all(fixture.context.system_root().join("entry/project/_help")).unwrap();
     fs::write(
@@ -176,7 +176,7 @@ fn oversized_entry_config_does_not_block_system_or_swaw_and_apply_is_recoverable
     fs::create_dir_all(&swaw).unwrap();
     fs::write(
         swaw.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     )
     .unwrap();
     fs::write(swaw.join("run.cmd"), "@exit /b 18\r\n").unwrap();

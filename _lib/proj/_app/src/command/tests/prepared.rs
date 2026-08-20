@@ -38,7 +38,7 @@ fn logical_plan_does_not_resolve_a_native_artifact() {
     fs::create_dir_all(&directory).unwrap();
     fs::write(
         directory.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
     )
     .unwrap();
     let catalog = fixture.catalog();
@@ -157,7 +157,7 @@ fn isolated_project_launch_replaces_dirty_conditional_project_environment() {
     fs::create_dir_all(&directory).expect("create project command directory");
     fs::write(
         directory.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     )
     .expect("write project command manifest");
     fs::write(
@@ -217,7 +217,7 @@ fn cmd_launch_pins_comspec_from_the_isolated_baseline() {
     fs::create_dir_all(&directory).unwrap();
     fs::write(
         directory.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     )
     .unwrap();
     fs::write(directory.join("run.cmd"), "@exit /b 0\r\n").unwrap();

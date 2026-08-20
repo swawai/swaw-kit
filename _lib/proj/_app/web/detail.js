@@ -62,14 +62,14 @@ export function createDetailView(elements) {
     }
     appendItems(
       elements.moduleRequires,
-      module.requires.map(({ provider, export: exportId, contract }) => (
-        `${provider}#${exportId} · ${contract}`
+      module.requires.map(({ provider, export: exportId }) => (
+        `${provider}#${exportId}`
       )),
       t("无声明依赖", "No declared requirements"),
     );
     appendItems(
       elements.moduleProvides,
-      module.provides.map(({ id, contract }) => `${id} · ${contract}`),
+      module.provides.map(({ id }) => id),
       t("不提供 Export", "No Export provided"),
     );
   }

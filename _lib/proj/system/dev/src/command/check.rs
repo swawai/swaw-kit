@@ -3,11 +3,9 @@ use std::ffi::OsString;
 use serde::Serialize;
 
 use super::context::CommandContext;
-use swawkit_proj_dev::development::setup::{
-    PRODUCER_CONTRACT, PRODUCER_EXPORT, environment::verify_ready_export,
-};
+use swawkit_proj_dev::development::setup::{PRODUCER_EXPORT, environment::verify_ready_export};
 
-const CHECK_PROTOCOL: &str = "swawkit.proj.dev-setup-check/v1";
+const CHECK_PROTOCOL: &str = "swawkit.proj.dev-setup-check/v2";
 const PROVIDER_ADDRESS: &str = ".dev/setup";
 
 #[derive(Debug, Serialize)]
@@ -16,7 +14,6 @@ struct CheckDocument {
     protocol: &'static str,
     provider: &'static str,
     export: &'static str,
-    contract: &'static str,
     ready: bool,
     status: &'static str,
     message: Option<String>,
@@ -66,7 +63,6 @@ fn document(result: Result<(), String>, context: &CommandContext) -> CheckDocume
             protocol: CHECK_PROTOCOL,
             provider: PROVIDER_ADDRESS,
             export: PRODUCER_EXPORT,
-            contract: PRODUCER_CONTRACT,
             ready: true,
             status: "ready",
             message: None,
@@ -75,7 +71,6 @@ fn document(result: Result<(), String>, context: &CommandContext) -> CheckDocume
             protocol: CHECK_PROTOCOL,
             provider: PROVIDER_ADDRESS,
             export: PRODUCER_EXPORT,
-            contract: PRODUCER_CONTRACT,
             ready: false,
             status: "not-ready",
             message: Some(format!("{message} Run '{}'.", context.repair_invocation())),
@@ -87,7 +82,6 @@ fn render_text(document: &CheckDocument) -> String {
     let mut lines = vec![
         format!("Provider: {}", document.provider),
         format!("Export: {}", document.export),
-        format!("Contract: {}", document.contract),
         format!("Ready: {}", if document.ready { "yes" } else { "no" }),
         format!("Status: {}", document.status),
     ];
@@ -141,13 +135,12 @@ mod tests {
         assert_eq!(
             fields,
             [
-                "contract", "export", "message", "protocol", "provider", "ready", "status"
+                "export", "message", "protocol", "provider", "ready", "status"
             ]
         );
         assert_eq!(document["protocol"], CHECK_PROTOCOL);
         assert_eq!(document["provider"], PROVIDER_ADDRESS);
         assert_eq!(document["export"], PRODUCER_EXPORT);
-        assert_eq!(document["contract"], PRODUCER_CONTRACT);
         assert_eq!(document["ready"], false);
         assert_eq!(document["status"], "not-ready");
         assert!(
@@ -183,7 +176,6 @@ mod tests {
         assert_eq!(document["protocol"], CHECK_PROTOCOL);
         assert_eq!(document["provider"], PROVIDER_ADDRESS);
         assert_eq!(document["export"], PRODUCER_EXPORT);
-        assert_eq!(document["contract"], PRODUCER_CONTRACT);
         assert_eq!(document["ready"], true);
         assert_eq!(document["status"], "ready");
         assert_eq!(document["message"], Value::Null);

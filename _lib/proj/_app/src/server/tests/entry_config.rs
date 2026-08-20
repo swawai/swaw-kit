@@ -44,12 +44,12 @@ async fn missing_config_is_a_valid_default_without_a_project_namespace() {
     let fixture = Fixture::new();
     fixture.file(
         "home/_lib/proj/system/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("home/_lib/proj/system/demo/run.ps1", "");
     fixture.file(
         "home/.swaw/project-demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("home/.swaw/project-demo/run.ps1", "");
     let app = fixture.app();
@@ -94,7 +94,7 @@ async fn semantic_invalid_config_exposes_a_valid_error_document() {
     );
     fixture.file(
         "home/_lib/proj/system/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("home/_lib/proj/system/demo/run.ps1", "");
     let app = fixture.app();
@@ -123,7 +123,7 @@ async fn validates_a_project_root_and_publishes_the_project_namespace() {
     let fixture = Fixture::new();
     fixture.file(
         "home/.swaw/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("home/.swaw/demo/run.ps1", "");
     let app = fixture.app();
@@ -183,7 +183,7 @@ async fn binding_unavailability_is_local_and_can_be_repaired() {
     let repaired_root = fixture.directory("repaired-project");
     fixture.file(
         "repaired-project/.swaw/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("repaired-project/.swaw/demo/run.ps1", "");
     let app = fixture.app();

@@ -57,28 +57,28 @@ impl Drop for Fixture {
 
 fn delegate_manifest(owner: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v11","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
+        r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
     )
 }
 
 fn core_manifest(handler: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v11","execution":{{"type":"core","handler":"{handler}"}}}}"#
+        r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"core","handler":"{handler}"}}}}"#
     )
 }
 
 fn runtime_manifest(product: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v11","execution":{{"type":"runtime","product":"{product}"}}}}"#
+        r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"runtime","product":"{product}"}}}}"#
     )
 }
 
 fn native_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#
+    r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#
 }
 
 fn module_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v11"}"#
+    r#"{"schema":"swawkit.command-module/v12"}"#
 }
 
 #[test]
@@ -336,17 +336,17 @@ fn module_contract_provider_addresses_use_the_new_cli_grammar() {
     fixture.file(
         &fixture.swaw,
         "producer/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","provides":[{"id":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","provides":[{"id":"fixture"}]}"#,
     );
     fixture.file(
         &fixture.swaw,
         "consumer/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","requires":[{"provider":"swaw/producer","export":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","requires":[{"provider":"swaw/producer","export":"fixture"}]}"#,
     );
     fixture.file(
         &fixture.swaw,
         "legacy/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","requires":[{"provider":".dev.setup","export":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","requires":[{"provider":".dev.setup","export":"fixture"}]}"#,
     );
 
     let snapshot = fixture.discover();
@@ -490,7 +490,7 @@ fn delegated_execution_requires_one_real_native_ancestor() {
 }
 
 #[test]
-fn obsolete_entries_and_v8_module_contract_fail_explicitly() {
+fn obsolete_entries_and_previous_module_schema_fail_explicitly() {
     let fixture = Fixture::new();
     for (directory, entry) in [
         ("legacy-core", "run.core.json"),
@@ -508,7 +508,7 @@ fn obsolete_entries_and_v8_module_contract_fail_explicitly() {
     fixture.file(
         &fixture.swaw,
         "legacy-contract/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v8","provides":[{"id":"fixture","contract":"fixture/v1"}]}"#,
+        r#"{"schema":"swawkit.command-module/v11","provides":[{"id":"fixture"}]}"#,
     );
 
     let snapshot = fixture.discover();

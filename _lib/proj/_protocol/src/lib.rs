@@ -26,7 +26,7 @@ pub use command_module::{
 };
 pub use command_module_validation::validate_command_module;
 pub use dev_environment::{
-    DEV_ENVIRONMENT_EXPORT_NAME, DEV_ENVIRONMENT_SCHEMA, DEV_SETUP_CONTRACT, DevEnvironmentExport,
+    DEV_ENVIRONMENT_EXPORT_NAME, DEV_ENVIRONMENT_SCHEMA, DevEnvironmentExport,
     DevEnvironmentVariable, parse_dev_environment, validate_dev_environment,
 };
 pub use dev_settings::{
@@ -39,9 +39,9 @@ pub use execution_contract::{
 };
 pub use module_contract::{
     COMMAND_MODULE_SCHEMA, MAX_MODULE_PROVISIONS, MAX_MODULE_REQUIREMENTS, ModuleProvision,
-    ModuleRequirement, valid_command_segment, valid_module_contract, valid_module_namespace,
-    valid_module_token, valid_provider_address, validate_command_address,
-    validate_module_provisions, validate_module_requirements,
+    ModuleRequirement, valid_command_segment, valid_module_namespace, valid_module_token,
+    valid_provider_address, validate_command_address, validate_module_provisions,
+    validate_module_requirements,
 };
 pub use release::{
     COMMAND_EXECUTABLE_NAME, COMMAND_RELEASE_SCHEMA, CommandRelease, ExecutableArtifact,

@@ -1,10 +1,9 @@
 {
-  "schema": "swawkit.command-module/v11",
+  "schema": "swawkit.command-module/v12",
   "execution": { "type": "runtime", "product": "dev" },
   "provides": [
     {
-      "id": "environment",
-      "contract": "swawkit.proj.dev-setup/v4"
+      "id": "environment"
     }
   ]
 }

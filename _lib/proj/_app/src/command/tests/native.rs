@@ -2,17 +2,17 @@ use super::*;
 
 fn delegate_manifest(owner: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v11","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
+        r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
     )
 }
 
 fn native_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#
+    r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#
 }
 
 fn system_delegate_manifest(owner: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v11","execution":{{"type":"delegate","owner":{{"type":"command","space":"system","address":"{owner}"}}}}}}"#
+        r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"delegate","owner":{{"type":"command","space":"system","address":"{owner}"}}}}}}"#
     )
 }
 

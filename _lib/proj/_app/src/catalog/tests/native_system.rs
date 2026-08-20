@@ -2,7 +2,7 @@ use super::*;
 
 fn system_delegate_manifest(owner: &str) -> String {
     format!(
-        r#"{{"schema":"swawkit.command-module/v11","execution":{{"type":"delegate","owner":{{"type":"command","space":"system","address":"{owner}"}}}}}}"#
+        r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"delegate","owner":{{"type":"command","space":"system","address":"{owner}"}}}}}}"#
     )
 }
 

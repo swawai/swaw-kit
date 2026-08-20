@@ -39,7 +39,7 @@ impl Fixture {
         }
         fs::write(
             owner_root.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
         )
         .expect("write owner manifest");
         Self {
@@ -190,7 +190,7 @@ fn execution_contract_drift_blocks_an_old_selected_release() {
     fs::create_dir_all(&port).unwrap();
     fs::write(
         port.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/fixture"}}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/fixture"}}}"#,
     )
     .unwrap();
     let error = fixture.resolve().unwrap_err().to_string();
@@ -201,9 +201,9 @@ fn execution_contract_drift_blocks_an_old_selected_release() {
 }
 
 #[test]
-fn old_command_environment_contract_is_rejected_before_execution() {
+fn previous_execution_contract_is_rejected_before_execution() {
     let fixture = Fixture::new();
-    let legacy_contract = br#"{"schema":"swawkit.native-command-execution-contract/v2","owner":"swaw/fixture","commands":[{"address":"swaw/fixture","execution":{"type":"native"},"requires":[],"provides":[]}]}"#;
+    let legacy_contract = br#"{"schema":"swawkit.native-command-execution-contract/v3","commandEnvironmentProtocol":"3","owner":"swaw/fixture","commands":[{"address":"swaw/fixture","execution":{"type":"native"},"requires":[],"provides":[]}]}"#;
     let legacy_revision = revision(legacy_contract);
     fixture.publish_with_execution_contract_revision(
         b"old command environment executable",

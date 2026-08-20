@@ -2,8 +2,6 @@ use std::fs;
 
 use super::{CommandExecutor, Fixture, argv, write_json};
 
-const CONTRACT: &str = "swawkit.fixture/publication/v1";
-
 #[test]
 fn dependency_readiness_stops_execution_before_journal_or_command_side_effects() {
     let fixture = Fixture::new();
@@ -15,18 +13,17 @@ fn dependency_readiness_stops_execution_before_journal_or_command_side_effects()
     write_json(
         &provider.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v11",
-            "provides": [{ "id": "fixture", "contract": CONTRACT }]
+            "schema": "swawkit.command-module/v12",
+            "provides": [{ "id": "fixture" }]
         }),
     );
     write_json(
         &consumer.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v11",
+            "schema": "swawkit.command-module/v12",
             "requires": [{
                 "provider": ".provider",
-                "export": "fixture",
-                "contract": CONTRACT
+                "export": "fixture"
             }]
         }),
     );
@@ -63,18 +60,17 @@ fn dependency_readiness_allows_a_matching_ready_publication() {
     write_json(
         &provider.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v11",
-            "provides": [{ "id": "fixture", "contract": CONTRACT }]
+            "schema": "swawkit.command-module/v12",
+            "provides": [{ "id": "fixture" }]
         }),
     );
     write_json(
         &consumer.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v11",
+            "schema": "swawkit.command-module/v12",
             "requires": [{
                 "provider": ".provider",
-                "export": "fixture",
-                "contract": CONTRACT
+                "export": "fixture"
             }]
         }),
     );
@@ -83,11 +79,10 @@ fn dependency_readiness_allows_a_matching_ready_publication() {
     write_json(
         &provider_data.join("_state.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-provider-state/v2",
+            "schema": "swawkit.command-provider-state/v3",
             "status": "ready",
             "inputRevision": format!("sha256-{}", "a".repeat(64)),
-            "token": "b".repeat(32),
-            "exports": [{ "id": "fixture", "contract": CONTRACT }]
+            "token": "b".repeat(32)
         }),
     );
     let catalog = fixture.catalog();
@@ -101,7 +96,7 @@ fn dependency_readiness_allows_a_matching_ready_publication() {
 }
 
 #[test]
-fn dependency_readiness_rejects_a_stale_provider_export_set() {
+fn dependency_readiness_rejects_the_retired_provider_export_list() {
     let fixture = Fixture::new();
     let provider = fixture.command(".provider", "exit 0");
     let consumer = fixture.command(
@@ -111,18 +106,17 @@ fn dependency_readiness_rejects_a_stale_provider_export_set() {
     write_json(
         &provider.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v11",
-            "provides": [{ "id": "fixture", "contract": CONTRACT }]
+            "schema": "swawkit.command-module/v12",
+            "provides": [{ "id": "fixture" }]
         }),
     );
     write_json(
         &consumer.join("swawkit.module.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-module/v11",
+            "schema": "swawkit.command-module/v12",
             "requires": [{
                 "provider": ".provider",
-                "export": "fixture",
-                "contract": CONTRACT
+                "export": "fixture"
             }]
         }),
     );
@@ -131,14 +125,11 @@ fn dependency_readiness_rejects_a_stale_provider_export_set() {
     write_json(
         &provider_data.join("_state.json"),
         &serde_json::json!({
-            "schema": "swawkit.command-provider-state/v2",
+            "schema": "swawkit.command-provider-state/v3",
             "status": "ready",
             "inputRevision": format!("sha256-{}", "a".repeat(64)),
             "token": "b".repeat(32),
-            "exports": [
-                { "id": "fixture", "contract": CONTRACT },
-                { "id": "stale", "contract": "swawkit.fixture/stale/v1" }
-            ]
+            "exports": []
         }),
     );
     let catalog = fixture.catalog();
@@ -147,10 +138,6 @@ fn dependency_readiness_rejects_a_stale_provider_export_set() {
         .execute(&argv(&[".consumer"]))
         .unwrap_err();
 
-    assert!(
-        error
-            .to_string()
-            .contains("does not match the module manifest")
-    );
+    assert!(error.to_string().contains("shape is invalid"));
     assert!(!fixture.data_root.join("consumer-ran.txt").exists());
 }

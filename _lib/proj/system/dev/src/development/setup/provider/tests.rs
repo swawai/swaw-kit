@@ -23,12 +23,12 @@ fn start_and_complete_use_a_token_cas_without_holding_the_lock() {
     let attempt = provider.start().unwrap();
     let unavailable = provider.read().unwrap().unwrap();
     assert_eq!(unavailable.status, "unavailable");
-    assert!(unavailable.exports.is_none());
 
     provider.complete(&attempt).unwrap();
     let ready = provider.read().unwrap().unwrap();
     assert_eq!(ready.status, "ready");
-    assert_eq!(ready.exports, Some(expected_exports()));
+    assert_eq!(ready.input_revision, attempt.input_revision());
+    assert_eq!(ready.token, attempt.token());
     fs::remove_dir_all(data_root).unwrap();
 }
 
@@ -51,7 +51,7 @@ fn stale_attempt_and_changed_settings_are_rejected() {
 }
 
 #[test]
-fn ready_reader_rejects_noncanonical_state_documents() {
+fn ready_reader_rejects_old_or_extended_state_documents() {
     let (data_root, input) = fixture();
     let provider = SetupProvider::new(&data_root, &input).unwrap();
     let attempt = provider.start().unwrap();
@@ -62,15 +62,23 @@ fn ready_reader_rejects_noncanonical_state_documents() {
     );
 
     let path = data_root.join("modules/system/dev/setup/_state.json");
-    fs::write(
-        &path,
+    for document in [
         format!(
-            "{{\"schema\":\"{STATE_SCHEMA}\",\"status\":\"ready\",\"inputRevision\":\"{input}\",\"token\":\"{}\",\"exports\":[{{\"id\":\"{PRODUCER_EXPORT}\",\"contract\":\"{PRODUCER_CONTRACT}\"}}],\"extra\":\"value\"}}",
+            "{{\"schema\":\"swawkit.command-provider-state/v2\",\"status\":\"ready\",\"inputRevision\":\"{input}\",\"token\":\"{}\"}}",
             attempt.token()
         ),
-    )
-    .unwrap();
-    assert!(read_ready(&data_root, &input).is_err());
+        format!(
+            "{{\"schema\":\"{STATE_SCHEMA}\",\"status\":\"ready\",\"inputRevision\":\"{input}\",\"token\":\"{}\",\"exports\":[]}}",
+            attempt.token()
+        ),
+        format!(
+            "{{\"schema\":\"{STATE_SCHEMA}\",\"status\":\"ready\",\"inputRevision\":\"{input}\",\"token\":\"{}\",\"extra\":\"value\"}}",
+            attempt.token()
+        ),
+    ] {
+        fs::write(&path, document).unwrap();
+        assert!(read_ready(&data_root, &input).is_err());
+    }
     fs::remove_dir_all(data_root).unwrap();
 }
 

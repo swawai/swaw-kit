@@ -30,7 +30,6 @@ function dependency(overrides = {}) {
   return {
     provider: ".provider",
     export: "fixture",
-    contract: "fixture/v1",
     ready: false,
     status: "not-ready",
     message: "Build the provider first.",
@@ -69,6 +68,8 @@ describe("Command check projection renderer", () => {
     expect(nodes.commandCheckState.textContent).toBe("执行受阻");
     expect(nodes.commandCheckState.dataset.state).toBe("blocked");
     expect(nodes.commandCheckDependencies.children[0].dataset.state).toBe("blocked");
+    expect(nodes.commandCheckDependencies.children[0].children[0].children[1].textContent)
+      .toBe(".provider#fixture");
     expect(nodes.commandCheckDependencies.children[0].children.at(-1).children).toHaveLength(1);
   });
 

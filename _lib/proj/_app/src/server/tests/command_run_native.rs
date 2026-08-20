@@ -36,7 +36,7 @@ async fn executes_and_cancels_direct_commands_through_the_http_router() {
     for command_root in [&normal_root, &cancel_root] {
         fs::write(
             command_root.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v11"}"#,
+            r#"{"schema":"swawkit.command-module/v12"}"#,
         )
         .expect("write direct command manifest");
     }

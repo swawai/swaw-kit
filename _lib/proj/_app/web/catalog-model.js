@@ -6,8 +6,8 @@ import {
   sameCommandIdentity,
 } from "./command-identity.js";
 
-const CATALOG_PROTOCOL = "swawkit.command-catalog/v19";
-const MODULE_PROTOCOL = "swawkit.command-module/v11";
+const CATALOG_PROTOCOL = "swawkit.command-catalog/v20";
+const MODULE_PROTOCOL = "swawkit.command-module/v12";
 const RUNTIME_OWNERS = {
   dev: new Set([
     ".dev/settings",
@@ -37,6 +37,14 @@ function requireObject(value, field) {
     throw contractError(`${field} 必须是对象。`);
   }
   return value;
+}
+
+function requireExactKeys(value, field, expected) {
+  const actual = Object.keys(value).sort();
+  const normalized = [...expected].sort();
+  if (actual.join("\n") !== normalized.join("\n")) {
+    throw contractError(`${field} must contain exactly: ${normalized.join(", ")}.`);
+  }
 }
 
 function requireString(value, field, { allowEmpty = true } = {}) {
@@ -137,10 +145,8 @@ function normalizeModule(value, index) {
   const requires = module.requires.map((raw, requirementIndex) => {
     const requirementField = `${field}.requires[${requirementIndex}]`;
     const requirement = requireObject(raw, requirementField);
+    requireExactKeys(requirement, requirementField, ["export", "provider"]);
     return {
-      contract: requireString(requirement.contract, `${requirementField}.contract`, {
-        allowEmpty: false,
-      }),
       export: requireString(requirement.export, `${requirementField}.export`, {
         allowEmpty: false,
       }),
@@ -152,10 +158,8 @@ function normalizeModule(value, index) {
   const provides = module.provides.map((raw, provisionIndex) => {
     const provisionField = `${field}.provides[${provisionIndex}]`;
     const provision = requireObject(raw, provisionField);
+    requireExactKeys(provision, provisionField, ["id"]);
     return {
-      contract: requireString(provision.contract, `${provisionField}.contract`, {
-        allowEmpty: false,
-      }),
       id: requireString(provision.id, `${provisionField}.id`, { allowEmpty: false }),
     };
   });

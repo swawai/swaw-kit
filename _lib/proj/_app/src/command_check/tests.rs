@@ -9,7 +9,6 @@ use crate::catalog::{
     CATALOG_PROTOCOL, CommandModuleContract, MODULE_CONTRACT_PROTOCOL, ModuleProvision,
 };
 
-const CONTRACT: &str = "swawkit.fixture/v1";
 static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
 
 #[test]
@@ -17,7 +16,7 @@ fn provider_own_publications_do_not_affect_its_readiness_or_wire_shape() {
     let snapshot = snapshot(vec![command(
         ".provider",
         Vec::new(),
-        vec![provision("fixture", CONTRACT)],
+        vec![provision("fixture")],
     )]);
 
     let document = inspect(Path::new("unused"), "swawkit", &snapshot, ".provider").unwrap();
@@ -25,7 +24,7 @@ fn provider_own_publications_do_not_affect_its_readiness_or_wire_shape() {
 
     assert!(document.ready);
     assert!(document.dependencies.is_empty());
-    assert_eq!(document.protocol, "swawkit.command-check/v2");
+    assert_eq!(document.protocol, "swawkit.command-check/v3");
     assert_exact_fields(&value, &["protocol", "command", "dependencies", "ready"]);
     assert_exact_fields(
         &value["command"],
@@ -43,15 +42,15 @@ fn provider_own_publications_do_not_affect_its_readiness_or_wire_shape() {
 #[test]
 fn recursive_dependencies_are_ready_when_every_provider_is_published() {
     let data_root = TestDataRoot::new();
-    let base = command(".base", Vec::new(), vec![provision("base", CONTRACT)]);
+    let base = command(".base", Vec::new(), vec![provision("base")]);
     let provider = command(
         ".provider",
-        vec![requirement(".base", "base", CONTRACT)],
-        vec![provision("fixture", CONTRACT)],
+        vec![requirement(".base", "base")],
+        vec![provision("fixture")],
     );
     let consumer = command(
         ".consumer",
-        vec![requirement(".provider", "fixture", CONTRACT)],
+        vec![requirement(".provider", "fixture")],
         Vec::new(),
     );
     publish(&data_root.path, &base);
@@ -69,14 +68,10 @@ fn recursive_dependencies_are_ready_when_every_provider_is_published() {
 #[test]
 fn inspection_and_execution_gate_share_provider_state_failure() {
     let snapshot = snapshot(vec![
-        command(
-            ".provider",
-            Vec::new(),
-            vec![provision("fixture", CONTRACT)],
-        ),
+        command(".provider", Vec::new(), vec![provision("fixture")]),
         command(
             ".consumer",
-            vec![requirement(".provider", "fixture", CONTRACT)],
+            vec![requirement(".provider", "fixture")],
             Vec::new(),
         ),
     ]);
@@ -101,7 +96,6 @@ fn inspection_and_execution_gate_share_provider_state_failure() {
         &[
             "provider",
             "export",
-            "contract",
             "ready",
             "status",
             "message",
@@ -114,15 +108,11 @@ fn inspection_and_execution_gate_share_provider_state_failure() {
 #[test]
 fn declared_provider_checker_is_a_structured_optional_action() {
     let snapshot = snapshot(vec![
-        command(
-            ".provider",
-            Vec::new(),
-            vec![provision("fixture", CONTRACT)],
-        ),
+        command(".provider", Vec::new(), vec![provision("fixture")]),
         command(".provider/check", Vec::new(), Vec::new()),
         command(
             ".consumer",
-            vec![requirement(".provider", "fixture", CONTRACT)],
+            vec![requirement(".provider", "fixture")],
             Vec::new(),
         ),
     ]);
@@ -146,15 +136,11 @@ fn declared_provider_checker_is_a_structured_optional_action() {
 
 #[test]
 fn module_checker_identity_is_preserved_and_invalid_children_are_not_exposed() {
-    let provider = module_command(
-        "project/provider",
-        Vec::new(),
-        vec![provision("fixture", CONTRACT)],
-    );
+    let provider = module_command("project/provider", Vec::new(), vec![provision("fixture")]);
     let checker = module_command("project/provider/check", Vec::new(), Vec::new());
     let consumer = command(
         ".consumer",
-        vec![requirement("project/provider", "fixture", CONTRACT)],
+        vec![requirement("project/provider", "fixture")],
         Vec::new(),
     );
     let catalog = snapshot(vec![provider.clone(), checker.clone(), consumer.clone()]);
@@ -193,14 +179,10 @@ fn provider_path_ancestors_fail_closed_for_inspection_and_execution() {
     let data_root = TestDataRoot::new();
     fs::write(data_root.path.join("modules"), b"not a directory").unwrap();
     let snapshot = snapshot(vec![
-        command(
-            ".provider",
-            Vec::new(),
-            vec![provision("fixture", CONTRACT)],
-        ),
+        command(".provider", Vec::new(), vec![provision("fixture")]),
         command(
             ".consumer",
-            vec![requirement(".provider", "fixture", CONTRACT)],
+            vec![requirement(".provider", "fixture")],
             Vec::new(),
         ),
     ]);
@@ -232,14 +214,10 @@ fn provider_path_reparse_ancestor_is_never_followed() {
         return;
     }
     let snapshot = snapshot(vec![
-        command(
-            ".provider",
-            Vec::new(),
-            vec![provision("fixture", CONTRACT)],
-        ),
+        command(".provider", Vec::new(), vec![provision("fixture")]),
         command(
             ".consumer",
-            vec![requirement(".provider", "fixture", CONTRACT)],
+            vec![requirement(".provider", "fixture")],
             Vec::new(),
         ),
     ]);
@@ -253,26 +231,26 @@ fn provider_path_reparse_ancestor_is_never_followed() {
 }
 
 #[test]
-fn missing_provider_and_undeclared_contract_are_explicit_failures() {
+fn missing_provider_and_undeclared_export_are_explicit_failures() {
     let cases = [
         (
             snapshot(vec![command(
                 ".consumer",
-                vec![requirement(".missing", "fixture", CONTRACT)],
+                vec![requirement(".missing", "fixture")],
                 Vec::new(),
             )]),
             "provider-missing",
         ),
         (
             snapshot(vec![
-                command(".provider", Vec::new(), vec![provision("other", CONTRACT)]),
+                command(".provider", Vec::new(), vec![provision("other")]),
                 command(
                     ".consumer",
-                    vec![requirement(".provider", "fixture", CONTRACT)],
+                    vec![requirement(".provider", "fixture")],
                     Vec::new(),
                 ),
             ]),
-            "contract-not-declared",
+            "export-not-declared",
         ),
     ];
 
@@ -291,21 +269,9 @@ fn missing_provider_and_undeclared_contract_are_explicit_failures() {
 #[test]
 fn recursive_cycle_is_reported_and_blocks_readiness() {
     let data_root = TestDataRoot::new();
-    let a = command(
-        ".a",
-        vec![requirement(".b", "b", CONTRACT)],
-        vec![provision("a", CONTRACT)],
-    );
-    let b = command(
-        ".b",
-        vec![requirement(".a", "a", CONTRACT)],
-        vec![provision("b", CONTRACT)],
-    );
-    let consumer = command(
-        ".consumer",
-        vec![requirement(".a", "a", CONTRACT)],
-        Vec::new(),
-    );
+    let a = command(".a", vec![requirement(".b", "b")], vec![provision("a")]);
+    let b = command(".b", vec![requirement(".a", "a")], vec![provision("b")]);
+    let consumer = command(".consumer", vec![requirement(".a", "a")], Vec::new());
     publish(&data_root.path, &a);
     publish(&data_root.path, &b);
     let snapshot = snapshot(vec![a, b, consumer]);
@@ -375,15 +341,15 @@ fn dependency_chain(length: usize) -> CatalogSnapshot {
         .map(|index| {
             let address = format!(".provider-{index}");
             let requires = (index + 1 < length)
-                .then(|| requirement(&format!(".provider-{}", index + 1), "fixture", CONTRACT))
+                .then(|| requirement(&format!(".provider-{}", index + 1), "fixture"))
                 .into_iter()
                 .collect();
-            command(&address, requires, vec![provision("fixture", CONTRACT)])
+            command(&address, requires, vec![provision("fixture")])
         })
         .collect::<Vec<_>>();
     commands.push(command(
         ".consumer",
-        vec![requirement(".provider-0", "fixture", CONTRACT)],
+        vec![requirement(".provider-0", "fixture")],
         Vec::new(),
     ));
     snapshot(commands)
@@ -393,7 +359,7 @@ fn dependency_width(width: usize) -> CatalogSnapshot {
     snapshot(vec![command(
         ".consumer",
         (0..width)
-            .map(|index| requirement(&format!(".missing-{index}"), "fixture", CONTRACT))
+            .map(|index| requirement(&format!(".missing-{index}"), "fixture"))
             .collect(),
         Vec::new(),
     )])
@@ -470,19 +436,15 @@ fn module_command(
     command
 }
 
-fn requirement(provider: &str, export: &str, contract: &str) -> ModuleRequirement {
+fn requirement(provider: &str, export: &str) -> ModuleRequirement {
     ModuleRequirement {
         provider: provider.to_owned(),
         export: export.to_owned(),
-        contract: contract.to_owned(),
     }
 }
 
-fn provision(id: &str, contract: &str) -> ModuleProvision {
-    ModuleProvision {
-        id: id.to_owned(),
-        contract: contract.to_owned(),
-    }
+fn provision(id: &str) -> ModuleProvision {
+    ModuleProvision { id: id.to_owned() }
 }
 
 fn publish(data_root: &Path, provider: &CommandNode) {
@@ -490,25 +452,11 @@ fn publish(data_root: &Path, provider: &CommandNode) {
         .join("modules/system")
         .join(provider.address.trim_start_matches('.'));
     fs::create_dir_all(module.join("export")).unwrap();
-    let exports = provider
-        .module
-        .as_ref()
-        .unwrap()
-        .provides
-        .iter()
-        .map(|provision| {
-            json!({
-                "id": provision.id,
-                "contract": provision.contract,
-            })
-        })
-        .collect::<Vec<_>>();
     let state = json!({
-        "schema": "swawkit.command-provider-state/v2",
+        "schema": "swawkit.command-provider-state/v3",
         "status": "ready",
         "inputRevision": format!("sha256-{}", "a".repeat(64)),
         "token": "b".repeat(32),
-        "exports": exports,
     });
     fs::write(
         module.join("_state.json"),

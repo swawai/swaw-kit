@@ -9,7 +9,7 @@ mod publication;
 
 use publication::inspect_publication;
 
-pub const COMMAND_CHECK_PROTOCOL: &str = "swawkit.command-check/v2";
+pub const COMMAND_CHECK_PROTOCOL: &str = "swawkit.command-check/v3";
 const MAX_DEPENDENCY_DEPTH: usize = 32;
 const MAX_DEPENDENCY_ITEMS: usize = 512;
 
@@ -38,7 +38,6 @@ pub struct CheckedCommand {
 pub struct DependencyCheck {
     pub provider: String,
     pub export: String,
-    pub contract: String,
     pub ready: bool,
     pub status: String,
     pub message: Option<String>,
@@ -163,16 +162,17 @@ fn evaluate_dependency(
         ));
     };
     let declared = provider.module.as_ref().is_some_and(|module| {
-        module.provides.iter().any(|provision| {
-            provision.id == requirement.export && provision.contract == requirement.contract
-        })
+        module
+            .provides
+            .iter()
+            .any(|provision| provision.id == requirement.export)
     });
     if !declared {
         active.remove(&requirement.provider);
         return Ok(dependency_failure(
             requirement,
-            "contract-not-declared",
-            "provider does not declare the required contract",
+            "export-not-declared",
+            "provider does not declare the required export",
         ));
     }
 
@@ -223,7 +223,6 @@ fn evaluate_dependency(
     Ok(DependencyCheck {
         provider: requirement.provider.clone(),
         export: requirement.export.clone(),
-        contract: requirement.contract.clone(),
         ready,
         status,
         message,
@@ -284,8 +283,8 @@ impl DependencyBudget {
 fn runtime_failure_summary(dependency: &DependencyCheck, entry_name: &str) -> String {
     let summary = if let Some(message) = &dependency.message {
         format!(
-            "{}#{} -> {} [{}]: {message}",
-            dependency.provider, dependency.export, dependency.contract, dependency.status
+            "{}#{} [{}]: {message}",
+            dependency.provider, dependency.export, dependency.status
         )
     } else if let Some(child) = dependency
         .dependencies
@@ -293,16 +292,15 @@ fn runtime_failure_summary(dependency: &DependencyCheck, entry_name: &str) -> St
         .find(|dependency| !dependency.ready)
     {
         format!(
-            "{}#{} -> {} depends on {}",
+            "{}#{} depends on {}",
             dependency.provider,
             dependency.export,
-            dependency.contract,
             runtime_failure_summary(child, entry_name)
         )
     } else {
         format!(
-            "{}#{} -> {} [{}]: provider dependency is not ready",
-            dependency.provider, dependency.export, dependency.contract, dependency.status
+            "{}#{} [{}]: provider dependency is not ready",
+            dependency.provider, dependency.export, dependency.status
         )
     };
     match &dependency.checker {
@@ -348,7 +346,6 @@ fn dependency_failure(
     DependencyCheck {
         provider: requirement.provider.clone(),
         export: requirement.export.clone(),
-        contract: requirement.contract.clone(),
         ready: false,
         status: status.to_owned(),
         message: Some(message.to_owned()),

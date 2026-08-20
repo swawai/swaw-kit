@@ -13,7 +13,6 @@ use super::storage::{
     ExclusiveFileLock, ensure_directory_chain, existing_directory_chain, read_replaceable_bounded,
     regular_file_or_missing,
 };
-use super::{PRODUCER_CONTRACT, PRODUCER_EXPORT};
 
 mod invalidation;
 mod migration;
@@ -21,7 +20,7 @@ mod migration;
 pub(crate) use invalidation::begin_unavailable;
 pub use migration::migrate_legacy_layout;
 
-const STATE_SCHEMA: &str = "swawkit.command-provider-state/v2";
+const STATE_SCHEMA: &str = "swawkit.command-provider-state/v3";
 const MAX_STATE_BYTES: u64 = 16 * 1024;
 const REVISION_PREFIX: &str = "sha256-";
 
@@ -48,15 +47,6 @@ struct ProviderState {
     status: String,
     input_revision: String,
     token: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    exports: Option<Vec<ProviderExport>>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProviderExport {
-    id: String,
-    contract: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -88,10 +78,7 @@ pub fn read_ready(
     .map_err(|error| error.to_string())?;
     let state = read_state(&setup.join("_state.json"))?
         .ok_or_else(|| "the development setup provider state is missing".to_owned())?;
-    if state.status != "ready"
-        || state.input_revision != expected_input_revision
-        || state.exports.as_deref() != Some(expected_exports().as_slice())
-    {
+    if state.status != "ready" || state.input_revision != expected_input_revision {
         return Err(
             "the development setup provider is not ready for the current inputs".to_owned(),
         );
@@ -150,7 +137,6 @@ impl SetupProvider {
             status: "unavailable".to_owned(),
             input_revision: attempt.input_revision.clone(),
             token: attempt.token.clone(),
-            exports: None,
         })?;
         Ok(attempt)
     }
@@ -162,7 +148,6 @@ impl SetupProvider {
             || current.status != "unavailable"
             || current.input_revision != attempt.input_revision
             || current.token != attempt.token
-            || current.exports.is_some()
         {
             return Err(stale_error());
         }
@@ -171,7 +156,6 @@ impl SetupProvider {
             status: "ready".to_owned(),
             input_revision: attempt.input_revision.clone(),
             token: attempt.token.clone(),
-            exports: Some(expected_exports()),
         })
     }
 
@@ -231,9 +215,6 @@ fn read_state(path: &Path) -> Result<Option<ProviderState>, String> {
     if !is_lower_hex(&state.token, 32) {
         return Err("invalid command provider publication token".to_owned());
     }
-    if state.status == "ready" && state.exports.as_deref() != Some(expected_exports().as_slice()) {
-        return Err("invalid command provider exports".to_owned());
-    }
     Ok(Some(state))
 }
 
@@ -245,15 +226,13 @@ fn validate_state_shape(value: &Value) -> Result<(), String> {
         .get("status")
         .and_then(Value::as_str)
         .ok_or_else(|| "command provider state status is invalid".to_owned())?;
-    let expected: &[&str] = match status {
-        "unavailable" => &["schema", "status", "inputRevision", "token"],
-        "ready" => &["schema", "status", "inputRevision", "token", "exports"],
-        _ => return Err("command provider state status is invalid".to_owned()),
-    };
+    if !matches!(status, "unavailable" | "ready") {
+        return Err("command provider state status is invalid".to_owned());
+    }
+    let expected = ["schema", "status", "inputRevision", "token"];
     if object.len() != expected.len()
         || expected
             .iter()
-            .filter(|name| **name != "exports")
             .any(|name| !object.get(*name).is_some_and(Value::is_string))
     {
         return Err("command provider state shape is invalid".to_owned());
@@ -262,13 +241,6 @@ fn validate_state_shape(value: &Value) -> Result<(), String> {
         return Err("command provider state schema is invalid".to_owned());
     }
     Ok(())
-}
-
-fn expected_exports() -> Vec<ProviderExport> {
-    vec![ProviderExport {
-        id: PRODUCER_EXPORT.to_owned(),
-        contract: PRODUCER_CONTRACT.to_owned(),
-    }]
 }
 
 fn is_lower_hex(value: &str, length: usize) -> bool {

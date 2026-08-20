@@ -6,7 +6,7 @@ Proj 的长期设计心智是：**协议集中、领域自治、能力可组合*
 
 - Core 只集中维护跨领域必须一致的协议：Entry 寻址、Entry Config、Catalog、Command Identity、DataRoot、只读执行就绪断言、进程生命周期、Journal、Host/Web 边界和受限 System handler。
 - Module 领域拥有自己的源码、入口、帮助、声明、状态、数据、构建与发布生命周期。修改一个原生领域，不要求把它重新静态链接进共享 Core。
-- 模块之间通过稳定命令地址、Provider contract 与 Export 协作，不通过 Core 内部函数互相耦合。
+- 模块之间通过稳定命令地址与具名 Export 身份协作，不通过 Core 内部函数互相耦合；产物协议与校验逻辑由实际消费方拥有。
 - 普通执行只消费已经存在的能力，不安装工具、不编译、不修复发布状态。构建原生模块必须显式执行 `.module/instantiate`。
 
 当前命令模型只有两种身份：`System` 与 `Module`。旧的 `Control / Kernel / Action` 分类、双点地址、点分隔层级和 `module/` CLI 前缀都不是兼容入口，也不再属于现行协议。
@@ -16,7 +16,7 @@ Proj 的长期设计心智是：**协议集中、领域自治、能力可组合*
 ```text
 Entry Launcher
   -> Rust Core CLI / Entry Host
-  -> Catalog v19
+  -> Catalog v20
   -> CommandId { space, namespace?, path }
   -> Readiness / Journal / Adapter
   -> CLI 同步执行器 / Host RuntimeService
@@ -101,7 +101,7 @@ swawkit project/proj/build/app
 
 `swaw` 与 `project` 是仅有的 Module 来源；namespace 由 Core 固定，`project` 物理根来自可选 Entry Config 绑定。某种来源没有任何命令时，其根目录可以不存在；Catalog 与命令环境只发布通过同一安全判定的实际来源，不用靠空目录占位。
 
-Catalog 扫描这两个固定来源根并生成 `swawkit.command-catalog/v19`。只有拥有规范 `swawkit.module.json` 且目录名满足 lower-kebab-case CommandId 语法的目录才形成命令；没有 Manifest 的目录整棵剪枝。下划线不承担额外发现语义，普通 `src/` 等实现目录只是自然地不具备 Manifest。目录、CLI 地址与 namespace 的映射只有这一处事实源；Web、CLI、Journal、DataRoot 和 Subject 协议都消费同一个结构化身份。
+Catalog 扫描这两个固定来源根并生成 `swawkit.command-catalog/v20`。只有拥有规范 `swawkit.module.json` 且目录名满足 lower-kebab-case CommandId 语法的目录才形成命令；没有 Manifest 的目录整棵剪枝。下划线不承担额外发现语义，普通 `src/` 等实现目录只是自然地不具备 Manifest。目录、CLI 地址与 namespace 的映射只有这一处事实源；Web、CLI、Journal、DataRoot 和 Subject 协议都消费同一个结构化身份。
 
 Core 在每次命令执行时发布规范 `SWAWKIT_PROJ_SYSTEM_ROOT`，并把实际存在的 `swaw`、`project` 来源解析为 `SWAWKIT_PROJ_MODULE_ROOTS` JSON。后者是 Core 生成的只读 resolved fixed projection，不是可扩展挂载配置；`SWAWKIT_PROJ_PROJECT_MODULE_ROOT` 只是其中 `project` 来源的便捷投影。
 
@@ -130,7 +130,7 @@ System 是框架自带的稳定命名空间，不等于 Core。Entry Config、Da
 
 `.dev/settings`、`.dev/setup`、`.dev/setup/check` 与 `.dev/status` 由 `product: "dev"` 的独立 `swawkit-proj-dev.exe` 提供，源码、依赖和测试直接位于 `system/dev/`。Dev Runtime 从自身 DataRoot Settings 生成语义 `inputRevision`；setup 成功后先发布有版本的 `environment.json`/`env.ps1` Export，再原子发布绑定同一 `inputRevision + publicationToken` 的 Provider State。Core 不构造、不传递也不消费 Dev 配置、PATH 或工具路径；`.dev/*` 薄命令在自身进程内显式验证并导入目标环境。`.dev/setup/check environment` 对领域文档、脚本、PATH 与可执行物做显式深检；`.check` 与 `.dev/status` 继续承担框架依赖和状态诊断。普通领域 `run.ts`/`run.ps1` 完全不依赖目标 Dev publication。
 
-Core recovery/control 命令可能在 DataRoot 建立前直接 dispatch，因此不消费模块 Export，Manifest v11 明确禁止 `execution.core` 与 `requires` 组合。需要依赖 Export 的 System 命令应使用受统一依赖断言保护的普通 `run.*`、`execution.runtime` 或 `execution.native`，不能在 control dispatch 中另加一条时序不同的特殊门禁。
+Core recovery/control 命令可能在 DataRoot 建立前直接 dispatch，因此不消费模块 Export，Manifest v12 明确禁止 `execution.core` 与 `requires` 组合。需要依赖 Export 的 System 命令应使用受统一依赖断言保护的普通 `run.*`、`execution.runtime` 或 `execution.native`，不能在 control dispatch 中另加一条时序不同的特殊门禁。
 
 ## 6. 原生 Module 的独立构建与发布
 
@@ -159,7 +159,7 @@ swawkit .module/instantiate .context
 
 `.module/instantiate` 的职责是：
 
-1. 从显式 System 根或固定 Module 来源根读取 Manifest v11，将 delegate 目标归一到 native owner，并生成与 Core 相同的规范执行契约。
+1. 从显式 System 根或固定 Module 来源根读取 Manifest v12，将 delegate 目标归一到 native owner，并生成与 Core 相同的规范执行契约。
 2. 读取与 `bootstrap.json` 精确匹配的 Bootstrap builder projection，验证变量集合、受控目录以及 Cargo、Rustc、MSVC compiler/linker 的长度与摘要；不消费 `.dev/setup`。
 3. 直接启动投影声明并验证过的真实 `cargo.exe`，只把投影环境注入该构建子进程，不回退系统 PATH 或 rustup proxy。
 4. 对 owner 受控树中的源码、`Cargo.toml`、`Cargo.lock`、全部 Manifest、帮助与资源做确定性快照，并把规范化执行契约作为一个合成构建输入；只排除明确生成的 `target/` 和由另一 selector 管理的嵌套 native owner，不读取或要求 Git。
@@ -183,7 +183,7 @@ DataRoot/modules/<space-or-namespace>/<owner-path>/_native/
 
 构建或自描述对账失败不会影响旧 selector；同一 Release bundle 重复实例化是幂等操作。普通调用只验证 selector、Release Manifest、EXE 完整性、被调用端口以及当前 Catalog 的执行契约，不扫描或哈希领域源码。Manifest 中会影响运行语义的 owner、delegate、`requires`、`provides` 或命令集合发生变化时，执行契约不匹配会 fail closed；单纯修改 `src/`、`Cargo.toml` 或资源不会让已发布 EXE 突然不可运行。
 
-Core、Module manager 与 Dev manager 复用共享协议 crate 中唯一的 Manifest v11、Command identity、Dev environment Export 等协议类型；执行声明、依赖、Export、Facet 与 Subject kind 不再各自猜测。命令目录段和 `swawkit.module.json` 文件名也按同一规范大小写发现，因此 manager 能发布的领域必然也是 Catalog 能发现的领域。
+Core、Module manager 与 Dev manager 复用共享协议 crate 中唯一的 Manifest v12、Command identity、Dev environment Export 等协议类型；执行声明、依赖、Export、Facet 与 Subject kind 不再各自猜测。命令目录段和 `swawkit.module.json` 文件名也按同一规范大小写发现，因此 manager 能发布的领域必然也是 Catalog 能发现的领域。
 
 源码新鲜度属于显式管理操作：`.module/status <address>` 只读计算当前 `buildInputRevision`，报告 `unpublished | current | outdated`；`.module/instantiate` 才构建并发布新版本。这样每次 CLI 执行的成本与源码树规模无关，也避免把 Git 变成运行时依赖。当前 Rust builder 的摘要边界是 owner 受控树；若 Cargo build script 或 path dependency 擅自读取 owner 外部文件，manager 不把它冒充为可证明的 hermetic 输入，领域应先把依赖发布或收回 owner 边界。`run.ts`、`run.py` 等当前仍是直接源码入口；若未来需要与 EXE 一样的冻结发布语义，应由相应语言的独立 builder/manager 明确实例化为包或不可变脚本 bundle，而不是让 Core 猜测跨语言构建输入。
 
@@ -191,7 +191,7 @@ Core、Module manager 与 Dev manager 复用共享协议 crate 中唯一的 Mani
 
 ```json
 {
-  "schema": "swawkit.command-module/v11",
+  "schema": "swawkit.command-module/v12",
   "execution": {
     "type": "delegate",
     "owner": {
@@ -220,26 +220,24 @@ Module project/proj/build/app  -> DataRoot/modules/project/proj/build/app/
 1. **能力 Export**：命令地址及其 `run.*` 是模块天然对外能力。用户或顶层 orchestrator 通过 `swawkit <address>` 获得完整命令语义；领域 `run.*` 之间不递归启动 Entry，而是直接消费声明的 Export/artifact。
 2. **产物 Export**：模块把稳定文件、目录或可执行物发布到自身 DataRoot 的 `export/`，候选和中间文件留在 `work/`。Provider State、领域产物 Manifest、长度与哈希共同形成可验证边界。
 
-Manifest v11 使用具名 Export，而不是把一个 Provider 等同于一个模糊的产物：
+Manifest v12 只声明具名 Export 身份，而不是在框架层预设产物 DSL：
 
 ```json
 {
-  "schema": "swawkit.command-module/v11",
+  "schema": "swawkit.command-module/v12",
   "requires": [{
     "provider": ".dev/setup",
-    "export": "environment",
-    "contract": "swawkit.proj.dev-setup/v4"
+    "export": "environment"
   }],
   "provides": [{
-    "id": "runtime-release",
-    "contract": "swawkit.proj-build-app/v6"
+    "id": "runtime-release"
   }]
 }
 ```
 
-`provider + export` 是被依赖能力的逻辑身份，`contract` 是其精确数据或 IO 协议身份。Provider State v2 在一次原子发布中列出实际 Ready 的 `{id, contract}` 集合；Manifest 声明、Provider State 和消费要求三者必须精确相交。框架当前不在声明中增加泛化 `kind`：文件、目录、Release Set 与 EXE 的内容完整性继续由各自领域 Manifest 验证，避免用一个过早的万能 Artifact schema 抹平真实差异。
+`provider + export` 是依赖能力的逻辑身份，不承诺统一的数据或 IO 协议。Provider State v3 只有 `schema + status + inputRevision + token`，表达一次发布是否 Ready；Ready 与 unavailable 使用同一字段形状，不再重复 Manifest 中的 Export，也不携带 contract。Release Set、环境文档或 EXE 等业务产物仍可用自己的 schema、长度与哈希自描述。消费方必须在使用边界读取并验证真实产物，并在需要一致快照时用发布前后的 State 复读抵御竞态。框架不增加泛化 `kind` 或万能 Artifact schema。
 
-`.check <command-address> --json` 只读报告命令入口及其输入依赖能否立即执行，不评价目标自身声明的 `provides`，不猜测领域私有文件格式，也不执行安装、编译、修复或领域代码。Provider 可以提供普通命令 `<provider>/check <export-id>` 深检自己的发布物；CommandCheck v2 只把这个 checker 作为结构化修复入口返回，不会在普通执行前自动运行它。CLI 展示完整调用命令，Web 由同一结构化命令身份计算站内相对 URL 并携带参数提示。普通 CLI 与 Web 执行仍在 Journal 和目标进程之前复用同一静态递归依赖断言；任一依赖缺失、契约不匹配或传递依赖未就绪时直接失败。显式 `.check && run` 适合人和 CI 提前取得诊断，但执行边界仍必须重新读取状态，不能把协议正确性寄托在调用者记忆或存在竞态的旧检查结果上。
+`.check <command-address> --json` 只读报告命令入口及其 Provider 发布依赖是否静态 Ready，不猜测领域私有文件格式，也不执行安装、编译、修复或领域代码。Provider 可以提供普通命令 `<provider>/check <export-id>` 深检自己的发布物；CommandCheck v3 只把这个 checker 作为结构化深检入口返回，不会在普通执行前自动运行它。CLI 展示完整调用命令，Web 由同一结构化命令身份计算站内相对 URL 并携带参数提示。普通 CLI 与 Web 执行仍在 Journal 和目标进程之前复用静态递归依赖断言；任一 Provider 缺失、发布未 Ready 或传递依赖未就绪时直接失败。静态 Ready 不替代消费方对真实产物的编程校验；显式 `.check && run` 适合人和 CI 提前取得诊断，但最终使用边界仍必须重新读取和验证。
 
 `requires` 只表达已发布能力能否消费，不是命令调用路由。`run.*` 应直接消费声明的 Export/artifact，不在领域进程内递归启动另一个 Entry；Launcher 检测到 command protocol 时拒绝 nested Entry，这是执行环境、Job 与 Journal 的隔离边界。多个命令的串联属于未来 Playbook 或更上层 orchestrator，不由叶子命令暗中编排。
 
@@ -255,7 +253,7 @@ Manifest、解析结果与 Playbook 必须分层：`swawkit.module.json` 是作�
 - `Facet`：Subject 可浏览、投影或执行的能力。
 - `SubjectCollection`：某个 collection Facet 的解析结果。
 
-当前关键协议是 Catalog v19、SubjectCollection v3、Context v2、CommandCheck v2、CommandRunEvent v2、CommandRunJournal 查询文档 v3 与 Web live CommandRun v2；持久 Journal State 只接受 v2，旧 State、Event 与 Run ID 不提供兼容读取，CommandRunHistory 保持 v1。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
+当前关键协议是 Catalog v20、SubjectCollection v3、Context v2、CommandCheck v3、CommandRunEvent v2、CommandRunJournal 查询文档 v3 与 Web live CommandRun v2；持久 Journal State 只接受 v2，旧 State、Event 与 Run ID 不提供兼容读取，CommandRunHistory 保持 v1。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
 
 Web 路由与身份一致：
 
@@ -299,13 +297,13 @@ CLI 与 Host RuntimeService 复用同一 Catalog、Entry Config、只读依赖�
 
 1. `CommandSpace::{System, Module}`、显式 namespace 与唯一规范 CLI 地址。
 2. `_lib/proj/system`、固定官方 `swaw` 与当前项目 `project` 来源扫描；System/Module 身份与执行 adapter 正交。
-3. Catalog v19、Web 路由/分组、结构化 Subject CommandRef 与共享 DataRoot 映射。
-4. Manifest v11 的 `execution` 统一 Core、Runtime、Native 与 Delegate；`.module` 与 `.dev` 都是独立 Cargo 项目和必备 Runtime Component，不静态链接 Core。
+3. Catalog v20、Web 路由/分组、结构化 Subject CommandRef 与共享 DataRoot 映射。
+4. Manifest v12 的 `execution` 统一 Core、Runtime、Native 与 Delegate；`.module` 与 `.dev` 都是独立 Cargo 项目和必备 Runtime Component，不静态链接 Core。
 5. `.module/instantiate` 与 `.module/status` 管理 Native Command Release v3：显式构建、候选自描述、构建输入状态、不可变内容寻址发布和原子 selector；instantiate 消费独立 Bootstrap builder projection，普通执行不扫描源码。
 6. `.context` 以 System identity + Native execution 完整领域下沉；Core 中旧 Context 业务实现已移除。
 7. `.dev/setup` 和 Context 领域数据均采用一次性显式迁移；运行时代码不保留旧地址根的双写或 fallback。
 8. 项目 `.swaw/proj/...` 命令迁到 `project/proj/...` 地址和 DataRoot。
-9. Manifest v11 具名 Export、Provider State v2 发布集合、CommandCheck v2、Provider 自有显式 checker 与执行前静态递归依赖断言。
+9. Manifest v12 具名 Export 身份、Provider State v3 Ready 信号、CommandCheck v3、Provider 自有显式 checker、消费方编程校验与执行前静态递归依赖断言。
 10. Runtime Release v4 固定 Framework Command Runtime v1；每个 Entry 独享 `data/proj.<entry>/runtime/current` 与 `runtime/releases/`，Core 的 Bun/Pwsh adapter 与目标 `.dev` 环境完全解耦，`.dev/*` 只在被显式调用时导入目标环境。
 11. Launcher protocol v6 只传递规范 Entry 路径事实，且只允许 `cli` 与 `internal-host` 两个 composition root；额外 `entry.id`、FileId、DataRoot claim、共享 `_bin` 与旧 worker launch 主路径已删除，只有 manager `swawkit.exe` 可以冷 Bootstrap。
 12. Rust、Web、Context、TypeScript 与关键 Launcher/CLI/进程树/Journal 黑盒回归。

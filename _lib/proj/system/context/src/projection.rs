@@ -6,7 +6,7 @@ use crate::error::{ContextError, ContextResult};
 use crate::model::{CommandSpace, ContextRecord};
 use crate::runtime::Language;
 
-const MODULE_SCHEMA: &str = "swawkit.command-module/v11";
+const MODULE_SCHEMA: &str = "swawkit.command-module/v12";
 const MODULE_CONTRACT: &str = include_str!("../swawkit.module.json");
 const SUBJECT_COLLECTION_PROTOCOL: &str = "swawkit.subject-collection/v3";
 const CONTEXT_KIND: &str = "context";

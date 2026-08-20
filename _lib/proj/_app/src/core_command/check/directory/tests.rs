@@ -141,12 +141,11 @@ fn provider_command() -> CommandNode {
         Some("exe"),
         None,
         Some(CommandModuleContract {
-            schema: "swawkit.command-module/v11".to_owned(),
+            schema: "swawkit.command-module/v12".to_owned(),
             execution: None,
             requires: Vec::new(),
             provides: vec![ModuleProvision {
                 id: "fixture".to_owned(),
-                contract: "swawkit.fixture/v1".to_owned(),
             }],
             facets: Vec::new(),
             subject_kinds: Vec::new(),

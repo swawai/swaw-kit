@@ -3,13 +3,13 @@ SWAW Kit：项目目录绑定的便携开发与项目控制入口。
 命令目录就是命令地址；每个可执行命令目录必须且只能包含一个受支持的 run.*。
 以下列表由 Proj Core 扫描真实命令目录动态生成，不维护独立 catalog。
 
-命令通过 swawkit.module.json 声明所需 Provider contract 与自己提供的 Export
-contract。可使用纯只读检查：
+命令通过 swawkit.module.json 声明所需 Provider Export 身份与自己提供的具名 Export。
+可使用纯只读检查：
 {{COMMAND}} .check <command-address> [--json]
 
-`.check` 只报告命令入口和已声明输入依赖是否就绪；普通执行会在 Journal 与
-目标进程之前复用同一只读依赖断言。检查不会安装、编译、修复或运行领域代码。
-动态业务前提由所属 run.* 自己验证。
+`.check` 只报告命令入口和已声明 Provider 发布是否静态就绪；普通执行会在 Journal 与
+目标进程之前复用同一只读依赖断言。检查不会安装、编译、修复或运行领域代码；
+实际 Consumer 必须在使用边界自行校验领域产物。
 
 极薄 EXE Launcher 负责 Entry 寻址、Host/CLI 分流和原生 argv 边界。入口文件名
 <entry>.exe 唯一映射到规范 data/proj.<entry>，Runtime selector 位于该 DataRoot 的

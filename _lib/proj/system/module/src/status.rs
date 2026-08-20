@@ -145,7 +145,7 @@ mod tests {
             fs::create_dir(&data).unwrap();
             fs::write(
                 owner.join("swawkit.module.json"),
-                r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+                r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
             )
             .unwrap();
             fs::write(owner.join("_src/main.rs"), "fn main() {}\n").unwrap();
@@ -190,7 +190,7 @@ mod tests {
         fs::create_dir_all(owner.join("_src")).unwrap();
         fs::write(
             owner.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
         )
         .unwrap();
         fs::write(owner.join("_src/main.rs"), "fn main() {}\n").unwrap();

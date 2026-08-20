@@ -1,10 +1,9 @@
 {
-  "schema": "swawkit.command-module/v11",
+  "schema": "swawkit.command-module/v12",
   "requires": [
     {
       "provider": "project/proj/build/app",
-      "export": "runtime-release",
-      "contract": "swawkit.proj-build-app/v6"
+      "export": "runtime-release"
     }
   ]
 }

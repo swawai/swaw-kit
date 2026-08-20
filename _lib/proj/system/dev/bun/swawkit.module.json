@@ -1,10 +1,9 @@
 {
-  "schema": "swawkit.command-module/v11",
+  "schema": "swawkit.command-module/v12",
   "requires": [
     {
       "provider": ".dev/setup",
-      "export": "environment",
-      "contract": "swawkit.proj.dev-setup/v4"
+      "export": "environment"
     }
   ]
 }

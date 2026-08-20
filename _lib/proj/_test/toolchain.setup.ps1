@@ -111,11 +111,10 @@ try {
             $Ready.Output.Contains(
                 '[OK] The base development environment is ready.'
             ) -and
+            $State.schema -ceq 'swawkit.command-provider-state/v3' -and
             $State.status -ceq 'ready' -and
-            @($State.exports).Count -eq 1 -and
-            [string]$State.exports[0].id -ceq 'environment' -and
-            [string]$State.exports[0].contract -ceq
-                'swawkit.proj.dev-setup/v4' -and
+            @($State.PSObject.Properties).Count -eq 4 -and
+            $null -eq $State.PSObject.Properties['exports'] -and
             $EnvironmentExport.schema -ceq
                 'swawkit.proj-dev-environment/v1' -and
             $EnvironmentExport.inputRevision -ceq $State.inputRevision -and

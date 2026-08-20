@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{CommandIdentity, ProtocolError, ProtocolResult};
 
-pub const COMMAND_MODULE_SCHEMA: &str = "swawkit.command-module/v11";
+pub const COMMAND_MODULE_SCHEMA: &str = "swawkit.command-module/v12";
 pub const MAX_MODULE_REQUIREMENTS: usize = 64;
 pub const MAX_MODULE_PROVISIONS: usize = 64;
 
@@ -13,14 +13,12 @@ pub const MAX_MODULE_PROVISIONS: usize = 64;
 pub struct ModuleRequirement {
     pub provider: String,
     pub export: String,
-    pub contract: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModuleProvision {
     pub id: String,
-    pub contract: String,
 }
 
 pub fn valid_command_segment(value: &str) -> bool {
@@ -76,19 +74,6 @@ pub fn valid_module_token(value: &str) -> bool {
         })
 }
 
-pub fn valid_module_contract(value: &str) -> bool {
-    (1..=128).contains(&value.len())
-        && value
-            .as_bytes()
-            .first()
-            .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-        && value.bytes().all(|byte| {
-            byte.is_ascii_lowercase()
-                || byte.is_ascii_digit()
-                || matches!(byte, b'.' | b'_' | b'/' | b'-')
-        })
-}
-
 pub fn validate_module_requirements(values: &[ModuleRequirement]) -> ProtocolResult<()> {
     if values.len() > MAX_MODULE_REQUIREMENTS {
         return Err(ProtocolError::new(format!(
@@ -99,7 +84,6 @@ pub fn validate_module_requirements(values: &[ModuleRequirement]) -> ProtocolRes
     for value in values {
         if !valid_provider_address(&value.provider)
             || !valid_module_token(&value.export)
-            || !valid_module_contract(&value.contract)
             || !seen.insert((&value.provider, &value.export))
         {
             return Err(ProtocolError::new(
@@ -118,10 +102,7 @@ pub fn validate_module_provisions(values: &[ModuleProvision]) -> ProtocolResult<
     }
     let mut seen = BTreeSet::new();
     for value in values {
-        if !valid_module_token(&value.id)
-            || !valid_module_contract(&value.contract)
-            || !seen.insert(&value.id)
-        {
+        if !valid_module_token(&value.id) || !seen.insert(&value.id) {
             return Err(ProtocolError::new(
                 "invalid or duplicate module provision id",
             ));
@@ -168,28 +149,24 @@ mod tests {
     }
 
     #[test]
-    fn requirement_and_provision_identity_ignores_contract_version() {
+    fn requirement_and_provision_identity_is_unique() {
         let requirements = vec![
             ModuleRequirement {
                 provider: ".dev/setup".to_owned(),
                 export: "environment".to_owned(),
-                contract: "contract/v1".to_owned(),
             },
             ModuleRequirement {
                 provider: ".dev/setup".to_owned(),
                 export: "environment".to_owned(),
-                contract: "contract/v2".to_owned(),
             },
         ];
         assert!(validate_module_requirements(&requirements).is_err());
         let provisions = vec![
             ModuleProvision {
                 id: "artifact".to_owned(),
-                contract: "contract/v1".to_owned(),
             },
             ModuleProvision {
                 id: "artifact".to_owned(),
-                contract: "contract/v2".to_owned(),
             },
         ];
         assert!(validate_module_provisions(&provisions).is_err());

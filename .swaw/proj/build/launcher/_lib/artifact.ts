@@ -8,12 +8,10 @@ import {
 } from "../../_lib/release-set.ts";
 import { moveFileReplace } from "../../_lib/windows-filesystem.ts";
 
-const MANIFEST_SCHEMA = "swawkit.proj-build-artifact/v2";
+const MANIFEST_SCHEMA = "swawkit.proj-build-artifact/v3";
 export const PRODUCER_ADDRESS = "project/proj/build/launcher";
-export const PRODUCER_CONTRACT = "swawkit.proj-build-launcher/v2";
-export const PRODUCER_EXPORT = "launcher";
 export const ARTIFACT_NAME = "swawkit.exe";
-const STATE_SCHEMA = "swawkit.command-provider-state/v2";
+const STATE_SCHEMA = "swawkit.command-provider-state/v3";
 const MAX_DOCUMENT_BYTES = 1024 * 1024;
 
 export type BuildArtifact = {
@@ -42,9 +40,6 @@ export async function publishBuildArtifact(
   const published = await inspectArtifact(destination, ARTIFACT_NAME);
   await writeAtomic(join(exportRoot, "manifest.json"), json({
     schema: MANIFEST_SCHEMA,
-    producerAddress: PRODUCER_ADDRESS,
-    exportId: PRODUCER_EXPORT,
-    exportContract: PRODUCER_CONTRACT,
     inputRevision,
     token,
     artifact: { name: ARTIFACT_NAME, length: published.length, sha256: published.sha256 },
@@ -53,7 +48,6 @@ export async function publishBuildArtifact(
     status: "ready",
     inputRevision,
     token,
-    exports: [{ id: PRODUCER_EXPORT, contract: PRODUCER_CONTRACT }],
   });
   return published;
 }
@@ -73,10 +67,8 @@ export async function readReadyBuildArtifact(
     const manifestPath = join(exportRoot, "manifest.json");
     const manifest = await readJson(manifestPath) as Record<string, unknown>;
     if (
-      keys(manifest) !== keysOf("artifact", "exportContract", "exportId", "inputRevision", "producerAddress", "schema", "token")
-      || manifest.schema !== MANIFEST_SCHEMA || manifest.producerAddress !== PRODUCER_ADDRESS
-      || manifest.exportId !== PRODUCER_EXPORT
-      || manifest.exportContract !== PRODUCER_CONTRACT
+      keys(manifest) !== keysOf("artifact", "inputRevision", "schema", "token")
+      || manifest.schema !== MANIFEST_SCHEMA
       || manifest.inputRevision !== initial.inputRevision || manifest.token !== initial.token
       || !manifest.artifact || typeof manifest.artifact !== "object" || Array.isArray(manifest.artifact)
     ) throw new Error("its artifact manifest is invalid");
@@ -105,14 +97,11 @@ export async function readReadyBuildArtifact(
 async function readState(path: string) {
   const value = await readJson(path) as Record<string, unknown>;
   if (
-    keys(value) !== keysOf("exports", "inputRevision", "schema", "status", "token")
+    keys(value) !== keysOf("inputRevision", "schema", "status", "token")
     || value.schema !== STATE_SCHEMA || value.status !== "ready"
-    || JSON.stringify(value.exports) !== JSON.stringify([
-      { id: PRODUCER_EXPORT, contract: PRODUCER_CONTRACT },
-    ])
     || typeof value.inputRevision !== "string" || !/^sha256-[a-f0-9]{64}$/.test(value.inputRevision)
     || typeof value.token !== "string" || !/^[a-f0-9]{32}$/.test(value.token)
-  ) throw new Error("its Provider State is not Ready for the expected contract");
+  ) throw new Error("its Provider State is not Ready");
   return value;
 }
 

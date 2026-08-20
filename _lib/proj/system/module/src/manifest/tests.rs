@@ -51,13 +51,13 @@ fn nested_native_owner_is_not_part_of_parent_contract() {
     fs::create_dir_all(&hidden).unwrap();
     fs::write(
         owner.join(MODULE_MANIFEST),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
     )
     .unwrap();
     write_delegate(&delegate, "swaw/context");
     fs::write(
         nested.join(MODULE_MANIFEST),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
     )
     .unwrap();
     write_delegate(&nested_delegate, "swaw/context/child");
@@ -77,7 +77,7 @@ fn system_native_owner_and_delegate_form_one_contract() {
     fs::create_dir_all(&delegate).unwrap();
     fs::write(
         owner.join(MODULE_MANIFEST),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
     )
     .unwrap();
     write_system_delegate(&delegate, ".context");
@@ -98,7 +98,7 @@ fn delegates_cannot_cross_command_spaces() {
         fs::create_dir_all(&delegate).unwrap();
         fs::write(
             delegate.join(MODULE_MANIFEST),
-            r#"{"schema":"swawkit.command-module/v11","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/context"}}}"#,
+            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/context"}}}"#,
         )
         .unwrap();
         let error = discover_native_domain(
@@ -117,7 +117,7 @@ fn delegates_cannot_cross_command_spaces() {
     fs::create_dir_all(&delegate).unwrap();
     fs::write(
         delegate.join(MODULE_MANIFEST),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"delegate","owner":{"type":"command","space":"system","address":".context"}}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"delegate","owner":{"type":"command","space":"system","address":".context"}}}"#,
     )
     .unwrap();
     let error = discover_native_domain(
@@ -173,7 +173,7 @@ fn noncanonical_directory_or_manifest_names_are_rejected() {
         fs::create_dir(&owner).unwrap();
         fs::write(
             owner.join(MODULE_MANIFEST),
-            r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
         )
         .unwrap();
         let error = discover_module(&fixture.0, "swaw/context").err().unwrap();
@@ -185,7 +185,7 @@ fn noncanonical_directory_or_manifest_names_are_rejected() {
     fs::create_dir(&owner).unwrap();
     fs::write(
         owner.join("Swawkit.Module.Json"),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
     )
     .unwrap();
     let error = discover_module(&fixture.0, "swaw/context").err().unwrap();
@@ -197,7 +197,7 @@ fn noncanonical_directory_or_manifest_names_are_rejected() {
     fs::create_dir_all(&owner).unwrap();
     fs::write(
         owner.join(MODULE_MANIFEST),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
     )
     .unwrap();
     let error = discover_native_domain(&system, &BTreeMap::new(), ".context")
@@ -213,7 +213,7 @@ fn native_execution_with_local_run_ts_never_enters_a_contract() {
     fs::create_dir(&owner).unwrap();
     fs::write(
         owner.join(MODULE_MANIFEST),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
     )
     .unwrap();
     fs::write(owner.join("run.ts"), "").unwrap();
@@ -232,7 +232,7 @@ fn delegated_execution_with_local_run_ts_never_enters_the_owner_contract() {
     fs::create_dir_all(&delegate).unwrap();
     fs::write(
         owner.join(MODULE_MANIFEST),
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
     )
     .unwrap();
     write_delegate(&delegate, "swaw/context");
@@ -256,7 +256,7 @@ fn malformed_local_entries_never_enter_a_native_contract() {
         fs::create_dir(&owner).unwrap();
         fs::write(
             owner.join(MODULE_MANIFEST),
-            r#"{"schema":"swawkit.command-module/v11","execution":{"type":"native"}}"#,
+            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
         )
         .unwrap();
         for entry in entries {
@@ -274,7 +274,7 @@ fn write_delegate(directory: &Path, owner: &str) {
     fs::write(
         directory.join(MODULE_MANIFEST),
         format!(
-            r#"{{"schema":"swawkit.command-module/v11","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
+            r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
         ),
     )
     .unwrap();
@@ -284,7 +284,7 @@ fn write_system_delegate(directory: &Path, owner: &str) {
     fs::write(
         directory.join(MODULE_MANIFEST),
         format!(
-            r#"{{"schema":"swawkit.command-module/v11","execution":{{"type":"delegate","owner":{{"type":"command","space":"system","address":"{owner}"}}}}}}"#
+            r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"delegate","owner":{{"type":"command","space":"system","address":"{owner}"}}}}}}"#
         ),
     )
     .unwrap();

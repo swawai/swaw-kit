@@ -7,7 +7,6 @@ use crate::{ProtocolError, ProtocolResult, is_revision};
 
 pub const DEV_ENVIRONMENT_SCHEMA: &str = "swawkit.proj-dev-environment/v1";
 pub const DEV_ENVIRONMENT_EXPORT_NAME: &str = "environment.json";
-pub const DEV_SETUP_CONTRACT: &str = "swawkit.proj.dev-setup/v4";
 
 const MAX_ENVIRONMENT_ITEMS: usize = 128;
 const MAX_ENVIRONMENT_NAME_BYTES: usize = 128;

@@ -6,7 +6,7 @@ use crate::{
     validate_module_requirements,
 };
 
-pub const EXECUTION_CONTRACT_SCHEMA: &str = "swawkit.native-command-execution-contract/v3";
+pub const EXECUTION_CONTRACT_SCHEMA: &str = "swawkit.native-command-execution-contract/v4";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
@@ -41,15 +41,11 @@ impl ExecutionContract {
         let owner = owner.into();
         for command in &mut commands {
             command.requires.sort_by(|left, right| {
-                (&left.provider, &left.export, &left.contract).cmp(&(
-                    &right.provider,
-                    &right.export,
-                    &right.contract,
-                ))
+                (&left.provider, &left.export).cmp(&(&right.provider, &right.export))
             });
-            command.provides.sort_by(|left, right| {
-                (&left.id, &left.contract).cmp(&(&right.id, &right.contract))
-            });
+            command
+                .provides
+                .sort_by(|left, right| left.id.cmp(&right.id));
         }
         commands.sort_by(|left, right| left.address.cmp(&right.address));
         let contract = Self {
@@ -137,10 +133,10 @@ impl ExecutionContract {
 
 fn validate_requirements(values: &[ModuleRequirement]) -> ProtocolResult<()> {
     validate_module_requirements(values)?;
-    if values.windows(2).any(|pair| {
-        (&pair[0].provider, &pair[0].export, &pair[0].contract)
-            >= (&pair[1].provider, &pair[1].export, &pair[1].contract)
-    }) {
+    if values
+        .windows(2)
+        .any(|pair| (&pair[0].provider, &pair[0].export) >= (&pair[1].provider, &pair[1].export))
+    {
         return Err(ProtocolError::new(
             "execution contract requirements are not canonical",
         ));
@@ -150,10 +146,7 @@ fn validate_requirements(values: &[ModuleRequirement]) -> ProtocolResult<()> {
 
 fn validate_provisions(values: &[ModuleProvision]) -> ProtocolResult<()> {
     validate_module_provisions(values)?;
-    if values
-        .windows(2)
-        .any(|pair| (&pair[0].id, &pair[0].contract) >= (&pair[1].id, &pair[1].contract))
-    {
+    if values.windows(2).any(|pair| pair[0].id >= pair[1].id) {
         return Err(ProtocolError::new(
             "execution contract provisions are not canonical",
         ));
@@ -221,6 +214,46 @@ mod tests {
             contract.revision().unwrap(),
             revision(&serde_json::to_vec(&without_environment_protocol).unwrap())
         );
+    }
+
+    #[test]
+    fn dependency_identity_has_no_generic_contract_field() {
+        let mut owner = member("swaw/context", ExecutionSemantics::Native);
+        owner.requires.push(ModuleRequirement {
+            provider: ".dev/setup".to_owned(),
+            export: "environment".to_owned(),
+        });
+        owner.provides.push(ModuleProvision {
+            id: "context".to_owned(),
+        });
+        let contract = ExecutionContract::new("swaw/context", vec![owner]).unwrap();
+        let document: serde_json::Value =
+            serde_json::from_slice(&contract.canonical_bytes().unwrap()).unwrap();
+
+        assert_eq!(document["schema"], EXECUTION_CONTRACT_SCHEMA);
+        assert_eq!(
+            document["commands"][0]["requires"][0],
+            serde_json::json!({"provider": ".dev/setup", "export": "environment"})
+        );
+        assert_eq!(
+            document["commands"][0]["provides"][0],
+            serde_json::json!({"id": "context"})
+        );
+    }
+
+    #[test]
+    fn previous_execution_contract_schema_has_no_fallback() {
+        let contract = ExecutionContract::new(
+            "swaw/context",
+            vec![member("swaw/context", ExecutionSemantics::Native)],
+        )
+        .unwrap();
+        let mut document = serde_json::to_value(contract).unwrap();
+        document["schema"] =
+            serde_json::Value::String("swawkit.native-command-execution-contract/v3".to_owned());
+        let previous: ExecutionContract = serde_json::from_value(document).unwrap();
+
+        assert!(previous.validate().is_err());
     }
 
     #[test]

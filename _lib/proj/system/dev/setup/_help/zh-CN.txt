@@ -14,9 +14,9 @@
   SWAWKIT_PROJ_DATA_ROOT/modules/system/dev/setup/export/env.ps1
   SWAWKIT_PROJ_DATA_ROOT/modules/system/dev/setup/_state.json
 
-_state.json 是 .dev/setup provider 的可用性协议，记录输入 revision、发布 token 与
-producer contract。需要受管开发环境的命令只在状态为 ready 且
-协议匹配时加载 export；修改受管工具的版本、channel、mode 或 hash 后，Core 会先将
+_state.json 是 .dev/setup provider 的 v3 可用性状态，只记录输入 revision、发布 token
+与是否 ready。需要受管开发环境的命令会自行校验状态、environment.json 及发布身份后
+再加载 export；修改受管工具的版本、channel、mode 或 hash 后，Core 会先将
 provider 标记为 unavailable，旧 setup 也不能覆盖新的状态。重新运行 setup 即可发布
 当前输入；与开发环境无关的配置变化不会使该 provider 失效。
 

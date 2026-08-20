@@ -263,7 +263,6 @@ fn provider(address: &str, alias_of: Option<&str>, declares_export: bool) -> Com
             provides: declares_export
                 .then(|| ModuleProvision {
                     id: "fixture".to_owned(),
-                    contract: "fixture/v1".to_owned(),
                 })
                 .into_iter()
                 .collect(),

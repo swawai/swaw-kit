@@ -26,7 +26,6 @@ function dependency(overrides = {}) {
   return {
     provider: ".provider",
     export: "fixture",
-    contract: "fixture/v1",
     ready: true,
     status: "ready",
     message: null,
@@ -95,9 +94,18 @@ describe("Command check projection model", () => {
     }), subject)).toThrow("子依赖");
   });
 
+  test("preserves the export-not-declared dependency status", () => {
+    const result = createCommandCheckProjection(document({
+      dependencies: [dependency({ ready: false, status: "export-not-declared" })],
+      ready: false,
+    }), { address: ".tool", space: "system" });
+
+    expect(result.dependencies[0].status).toBe("export-not-declared");
+  });
+
   test("rejects the old protocol and removed publication fields", () => {
     expect(() => createCommandCheckProjection(document({
-      protocol: "swawkit.command-check/v1",
+      protocol: "swawkit.command-check/v2",
     }), {
       address: ".tool",
       space: "system",
@@ -111,6 +119,12 @@ describe("Command check projection model", () => {
     })).toThrow("字段必须精确");
     expect(() => createCommandCheckProjection(document({
       dependencies: [dependency({ publication: null })],
+    }), {
+      address: ".tool",
+      space: "system",
+    })).toThrow("字段必须精确");
+    expect(() => createCommandCheckProjection(document({
+      dependencies: [dependency({ contract: "removed/v1" })],
     }), {
       address: ".tool",
       space: "system",

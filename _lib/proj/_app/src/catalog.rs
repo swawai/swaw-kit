@@ -39,7 +39,7 @@ use subject_kind::resolve_subject_kinds;
 use view::read_local_web_view;
 pub use view::{ChildrenColumnView, ColumnWidth, CommandView, RunOperationView, RunView};
 
-pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v19";
+pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v20";
 
 pub const HELP_ADDRESS: &str = ".help";
 pub const HELP_MARKERS: [&str; 3] = [HELP_ADDRESS, "-h", "--help"];

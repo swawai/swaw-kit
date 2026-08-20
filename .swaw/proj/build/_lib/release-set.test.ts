@@ -31,14 +31,11 @@ test("publishes the PowerShell-compatible immutable Release Set identity", async
   expect((await readFile(join(commandDataRoot, "export", "current"), "utf8")).trim()).toBe(id);
   const state = JSON.parse(await readFile(join(commandDataRoot, "_state.json"), "utf8"));
   expect(state).toMatchObject({
-    schema: "swawkit.command-provider-state/v2",
+    schema: "swawkit.command-provider-state/v3",
     status: "ready",
     inputRevision: `sha256-${id}`,
-    exports: [{
-      id: "runtime-release",
-      contract: "swawkit.proj-build-app/v6",
-    }],
   });
+  expect(Object.keys(state).sort()).toEqual(["inputRevision", "schema", "status", "token"]);
   expect(await publishBuildReleaseSet(commandDataRoot, candidates, COMMAND_RUNTIME_ID)).toBe(id);
 });
 
@@ -70,6 +67,17 @@ test("reads one coherent Ready Provider snapshot and rejects tampering", async (
       "swawkit-proj.exe",
     ],
   );
+
+  const statePath = join(commandDataRoot, "_state.json");
+  const readyState = await readFile(statePath, "utf8");
+  await writeFile(statePath, JSON.stringify({
+    ...JSON.parse(readyState),
+    exports: [],
+  }));
+  expect(readReadyBuildReleaseSet(dataRoot, "fixture")).rejects.toThrow(
+    "Provider State is invalid",
+  );
+  await writeFile(statePath, readyState);
 
   const unexpected = join(release.root, "unexpected.bin");
   await writeFile(unexpected, "unexpected");
@@ -105,6 +113,8 @@ test("rejects corruption in an existing immutable release", async () => {
   );
   const state = JSON.parse(await readFile(join(commandDataRoot, "_state.json"), "utf8"));
   expect(state.status).toBe("unavailable");
+  expect(state.schema).toBe("swawkit.command-provider-state/v3");
+  expect(Object.keys(state).sort()).toEqual(["inputRevision", "schema", "status", "token"]);
 });
 
 test("rejects an empty Release Set", async () => {

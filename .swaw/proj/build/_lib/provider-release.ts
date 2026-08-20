@@ -2,14 +2,12 @@ import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type BuildReleaseSet,
-  PRODUCER_CONTRACT,
-  PRODUCER_EXPORT,
   readBuildReleaseDirectory,
   requireControlledDirectory,
   RUNTIME_ARTIFACT_NAMES,
 } from "./release-set.ts";
 
-const STATE_SCHEMA = "swawkit.command-provider-state/v2";
+const STATE_SCHEMA = "swawkit.command-provider-state/v3";
 const MAX_DOCUMENT_BYTES = 1024 * 1024;
 
 type ReadyProviderState = {
@@ -17,7 +15,6 @@ type ReadyProviderState = {
   status: string;
   inputRevision: string;
   token: string;
-  exports: Array<{ id: string; contract: string }>;
 };
 
 export async function readReadyBuildReleaseSet(
@@ -75,25 +72,21 @@ async function readReadyState(path: string, entryCommand: string): Promise<Ready
   if (
     !state || typeof state !== "object" || Array.isArray(state)
     || Object.keys(state).sort().join("\n")
-      !== ["exports", "inputRevision", "schema", "status", "token"].sort().join("\n")
+      !== ["inputRevision", "schema", "status", "token"].sort().join("\n")
   ) throw repairError(entryCommand, "its Provider State is invalid");
   const value = state as Record<string, unknown>;
   if (
     value.schema !== STATE_SCHEMA || value.status !== "ready"
-    || JSON.stringify(value.exports) !== JSON.stringify([
-      { id: PRODUCER_EXPORT, contract: PRODUCER_CONTRACT },
-    ])
     || typeof value.inputRevision !== "string"
     || !/^sha256-[a-f0-9]{64}$/.test(value.inputRevision)
     || typeof value.token !== "string" || !/^[a-f0-9]{32}$/.test(value.token)
-  ) throw repairError(entryCommand, "it is not Ready for the expected contract");
+  ) throw repairError(entryCommand, "it is not Ready");
   return value as ReadyProviderState;
 }
 
 function sameState(left: ReadyProviderState, right: ReadyProviderState): boolean {
   return left.schema === right.schema && left.status === right.status
-    && left.inputRevision === right.inputRevision && left.token === right.token
-    && JSON.stringify(left.exports) === JSON.stringify(right.exports);
+    && left.inputRevision === right.inputRevision && left.token === right.token;
 }
 
 function parseSelector(value: string): string | undefined {

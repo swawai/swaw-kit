@@ -53,8 +53,32 @@ foreach ($ModuleManifest in $ModuleManifests) {
     $ModuleDocument = Get-Content -LiteralPath $ModuleManifest.FullName -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v11') `
-        -Message "legacy module contract remains: $($ModuleManifest.FullName)"
+        -Condition ($ModuleDocument.schema -ceq 'swawkit.command-module/v12') `
+        -Message "unsupported module declaration remains: $($ModuleManifest.FullName)"
+    foreach ($Requirement in @(if (
+        $null -ne $ModuleDocument.PSObject.Properties['requires']
+    ) {
+        $ModuleDocument.requires
+    })) {
+        [string[]]$Names = @(
+            $Requirement.PSObject.Properties.Name | Sort-Object
+        )
+        Assert-ProjDevelopmentCommandLayout `
+            -Condition ([string]::Join("`n", $Names) -ceq "export`nprovider") `
+            -Message "module requirement has fields beyond provider + export: $($ModuleManifest.FullName)"
+    }
+    foreach ($Provision in @(if (
+        $null -ne $ModuleDocument.PSObject.Properties['provides']
+    ) {
+        $ModuleDocument.provides
+    })) {
+        [string[]]$Names = @(
+            $Provision.PSObject.Properties.Name | Sort-Object
+        )
+        Assert-ProjDevelopmentCommandLayout `
+            -Condition ([string]::Join("`n", $Names) -ceq 'id') `
+            -Message "module provision has fields beyond id: $($ModuleManifest.FullName)"
+    }
 }
 $LegacyModuleManifests = @(
     Get-ChildItem -LiteralPath $ProjRoot -Recurse -File -Filter '_module.json'
@@ -147,7 +171,7 @@ Assert-ProjDevelopmentCommandLayout `
 $SetupContract = Get-Content -LiteralPath $SetupManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v11' -and
+    -Condition ($SetupContract.schema -ceq 'swawkit.command-module/v12' -and
         $SetupContract.execution.type -ceq 'runtime' -and
         $SetupContract.execution.product -ceq 'dev' -and
         $null -eq $SetupContract.execution.PSObject.Properties['handler']) `
@@ -160,7 +184,7 @@ Assert-ProjDevelopmentCommandLayout `
 $InstantiateContract = Get-Content -LiteralPath $InstantiateManifest -Raw -Encoding UTF8 |
     ConvertFrom-Json
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v11' -and
+    -Condition ($InstantiateContract.schema -ceq 'swawkit.command-module/v12' -and
         $InstantiateContract.execution.type -ceq 'runtime' -and
         $InstantiateContract.execution.product -ceq 'module' -and
         $null -eq $InstantiateContract.PSObject.Properties['requires']) `
@@ -178,7 +202,7 @@ $StatusRequires = @(if (
     $StatusContract.requires
 })
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($StatusContract.schema -ceq 'swawkit.command-module/v11' -and
+    -Condition ($StatusContract.schema -ceq 'swawkit.command-module/v12' -and
         $StatusContract.execution.type -ceq 'runtime' -and
         $StatusContract.execution.product -ceq 'module' -and
         $StatusRequires.Count -eq 0) `
@@ -210,7 +234,7 @@ foreach ($RuntimeContract in $RuntimeContracts) {
     $RuntimeDocument = Get-Content -LiteralPath $RuntimeManifest -Raw -Encoding UTF8 |
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
-        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v11' -and
+        -Condition ($RuntimeDocument.schema -ceq 'swawkit.command-module/v12' -and
             $RuntimeDocument.execution.type -ceq 'core' -and
             $RuntimeDocument.execution.handler -ceq $RuntimeContract.Handler) `
         -Message "Runtime System manifest is invalid: $($RuntimeContract.Path)"
@@ -250,7 +274,7 @@ foreach ($ContextCommand in $ContextCommands) {
         ConvertFrom-Json
     Assert-ProjDevelopmentCommandLayout `
         -Condition ([IO.File]::Exists($ContextManifestPath) -and
-            $ContextManifest.schema -ceq 'swawkit.command-module/v11' -and
+            $ContextManifest.schema -ceq 'swawkit.command-module/v12' -and
             $ContextManifest.execution.type -ceq 'delegate' -and
             $ContextManifest.execution.owner.type -ceq 'command' -and
             $ContextManifest.execution.owner.space -ceq 'system' -and
@@ -279,7 +303,7 @@ $ContextOverviewFacet = @($ContextSubjectKind.facets) |
     Where-Object { $_.id -ceq 'overview' } |
     Select-Object -First 1
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v11' -and
+    -Condition ($ContextModule.schema -ceq 'swawkit.command-module/v12' -and
         $ContextModule.execution.type -ceq 'native' -and
         @($ContextModule.facets).Count -eq 1 -and
         $ContextFacet.id -ceq 'contexts' -and
@@ -320,7 +344,7 @@ $RunOpenFacet = @($RunSubjectKind.facets) |
     Where-Object { $_.id -ceq 'open' } |
     Select-Object -First 1
 $RunsContractChecks = @(
-    ($RunsModule.schema -ceq 'swawkit.command-module/v11')
+    ($RunsModule.schema -ceq 'swawkit.command-module/v12')
     (@($RunsModule.facets).Count -eq 1)
     ($AllRunsFacet.id -ceq 'all')
     ($AllRunsFacet.kind -ceq 'collection')
@@ -392,11 +416,10 @@ $DevProcessLibrary = [IO.File]::ReadAllText((
     Join-Path $SystemRoot 'dev\_lib\process.ps1'
 ))
 Assert-ProjDevelopmentCommandLayout `
-    -Condition ($DevProcessLibrary.Contains('swawkit.command-provider-state/v2') -and
-        $DevProcessLibrary.Contains('swawkit.proj.dev-setup/v4') -and
+    -Condition ($DevProcessLibrary.Contains('swawkit.command-provider-state/v3') -and
         $DevProcessLibrary.Contains('swawkit.proj-dev-environment/v1') -and
         $DevProcessLibrary.Contains('Import-ProjDevTargetEnvironment')) `
-    -Message 'the explicit target Dev environment consumer contract is incomplete'
+    -Message 'the explicit target Dev environment consumer validation is incomplete'
 
 Write-Host '[PASS] Proj development command layout test' `
     -ForegroundColor Green

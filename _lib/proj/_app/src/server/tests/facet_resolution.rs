@@ -18,7 +18,7 @@ fn context_surface(fixture: &Fixture) {
     ] {
         fixture.file(
             &format!("home/_lib/proj/system/context/{name}/swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v11","execution":{"type":"delegate","owner":{"type":"command","space":"system","address":".context"}}}"#,
+            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"delegate","owner":{"type":"command","space":"system","address":".context"}}}"#,
         );
     }
 }
@@ -267,7 +267,7 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
     runs_surface(&fixture);
     fixture.file(
         "home/_lib/proj/system/tool/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("home/_lib/proj/system/tool/run.cmd", "");
     fixture
@@ -437,11 +437,11 @@ async fn executes_any_declared_query_command_without_a_domain_handler() {
     let fixture = Fixture::new();
     fixture.file(
         "home/_lib/proj/system/report/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
     );
     fixture.file(
         "home/_lib/proj/system/report/json/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
     fixture
@@ -480,11 +480,11 @@ async fn stale_host_rejects_executable_facet_queries_with_the_update_code() {
     let fixture = Fixture::new();
     fixture.file(
         "home/_lib/proj/system/report/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
+        r#"{"schema":"swawkit.command-module/v12","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
     );
     fixture.file(
         "home/_lib/proj/system/report/json/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11"}"#,
+        r#"{"schema":"swawkit.command-module/v12"}"#,
     );
     fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
     fixture

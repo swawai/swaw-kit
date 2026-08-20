@@ -1,4 +1,4 @@
-export const protocol = "swawkit.command-catalog/v19";
+export const protocol = "swawkit.command-catalog/v20";
 
 export function node(address, overrides = {}) {
   const space = overrides.space ?? (address.startsWith(".") || address === "" ? "system" : "module");
@@ -35,7 +35,7 @@ export function node(address, overrides = {}) {
     && new Set(["core", "runtime", "native"]).has(command.adapter)
   ) {
     command.module = {
-      schema: "swawkit.command-module/v11",
+      schema: "swawkit.command-module/v12",
       execution: command.adapter === "native"
         ? { type: "native" }
         : command.adapter === "runtime"

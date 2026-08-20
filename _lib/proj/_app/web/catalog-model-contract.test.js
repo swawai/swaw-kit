@@ -2,30 +2,28 @@ import { describe, expect, test } from "bun:test";
 import { createCatalog } from "./catalog-model.js";
 import { node, payload } from "./catalog-model-fixture.js";
 
-describe("Catalog v19 execution contract", () => {
+describe("Catalog v20 module declarations", () => {
   test("normalizes declared module requirements and provisions", () => {
     const catalog = createCatalog(payload([
       node(".consumer", {
         module: {
-          schema: "swawkit.command-module/v11",
+          schema: "swawkit.command-module/v12",
           requires: [{
             provider: ".provider",
             export: "fixture",
-            contract: "swawkit.fixture/v1",
           }],
-          provides: [{ id: "consumer", contract: "swawkit.consumer/v1" }],
+          provides: [{ id: "consumer" }],
         },
       }),
     ]));
     expect(catalog.commandByAddress.get(".consumer").module).toEqual({
-      schema: "swawkit.command-module/v11",
+      schema: "swawkit.command-module/v12",
       execution: null,
       requires: [{
         provider: ".provider",
         export: "fixture",
-        contract: "swawkit.fixture/v1",
       }],
-      provides: [{ id: "consumer", contract: "swawkit.consumer/v1" }],
+      provides: [{ id: "consumer" }],
     });
   });
 
@@ -36,7 +34,7 @@ describe("Catalog v19 execution contract", () => {
         entry: "swawkit.module.json",
         adapter: "delegate",
         module: {
-          schema: "swawkit.command-module/v11",
+          schema: "swawkit.command-module/v12",
           execution: {
             type: "delegate",
             owner: {
@@ -69,7 +67,7 @@ describe("Catalog v19 execution contract", () => {
         entry: "swawkit.module.json",
         adapter: "delegate",
         module: {
-          schema: "swawkit.command-module/v11",
+          schema: "swawkit.command-module/v12",
           execution: {
             type: "delegate",
             owner: {
@@ -107,16 +105,32 @@ describe("Catalog v19 execution contract", () => {
       .toEqual({ type: "native" });
   });
 
-  test("rejects the previous command-module/v10 contract", () => {
+  test("rejects the previous command-module/v11 declaration", () => {
     expect(() => createCatalog(payload([
       node(".legacy", {
         module: {
-          schema: "swawkit.command-module/v10",
+          schema: "swawkit.command-module/v11",
           requires: [],
-          provides: [{ contract: "legacy/v1" }],
+          provides: [{ id: "legacy" }],
         },
       }),
-    ]))).toThrow("swawkit.command-module/v11");
+    ]))).toThrow("swawkit.command-module/v12");
+  });
+
+  test("rejects removed generic contract fields", () => {
+    expect(() => createCatalog(payload([
+      node(".consumer", {
+        module: {
+          schema: "swawkit.command-module/v12",
+          requires: [{
+            provider: ".provider",
+            export: "fixture",
+            contract: "removed/v1",
+          }],
+          provides: [],
+        },
+      }),
+    ]))).toThrow("must contain exactly");
   });
 
   test("rejects a missing entry name", () => {
@@ -141,7 +155,7 @@ describe("Catalog v19 execution contract", () => {
         entry: "run.ps1",
         adapter: "pwsh",
         module: {
-          schema: "swawkit.command-module/v11",
+          schema: "swawkit.command-module/v12",
           execution: { type: "native" },
           requires: [],
           provides: [],

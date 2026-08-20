@@ -1,19 +1,17 @@
 {
-  "schema": "swawkit.command-module/v11",
+  "schema": "swawkit.command-module/v12",
   "execution": {
     "type": "native"
   },
   "requires": [
     {
       "provider": ".dev/setup",
-      "export": "environment",
-      "contract": "swawkit.proj.dev-setup/v4"
+      "export": "environment"
     }
   ],
   "provides": [
     {
-      "id": "command",
-      "contract": "swawkit.fixture-command/v1"
+      "id": "command"
     }
   ],
   "facets": [

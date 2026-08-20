@@ -28,7 +28,7 @@ fn runtime_components_are_exact_and_have_no_handler() {
     fixture.file(
         &fixture.system,
         "module/instantiate/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v11","execution":{"type":"runtime","product":"module"}}"#,
+        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"runtime","product":"module"}}"#,
     );
     fixture.file(
         &fixture.system,

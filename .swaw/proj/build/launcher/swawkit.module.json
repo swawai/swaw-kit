@@ -1,9 +1,8 @@
 {
-  "schema": "swawkit.command-module/v11",
+  "schema": "swawkit.command-module/v12",
   "provides": [
     {
-      "id": "launcher",
-      "contract": "swawkit.proj-build-launcher/v2"
+      "id": "launcher"
     }
   ]
 }

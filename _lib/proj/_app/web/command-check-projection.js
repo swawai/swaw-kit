@@ -35,7 +35,7 @@ export function createCommandCheckProjectionRenderer(elements, options = {}) {
     heading.className = "command-check-item-heading";
     marker.className = "command-check-marker";
     marker.textContent = dependency.ready ? "✓" : "!";
-    name.textContent = `${dependency.provider}#${dependency.export} · ${dependency.contract}`;
+    name.textContent = `${dependency.provider}#${dependency.export}`;
     heading.append(marker, name);
     row.append(heading);
     detail(row, dependency.message);

@@ -58,16 +58,10 @@ try {
     [IO.File]::WriteAllText(
         (Join-Path $SetupRoot '_state.json'),
         ([ordered]@{
-            schema = 'swawkit.command-provider-state/v2'
+            schema = 'swawkit.command-provider-state/v3'
             status = 'ready'
             inputRevision = $InputRevision
             token = $PublicationToken
-            exports = @(
-                [ordered]@{
-                    id = 'environment'
-                    contract = 'swawkit.proj.dev-setup/v4'
-                }
-            )
         } | ConvertTo-Json -Depth 8),
         [Text.UTF8Encoding]::new($false)
     )
@@ -141,6 +135,31 @@ try {
         -Condition ($ExitResult.ExitCode -eq 37) `
         -Message 'the thin Bun wrapper changed the executable exit code'
 
+    $StatePath = Join-Path $SetupRoot '_state.json'
+    [byte[]]$ReadyStateBytes = [IO.File]::ReadAllBytes($StatePath)
+    [IO.File]::WriteAllText(
+        $StatePath,
+        ([ordered]@{
+            schema = 'swawkit.command-provider-state/v3'
+            status = 'ready'
+            inputRevision = $InputRevision
+            token = $PublicationToken
+            exports = @()
+        } | ConvertTo-Json -Depth 8),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $DescribedState = Invoke-ProjBunEntryFixture `
+        -PowerShell $PowerShell `
+        -EntryPath $EntryPath `
+        -Arguments @('--version')
+    Assert-ProjBunTest `
+        -Condition ($DescribedState.ExitCode -ne 0 -and
+            $DescribedState.Output.Contains(
+                'development environment is outdated'
+            )) `
+        -Message 'the thin Bun wrapper accepted a Provider State export description'
+    [IO.File]::WriteAllBytes($StatePath, $ReadyStateBytes)
+
     [IO.File]::Delete($BunExecutable)
     $Missing = Invoke-ProjBunEntryFixture `
         -PowerShell $PowerShell `
@@ -158,7 +177,7 @@ try {
     [IO.File]::WriteAllText(
         $ReplacementStatePath,
         ([ordered]@{
-            schema = 'swawkit.command-provider-state/v2'
+            schema = 'swawkit.command-provider-state/v3'
             status = 'unavailable'
             inputRevision = ('sha256-' + ('4' * 64))
             token = ('5' * 32)

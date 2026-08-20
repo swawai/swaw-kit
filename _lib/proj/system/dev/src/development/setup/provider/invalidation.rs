@@ -85,7 +85,6 @@ pub(crate) fn begin_unavailable(
             status: "unavailable".to_owned(),
             input_revision: input_revision.to_owned(),
             token: fresh_token()?,
-            exports: None,
         },
     )?;
     Ok(ProviderInvalidation {

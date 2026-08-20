@@ -1,5 +1,5 @@
 {
-  "schema": "swawkit.command-module/v11",
+  "schema": "swawkit.command-module/v12",
   "execution": {
     "type": "native"
   },

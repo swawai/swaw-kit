@@ -49,14 +49,19 @@ function Import-ProjDevTargetEnvironment {
             "'$(Get-ProjDevRepairInvocation)'."
         )
     }
-    $Exports = @($State.exports)
-    if ([string]$State.schema -cne 'swawkit.command-provider-state/v2' -or
+    [string[]]$StatePropertyNames = @($State.PSObject.Properties.Name)
+    $StateShapeValid = (
+        $StatePropertyNames.Count -eq 4 -and
+        $StatePropertyNames -ccontains 'schema' -and
+        $StatePropertyNames -ccontains 'status' -and
+        $StatePropertyNames -ccontains 'inputRevision' -and
+        $StatePropertyNames -ccontains 'token'
+    )
+    if (-not $StateShapeValid -or
+        [string]$State.schema -cne 'swawkit.command-provider-state/v3' -or
         [string]$State.status -cne 'ready' -or
         [string]$State.inputRevision -cnotmatch '^sha256-[a-f0-9]{64}$' -or
         [string]$State.token -cnotmatch '^[a-f0-9]{32}$' -or
-        $Exports.Count -ne 1 -or
-        [string]$Exports[0].id -cne 'environment' -or
-        [string]$Exports[0].contract -cne 'swawkit.proj.dev-setup/v4' -or
         [string]$Environment.schema -cne 'swawkit.proj-dev-environment/v1' -or
         [string]$Environment.inputRevision -cne [string]$State.inputRevision -or
         [string]$Environment.publicationToken -cne [string]$State.token) {

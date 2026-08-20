@@ -21,14 +21,28 @@ test("publishes and reads one coherent Launcher Provider snapshot", async () => 
   expect(await readFile(resolved.path, "utf8")).toBe("launcher-fixture");
   const state = JSON.parse(await readFile(join(fixture.commandRoot, "_state.json"), "utf8"));
   expect(state).toMatchObject({
-    schema: "swawkit.command-provider-state/v2",
+    schema: "swawkit.command-provider-state/v3",
     status: "ready",
     inputRevision: `sha256-${published.sha256}`,
-    exports: [{
-      id: "launcher",
-      contract: "swawkit.proj-build-launcher/v2",
-    }],
   });
+  expect(Object.keys(state).sort()).toEqual(["inputRevision", "schema", "status", "token"]);
+  const manifest = JSON.parse(await readFile(
+    join(fixture.commandRoot, "export", "manifest.json"),
+    "utf8",
+  ));
+  expect(manifest.schema).toBe("swawkit.proj-build-artifact/v3");
+  expect(Object.keys(manifest).sort()).toEqual(["artifact", "inputRevision", "schema", "token"]);
+
+  const statePath = join(fixture.commandRoot, "_state.json");
+  const readyState = await readFile(statePath, "utf8");
+  await writeFile(statePath, JSON.stringify({
+    ...JSON.parse(readyState),
+    exports: [],
+  }));
+  await expect(readReadyBuildArtifact(fixture.dataRoot, "fixture")).rejects.toThrow(
+    "Provider State is not Ready",
+  );
+  await writeFile(statePath, readyState);
 
   await writeFile(resolved.path, "tampered-fixture");
   await expect(readReadyBuildArtifact(fixture.dataRoot, "fixture")).rejects.toThrow(
@@ -61,6 +75,8 @@ test("a failed publication revokes Ready without replacing the previous export",
   );
   const failed = JSON.parse(await readFile(join(fixture.commandRoot, "_state.json"), "utf8"));
   expect(failed.status).toBe("unavailable");
+  expect(failed.schema).toBe("swawkit.command-provider-state/v3");
+  expect(Object.keys(failed).sort()).toEqual(["inputRevision", "schema", "status", "token"]);
 });
 
 test("the native build contract owns the complete Launcher input set", async () => {
