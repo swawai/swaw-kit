@@ -19,7 +19,6 @@ pub(crate) use event::{RunJournalEvent, RunJournalEventData, RunJournalPhase, Ru
 pub use read::{RunJournalDocument, RunJournalHistoryDocument};
 pub(crate) use read::{read_run, read_run_directory, read_run_history};
 
-pub(crate) const LEGACY_JOURNAL_STATE_SCHEMA: &str = "swawkit.command-run-journal/v1";
 pub(crate) const JOURNAL_STATE_SCHEMA: &str = "swawkit.command-run-journal/v2";
 pub(crate) const JOURNAL_EVENT_SCHEMA: &str = "swawkit.command-run-event/v2";
 pub(crate) const JOURNAL_DIRECTORY_NAME: &str = "_runs";
@@ -364,16 +363,13 @@ impl Writer {
 }
 
 pub(super) fn valid_run_id(id: &str) -> bool {
-    let separators = match id.len() {
-        42 => (16, 25),
-        58 => (32, 41),
-        _ => return false,
-    };
-    id.as_bytes().get(separators.0) == Some(&b'-')
-        && id.as_bytes().get(separators.1) == Some(&b'-')
+    const SEPARATORS: (usize, usize) = (32, 41);
+    id.len() == 58
+        && id.as_bytes().get(SEPARATORS.0) == Some(&b'-')
+        && id.as_bytes().get(SEPARATORS.1) == Some(&b'-')
         && id.bytes().enumerate().all(|(index, byte)| {
-            index == separators.0
-                || index == separators.1
+            index == SEPARATORS.0
+                || index == SEPARATORS.1
                 || byte.is_ascii_digit()
                 || (b'a'..=b'f').contains(&byte)
         })

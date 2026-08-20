@@ -31,44 +31,6 @@ pub(super) struct StoredRunState {
     pub truncated: bool,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct LegacyStoredRunState {
-    #[serde(rename = "schema")]
-    pub _schema: String,
-    pub id: String,
-    pub address: String,
-    pub source: RunJournalSource,
-    pub status: RunJournalStatus,
-    pub started_at_unix_ms: u64,
-    pub finished_at_unix_ms: Option<u64>,
-    pub exit_code: Option<i32>,
-    pub error: Option<String>,
-    pub argument_count: usize,
-    pub profile_revision: String,
-    pub event_count: u64,
-    pub truncated: bool,
-}
-
-impl From<LegacyStoredRunState> for StoredRunState {
-    fn from(state: LegacyStoredRunState) -> Self {
-        Self {
-            schema: JOURNAL_STATE_SCHEMA.to_owned(),
-            id: state.id,
-            address: state.address,
-            source: state.source,
-            status: state.status,
-            started_at_unix_ms: state.started_at_unix_ms,
-            finished_at_unix_ms: state.finished_at_unix_ms,
-            exit_code: state.exit_code,
-            error: state.error,
-            argument_count: state.argument_count,
-            event_count: state.event_count,
-            truncated: state.truncated,
-        }
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct StoredRunEvent {

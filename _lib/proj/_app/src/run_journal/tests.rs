@@ -54,11 +54,11 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn run_ids_accept_new_global_and_legacy_storage_shapes() {
+fn run_ids_accept_only_the_current_storage_shape() {
     assert!(valid_run_id(
         "000000000000000018cc320bd7eaa8b8-00014b4c-0000000000000004"
     ));
-    assert!(valid_run_id("0000000000000001-00000001-0000000000000001"));
+    assert!(!valid_run_id("0000000000000001-00000001-0000000000000001"));
     assert!(!valid_run_id("../run"));
 }
 
@@ -93,7 +93,6 @@ fn publishes_append_only_events_and_an_atomic_terminal_state() {
     assert_eq!(state["status"], "exited");
     assert_eq!(state["exitCode"], 7);
     assert_eq!(state["eventCount"], 2);
-    assert!(state.get("profileRevision").is_none());
     assert!(state["finishedAtUnixMs"].as_u64().is_some());
     assert!(!fixture.owner_path(&id).exists());
 
@@ -113,7 +112,7 @@ fn publishes_append_only_events_and_an_atomic_terminal_state() {
 }
 
 #[test]
-fn reads_the_bounded_legacy_v1_state_without_republishing_profile_revision() {
+fn rejects_a_non_current_state_schema() {
     let fixture = Fixture::new();
     let journal = fixture.start(RunJournalSource::Cli);
     let id = journal.id().unwrap();
@@ -124,62 +123,14 @@ fn reads_the_bounded_legacy_v1_state_without_republishing_profile_revision() {
         .join(&id)
         .join(JOURNAL_STATE_FILE_NAME);
     let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
-    state["schema"] = Value::String(LEGACY_JOURNAL_STATE_SCHEMA.to_owned());
-    state["profileRevision"] = Value::String("sha256-legacy".to_owned());
-    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
-
-    let document = serde_json::to_value(
-        read_run(&fixture.root, ".fixture", &id, 0).expect("read legacy journal"),
-    )
-    .unwrap();
-
-    assert_eq!(document["protocol"], "swawkit.command-run-journal/v3");
-    assert!(document.get("profileRevision").is_none());
-}
-
-#[test]
-fn current_v2_state_strictly_rejects_the_retired_profile_revision() {
-    let fixture = Fixture::new();
-    let journal = fixture.start(RunJournalSource::Cli);
-    let id = journal.id().unwrap();
-    journal.finish_exited(0).unwrap();
-    let state_path = fixture
-        .root
-        .join(JOURNAL_DIRECTORY_NAME)
-        .join(&id)
-        .join(JOURNAL_STATE_FILE_NAME);
-    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
-    state["profileRevision"] = Value::String("sha256-retired".to_owned());
+    state["schema"] = Value::String("swawkit.command-run-journal/v1".to_owned());
     fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
 
     let error = read_run(&fixture.root, ".fixture", &id, 0).unwrap_err();
     assert!(
         error
             .to_string()
-            .contains("unknown field `profileRevision`")
-    );
-}
-
-#[test]
-fn legacy_v1_state_requires_its_profile_revision_evidence() {
-    let fixture = Fixture::new();
-    let journal = fixture.start(RunJournalSource::Cli);
-    let id = journal.id().unwrap();
-    journal.finish_exited(0).unwrap();
-    let state_path = fixture
-        .root
-        .join(JOURNAL_DIRECTORY_NAME)
-        .join(&id)
-        .join(JOURNAL_STATE_FILE_NAME);
-    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
-    state["schema"] = Value::String(LEGACY_JOURNAL_STATE_SCHEMA.to_owned());
-    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
-
-    let error = read_run(&fixture.root, ".fixture", &id, 0).unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("missing field `profileRevision`")
+            .contains("unsupported run journal state schema")
     );
 }
 
@@ -194,26 +145,6 @@ fn rejects_oversized_current_v2_state_before_parsing() {
         .join(JOURNAL_DIRECTORY_NAME)
         .join(&id)
         .join(JOURNAL_STATE_FILE_NAME);
-    pad_state_beyond_limit(&state_path);
-
-    assert_state_too_large(read_run(&fixture.root, ".fixture", &id, 0).unwrap_err());
-}
-
-#[test]
-fn rejects_oversized_legacy_v1_state_before_parsing() {
-    let fixture = Fixture::new();
-    let journal = fixture.start(RunJournalSource::Cli);
-    let id = journal.id().unwrap();
-    journal.finish_exited(0).unwrap();
-    let state_path = fixture
-        .root
-        .join(JOURNAL_DIRECTORY_NAME)
-        .join(&id)
-        .join(JOURNAL_STATE_FILE_NAME);
-    let mut state: Value = serde_json::from_slice(&fs::read(&state_path).unwrap()).unwrap();
-    state["schema"] = Value::String(LEGACY_JOURNAL_STATE_SCHEMA.to_owned());
-    state["profileRevision"] = Value::String("sha256-legacy".to_owned());
-    fs::write(&state_path, serde_json::to_vec(&state).unwrap()).unwrap();
     pad_state_beyond_limit(&state_path);
 
     assert_state_too_large(read_run(&fixture.root, ".fixture", &id, 0).unwrap_err());
@@ -296,7 +227,7 @@ fn rejects_v1_event_schema_at_the_storage_boundary() {
         .output(
             RunJournalPhase::Run,
             RunJournalStream::Stdout,
-            "legacy".to_owned(),
+            "obsolete".to_owned(),
         )
         .unwrap();
     journal.finish_exited(0).unwrap();
@@ -532,7 +463,7 @@ fn unpublished_work_and_owner_entries_are_not_journals() {
 }
 
 #[test]
-fn a_legacy_running_journal_without_an_owner_lease_is_not_guessed() {
+fn a_running_journal_without_an_owner_lease_is_reconciled_as_interrupted() {
     let fixture = Fixture::new();
     let journal = fixture.start(RunJournalSource::Cli);
     let id = journal.id().unwrap();
@@ -541,8 +472,10 @@ fn a_legacy_running_journal_without_an_owner_lease_is_not_guessed() {
 
     let document =
         serde_json::to_value(read_run(&fixture.root, ".fixture", &id, 0).unwrap()).unwrap();
-    assert_eq!(document["state"], "running");
-    assert_eq!(document["finishedAtUnixMs"], Value::Null);
+    assert_eq!(document["state"], "failed");
+    assert_eq!(document["error"], INTERRUPTED_ERROR);
+    assert!(document["finishedAtUnixMs"].as_u64().is_some());
+    assert!(!fixture.owner_path(&id).exists());
 }
 
 #[test]

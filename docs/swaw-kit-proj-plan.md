@@ -255,7 +255,7 @@ Manifest、解析结果与 Playbook 必须分层：`swawkit.module.json` 是作�
 - `Facet`：Subject 可浏览、投影或执行的能力。
 - `SubjectCollection`：某个 collection Facet 的解析结果。
 
-当前关键协议是 Catalog v19、SubjectCollection v3、Context v2、CommandCheck v2、CommandRunEvent v2、CommandRunJournal 查询文档 v3 与 Web live CommandRun v2；新写入的持久 Journal State 为 v2，保留严格、只读的 v1 解码边界，CommandRunHistory 保持 v1。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
+当前关键协议是 Catalog v19、SubjectCollection v3、Context v2、CommandCheck v2、CommandRunEvent v2、CommandRunJournal 查询文档 v3 与 Web live CommandRun v2；持久 Journal State 只接受 v2，旧 State、Event 与 Run ID 不提供兼容读取，CommandRunHistory 保持 v1。Command SubjectRef 使用 `space + namespace? + address`；动态对象使用 `{ type: instance, kind, id }`，例如 `::context/test`。
 
 Web 路由与身份一致：
 
@@ -311,7 +311,7 @@ CLI 与 Host RuntimeService 复用同一 Catalog、Entry Config、只读依赖�
 12. Rust、Web、Context、TypeScript 与关键 Launcher/CLI/进程树/Journal 黑盒回归。
 13. Host RuntimeService 直接执行 Core handler 与领域进程；Host Runtime/Status v3 以 `instanceKeySha256 + releaseId + bootId` 绑定 generation，Run 与无 Journal query 共用容量和 shutdown 生命周期，可取消的领域进程统一由 Job Object 监督。Launch v6 仅保留 `cli` 与 `internal-host` 两个 composition root，旧 Entry worker launch protocol 已硬删除。
 14. manager-only Entry lifecycle 已统一到 `EntryManager` v2：inventory/inspect、可重试 create 与同名显式 legacy migration 共用同一领域规则；规范 DataRoot 是实例地址，`launcher.json` 绑定目标名称与 Launcher 摘要并作为事务回执，不参与普通命令热路径。
-15. 全局 Profile 已 hard-cut 为可选 Entry Config v1 与 `.dev` 自有 Settings v1；Command Environment v3 不再投影 Profile/Dev revision 或工具声明，Journal 新写 State v2/公开查询 v3 删除孤立的 `profileRevision`。
+15. 全局 Profile 已 hard-cut 为可选 Entry Config v1 与 `.dev` 自有 Settings v1；Command Environment v3 不再投影 Profile/Dev revision 或工具声明，Journal State v2/公开查询 v3 不再保留旧 Profile 时代的兼容读取。
 
 后续按真实收益推进，而不是为“纯模块化”迁移一切：
 

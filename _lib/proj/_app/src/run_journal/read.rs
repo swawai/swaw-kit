@@ -11,8 +11,8 @@ use super::{
     RunJournalStatus,
     owner::{OwnerLeaseState, RunOwnerLease},
     storage::{
-        LegacyStoredRunState, StoredRunEvent, StoredRunState, assert_plain_directory,
-        assert_plain_file, publish_stored_state, read_stored_state,
+        StoredRunEvent, StoredRunState, assert_plain_directory, assert_plain_file,
+        publish_stored_state, read_stored_state,
     },
     unix_time_ms, valid_run_id,
 };
@@ -203,7 +203,7 @@ fn read_reconciled_state(
         return Ok(state);
     }
     let owner = match RunOwnerLease::try_acquire(run_root)? {
-        OwnerLeaseState::Active | OwnerLeaseState::Legacy => return Ok(state),
+        OwnerLeaseState::Active => return Ok(state),
         OwnerLeaseState::Acquired(owner) => owner,
     };
 
@@ -237,17 +237,10 @@ fn read_state(run_root: &Path, expected_id: &str, address: &str) -> io::Result<S
         schema: String,
     }
     let schema: SchemaProbe = serde_json::from_slice(&content).map_err(invalid)?;
-    let state: StoredRunState = match schema.schema.as_str() {
-        JOURNAL_STATE_SCHEMA => serde_json::from_slice(&content).map_err(invalid)?,
-        super::LEGACY_JOURNAL_STATE_SCHEMA => {
-            let legacy: LegacyStoredRunState = serde_json::from_slice(&content).map_err(invalid)?;
-            if legacy.profile_revision.is_empty() {
-                return Err(invalid("legacy run journal profileRevision is empty"));
-            }
-            legacy.into()
-        }
-        _ => return Err(invalid("unsupported run journal state schema")),
-    };
+    if schema.schema != JOURNAL_STATE_SCHEMA {
+        return Err(invalid("unsupported run journal state schema"));
+    }
+    let state: StoredRunState = serde_json::from_slice(&content).map_err(invalid)?;
     if state.schema != JOURNAL_STATE_SCHEMA || state.id != expected_id || state.address != address {
         return Err(invalid("run journal identity does not match its directory"));
     }
