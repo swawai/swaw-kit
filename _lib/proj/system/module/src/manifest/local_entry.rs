@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::EXECUTION_FILE;
 use crate::filesystem::is_reparse;
 
 const ENTRY_PROTOCOL: [&str; 5] = ["run.exe", "run.ts", "run.py", "run.ps1", "run.cmd"];
@@ -25,7 +26,7 @@ pub(super) fn resolve(directory: &Path) -> Result<Option<&'static str>, String> 
             .any(|name| file.name.eq_ignore_ascii_case(name))
     }) {
         return Err(format!(
-            "obsolete command entry '{}'; declare execution in swawkit.module.json",
+            "obsolete command entry '{}'; declare execution in {EXECUTION_FILE}",
             file.path.display()
         ));
     }

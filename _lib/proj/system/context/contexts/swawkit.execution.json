@@ -1,0 +1,9 @@
+{
+  "schema": "swawkit.facet-execution/v2",
+  "implementation": {
+    "type": "invoke",
+    "target": "$/system::context/subcommands::list/execute",
+    "arguments": ["--json"],
+    "returns": "swawkit.resource-list/v2"
+  }
+}

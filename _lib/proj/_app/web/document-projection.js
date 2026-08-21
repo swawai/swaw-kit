@@ -12,8 +12,8 @@ export function createDocumentProjectionView(elements, options = {}) {
   let requestVersion = 0;
   let selectedKey = null;
 
-  function subjectKey(subject) {
-    return subject?.canonicalRef ?? commandIdentityKey(subject);
+  function resourceKey(resource) {
+    return resource?.route ?? commandIdentityKey(resource);
   }
 
   function hideRenderers() {
@@ -22,9 +22,9 @@ export function createDocumentProjectionView(elements, options = {}) {
     }
   }
 
-  function showGeneric(subject, facet, state, message = "") {
+  function showGeneric(resource, facet, state, message = "") {
     elements.documentProjectionTitle.textContent = facet?.label ?? "";
-    elements.documentProjectionRef.textContent = subjectKey(subject);
+    elements.documentProjectionRef.textContent = resourceKey(resource);
     elements.documentProjectionProtocol.textContent = facet?.resolver?.returns ?? "";
     elements.documentProjectionFeedback.dataset.state = state;
     elements.documentProjectionFeedback.textContent = message;
@@ -42,15 +42,15 @@ export function createDocumentProjectionView(elements, options = {}) {
     elements.documentProjectionJson.hidden = true;
   }
 
-  async function load(subject, facet, version, key) {
+  async function load(resource, facet, version, key) {
     try {
-      const document_ = await resolveDocument(subject, facet);
+      const document_ = await resolveDocument(resource, facet);
       if (version !== requestVersion || selectedKey !== key) {
         return;
       }
       const renderer = renderers.get(facet.resolver.returns);
       if (renderer) {
-        renderer.render(subject, document_);
+        renderer.render(resource, document_);
         elements.documentProjectionPane.hidden = true;
         return;
       }
@@ -70,15 +70,15 @@ export function createDocumentProjectionView(elements, options = {}) {
     }
   }
 
-  function select(subject, facet) {
+  function select(resource, facet) {
     clear();
     if (facet?.kind !== "projection" || facet.resolver?.type !== "command") {
       return false;
     }
-    const key = `${subjectKey(subject)}#${facet.id}`;
+    const key = `${resourceKey(resource)}#${facet.id}`;
     selectedKey = key;
-    showGeneric(subject, facet, "", t("正在解析文档…", "Resolving document…"));
-    void load(subject, facet, requestVersion, key);
+    showGeneric(resource, facet, "", t("正在解析文档…", "Resolving document…"));
+    void load(resource, facet, requestVersion, key);
     return true;
   }
 

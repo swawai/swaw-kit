@@ -13,11 +13,7 @@ async fn rescans_the_catalog_on_each_request() {
     let before = catalog_document(app.clone()).await;
     assert!(command(&before, ".dynamic").is_none());
 
-    fixture.file(
-        "home/_lib/proj/system/dynamic/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/dynamic/run.ps1", "");
+    fixture.executable_resource("home/_lib/proj/system/dynamic", "run.ps1", "");
     let after = catalog_document(app).await;
     assert_eq!(
         command(&after, ".dynamic").and_then(|node| node["runnable"].as_bool()),
@@ -46,183 +42,39 @@ async fn returns_a_safe_error_when_catalog_discovery_fails() {
 }
 
 #[tokio::test]
-async fn serializes_the_complete_catalog_node_contract() {
+async fn serializes_the_resource_era_catalog_node_contract() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
+    fixture.resource("home/_lib/proj/system/dev");
+    fixture.subcommands("home/_lib/proj/system/dev");
     fixture.file(
-        "home/_lib/proj/system/dev/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
+        "home/_lib/proj/system/dev/subcommands/view/web.json",
+        r#"{"schema":"swawkit.view-source/web/v1","column":{"width":"wide","body":{"component":"resource-list","source":"facet-result"}}}"#,
     );
-    fixture.file("home/_lib/proj/system/dev/status/run.cmd", "");
-    fixture.file(
-        "home/_lib/proj/system/dev/status/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12","requires":[{"provider":".dev/setup","export":"environment"}],"provides":[{"id":"status"}]}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/system/dev/_view/web.json",
-        r#"{"schema":"swawkit.command-view/web/v4","childrenColumn":{"width":"wide"}}"#,
+    fixture.executable_resource(
+        "home/_lib/proj/system/dev/subcommands/status",
+        "run.cmd",
+        "",
     );
     fixture.file(
-        "home/_lib/proj/system/dev/status/_view/web.json",
-        r#"{"schema":"swawkit.command-view/web/v4","run":{"operations":[{"id":"preview","label":"Preview","arguments":[]},{"id":"apply","label":"Apply","arguments":["--apply"],"confirmation":"Confirm cleanup."}]}}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/system/dev/status/_help/zh-CN.txt",
+        "home/_lib/proj/system/dev/subcommands/status/_help/zh-CN.txt",
         "Show {{ADDRESS}}\nUse {{INVOCATION}}",
     );
-    fixture.file(
-        "home/_lib/proj/system/help/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/help/run.ps1", "");
-    fixture.file(
-        "home/_lib/proj/system/broken/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/broken/run.ps1", "");
-    fixture.file("home/_lib/proj/system/broken/run.cmd", "");
 
     let document = catalog_document(fixture.app()).await;
-    assert_eq!(
-        command(&document, ".dev").expect("group node"),
-        &json!({
-            "address": ".dev",
-            "space": "system",
-            "namespace": null,
-            "path": ["dev"],
-            "parent": "",
-            "aliasOf": null,
-            "runnable": false,
-            "entry": null,
-            "adapter": null,
-            "handler": null,
-            "product": null,
-            "module": {
-                "schema": "swawkit.command-module/v12",
-                "requires": [],
-                "provides": []
-            },
-            "help": null,
-            "subjectKinds": [],
-            "facets": [
-                {
-                    "id": "children",
-                    "kind": "collection",
-                    "renderer": "collection",
-                    "icon": "□",
-                    "label": "子命令",
-                    "summary": "浏览静态子命令",
-                    "resolver": {
-                        "type": "catalog",
-                        "relation": "children"
-                    }
-                },
-                {
-                    "id": "help",
-                    "kind": "operation",
-                    "renderer": "help",
-                    "icon": "?",
-                    "label": "帮助",
-                    "summary": "阅读命令说明",
-                    "resolver": {
-                        "type": "command",
-                        "address": ".help",
-                        "arguments": [".dev"]
-                    }
-                }
-            ],
-            "view": {
-                "childrenColumn": {
-                    "width": "wide"
-                }
-            },
-            "diagnostic": null
-        })
-    );
-    assert_eq!(
-        command(&document, ".dev/status").expect("runnable node"),
-        &json!({
-            "address": ".dev/status",
-            "space": "system",
-            "namespace": null,
-            "path": ["dev", "status"],
-            "parent": ".dev",
-            "aliasOf": null,
-            "runnable": true,
-            "entry": "run.cmd",
-            "adapter": "cmd",
-            "handler": null,
-            "product": null,
-            "module": {
-                "schema": "swawkit.command-module/v12",
-                "requires": [{
-                    "provider": ".dev/setup",
-                    "export": "environment"
-                }],
-                "provides": [{
-                    "id": "status"
-                }]
-            },
-            "help": {
-                "summary": "Show .dev/status",
-                "text": "Show .dev/status\nUse swawkit .dev/status"
-            },
-            "subjectKinds": [],
-            "facets": [
-                {
-                    "id": "help",
-                    "kind": "operation",
-                    "renderer": "help",
-                    "icon": "?",
-                    "label": "帮助",
-                    "summary": "阅读命令说明",
-                    "resolver": {
-                        "type": "command",
-                        "address": ".help",
-                        "arguments": [".dev/status"]
-                    }
-                },
-                {
-                    "id": "run",
-                    "kind": "operation",
-                    "renderer": "run",
-                    "icon": ">",
-                    "label": "执行",
-                    "summary": "设置参数并启动命令",
-                    "resolver": {
-                        "type": "command",
-                        "address": ".dev/status",
-                        "arguments": [],
-                        "acceptsTail": true
-                    }
-                }
-            ],
-            "view": {
-                "run": {
-                    "operations": [
-                        {
-                            "id": "preview",
-                            "label": "Preview",
-                            "arguments": []
-                        },
-                        {
-                            "id": "apply",
-                            "label": "Apply",
-                            "arguments": ["--apply"],
-                            "confirmation": "Confirm cleanup."
-                        }
-                    ]
-                }
-            },
-            "diagnostic": null
-        })
-    );
-    assert!(command(&document, ".h").is_none());
-    assert!(
-        command(&document, ".broken")
-            .and_then(|node| node["diagnostic"].as_str())
-            .is_some_and(|message| message.contains("multiple run entries"))
-    );
+    assert_eq!(document["protocol"], "swawkit.command-catalog/v24");
+    let group = command(&document, ".dev").expect("group node");
+    assert_eq!(group["runnable"], false);
+    assert!(group.get("module").is_none());
+    assert_eq!(group["facets"][0]["id"], "subcommands");
+    assert_eq!(group["facets"][0]["resolver"]["relation"], "subcommands");
+    assert!(group["facets"][0].get("view").is_none());
+
+    let status = command(&document, ".dev/status").expect("runnable node");
+    assert_eq!(status["entry"], "run.cmd");
+    assert_eq!(status["adapter"], "cmd");
+    assert_eq!(status["help"]["summary"], "Show .dev/status");
+    assert!(status.get("module").is_none());
     assert!(
         document["commands"]
             .as_array()

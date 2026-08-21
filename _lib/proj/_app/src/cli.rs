@@ -10,7 +10,10 @@ use swawkit_proj::{
     catalog::CatalogSnapshot,
     command::{CommandExecutionContext, CommandExecutor, CommandProcessMode, ConsoleCancellation},
     context::EntryContext,
-    core_command::{CoreCommandOutcome, check as core_check, help as core_help, runs as core_runs},
+    core_command::{
+        CoreCommandOutcome, check as core_check, facet_route as core_facet_route,
+        help as core_help, runs as core_runs, view as core_view,
+    },
     data_root::{ResolveDataRootRequest, ResolvedDataRoot, resolve_data_root},
     entry_config::EntryConfigStore,
 };
@@ -60,12 +63,43 @@ fn run_with_dependencies(
     let config_state = config_store.read();
     let snapshot = CatalogSnapshot::discover(context, config_state.ready())
         .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    let routed_argv = match core_facet_route::resolve(&snapshot, argv, context, resolved.path())
+        .map_err(|error| CliError::new(error.to_string()))?
+    {
+        None => None,
+        Some(core_facet_route::CliFacetRouteResolution::Document(outcome)) => {
+            return complete_core_command(outcome);
+        }
+        Some(core_facet_route::CliFacetRouteResolution::Invocation(argv)) => Some(argv),
+    };
+    let argv = routed_argv.as_deref().unwrap_or(argv);
+    if routed_argv.is_some() {
+        if let Some(exit_code) = control::dispatch_runtime(context, argv, &resolved)? {
+            return Ok(exit_code);
+        }
+        if let Some(exit_code) = entry_manager::dispatch(context, argv)? {
+            return Ok(exit_code);
+        }
+        if core_check::is_invocation(argv) {
+            let outcome = core_check::execute(&snapshot, argv, context, resolved.path())
+                .map_err(|error| CliError::new(error.to_string()))?
+                .ok_or_else(|| {
+                    CliError::new("Catalog invariant failed: routed .check was not dispatched")
+                })?;
+            return complete_core_command(outcome);
+        }
+    }
     if let Some(outcome) =
         core_help::execute(&snapshot, argv).map_err(|error| CliError::new(error.to_string()))?
     {
         return complete_core_command(outcome);
     }
     if let Some(outcome) = core_runs::execute(&snapshot, argv, resolved.path())
+        .map_err(|error| CliError::new(error.to_string()))?
+    {
+        return complete_core_command(outcome);
+    }
+    if let Some(outcome) = core_view::execute(&snapshot, argv, context, resolved.path())
         .map_err(|error| CliError::new(error.to_string()))?
     {
         return complete_core_command(outcome);

@@ -39,8 +39,8 @@ describe("document projection view", () => {
     const command = { address: ".report", space: "system" };
     const facet = projection();
     const view = createDocumentProjectionView(nodes, {
-      async resolveDocument(subject, selectedFacet) {
-        calls.push([subject, selectedFacet]);
+      async resolveDocument(resource, selectedFacet) {
+        calls.push([resource, selectedFacet]);
         return { protocol: "fixture.report/v1", value: 17 };
       },
     });
@@ -62,9 +62,8 @@ describe("document projection view", () => {
     const nodes = elements();
     const rendered = [];
     const hidden = [];
-    const subject = {
-      canonicalRef: "::context/test",
-      ref: { id: "test", kind: "context", type: "instance" },
+    const resource = {
+      route: "$/system::context/contexts::test",
     };
     const document = { id: "test", schema: CONTEXT_PROTOCOL };
     const view = createDocumentProjectionView(nodes, {
@@ -76,11 +75,11 @@ describe("document projection view", () => {
       async resolveDocument() { return document; },
     });
 
-    view.select(subject, projection(CONTEXT_PROTOCOL));
+    view.select(resource, projection(CONTEXT_PROTOCOL));
     await flush();
 
     expect(hidden.length).toBeGreaterThan(0);
-    expect(rendered).toEqual([[subject, document]]);
+    expect(rendered).toEqual([[resource, document]]);
     expect(nodes.documentProjectionPane.hidden).toBeTrue();
   });
 
@@ -88,8 +87,8 @@ describe("document projection view", () => {
     const nodes = elements();
     const pending = new Map();
     const view = createDocumentProjectionView(nodes, {
-      resolveDocument(subject) {
-        return new Promise((resolve) => pending.set(subject.address, resolve));
+      resolveDocument(resource) {
+        return new Promise((resolve) => pending.set(resource.address, resolve));
       },
     });
     const facet = projection();

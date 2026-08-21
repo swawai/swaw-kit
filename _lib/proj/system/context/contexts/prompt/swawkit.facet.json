@@ -1,0 +1,9 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "operation",
+  "presentation": {
+    "icon": "*",
+    "label": { "zh-CN": "设置提示", "en": "Set prompt" },
+    "summary": { "zh-CN": "设置 Context 的最终提示", "en": "Set the final Context prompt" }
+  }
+}

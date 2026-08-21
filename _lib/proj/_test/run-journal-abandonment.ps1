@@ -216,8 +216,8 @@ try {
     $ActionAddress = 'abandon-journal'
     $CommandAddress = "project/$ActionAddress"
     $ActionRoot = Join-Path $Runtime.Home ".swaw\$ActionAddress"
-    Add-ProjFixtureCommandManifest -CommandRoot $ActionRoot
-    $ActionPath = Join-Path $ActionRoot 'run.exe'
+    $ActionExecute = Add-ProjFixtureCommandResource -CommandRoot $ActionRoot
+    $ActionPath = Join-Path $ActionExecute 'run.exe'
     New-ProjJournalAbandonmentAction -OutputAssembly $ActionPath
 
     $Bound = Invoke-ProjJournalEntry `

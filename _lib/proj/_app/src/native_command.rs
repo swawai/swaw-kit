@@ -128,12 +128,6 @@ fn execution_contract_command(
     command: &CommandNode,
     owner: &str,
 ) -> Result<ExecutionContractCommand, String> {
-    let module = command.module.as_ref().ok_or_else(|| {
-        format!(
-            "native release member '{}' has no canonical module contract",
-            command.address
-        )
-    })?;
     let execution = match command.adapter.as_deref() {
         Some("native") if command.address == owner => ExecutionSemantics::Native,
         Some("delegate") if command.native_owner.as_deref() == Some(owner) => {
@@ -151,8 +145,8 @@ fn execution_contract_command(
     Ok(ExecutionContractCommand {
         address: command.address.clone(),
         execution,
-        requires: module.requires.iter().cloned().collect(),
-        provides: module.provides.iter().cloned().collect(),
+        requires: command.requirements.clone(),
+        provides: command.provisions.clone(),
     })
 }
 

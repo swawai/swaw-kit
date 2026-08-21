@@ -1,8 +1,8 @@
 SWAW Kit is a portable development and project-control Entry bound to a project directory.
 
-The command directory is the command address. Every runnable command directory contains exactly one supported run.* entry, and Proj Core derives the Catalog from the real directory tree.
+A swawkit.resource.json marker declares a static Command Resource, and a subcommands Collection Facet owns its child Resources. Proj Core projects that declaration tree into canonical command addresses and derives the Catalog directly from it. A runnable Resource exposes one execute Operation Facet with exactly one local run.* entry or execution declaration.
 
-Commands identify required Provider Exports and their own named Exports in swawkit.module.json. Inspect static publication readiness with the read-only command:
+Resources publish named Exports through swawkit.exports.json. An execute Facet identifies its required Provider Exports through swawkit.requirements.json. Inspect static publication readiness with the read-only command:
   {{COMMAND}} .check <command-address> [--json]
 
 `.check` reports whether the command entry and its declared Provider publications are statically ready. Normal execution repeats the same read-only dependency assertion before the Journal and target process. Checks never install, build, repair, or execute domain code; each Consumer owns validation of the payload it actually uses.

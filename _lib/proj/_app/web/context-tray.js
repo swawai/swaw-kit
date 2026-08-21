@@ -13,14 +13,14 @@ import { isRuntimeGenerationCode } from "./runtime-generation.js";
 
 const TERMINAL_STATES = new Set(["exited", "canceled", "failed"]);
 
-async function completeOperation(address, arguments_) {
-  let snapshot = await startCommandRun(address, arguments_);
+async function completeOperation(route, arguments_) {
+  let snapshot = await startCommandRun(route, arguments_);
   while (!TERMINAL_STATES.has(snapshot.state)) {
     await new Promise((resolve) => setTimeout(resolve, 100));
     snapshot = await readCommandRun(snapshot.id, snapshot.nextCursor);
   }
   if (snapshot.state !== "exited" || snapshot.exitCode !== 0) {
-    throw new Error(snapshot.error || `${address} exited with code ${snapshot.exitCode ?? "unknown"}.`);
+    throw new Error(snapshot.error || `${route} exited with code ${snapshot.exitCode ?? "unknown"}.`);
   }
   return snapshot;
 }
@@ -28,7 +28,7 @@ async function completeOperation(address, arguments_) {
 export function createContextTrayView(elements, options) {
   const executeOperation = options.executeOperation ?? completeOperation;
   const loadDocument = options.loadDocument;
-  const loadSubject = options.loadSubject;
+  const loadResource = options.loadResource;
   const onPinnedChange = options.onPinnedChange ?? (() => {});
   const onRuntimeUpdateRequired = options.onRuntimeUpdateRequired ?? (() => {});
   const renderFields = options.renderFields ?? renderContextFields;
@@ -36,7 +36,7 @@ export function createContextTrayView(elements, options) {
   let currentCommand = null;
   let pinnedDocument = null;
   let pinnedRecord = null;
-  let pinnedSubject = null;
+  let pinnedResource = null;
   let version = 0;
   let working = false;
 
@@ -72,7 +72,7 @@ export function createContextTrayView(elements, options) {
   }
 
   function updateAdd() {
-    const invocation = contextAddInvocation(pinnedSubject, currentCommand, pinnedDocument);
+    const invocation = contextAddInvocation(pinnedResource, currentCommand, pinnedDocument);
     const present = invocation?.state === "present";
     elements.contextTrayCommand.textContent = currentCommand?.address ?? "—";
     elements.contextTrayAdd.disabled = working || invocation?.state !== "available";
@@ -81,23 +81,23 @@ export function createContextTrayView(elements, options) {
     return invocation;
   }
 
-  function render(subject, payload) {
-    const document_ = createContextProjection(payload, subject.ref.id);
+  function render(resource, payload) {
+    const document_ = createContextProjection(payload, resource.identity.id);
     pinnedDocument = document_;
-    pinnedSubject = subject;
-    elements.contextTrayTitle.textContent = subject.label;
-    elements.contextTrayRef.textContent = subject.canonicalRef;
-    elements.contextTraySummary.textContent = subject.summary;
+    pinnedResource = resource;
+    elements.contextTrayTitle.textContent = resource.label;
+    elements.contextTrayRef.textContent = resource.route;
+    elements.contextTraySummary.textContent = resource.summary;
     renderFields(fields, document_);
     elements.contextTray.hidden = false;
     updateAdd();
-    onPinnedChange(subject.canonicalRef);
+    onPinnedChange(resource.route);
   }
 
   function clear({ removeStored = true } = {}) {
     pinnedDocument = null;
     pinnedRecord = null;
-    pinnedSubject = null;
+    pinnedResource = null;
     elements.contextTray.hidden = true;
     setFeedback();
     if (removeStored) {
@@ -112,30 +112,30 @@ export function createContextTrayView(elements, options) {
   }
 
   async function resolveRecord(record, expectedVersion) {
-    const subject = await loadSubject(record);
+    const resource = await loadResource(record);
     if (expectedVersion !== version) {
       return false;
     }
-    if (!subject) {
+    if (!resource) {
       clear();
       return false;
     }
-    const payload = await loadDocument(subject);
+    const payload = await loadDocument(resource);
     if (expectedVersion !== version) {
       return false;
     }
     pinnedRecord = record;
-    render(subject, payload);
+    render(resource, payload);
     return true;
   }
 
-  async function pin(subject, payload) {
-    const record = createPinnedContextRecord(subject);
+  async function pin(resource, payload) {
+    const record = createPinnedContextRecord(resource);
     version += 1;
     pinnedRecord = record;
     writeStorage(record);
     setFeedback();
-    render(subject, payload);
+    render(resource, payload);
   }
 
   async function restore() {
@@ -193,7 +193,7 @@ export function createContextTrayView(elements, options) {
     setFeedback(t("正在加入命令…", "Adding command…"), "working");
     updateAdd();
     try {
-      await executeOperation(invocation.address, invocation.arguments);
+      await executeOperation(invocation.route, invocation.arguments);
       if (pinnedRecord !== targetRecord) {
         return true;
       }
@@ -228,7 +228,7 @@ export function createContextTrayView(elements, options) {
   }
 
   function operationCompleted(address) {
-    if (pinnedSubject?.facets.some((facet) => facet.resolver?.address === address)) {
+    if (pinnedResource?.facets.some((facet) => facet.resolver?.address === address)) {
       void refresh();
     }
   }

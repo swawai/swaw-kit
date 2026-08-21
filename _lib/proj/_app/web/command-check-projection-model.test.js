@@ -83,15 +83,15 @@ describe("Command check projection model", () => {
   });
 
   test("rejects internally inconsistent dependency readiness", () => {
-    const subject = { address: ".tool", space: "system" };
+    const commandResource = { address: ".tool", space: "system" };
     expect(() => createCommandCheckProjection(document({
       dependencies: [dependency({ status: "state-missing" })],
-    }), subject)).toThrow("status");
+    }), commandResource)).toThrow("status");
     expect(() => createCommandCheckProjection(document({
       dependencies: [dependency({
         dependencies: [dependency({ ready: false, status: "state-missing" })],
       })],
-    }), subject)).toThrow("子依赖");
+    }), commandResource)).toThrow("子依赖");
   });
 
   test("preserves the export-not-declared dependency status", () => {

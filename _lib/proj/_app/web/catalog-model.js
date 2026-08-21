@@ -1,13 +1,10 @@
 import { t } from "./i18n.js";
 import { normalizeFacets as normalizeFacetDocuments } from "./facet-model.js";
-import { normalizeSubjectKinds } from "./subject-kind-model.js";
-import {
-  normalizeCommandIdentity,
-  sameCommandIdentity,
-} from "./command-identity.js";
+import { normalizeResourceKinds } from "./resource-kind-model.js";
+import { normalizeCommandIdentity } from "./command-identity.js";
+import { canonicalFacetRoute, commandResourceRoute } from "./resource-route.js";
 
-const CATALOG_PROTOCOL = "swawkit.command-catalog/v20";
-const MODULE_PROTOCOL = "swawkit.command-module/v12";
+const CATALOG_PROTOCOL = "swawkit.command-catalog/v24";
 const RUNTIME_OWNERS = {
   dev: new Set([
     ".dev/settings",
@@ -39,14 +36,6 @@ function requireObject(value, field) {
   return value;
 }
 
-function requireExactKeys(value, field, expected) {
-  const actual = Object.keys(value).sort();
-  const normalized = [...expected].sort();
-  if (actual.join("\n") !== normalized.join("\n")) {
-    throw contractError(`${field} must contain exactly: ${normalized.join(", ")}.`);
-  }
-}
-
 function requireString(value, field, { allowEmpty = true } = {}) {
   if (
     typeof value !== "string"
@@ -74,180 +63,6 @@ function normalizeHelp(value, index) {
     summary: requireString(help.summary, `commands[${index}].help.summary`),
     text: requireString(help.text, `commands[${index}].help.text`),
   };
-}
-
-function normalizeExecution(value, field) {
-  if (value === undefined) {
-    return null;
-  }
-  const execution = requireObject(value, `${field}.execution`);
-  if (execution.type === "core") {
-    return {
-      type: execution.type,
-      handler: requireString(
-        execution.handler,
-        `${field}.execution.handler`,
-        { allowEmpty: false },
-      ),
-    };
-  }
-  if (execution.type === "runtime") {
-    return {
-      type: "runtime",
-      product: requireString(
-        execution.product,
-        `${field}.execution.product`,
-        { allowEmpty: false },
-      ),
-    };
-  }
-  if (execution.type === "native") {
-    return { type: "native" };
-  }
-  if (execution.type !== "delegate") {
-    throw contractError(
-      `${field}.execution.type must be core, runtime, native, or delegate.`,
-    );
-  }
-  const owner = requireObject(execution.owner, `${field}.execution.owner`);
-  if (owner.type !== "command") {
-    throw contractError(`${field}.execution.owner.type must be command.`);
-  }
-  const identity = normalizeCommandIdentity(
-    owner,
-    `${field}.execution.owner`,
-    contractError,
-  );
-  return {
-    type: "delegate",
-    owner: {
-      type: "command",
-      space: identity.space,
-      namespace: identity.namespace,
-      address: identity.address,
-    },
-  };
-}
-
-function normalizeModule(value, index) {
-  if (value === null) {
-    return null;
-  }
-  const field = `commands[${index}].module`;
-  const module = requireObject(value, field);
-  if (module.schema !== MODULE_PROTOCOL) {
-    throw contractError(`${field}.schema 必须是 ${MODULE_PROTOCOL}。`);
-  }
-  if (!Array.isArray(module.requires) || !Array.isArray(module.provides)) {
-    throw contractError(`${field} 必须包含 requires 和 provides 数组。`);
-  }
-  const execution = normalizeExecution(module.execution, field);
-  const requires = module.requires.map((raw, requirementIndex) => {
-    const requirementField = `${field}.requires[${requirementIndex}]`;
-    const requirement = requireObject(raw, requirementField);
-    requireExactKeys(requirement, requirementField, ["export", "provider"]);
-    return {
-      export: requireString(requirement.export, `${requirementField}.export`, {
-        allowEmpty: false,
-      }),
-      provider: requireString(requirement.provider, `${requirementField}.provider`, {
-        allowEmpty: false,
-      }),
-    };
-  });
-  const provides = module.provides.map((raw, provisionIndex) => {
-    const provisionField = `${field}.provides[${provisionIndex}]`;
-    const provision = requireObject(raw, provisionField);
-    requireExactKeys(provision, provisionField, ["id"]);
-    return {
-      id: requireString(provision.id, `${provisionField}.id`, { allowEmpty: false }),
-    };
-  });
-  return { execution, provides, requires, schema: MODULE_PROTOCOL };
-}
-
-function normalizeView(value, index) {
-  if (value === null) {
-    return null;
-  }
-  const view = requireObject(value, `commands[${index}].view`);
-  let width = "normal";
-  if (view.childrenColumn !== undefined) {
-    const childrenColumn = requireObject(
-      view.childrenColumn,
-      `commands[${index}].view.childrenColumn`,
-    );
-    width = requireString(
-      childrenColumn.width,
-      `commands[${index}].view.childrenColumn.width`,
-      { allowEmpty: false },
-    );
-    if (!new Set(["normal", "wide"]).has(width)) {
-      throw contractError(
-        `commands[${index}].view.childrenColumn.width 只能是 normal 或 wide。`,
-      );
-    }
-  }
-
-  let runOperations = [];
-  if (view.run !== undefined) {
-    const run = requireObject(view.run, `commands[${index}].view.run`);
-    if (
-      !Array.isArray(run.operations)
-      || run.operations.length === 0
-      || run.operations.length > 8
-    ) {
-      throw contractError(
-        `commands[${index}].view.run.operations 必须包含 1 至 8 个操作。`,
-      );
-    }
-    const identifiers = new Set();
-    runOperations = run.operations.map((rawOperation, operationIndex) => {
-      const field = `commands[${index}].view.run.operations[${operationIndex}]`;
-      const operation = requireObject(rawOperation, field);
-      const id = requireString(operation.id, `${field}.id`, { allowEmpty: false });
-      if (!/^[a-z][a-z0-9-]{0,31}$/.test(id) || identifiers.has(id)) {
-        throw contractError(`${field}.id 必须唯一并匹配 [a-z][a-z0-9-]{0,31}。`);
-      }
-      identifiers.add(id);
-      const label = requireString(operation.label, `${field}.label`, {
-        allowEmpty: false,
-      });
-      if (label.trim() !== label || label.length > 64) {
-        throw contractError(`${field}.label 必须是 1 至 64 个字符的无首尾空白文本。`);
-      }
-      if (
-        !Array.isArray(operation.arguments)
-        || operation.arguments.length > 32
-        || operation.arguments.some((argument) => (
-          typeof argument !== "string" || argument.length > 4096
-        ))
-      ) {
-        throw contractError(`${field}.arguments 必须是最多 32 项的字符串数组。`);
-      }
-      let confirmation = null;
-      if (operation.confirmation !== undefined) {
-        confirmation = requireString(operation.confirmation, `${field}.confirmation`, {
-          allowEmpty: false,
-        });
-        if (confirmation.trim() !== confirmation || confirmation.length > 500) {
-          throw contractError(
-            `${field}.confirmation 必须是 1 至 500 个字符的无首尾空白文本。`,
-          );
-        }
-      }
-      return {
-        arguments: [...operation.arguments],
-        confirmation,
-        id,
-        label,
-      };
-    });
-  }
-  if (view.childrenColumn === undefined && view.run === undefined) {
-    throw contractError(`commands[${index}].view 必须声明 childrenColumn 或 run。`);
-  }
-  return { childrenColumnWidth: width, runOperations };
 }
 
 function normalizeCommand(value, index) {
@@ -288,32 +103,6 @@ function normalizeCommand(value, index) {
   }
 
   const help = normalizeHelp(command.help, index);
-  const module = normalizeModule(command.module, index);
-  const declaredAdapter = module?.execution?.type ?? null;
-  const routedAdapters = new Set(["core", "runtime", "native", "delegate"]);
-  const executionMismatch = routedAdapters.has(adapter)
-    ? declaredAdapter !== adapter
-    : adapter !== null
-      ? declaredAdapter !== null
-      : declaredAdapter !== null && issue === null;
-  if (executionMismatch) {
-    throw contractError(
-      `${field("adapter")} must match the command's module execution declaration.`,
-    );
-  }
-  if (
-    adapter === "core"
-    && module.execution.handler !== handler
-  ) {
-    throw contractError(
-      `${field("handler")} must match the module execution declaration.`,
-    );
-  }
-  if (adapter === "runtime" && module.execution.product !== product) {
-    throw contractError(
-      `${field("product")} must match the module execution declaration.`,
-    );
-  }
   if (
     adapter === "runtime"
     && (space !== "system" || !RUNTIME_OWNERS[product]?.has(address))
@@ -322,15 +111,14 @@ function normalizeCommand(value, index) {
       `${field("product")} runtime product is not valid for this System command.`,
     );
   }
-  const view = normalizeView(command.view, index);
   const facets = normalizeFacetDocuments(
     command.facets,
     `commands[${index}].facets`,
     contractError,
   );
-  const subjectKinds = normalizeSubjectKinds(
-    command.subjectKinds,
-    `commands[${index}].subjectKinds`,
+  const resourceKinds = normalizeResourceKinds(
+    command.resourceKinds,
+    `commands[${index}].resourceKinds`,
     contractError,
   );
   return {
@@ -338,22 +126,19 @@ function normalizeCommand(value, index) {
     address,
     adapter: adapter ?? "",
     aliasOf: nullableString(command.aliasOf, field("aliasOf")),
-    childrenColumnWidth: view?.childrenColumnWidth ?? "normal",
     entry: entry ?? "",
     help: help?.text ?? "",
     handler: handler ?? "",
     issue: issue ?? "",
-    module,
     namespace,
     parent: nullableString(command.parent, field("parent"), {
       allowEmpty: true,
     }),
     path,
     product: product ?? "",
-    runOperations: view?.runOperations ?? [],
     runnable: command.runnable,
     space,
-    subjectKinds,
+    resourceKinds,
     summary: help?.summary ?? "",
   };
 }
@@ -377,7 +162,7 @@ export function createCatalog(document) {
   }
 
   const commandByAddress = new Map();
-  const subjectKindByKind = new Map();
+  const resourceKindBySource = new Map();
   const seenAddresses = new Set();
   for (const [index, rawCommand] of payload.commands.entries()) {
     const command = normalizeCommand(rawCommand, index);
@@ -389,28 +174,23 @@ export function createCatalog(document) {
     if (command.address && !command.aliasOf) {
       commandByAddress.set(command.address, command);
     }
-    for (const subjectKind of command.subjectKinds) {
-      if (subjectKindByKind.has(subjectKind.kind)) {
-        throw contractError(`Subject kind ${subjectKind.kind} is declared more than once.`);
+    for (const resourceKind of command.resourceKinds) {
+      const source = canonicalFacetRoute(resourceKind.source);
+      if (resourceKindBySource.has(source)) {
+        throw contractError(`Resource Kind source ${source} is declared more than once.`);
       }
-      subjectKindByKind.set(subjectKind.kind, { command, subjectKind });
+      resourceKindBySource.set(source, { command, resourceKind });
     }
   }
 
   for (const command of commandByAddress.values()) {
     for (const facet of command.facets) {
       if (
-        facet.subjectKind !== null
-        && (
-          !subjectKindByKind.has(facet.subjectKind.kind)
-          || !sameCommandIdentity(
-            subjectKindByKind.get(facet.subjectKind.kind).command,
-            facet.subjectKind.provider,
-          )
-        )
+        facet.resourceKind !== null
+        && !resourceKindBySource.has(canonicalFacetRoute(facet.resourceKind.source))
       ) {
         throw contractError(
-          `${command.address}.facets.${facet.id} references an unavailable Subject kind.`,
+          `${command.address}.facets.${facet.id} references an unavailable Resource Kind.`,
         );
       }
       if (facet.resolver?.type !== "command") {
@@ -435,8 +215,8 @@ export function createCatalog(document) {
         );
       }
     }
-    for (const subjectKind of command.subjectKinds) {
-      for (const facet of subjectKind.facets) {
+    for (const resourceKind of command.resourceKinds) {
+      for (const facet of resourceKind.facets) {
         const target = commandByAddress.get(facet.resolver.address);
         if (
           !target
@@ -445,11 +225,20 @@ export function createCatalog(document) {
           || target.aliasOf
         ) {
           throw contractError(
-            `${command.address}.subjectKinds.${subjectKind.kind}.${facet.id} has an invalid resolver target.`,
+            `${command.address}.resourceKinds.${resourceKind.kind}.${facet.id} has an invalid resolver target.`,
           );
         }
       }
     }
+  }
+
+  const commandByResourceRoute = new Map();
+  for (const command of commandByAddress.values()) {
+    const route = commandResourceRoute(command);
+    if (commandByResourceRoute.has(route)) {
+      throw contractError(`Resource Route ${route} is declared more than once.`);
+    }
+    commandByResourceRoute.set(route, command);
   }
 
   const childrenByParent = new Map();
@@ -471,6 +260,7 @@ export function createCatalog(document) {
   return {
     childrenByParent,
     commandByAddress,
+    commandByResourceRoute,
     commands: [...commandByAddress.values()],
     entryName,
     language,
@@ -480,7 +270,7 @@ export function createCatalog(document) {
     }),
     protocol: CATALOG_PROTOCOL,
     roots,
-    subjectKindByKind,
+    resourceKindBySource,
   };
 }
 

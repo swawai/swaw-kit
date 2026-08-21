@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::catalog::{CatalogSnapshot, CommandNode, CommandSpace, ModuleRequirement};
+use crate::catalog::{CatalogSnapshot, CommandNode, CommandRequirement, CommandSpace};
 
 mod publication;
 
@@ -109,14 +109,10 @@ fn evaluate_dependencies(
     snapshot: &CatalogSnapshot,
     target: &CommandNode,
 ) -> Result<Vec<DependencyCheck>, String> {
-    let requirements = target
-        .module
-        .as_ref()
-        .map(|module| module.requires.as_slice())
-        .unwrap_or_default();
     let mut active = BTreeSet::from([target.address.clone()]);
     let mut budget = DependencyBudget::default();
-    requirements
+    target
+        .requirements
         .iter()
         .map(|requirement| {
             evaluate_dependency(
@@ -136,7 +132,7 @@ fn evaluate_dependency(
     data_root: &Path,
     entry_name: &str,
     snapshot: &CatalogSnapshot,
-    requirement: &ModuleRequirement,
+    requirement: &CommandRequirement,
     depth: usize,
     active: &mut BTreeSet<String>,
     budget: &mut DependencyBudget,
@@ -161,12 +157,10 @@ fn evaluate_dependency(
             "provider command is absent from the Catalog",
         ));
     };
-    let declared = provider.module.as_ref().is_some_and(|module| {
-        module
-            .provides
-            .iter()
-            .any(|provision| provision.id == requirement.export)
-    });
+    let declared = provider
+        .provisions
+        .iter()
+        .any(|provision| provision.id == requirement.export);
     if !declared {
         active.remove(&requirement.provider);
         return Ok(dependency_failure(
@@ -178,27 +172,20 @@ fn evaluate_dependency(
 
     let publication = inspect_publication(data_root, entry_name, provider);
     let dependencies = provider
-        .module
-        .as_ref()
-        .map(|module| {
-            module
-                .requires
-                .iter()
-                .map(|child| {
-                    evaluate_dependency(
-                        data_root,
-                        entry_name,
-                        snapshot,
-                        child,
-                        depth + 1,
-                        active,
-                        budget,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()
+        .requirements
+        .iter()
+        .map(|child| {
+            evaluate_dependency(
+                data_root,
+                entry_name,
+                snapshot,
+                child,
+                depth + 1,
+                active,
+                budget,
+            )
         })
-        .transpose()?
-        .unwrap_or_default();
+        .collect::<Result<Vec<_>, _>>()?;
     active.remove(&requirement.provider);
 
     let dependencies_ready = dependencies.iter().all(|dependency| dependency.ready);
@@ -262,7 +249,7 @@ struct DependencyBudget {
 }
 
 impl DependencyBudget {
-    fn consume(&mut self, requirement: &ModuleRequirement, depth: usize) -> Result<(), String> {
+    fn consume(&mut self, requirement: &CommandRequirement, depth: usize) -> Result<(), String> {
         if depth > MAX_DEPENDENCY_DEPTH {
             return Err(format!(
                 "command dependency depth exceeds maximum {MAX_DEPENDENCY_DEPTH} at '{}#{}'",
@@ -339,7 +326,7 @@ fn resolve_target<'a>(
 }
 
 fn dependency_failure(
-    requirement: &ModuleRequirement,
+    requirement: &CommandRequirement,
     status: &str,
     message: &str,
 ) -> DependencyCheck {

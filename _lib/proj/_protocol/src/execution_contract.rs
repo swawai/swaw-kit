@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    COMMAND_ENVIRONMENT_PROTOCOL, CommandIdentity, ModuleProvision, ModuleRequirement,
-    ProtocolError, ProtocolResult, revision, validate_module_provisions,
-    validate_module_requirements,
+    COMMAND_ENVIRONMENT_PROTOCOL, CommandIdentity, CommandProvision, CommandRequirement,
+    ProtocolError, ProtocolResult, revision, validate_command_provisions,
+    validate_command_requirements,
 };
 
 pub const EXECUTION_CONTRACT_SCHEMA: &str = "swawkit.native-command-execution-contract/v4";
@@ -20,8 +20,8 @@ pub enum ExecutionSemantics {
 pub struct ExecutionContractCommand {
     pub address: String,
     pub execution: ExecutionSemantics,
-    pub requires: Vec<ModuleRequirement>,
-    pub provides: Vec<ModuleProvision>,
+    pub requires: Vec<CommandRequirement>,
+    pub provides: Vec<CommandProvision>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -131,8 +131,8 @@ impl ExecutionContract {
     }
 }
 
-fn validate_requirements(values: &[ModuleRequirement]) -> ProtocolResult<()> {
-    validate_module_requirements(values)?;
+fn validate_requirements(values: &[CommandRequirement]) -> ProtocolResult<()> {
+    validate_command_requirements(values)?;
     if values
         .windows(2)
         .any(|pair| (&pair[0].provider, &pair[0].export) >= (&pair[1].provider, &pair[1].export))
@@ -144,8 +144,8 @@ fn validate_requirements(values: &[ModuleRequirement]) -> ProtocolResult<()> {
     Ok(())
 }
 
-fn validate_provisions(values: &[ModuleProvision]) -> ProtocolResult<()> {
-    validate_module_provisions(values)?;
+fn validate_provisions(values: &[CommandProvision]) -> ProtocolResult<()> {
+    validate_command_provisions(values)?;
     if values.windows(2).any(|pair| pair[0].id >= pair[1].id) {
         return Err(ProtocolError::new(
             "execution contract provisions are not canonical",
@@ -219,11 +219,11 @@ mod tests {
     #[test]
     fn dependency_identity_has_no_generic_contract_field() {
         let mut owner = member("swaw/context", ExecutionSemantics::Native);
-        owner.requires.push(ModuleRequirement {
+        owner.requires.push(CommandRequirement {
             provider: ".dev/setup".to_owned(),
             export: "environment".to_owned(),
         });
-        owner.provides.push(ModuleProvision {
+        owner.provides.push(CommandProvision {
             id: "context".to_owned(),
         });
         let contract = ExecutionContract::new("swaw/context", vec![owner]).unwrap();

@@ -2,135 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { createCatalog } from "./catalog-model.js";
 import { node, payload } from "./catalog-model-fixture.js";
 
-describe("Catalog v20 module declarations", () => {
-  test("normalizes declared module requirements and provisions", () => {
+describe("Catalog v24 runtime facts", () => {
+  test("does not expose an authoring manifest projection", () => {
     const catalog = createCatalog(payload([
-      node(".consumer", {
-        module: {
-          schema: "swawkit.command-module/v12",
-          requires: [{
-            provider: ".provider",
-            export: "fixture",
-          }],
-          provides: [{ id: "consumer" }],
-        },
-      }),
-    ]));
-    expect(catalog.commandByAddress.get(".consumer").module).toEqual({
-      schema: "swawkit.command-module/v12",
-      execution: null,
-      requires: [{
-        provider: ".provider",
-        export: "fixture",
-      }],
-      provides: [{ id: "consumer" }],
-    });
-  });
-
-  test("normalizes explicit System delegated execution", () => {
-    const catalog = createCatalog(payload([
-      node(".context/add", {
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "delegate",
-        module: {
-          schema: "swawkit.command-module/v12",
-          execution: {
-            type: "delegate",
-            owner: {
-              type: "command",
-              space: "system",
-              address: ".context",
-            },
-          },
-          requires: [],
-          provides: [],
-        },
-      }),
+      node(".consumer"),
     ]));
 
-    expect(catalog.commandByAddress.get(".context/add").module.execution).toEqual({
-      type: "delegate",
-      owner: {
-        type: "command",
-        space: "system",
-        namespace: null,
-        address: ".context",
-      },
-    });
-  });
-
-  test("keeps ordinary Module delegated execution", () => {
-    const catalog = createCatalog(payload([
-      node("acme/build/inspect", {
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "delegate",
-        module: {
-          schema: "swawkit.command-module/v12",
-          execution: {
-            type: "delegate",
-            owner: {
-              type: "command",
-              space: "module",
-              namespace: "acme",
-              address: "acme/build",
-            },
-          },
-          requires: [],
-          provides: [],
-        },
-      }),
-    ]));
-
-    expect(catalog.commandByAddress.get("acme/build/inspect").module.execution.owner)
-      .toEqual({
-        type: "command",
-        space: "module",
-        namespace: "acme",
-        address: "acme/build",
-      });
-  });
-
-  test("normalizes native execution without a marker file", () => {
-    const catalog = createCatalog(payload([
-      node("swaw/native", {
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "native",
-      }),
-    ]));
-
-    expect(catalog.commandByAddress.get("swaw/native").module.execution)
-      .toEqual({ type: "native" });
-  });
-
-  test("rejects the previous command-module/v11 declaration", () => {
-    expect(() => createCatalog(payload([
-      node(".legacy", {
-        module: {
-          schema: "swawkit.command-module/v11",
-          requires: [],
-          provides: [{ id: "legacy" }],
-        },
-      }),
-    ]))).toThrow("swawkit.command-module/v12");
-  });
-
-  test("rejects removed generic contract fields", () => {
-    expect(() => createCatalog(payload([
-      node(".consumer", {
-        module: {
-          schema: "swawkit.command-module/v12",
-          requires: [{
-            provider: ".provider",
-            export: "fixture",
-            contract: "removed/v1",
-          }],
-          provides: [],
-        },
-      }),
-    ]))).toThrow("must contain exactly");
+    expect(catalog.commandByAddress.get(".consumer").module).toBeUndefined();
   });
 
   test("rejects a missing entry name", () => {
@@ -148,20 +26,6 @@ describe("Catalog v20 module declarations", () => {
     expect(() => createCatalog(payload([
       node(".broken", { adapter: "pwsh" }),
     ]))).toThrow("adapter 必须与 entry 同时存在或同时为空");
-
-    expect(() => createCatalog(payload([
-      node("swaw/broken", {
-        runnable: true,
-        entry: "run.ps1",
-        adapter: "pwsh",
-        module: {
-          schema: "swawkit.command-module/v12",
-          execution: { type: "native" },
-          requires: [],
-          provides: [],
-        },
-      }),
-    ]))).toThrow("module execution declaration");
   });
 
   test("accepts System commands and rejects unknown spaces", () => {
@@ -169,68 +33,24 @@ describe("Catalog v20 module declarations", () => {
       node(".entry", {
         space: "system",
         runnable: true,
-        entry: "swawkit.module.json",
+        entry: "swawkit.execution.json",
         adapter: "core",
         handler: "entry.config",
       }),
     ]));
-    expect(catalog.commandByAddress.get(".entry").handler)
-      .toBe("entry.config");
+    expect(catalog.commandByAddress.get(".entry").handler).toBe("entry.config");
 
     expect(() => createCatalog(payload([
       node(".legacy", { space: "project" }),
     ]))).toThrow("space must be system or module");
   });
 
-  test("allows the dedicated edit renderer to target a typed System setting", () => {
-    const address = ".entry/language";
-    const catalog = createCatalog(payload([
-      node(address, {
-        space: "system",
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "core",
-        handler: "entry.config.set",
-        facets: [{
-          id: "edit",
-          kind: "operation",
-          renderer: "edit",
-          icon: "*",
-          label: "Language",
-          summary: "Set language",
-          resolver: { type: "command", address, arguments: [] },
-        }],
-      }),
-    ]));
-    expect(catalog.commandByAddress.get(address).facets[0].renderer).toBe("edit");
-  });
-
-  test("accepts handlers owned by the core adapter only", () => {
-    expect(() => createCatalog(payload([
-      node(".broken", {
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "runtime",
-        product: "dev",
-        handler: "dev.setup",
-      }),
-    ]))).toThrow("handler");
-    expect(() => createCatalog(payload([
-      node(".broken", {
-        runnable: true,
-        entry: "run.ps1",
-        adapter: "pwsh",
-        handler: "dev.setup",
-      }),
-    ]))).toThrow("handler");
-  });
-
-  test("normalizes the exact Runtime Components without a handler", () => {
+  test("keeps adapter-specific runtime facts exact", () => {
     const catalog = createCatalog(payload([
       node(".module/status", {
         parent: ".module",
         runnable: true,
-        entry: "swawkit.module.json",
+        entry: "swawkit.execution.json",
         adapter: "runtime",
         product: "module",
       }),
@@ -239,55 +59,13 @@ describe("Catalog v20 module declarations", () => {
 
     expect(status.handler).toBe("");
     expect(status.product).toBe("module");
-    expect(status.module.execution).toEqual({
-      type: "runtime",
-      product: "module",
-    });
-
-    expect(() => createCatalog(payload([
-      node(".module/status", {
-        runnable: true,
-        entry: "swawkit.module.json",
-        adapter: "runtime",
-        product: "toolchain",
-      }),
-    ]))).toThrow("runtime product is not valid");
     expect(() => createCatalog(payload([
       node(".wrong", {
         runnable: true,
-        entry: "swawkit.module.json",
+        entry: "swawkit.execution.json",
         adapter: "runtime",
         product: "module",
       }),
     ]))).toThrow("runtime product is not valid");
-
-    const devRuntimeAddresses = [
-      ".dev/settings",
-      ".dev/setup",
-      ".dev/setup/check",
-      ".dev/status",
-      ".dev/bun/mode",
-      ".dev/bun/sha256",
-      ".dev/bun/version",
-      ".dev/pwsh/mode",
-      ".dev/pwsh/sha256",
-      ".dev/pwsh/version",
-      ".dev/msvc/mode",
-      ".dev/msvc/channel",
-      ".dev/rust/mode",
-      ".dev/rust/toolchain",
-    ];
-    const dev = createCatalog(payload(devRuntimeAddresses.map((address) => node(address, {
-      parent: address.slice(0, address.lastIndexOf("/")),
-      runnable: true,
-      entry: "swawkit.module.json",
-      adapter: "runtime",
-      product: "dev",
-    }))));
-    for (const address of devRuntimeAddresses) {
-      const command = dev.commandByAddress.get(address);
-      expect(command.product).toBe("dev");
-      expect(command.module.execution).toEqual({ type: "runtime", product: "dev" });
-    }
   });
 });

@@ -1,0 +1,4 @@
+{
+  "schema": "swawkit.facet-execution/v2",
+  "implementation": { "type": "runtime", "product": "dev" }
+}

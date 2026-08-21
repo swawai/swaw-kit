@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::catalog::{CATALOG_PROTOCOL, CommandNode};
-use crate::subject_kind::SubjectKind;
+use crate::resource_kind::ResourceKind;
 
 #[test]
 fn latest_selectors_are_explicit_and_bounded() {
@@ -16,7 +16,7 @@ fn latest_selectors_are_explicit_and_bounded() {
 }
 
 #[test]
-fn global_run_subject_timestamps_are_stable_utc_labels() {
+fn global_run_timestamps_are_stable_utc_labels() {
     assert_eq!(render::format_timestamp(0), "1970-01-01 00:00:00.000Z");
     assert_eq!(
         render::format_timestamp(1_787_027_678_901),
@@ -67,17 +67,24 @@ fn snapshot() -> CatalogSnapshot {
             adapter: Some("core".to_owned()),
             handler: Some("meta.runs".to_owned()),
             product: None,
-            module: None,
+            requirements: Vec::new(),
+            provisions: Vec::new(),
+            delegate_owner: None,
+            declares_native: false,
+            declared_facets: Vec::new(),
+            declared_resource_kinds: Vec::new(),
             help: None,
-            subject_kinds: vec![SubjectKind {
+            resource_kinds: vec![ResourceKind {
                 kind: RUN_KIND.to_owned(),
+                source: swawkit_proj_protocol::FacetRoute::parse("$/system::runs/all").unwrap(),
                 facets: Vec::new(),
             }],
             facets: Vec::new(),
-            view: None,
             diagnostic: None,
+            authored_resource: true,
             help_diagnostic: None,
             directory: PathBuf::new(),
+            executor_directory: PathBuf::new(),
             native_owner: None,
         }],
     }

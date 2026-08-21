@@ -3,9 +3,11 @@
 pub mod check;
 pub mod config;
 mod error;
+pub mod facet_route;
 pub mod help;
 mod prepared;
 pub mod runs;
+pub mod view;
 
 pub use error::CoreCommandError;
 pub(crate) use prepared::PreparedCoreCommand;

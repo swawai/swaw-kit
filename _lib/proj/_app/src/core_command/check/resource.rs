@@ -214,11 +214,7 @@ fn require_provider(
             "provider command is not runnable: {address}"
         )));
     }
-    if provider
-        .module
-        .as_ref()
-        .is_none_or(|module| module.provides.is_empty())
-    {
+    if provider.provisions.is_empty() {
         return Err(ResourceError::domain(format!(
             "provider command declares no exports: {address}"
         )));

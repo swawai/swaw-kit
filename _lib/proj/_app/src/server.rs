@@ -179,8 +179,12 @@ fn router_with_runtime_service(
         .route("/assets/{*path}", get(web_assets::asset))
         .route("/api/v2/catalog", get(get_catalog))
         .route(
-            "/api/v2/facet-resolutions",
+            "/api/v3/facet-resolutions",
             axum::routing::post(facet_resolution::post_facet_resolution),
+        )
+        .route(
+            "/api/v3/view-bundles",
+            axum::routing::post(facet_resolution::post_view_bundle),
         )
         .route("/api/v2/entry-config", get(get_entry_config))
         .route("/api/v2/host", get(host_control::get_host))
@@ -198,11 +202,11 @@ fn router_with_runtime_service(
             axum::routing::post(runtime_control::post_cleanup),
         )
         .route(
-            "/api/v2/command-runs",
+            "/api/v3/command-runs",
             axum::routing::post(command_run::post_command_run),
         )
         .route(
-            "/api/v2/command-runs/{id}",
+            "/api/v3/command-runs/{id}",
             get(command_run::get_command_run).delete(command_run::delete_command_run),
         )
         .route(

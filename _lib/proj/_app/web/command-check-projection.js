@@ -79,8 +79,8 @@ export function createCommandCheckProjectionRenderer(elements, options = {}) {
     clear();
   }
 
-  function render(subject, payload) {
-    const document_ = createCommandCheckProjection(payload, subject);
+  function render(commandResource, payload) {
+    const document_ = createCommandCheckProjection(payload, commandResource);
     const command = document_.command;
     elements.commandCheckTitle.textContent = command.address;
     elements.commandCheckMeta.textContent = [

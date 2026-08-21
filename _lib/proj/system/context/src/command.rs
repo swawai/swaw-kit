@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::address::command_reference;
 use crate::error::{ContextError, ContextResult};
 use crate::model::{ContextRecord, MAX_NOTE_BYTES, MAX_PROMPT_BYTES, validate_text};
-use crate::projection::{render_markdown, subject_collection};
+use crate::projection::{render_markdown, resource_list};
 use crate::runtime::ContextRuntime;
 
 const COMMAND_ADDRESS_ENV: &str = "SWAWKIT_PROJ_CORE_COMMAND_ADDRESS";
@@ -212,7 +212,7 @@ fn list(address: &str, arguments: &[OsString], runtime: &ContextRuntime) -> Cont
         };
         write_message(&output)
     } else {
-        let collection = subject_collection(runtime.language, records)?;
+        let collection = resource_list(runtime.language, records)?;
         write_json(&collection)
     }
 }

@@ -1,0 +1,1 @@
+{"schema":"swawkit.facet-execution/v2","implementation":{"type":"invoke","target":"$/system::context/subcommands::show/execute","arguments":[{"bind":"resource.selector"}],"returns":"swawkit.context/v2"}}

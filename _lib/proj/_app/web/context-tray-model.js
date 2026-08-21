@@ -2,8 +2,16 @@ import {
   normalizeCommandIdentity,
   sameCommandIdentity,
 } from "./command-identity.js";
+import {
+  canonicalFacetRoute,
+  commandResourceRoute,
+  normalizeFacetRoute,
+} from "./resource-route.js";
 
-export const PINNED_CONTEXT_SCHEMA = "swawkit.web-pinned-context/v1";
+export const PINNED_CONTEXT_SCHEMA = "swawkit.web-pinned-context/v2";
+const CONTEXT_KIND = "$/system::context/contexts";
+const FACET_ID = /^[a-z][a-z0-9-]{0,31}$/;
+const SELECTOR = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
 function object(value, field) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -22,7 +30,7 @@ function exactKeys(value, expected, field) {
 function commandRef(value, field) {
   const reference = object(value, field);
   if (reference.type !== "command") {
-    throw new Error(`${field} must identify a non-root command Subject.`);
+    throw new Error(`${field} must identify a non-root Command Resource.`);
   }
   exactKeys(
     reference,
@@ -33,7 +41,7 @@ function commandRef(value, field) {
   );
   const identity = normalizeCommandIdentity(reference, field, (message) => new Error(message));
   if (identity.address.length === 0) {
-    throw new Error(`${field} must identify a non-root command Subject.`);
+    throw new Error(`${field} must identify a non-root Command Resource.`);
   }
   return identity.space === "system"
     ? { address: identity.address, space: identity.space, type: "command" }
@@ -45,31 +53,34 @@ function commandRef(value, field) {
       };
 }
 
-function contextRef(value, field) {
-  const reference = object(value, field);
-  exactKeys(reference, ["id", "kind", "type"], field);
+function contextIdentity(value, field) {
+  const identity = object(value, field);
+  exactKeys(identity, ["id", "kind", "type"], field);
+  const kind = normalizeFacetRoute(identity.kind, `${field}.kind`, (message) => new Error(message));
   if (
-    reference.type !== "instance"
-    || reference.kind !== "context"
-    || typeof reference.id !== "string"
-    || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(reference.id)
+    identity.type !== "instance"
+    || canonicalFacetRoute(kind) !== CONTEXT_KIND
+    || !SELECTOR.test(identity.id)
   ) {
-    throw new Error(`${field} must identify a Context Subject.`);
+    throw new Error(`${field} must identify a Context Resource.`);
   }
-  return { id: reference.id, kind: "context", type: "instance" };
+  return { id: identity.id, kind, type: "instance" };
 }
 
-export function createPinnedContextRecord(subject) {
-  const reference = contextRef(subject?.ref, "subject.ref");
-  const via = object(subject?.via, "subject.via");
-  const owner = commandRef(via.subject, "subject.via.subject");
-  if (typeof via.facet !== "string" || !/^[a-z][a-z0-9-]{0,31}$/.test(via.facet)) {
-    throw new Error("subject.via.facet must be a Facet id.");
+export function createPinnedContextRecord(resource) {
+  const identity = contextIdentity(resource?.identity, "resource.identity");
+  const owner = commandRef(resource?.ownerRef, "resource.ownerRef");
+  if (!FACET_ID.test(resource?.collectionFacet) || !SELECTOR.test(resource?.selector)) {
+    throw new Error("resource provenance must contain a Facet and selector.");
   }
   return {
     schema: PINNED_CONTEXT_SCHEMA,
-    subject: reference,
-    via: { facet: via.facet, subject: owner },
+    identity,
+    source: {
+      facet: resource.collectionFacet,
+      owner,
+      selector: resource.selector,
+    },
   };
 }
 
@@ -78,29 +89,37 @@ export function parsePinnedContextRecord(serialized) {
     return null;
   }
   const value = object(JSON.parse(serialized), "pinned Context");
-  exactKeys(value, ["schema", "subject", "via"], "pinned Context");
+  exactKeys(value, ["identity", "schema", "source"], "pinned Context");
   if (value.schema !== PINNED_CONTEXT_SCHEMA) {
     throw new Error("pinned Context schema is unsupported.");
   }
-  const via = object(value.via, "pinned Context.via");
-  exactKeys(via, ["facet", "subject"], "pinned Context.via");
-  return createPinnedContextRecord({ ref: value.subject, via });
+  const source = object(value.source, "pinned Context.source");
+  exactKeys(source, ["facet", "owner", "selector"], "pinned Context.source");
+  return createPinnedContextRecord({
+    collectionFacet: source.facet,
+    identity: value.identity,
+    ownerRef: source.owner,
+    selector: source.selector,
+  });
 }
 
 export function pinnedContextRef(record) {
-  return `::context/${record.subject.id}`;
+  return `${commandResourceRoute(record.source.owner)}/${record.source.facet}::${record.source.selector}`;
 }
 
-export function contextAddInvocation(subject, command, document_) {
-  if (!subject || subject.ref?.kind !== "context" || !command?.address) {
+export function contextAddInvocation(resource, command, document_) {
+  if (
+    !resource
+    || resource.identity?.type !== "instance"
+    || canonicalFacetRoute(resource.identity.kind) !== CONTEXT_KIND
+    || !command?.address
+  ) {
     return null;
   }
-  if (document_?.commands?.some((candidate) => (
-    sameCommandIdentity(candidate, command)
-  ))) {
+  if (document_?.commands?.some((candidate) => sameCommandIdentity(candidate, command))) {
     return { state: "present" };
   }
-  const facet = subject.facets?.find((candidate) => candidate.id === "add");
+  const facet = resource.facets?.find((candidate) => candidate.id === "add");
   const resolver = facet?.resolver;
   if (
     facet?.kind !== "operation"
@@ -113,8 +132,8 @@ export function contextAddInvocation(subject, command, document_) {
     return null;
   }
   return {
-    address: resolver.address,
-    arguments: [...resolver.arguments, command.address],
+    arguments: [command.address],
+    route: `${resource.route}/${facet.id}`,
     state: "available",
   };
 }

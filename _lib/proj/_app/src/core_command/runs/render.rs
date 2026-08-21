@@ -2,9 +2,9 @@ use std::ffi::OsStr;
 
 use serde::Serialize;
 use serde_json::Value;
+use swawkit_proj_protocol::ResourceList;
 
 use crate::command_journal::RunJournalHistoryDocument;
-use crate::subject::{SubjectCollection, SubjectRef};
 
 use super::MAX_LATEST_RANGE;
 use crate::core_command::CoreCommandError;
@@ -57,24 +57,19 @@ pub(super) fn numbered_history(
     json(&value)
 }
 
-pub(super) fn global_history(document: &SubjectCollection) -> Result<String, CoreCommandError> {
+pub(super) fn global_history(document: &ResourceList) -> Result<String, CoreCommandError> {
     let mut lines = vec!["Recent Runs:".to_owned()];
-    if document.subjects.is_empty() {
+    if document.resources().is_empty() {
         lines.push("  none".to_owned());
     } else {
-        for (index, subject) in document.subjects.iter().enumerate() {
-            let SubjectRef::Instance { id, .. } = &subject.reference else {
-                return Err(CoreCommandError::domain(
-                    "global run collection invariant failed",
-                ));
-            };
+        for (index, resource) in document.resources().iter().enumerate() {
             lines.push(format!(
                 "  {}. {}  {}",
                 index + 1,
-                subject.label,
-                subject.summary
+                resource.label(),
+                resource.summary()
             ));
-            lines.push(format!("     {id}"));
+            lines.push(format!("     {}", resource.selector()));
         }
     }
     Ok(lines.join("\n"))

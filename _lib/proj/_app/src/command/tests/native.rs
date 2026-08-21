@@ -1,27 +1,26 @@
 use super::*;
 
-fn delegate_manifest(owner: &str) -> String {
-    format!(
-        r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"delegate","owner":{{"type":"command","space":"module","namespace":"swaw","address":"{owner}"}}}}}}"#
-    )
-}
-
-fn native_manifest() -> &'static str {
-    r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#
-}
-
-fn system_delegate_manifest(owner: &str) -> String {
-    format!(
-        r#"{{"schema":"swawkit.command-module/v12","execution":{{"type":"delegate","owner":{{"type":"command","space":"system","address":"{owner}"}}}}}}"#
-    )
+fn declare_execution(directory: &Path, implementation: serde_json::Value) {
+    let execute = directory.join("execute");
+    fs::create_dir_all(&execute).unwrap();
+    write_json(
+        &execute.join("swawkit.facet.json"),
+        &serde_json::json!({ "schema": "swawkit.facet/v1", "kind": "operation" }),
+    );
+    write_json(
+        &execute.join("swawkit.execution.json"),
+        &serde_json::json!({
+            "schema": "swawkit.facet-execution/v2",
+            "implementation": implementation
+        }),
+    );
 }
 
 #[test]
 fn native_adapter_runs_only_the_selected_content_addressed_export() {
     let fixture = Fixture::new();
     let directory = module_directory(&fixture.swaw_module_root, "native-export");
-    fs::create_dir_all(&directory).unwrap();
-    fs::write(directory.join("swawkit.module.json"), native_manifest()).unwrap();
+    declare_execution(&directory, serde_json::json!({ "type": "native" }));
 
     let executable =
         PathBuf::from(env::var_os("SystemRoot").expect("SystemRoot")).join("System32/whoami.exe");
@@ -48,13 +47,14 @@ fn delegated_port_runs_the_selected_owner_executable() {
     let fixture = Fixture::new();
     let owner = module_directory(&fixture.swaw_module_root, "domain");
     let port = module_directory(&fixture.swaw_module_root, "domain/port");
-    fs::create_dir_all(&port).unwrap();
-    fs::write(owner.join("swawkit.module.json"), native_manifest()).unwrap();
-    fs::write(
-        port.join("swawkit.module.json"),
-        delegate_manifest("swaw/domain"),
-    )
-    .unwrap();
+    declare_execution(&owner, serde_json::json!({ "type": "native" }));
+    declare_execution(
+        &port,
+        serde_json::json!({
+            "type": "native-delegate",
+            "owner": "$/modules::swaw/subcommands::domain/execute"
+        }),
+    );
 
     let executable =
         PathBuf::from(env::var_os("SystemRoot").expect("SystemRoot")).join("System32/whoami.exe");
@@ -81,13 +81,14 @@ fn system_delegated_port_runs_its_selected_system_owner_export() {
     let fixture = Fixture::new();
     let owner = command_directory(&fixture.system_root, ".context");
     let port = command_directory(&fixture.system_root, ".context/add");
-    fs::create_dir_all(&port).unwrap();
-    fs::write(owner.join("swawkit.module.json"), native_manifest()).unwrap();
-    fs::write(
-        port.join("swawkit.module.json"),
-        system_delegate_manifest(".context"),
-    )
-    .unwrap();
+    declare_execution(&owner, serde_json::json!({ "type": "native" }));
+    declare_execution(
+        &port,
+        serde_json::json!({
+            "type": "native-delegate",
+            "owner": "$/system::context/execute"
+        }),
+    );
 
     let executable =
         PathBuf::from(env::var_os("SystemRoot").expect("SystemRoot")).join("System32/whoami.exe");
@@ -113,8 +114,7 @@ fn system_delegated_port_runs_its_selected_system_owner_export() {
 fn native_adapter_does_not_build_an_uninstantiated_module_during_execution() {
     let fixture = Fixture::new();
     let directory = module_directory(&fixture.swaw_module_root, "native-missing");
-    fs::create_dir_all(&directory).unwrap();
-    fs::write(directory.join("swawkit.module.json"), native_manifest()).unwrap();
+    declare_execution(&directory, serde_json::json!({ "type": "native" }));
     let catalog = fixture.catalog();
 
     let error = CommandExecutor::new(&fixture.context(), &catalog)
@@ -139,8 +139,7 @@ fn native_adapter_does_not_build_an_uninstantiated_module_during_execution() {
 fn journal_starts_before_native_artifact_preparation_fails() {
     let fixture = Fixture::new();
     let directory = module_directory(&fixture.swaw_module_root, "journaled-native-missing");
-    fs::create_dir_all(&directory).unwrap();
-    fs::write(directory.join("swawkit.module.json"), native_manifest()).unwrap();
+    declare_execution(&directory, serde_json::json!({ "type": "native" }));
     let catalog = fixture.catalog();
 
     let error = CommandExecutor::new(&fixture.context(), &catalog)
@@ -172,13 +171,14 @@ fn delegated_native_port_points_instantiation_at_its_owner() {
     let fixture = Fixture::new();
     let owner = module_directory(&fixture.swaw_module_root, "context");
     let directory = module_directory(&fixture.swaw_module_root, "context/add");
-    fs::create_dir_all(&directory).unwrap();
-    fs::write(owner.join("swawkit.module.json"), native_manifest()).unwrap();
-    fs::write(
-        directory.join("swawkit.module.json"),
-        delegate_manifest("swaw/context"),
-    )
-    .unwrap();
+    declare_execution(&owner, serde_json::json!({ "type": "native" }));
+    declare_execution(
+        &directory,
+        serde_json::json!({
+            "type": "native-delegate",
+            "owner": "$/modules::swaw/subcommands::context/execute"
+        }),
+    );
     let catalog = fixture.catalog();
 
     let error = CommandExecutor::new(&fixture.context(), &catalog)

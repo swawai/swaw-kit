@@ -2,10 +2,6 @@ export function availableCommand(catalog, address) {
   return catalog.commandByAddress.get(address) ?? null;
 }
 
-export function childrenColumnWidth(command) {
-  return command.childrenColumnWidth || "normal";
-}
-
 export function commandHasChoices(_catalog, _command, facets) {
   return facets.length > 0;
 }
@@ -18,11 +14,15 @@ export function selectedCommandFacet(facets) {
   return facets.find((facet) => facet.selected)?.name ?? null;
 }
 
+export function viewColumnWidth(collectionView) {
+  return collectionView?.view?.width === "wide" ? "wide" : "normal";
+}
+
 export function choiceColumnModels(
   catalog,
   selectedPath,
   getViews,
-  selectedSubjectCollection = null,
+  selectedResourceList = null,
 ) {
   return selectedPath.flatMap((address, index) => {
     const command = catalog.commandByAddress.get(address);
@@ -32,20 +32,20 @@ export function choiceColumnModels(
     const facets = getViews(command);
     const terminal = index === selectedPath.length - 1;
     if (!terminal) {
-      const children = facets.find((facet) => (
+      const subcommands = facets.find((facet) => (
         facet.kind === "collection"
         && facet.resolver?.type === "catalog"
-        && facet.resolver.relation === "children"
+        && facet.resolver.relation === "subcommands"
       ));
-      return children
-        ? [{ command, depth: index + 1, mode: children.name }]
+      return subcommands
+        ? [{ command, depth: index + 1, mode: subcommands.name }]
         : [];
     }
-    if (selectedSubjectCollection?.owner === address) {
+    if (selectedResourceList?.owner === address) {
       return [{
         command,
         depth: index + 1,
-        mode: selectedSubjectCollection.facet,
+        mode: selectedResourceList.facet,
       }];
     }
     const facet = facets.find(({ selected }) => selected);

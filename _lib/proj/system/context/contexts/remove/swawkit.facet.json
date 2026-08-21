@@ -1,0 +1,12 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "operation",
+  "presentation": {
+    "icon": "−",
+    "label": { "zh-CN": "移除命令", "en": "Remove commands" },
+    "summary": {
+      "zh-CN": "从 Context 移除命令引用",
+      "en": "Remove command references from this Context"
+    }
+  }
+}

@@ -25,6 +25,7 @@ const ENTRY_MANAGER_CSS: &str = include_str!("../web/styles/entry-manager.css");
 const APP_JS: &str = include_str!("../web/app.js");
 const I18N_JS: &str = include_str!("../web/i18n.js");
 const COMMAND_IDENTITY_JS: &str = include_str!("../web/command-identity.js");
+const RESOURCE_ROUTE_JS: &str = include_str!("../web/resource-route.js");
 const CATALOG_MODEL_JS: &str = include_str!("../web/catalog-model.js");
 const FACET_MODEL_JS: &str = include_str!("../web/facet-model.js");
 const FACET_RESOLUTION_CLIENT_JS: &str = include_str!("../web/facet-resolution-client.js");
@@ -53,10 +54,11 @@ const CONTEXT_TRAY_JS: &str = include_str!("../web/context-tray.js");
 const COMMAND_CHECK_PROJECTION_MODEL_JS: &str =
     include_str!("../web/command-check-projection-model.js");
 const COMMAND_CHECK_PROJECTION_JS: &str = include_str!("../web/command-check-projection.js");
-const SUBJECT_COLLECTION_MODEL_JS: &str = include_str!("../web/subject-collection-model.js");
-const SUBJECT_KIND_MODEL_JS: &str = include_str!("../web/subject-kind-model.js");
-const SUBJECT_EXPLORER_JS: &str = include_str!("../web/subject-explorer.js");
-const SUBJECT_FACET_JS: &str = include_str!("../web/subject-facet.js");
+const RESOURCE_LIST_MODEL_JS: &str = include_str!("../web/resource-list-model.js");
+const VIEW_BUNDLE_MODEL_JS: &str = include_str!("../web/view-bundle-model.js");
+const RESOURCE_KIND_MODEL_JS: &str = include_str!("../web/resource-kind-model.js");
+const RESOURCE_EXPLORER_JS: &str = include_str!("../web/resource-explorer.js");
+const RESOURCE_FACET_JS: &str = include_str!("../web/resource-facet.js");
 const ENTRY_MANAGER_MODEL_JS: &str = include_str!("../web/entry-manager-model.js");
 const ENTRY_MANAGER_CLIENT_JS: &str = include_str!("../web/entry-manager-client.js");
 const ENTRY_MANAGER_VIEW_JS: &str = include_str!("../web/entry-manager-view.js");
@@ -88,6 +90,7 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
         "app.js" => Some(("text/javascript; charset=utf-8", APP_JS)),
         "i18n.js" => Some(("text/javascript; charset=utf-8", I18N_JS)),
         "command-identity.js" => Some(("text/javascript; charset=utf-8", COMMAND_IDENTITY_JS)),
+        "resource-route.js" => Some(("text/javascript; charset=utf-8", RESOURCE_ROUTE_JS)),
         "catalog-model.js" => Some(("text/javascript; charset=utf-8", CATALOG_MODEL_JS)),
         "facet-model.js" => Some(("text/javascript; charset=utf-8", FACET_MODEL_JS)),
         "facet-resolution-client.js" => {
@@ -136,13 +139,15 @@ pub(crate) async fn asset(Path(path): Path<String>) -> Response {
             "text/javascript; charset=utf-8",
             COMMAND_CHECK_PROJECTION_JS,
         )),
-        "subject-collection-model.js" => Some((
-            "text/javascript; charset=utf-8",
-            SUBJECT_COLLECTION_MODEL_JS,
-        )),
-        "subject-kind-model.js" => Some(("text/javascript; charset=utf-8", SUBJECT_KIND_MODEL_JS)),
-        "subject-explorer.js" => Some(("text/javascript; charset=utf-8", SUBJECT_EXPLORER_JS)),
-        "subject-facet.js" => Some(("text/javascript; charset=utf-8", SUBJECT_FACET_JS)),
+        "resource-list-model.js" => {
+            Some(("text/javascript; charset=utf-8", RESOURCE_LIST_MODEL_JS))
+        }
+        "view-bundle-model.js" => Some(("text/javascript; charset=utf-8", VIEW_BUNDLE_MODEL_JS)),
+        "resource-kind-model.js" => {
+            Some(("text/javascript; charset=utf-8", RESOURCE_KIND_MODEL_JS))
+        }
+        "resource-explorer.js" => Some(("text/javascript; charset=utf-8", RESOURCE_EXPLORER_JS)),
+        "resource-facet.js" => Some(("text/javascript; charset=utf-8", RESOURCE_FACET_JS)),
         "entry-manager-model.js" => {
             Some(("text/javascript; charset=utf-8", ENTRY_MANAGER_MODEL_JS))
         }

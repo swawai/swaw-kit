@@ -10,7 +10,6 @@ mod query;
 mod render;
 
 const RUNS_ADDRESS: &str = ".runs";
-const ALL_RUNS_FACET: &str = "all";
 const MAX_LATEST_RANGE: usize = 32;
 const RUNS_FACET: &str = "runs";
 const RUN_KIND: &str = "run";
@@ -37,7 +36,7 @@ pub fn execute(
             render::json(&query::command_run_collection(
                 snapshot,
                 data_root,
-                unicode_argument(target, "command locator")?,
+                unicode_argument(target, "Resource route")?,
             )?)?
         }
         Some([option, id]) if option == "--run" => render::json(&query::global_run(
@@ -145,7 +144,7 @@ fn require_runs_command(snapshot: &CatalogSnapshot) -> Result<(), CoreCommandErr
 
 fn runs_usage() -> CoreCommandError {
     CoreCommandError::arguments(
-        "usage: .runs [--json [<command-locator>] | --run <run-id> [--after <cursor>] | --open <run-id>] | .runs <command-address> [--latest <n|n..m> | --run <run-id> [--after <cursor>] | --open <run-id>]",
+        "usage: .runs [--json [<resource-route>] | --run <run-id> [--after <cursor>] | --open <run-id>] | .runs <command-address> [--latest <n|n..m> | --run <run-id> [--after <cursor>] | --open <run-id>]",
     )
 }
 

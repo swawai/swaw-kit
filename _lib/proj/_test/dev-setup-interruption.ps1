@@ -111,8 +111,9 @@ try {
         -RelativePath "$EntryName.exe"
     $DataRoot = [string]$Runtime.DataRoot
     $CancellationRoot = Join-Path $Runtime.Home '.swaw\cancel-tree'
-    Add-ProjFixtureCommandManifest -CommandRoot $CancellationRoot
-    $CancellationAction = Join-Path $CancellationRoot 'run.exe'
+    $CancellationExecute = Add-ProjFixtureCommandResource `
+        -CommandRoot $CancellationRoot
+    $CancellationAction = Join-Path $CancellationExecute 'run.exe'
     New-ProjCancellationAction -OutputAssembly $CancellationAction
 
     $Bound = Invoke-ProjSetupEntry `

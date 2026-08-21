@@ -4,6 +4,6 @@ Usage:
   {{INVOCATION}} <command-address>
   {{INVOCATION}} <command-address> --json
 
-This command only reads the Catalog, swawkit.module.json, and Provider State. It never runs the target command or installs, builds, or repairs anything. Exit code 0 means the command entry and every declared Provider publication are statically ready; exit code 1 means the command cannot execute now.
+This command only reads the Catalog, Resource Exports, execute-Facet Requirements, and Provider State. It never runs the target command or installs, builds, or repairs anything. Exit code 0 means the command entry and every declared Provider publication are statically ready; exit code 1 means the command cannot execute now.
 
-swawkit.module.json v12 identifies each dependency only by Provider command and named Export. Static readiness does not prove that a domain payload is valid: the Consumer owns validation at its use boundary. When a Provider exposes the ordinary <provider>/check child command, the result includes an explicit checker invocation but never runs it automatically. JSON output uses swawkit.command-check/v3.
+A Facet Requirement identifies each dependency only by Provider Resource and named Export. Static readiness does not prove that a domain payload is valid: the Consumer owns validation at its use boundary. When a Provider exposes the ordinary <provider>/check child Resource, the result includes an explicit checker invocation but never runs it automatically. JSON output uses swawkit.command-check/v3.

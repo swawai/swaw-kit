@@ -2,7 +2,7 @@ use std::io;
 use std::path::Path;
 
 use super::{
-    CommandSpace, MODULE_CONTRACT_FILE,
+    CommandSpace,
     filesystem::{FileCandidate, directory_files},
 };
 use crate::entry_config::EntryConfigRecord;
@@ -24,12 +24,13 @@ pub(crate) struct ResolvedEntry {
 
 impl ResolvedEntry {
     pub(super) fn declared(
+        name: &'static str,
         adapter: CommandAdapter,
         handler: Option<String>,
         product: Option<String>,
     ) -> Self {
         Self {
-            name: MODULE_CONTRACT_FILE,
+            name,
             adapter,
             handler,
             product,
@@ -53,6 +54,7 @@ impl ResolvedEntry {
                     | (".check/dir/exists", Some("meta.check.dir.exists"))
                     | (".help", Some("meta.help"))
                     | (".runs", Some("meta.runs"))
+                    | (".view/source", Some("meta.view.source"))
             ) || (self.handler.as_deref() == Some("entry.config.set")
                 && EntryConfigRecord::is_setting_address(address)))
     }
@@ -114,7 +116,7 @@ pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry
         .any(|name| file.name.eq_ignore_ascii_case(name))
     }) {
         return invalid_data(format!(
-            "obsolete command entry '{}'; declare execution in {MODULE_CONTRACT_FILE}",
+            "obsolete command entry '{}'; declare an execute Facet in swawkit.facet.json",
             file.path.display(),
         ));
     }

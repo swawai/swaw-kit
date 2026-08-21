@@ -91,20 +91,23 @@ function Copy-ProjFixtureCommandRuntime {
     return $RuntimeId
 }
 
-function Add-ProjFixtureCommandManifest {
+function Add-ProjFixtureCommandResource {
     param([Parameter(Mandatory = $true)][string]$CommandRoot)
 
     [void][IO.Directory]::CreateDirectory($CommandRoot)
-    $Manifest = [ordered]@{
-        schema = 'swawkit.command-module/v12'
-        requires = @()
-        provides = @()
-    }
     [IO.File]::WriteAllText(
-        (Join-Path $CommandRoot 'swawkit.module.json'),
-        (($Manifest | ConvertTo-Json -Depth 4) + "`n"),
+        (Join-Path $CommandRoot 'swawkit.resource.json'),
+        "{`"schema`":`"swawkit.resource/v1`",`"kind`":`"command`"}`n",
         [Text.UTF8Encoding]::new($false)
     )
+    $ExecuteRoot = Join-Path $CommandRoot 'execute'
+    [void][IO.Directory]::CreateDirectory($ExecuteRoot)
+    [IO.File]::WriteAllText(
+        (Join-Path $ExecuteRoot 'swawkit.facet.json'),
+        "{`"schema`":`"swawkit.facet/v1`",`"kind`":`"operation`"}`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    return $ExecuteRoot
 }
 
 function Resolve-ProjCandidateRuntimeArtifacts {

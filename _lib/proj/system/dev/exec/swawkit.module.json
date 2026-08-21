@@ -1,9 +1,0 @@
-{
-  "schema": "swawkit.command-module/v12",
-  "requires": [
-    {
-      "provider": ".dev/setup",
-      "export": "environment"
-    }
-  ]
-}

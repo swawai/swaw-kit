@@ -28,7 +28,7 @@ function elements() {
 }
 
 describe("Run projection renderer", () => {
-  test("renders one protocol document selected through a Run Subject", () => {
+  test("renders one protocol document selected through a Run Resource", () => {
     const nodes = elements();
     const id = "000000000000000018cc320bd7eaa8b8-00014b4c-0000000000000004";
     const renderer = createRunProjectionRenderer(nodes, {
@@ -36,9 +36,9 @@ describe("Run projection renderer", () => {
     });
 
     renderer.render({
-      canonicalRef: `::run/${id}`,
+      identity: { id, kind: {}, type: "instance" },
       label: "2026-08-16 05:29:38.607Z",
-      ref: { id, kind: "run", type: "instance" },
+      route: `$/system::runs/all::${id}`,
     }, {
       protocol: RUN_JOURNAL_PROTOCOL,
       id,
@@ -63,7 +63,7 @@ describe("Run projection renderer", () => {
     });
 
     expect(nodes.runProjectionPane.hidden).toBeFalse();
-    expect(nodes.runProjectionRef.textContent).toBe(`::run/${id}`);
+    expect(nodes.runProjectionRef.textContent).toBe(`$/system::runs/all::${id}`);
     expect(nodes.runProjectionState.dataset.state).toBe("success");
     expect(nodes.runProjectionOutput.children[0].textContent).toContain("ok\n");
   });

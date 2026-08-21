@@ -10,7 +10,7 @@ export {
   RUNTIME_UPDATE_REQUIRED_CODE,
 } from "./runtime-generation.js";
 
-const COMMAND_RUNS_URL = "/api/v2/command-runs";
+const COMMAND_RUNS_URL = "/api/v3/command-runs";
 const COMMAND_RUN_PROTOCOL = "swawkit.command-run/v2";
 const COMMAND_RUN_STATES = new Set([
   "running",
@@ -117,9 +117,9 @@ async function readApiError(response, fallback) {
   return { code: null, message: fallback };
 }
 
-export async function startCommandRun(address, arguments_, fetchRun = fetch) {
-  if (typeof address !== "string" || address.length === 0) {
-    throw new CommandRunError("命令地址不能为空。");
+export async function startCommandRun(route, arguments_, fetchRun = fetch) {
+  if (typeof route !== "string" || !route.startsWith("$/")) {
+    throw new CommandRunError("Facet Route 必须是以 $/ 开头的 canonical route。");
   }
   if (!Array.isArray(arguments_) || arguments_.some((value) => typeof value !== "string")) {
     throw new CommandRunError("命令参数必须是字符串数组。");
@@ -130,7 +130,7 @@ export async function startCommandRun(address, arguments_, fetchRun = fetch) {
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ address, arguments: arguments_ }),
+    body: JSON.stringify({ route, arguments: arguments_ }),
   });
   if (response.status !== 201) {
     const error = await readApiError(response, `Host 返回 HTTP ${response.status}`);

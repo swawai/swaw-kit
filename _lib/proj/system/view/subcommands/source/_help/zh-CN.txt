@@ -1,0 +1,5 @@
+将一个 FacetRoute 解析为经过验证的 swawkit.view-bundle/web/v1 文档。
+
+用法：{{INVOCATION}} <FacetRoute>
+
+目标必须是拥有 Web View Source 的 Collection Facet。输出 JSON 前会验证规范 Route、集合成员关系、Subject kind 能力、resolver 返回协议及 Resource List。本命令只读，不渲染 HTML。

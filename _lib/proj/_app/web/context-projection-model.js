@@ -16,7 +16,7 @@ function object(value, field) {
 export function createContextProjection(document, expectedId) {
   const payload = object(document, "Context");
   if (payload.schema !== CONTEXT_SCHEMA || payload.id !== expectedId) {
-    throw invalid("Context schema or ID does not match the selected Subject.");
+    throw invalid("Context schema or ID does not match the selected Resource.");
   }
   if (!Array.isArray(payload.commands) || !Array.isArray(payload.notes)) {
     throw invalid("Context commands and notes must be arrays.");

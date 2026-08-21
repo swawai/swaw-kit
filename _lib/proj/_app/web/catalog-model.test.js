@@ -7,7 +7,12 @@ import {
 } from "./catalog-model.js";
 import { node, payload } from "./catalog-model-fixture.js";
 
-describe("Catalog v20 model", () => {
+const facetSource = (selector, facet) => ({
+  resource: { hops: [{ facet: "system", selector }] },
+  facet,
+});
+
+describe("Catalog v24 model", () => {
   test("derives a non-runnable group only from its children", () => {
     const catalog = createCatalog(payload([
       node(".dev"),
@@ -77,23 +82,9 @@ describe("Catalog v20 model", () => {
     expect(isGroup(catalog, command)).toBe(false);
   });
 
-  test("keeps an invalid execution declaration local to its diagnostic command", () => {
+  test("keeps an invalid Resource declaration local to its diagnostic command", () => {
     const catalog = createCatalog(payload([
       node("swaw/broken", {
-        module: {
-          schema: "swawkit.command-module/v12",
-          execution: {
-            type: "delegate",
-            owner: {
-              type: "command",
-              space: "module",
-              namespace: "swaw",
-              address: "swaw/missing",
-            },
-          },
-          requires: [],
-          provides: [],
-        },
         diagnostic: "delegated execution owner is missing",
       }),
     ]));
@@ -117,74 +108,13 @@ describe("Catalog v20 model", () => {
     expect(command.issue).toBe("help file is empty");
   });
 
-  test("rejects the previous Catalog v19 protocol", () => {
-    expect(() => createCatalog(payload([], { protocol: "swawkit.command-catalog/v19" })))
-      .toThrow("protocol 必须是 swawkit.command-catalog/v20");
+  test("rejects the previous Catalog v20 protocol", () => {
+    expect(() => createCatalog(payload([], { protocol: "swawkit.command-catalog/v20" })))
+      .toThrow("protocol 必须是 swawkit.command-catalog/v24");
   });
 
-  test("normalizes the parent-owned child column width", () => {
-    const catalog = createCatalog(payload([
-      node(".dev/rust", {
-        view: { childrenColumn: { width: "wide" } },
-      }),
-    ]));
-
-    expect(catalog.commandByAddress.get(".dev/rust").childrenColumnWidth)
-      .toBe("wide");
-    expect(() => createCatalog(payload([
-      node(".broken", {
-        view: { childrenColumn: { width: "480px" } },
-      }),
-    ]))).toThrow("width 只能是 normal 或 wide");
-  });
-
-  test("normalizes fixed Web run operations and rejects ambiguous declarations", () => {
-    const catalog = createCatalog(payload([
-      node("maintenance/cleanup", {
-        runnable: true,
-        entry: "run.ps1",
-        adapter: "pwsh",
-        view: {
-          run: {
-            operations: [
-              { id: "preview", label: "预览", arguments: [] },
-              {
-                id: "apply",
-                label: "清理",
-                arguments: ["--apply"],
-                confirmation: "确认清理？",
-              },
-            ],
-          },
-        },
-      }),
-    ]));
-
-    expect(catalog.commandByAddress.get("maintenance/cleanup").runOperations)
-      .toEqual([
-        { id: "preview", label: "预览", arguments: [], confirmation: null },
-        {
-          id: "apply",
-          label: "清理",
-          arguments: ["--apply"],
-          confirmation: "确认清理？",
-        },
-      ]);
-    expect(() => createCatalog(payload([
-      node(".broken", {
-        view: {
-          run: {
-            operations: [
-              { id: "apply", label: "清理", arguments: [] },
-              { id: "apply", label: "再次清理", arguments: [] },
-            ],
-          },
-        },
-      }),
-    ]))).toThrow("id 必须唯一");
-  });
-
-  test("normalizes a command-resolved Subject collection Facet", () => {
+  test("normalizes a command-resolved Resource collection Facet", () => {
+    const contextKindSource = facetSource("context", "contexts");
     const catalog = createCatalog(payload([
       node(".context/list", {
         runnable: true,
@@ -192,8 +122,9 @@ describe("Catalog v20 model", () => {
         adapter: "pwsh",
       }),
       node(".context", {
-        subjectKinds: [{
+        resourceKinds: [{
           kind: "context",
+          source: contextKindSource,
           facets: [{
             id: "overview",
             kind: "projection",
@@ -204,7 +135,7 @@ describe("Catalog v20 model", () => {
             resolver: {
               type: "command",
               address: ".context/list",
-              arguments: [{ bind: "subject.id" }],
+              arguments: [{ bind: "resource.selector" }],
               returns: "swawkit.context/v2",
             },
           }],
@@ -220,16 +151,9 @@ describe("Catalog v20 model", () => {
             type: "command",
             address: ".context/list",
             arguments: ["--json"],
-            returns: "swawkit.subject-collection/v3",
+            returns: "swawkit.resource-list/v2",
           },
-          subjectKind: {
-            kind: "context",
-            provider: {
-              type: "command",
-              space: "system",
-              address: ".context",
-            },
-          },
+          resourceKind: { source: contextKindSource },
         }],
       }),
     ]));
@@ -240,14 +164,16 @@ describe("Catalog v20 model", () => {
       address: ".context/list",
       arguments: ["--json"],
       confirmation: null,
-      returns: "swawkit.subject-collection/v3",
+      returns: "swawkit.resource-list/v2",
       type: "command",
     });
   });
 
-  test("resolves a collection through an explicit cross-command Subject kind provider", () => {
+  test("resolves a collection through an explicit cross-command Resource Kind source", () => {
+    const runsSource = facetSource("runs", "all");
     const runs = {
       kind: "run",
+      source: runsSource,
       facets: [{
         id: "overview",
         kind: "projection",
@@ -258,7 +184,7 @@ describe("Catalog v20 model", () => {
         resolver: {
           type: "command",
           address: ".runs",
-          arguments: [{ bind: "subject.id" }],
+          arguments: [{ bind: "resource.selector" }],
           returns: "swawkit.command-run-journal/v3",
         },
       }],
@@ -274,20 +200,17 @@ describe("Catalog v20 model", () => {
         type: "command",
         address: ".runs",
         arguments: ["--json", ".tool"],
-        returns: "swawkit.subject-collection/v3",
+        returns: "swawkit.resource-list/v2",
       },
-      subjectKind: {
-        kind: "run",
-        provider: { type: "command", space: "system", address: ".runs" },
-      },
+      resourceKind: { source: runsSource },
     };
     const catalog = createCatalog(payload([
       node(".runs", {
         runnable: true,
-        entry: "swawkit.module.json",
+        entry: "swawkit.execution.json",
         adapter: "core",
         handler: "meta.runs",
-        subjectKinds: [runs],
+        resourceKinds: [runs],
       }),
       node(".tool", {
         runnable: true,
@@ -297,18 +220,18 @@ describe("Catalog v20 model", () => {
       }),
     ]));
 
-    expect(catalog.commandByAddress.get(".tool").facets[0].subjectKind.provider.address)
-      .toBe(".runs");
+    expect(catalog.commandByAddress.get(".tool").facets[0].resourceKind.source)
+      .toEqual(runsSource);
 
     const missingProvider = structuredClone(runsFacet);
-    missingProvider.subjectKind.provider.address = ".tool";
+    missingProvider.resourceKind.source = facetSource("tool", "runs");
     expect(() => createCatalog(payload([
       node(".runs", {
         runnable: true,
-        entry: "swawkit.module.json",
+        entry: "swawkit.execution.json",
         adapter: "core",
         handler: "meta.runs",
-        subjectKinds: [runs],
+        resourceKinds: [runs],
       }),
       node(".tool", {
         runnable: true,
@@ -316,14 +239,14 @@ describe("Catalog v20 model", () => {
         adapter: "cmd",
         facets: [missingProvider],
       }),
-    ]))).toThrow("unavailable Subject kind");
+    ]))).toThrow("unavailable Resource Kind");
   });
 
   test("normalizes resolved Facets with exact CLI commands", () => {
     const catalog = createCatalog(payload([
       node(".check", {
         runnable: true,
-        entry: "swawkit.module.json",
+        entry: "swawkit.execution.json",
         adapter: "core",
         handler: "meta.check",
       }),

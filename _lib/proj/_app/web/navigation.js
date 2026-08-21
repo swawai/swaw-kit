@@ -3,7 +3,7 @@ import { sameCommandIdentity } from "./command-identity.js";
 
 const COMMAND_ROUTE_ROOT = "/commands";
 const FACET_ID = /^[a-z][a-z0-9-]{0,31}$/;
-const SUBJECT_REF = /^::[a-z][a-z0-9-]{0,31}\/[a-z0-9][a-z0-9-]{0,127}$/;
+const RESOURCE_SELECTOR = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const NORMAL_SEGMENT = /^[a-z][a-z0-9-]{0,63}$/;
 const RESERVED_NAMESPACES = new Set(["system", "module"]);
 
@@ -104,12 +104,12 @@ export function commandAtPath(
 
 export function parseCommandSelection(search = "") {
   const params = new URLSearchParams(search);
-  const allowed = new Set(["facet", "subject", "subject-facet"]);
+  const allowed = new Set(["facet", "resource", "resource-facet"]);
   const unknown = [...params.keys()].find((name) => !allowed.has(name));
   if (unknown) {
     throw new Error(t(
-      `URL 包含未知的 Subject 选择参数：${unknown}。`,
-      `The URL contains an unknown Subject-selection parameter: ${unknown}.`,
+      `URL 包含未知的 Resource 选择参数：${unknown}。`,
+      `The URL contains an unknown Resource-selection parameter: ${unknown}.`,
     ));
   }
   const facets = params.getAll("facet");
@@ -123,35 +123,35 @@ export function parseCommandSelection(search = "") {
       `The URL contains an invalid command-Facet identifier: ${facet || "<empty>"}.`,
     ));
   }
-  const subjects = params.getAll("subject");
-  if (subjects.length > 1) {
-    throw new Error(t("URL 只能声明一个 Subject。", "The URL may declare only one Subject."));
+  const resources = params.getAll("resource");
+  if (resources.length > 1) {
+    throw new Error(t("URL 只能声明一个 Resource。", "The URL may declare only one Resource."));
   }
-  const subject = subjects[0] ?? null;
-  if (subject !== null && !SUBJECT_REF.test(subject)) {
+  const resource = resources[0] ?? null;
+  if (resource !== null && !RESOURCE_SELECTOR.test(resource)) {
     throw new Error(t(
-      `URL 包含无效的 Subject 引用：${subject || "<empty>"}。`,
-      `The URL contains an invalid Subject reference: ${subject || "<empty>"}.`,
+      `URL 包含无效的资源选择器：${resource || "<empty>"}。`,
+      `The URL contains an invalid Resource selector: ${resource || "<empty>"}.`,
     ));
   }
-  const subjectFacets = params.getAll("subject-facet");
-  if (subjectFacets.length > 1) {
-    throw new Error(t("URL 只能声明一个 Subject Facet。", "The URL may declare only one Subject Facet."));
+  const resourceFacets = params.getAll("resource-facet");
+  if (resourceFacets.length > 1) {
+    throw new Error(t("URL 只能声明一个 Resource Facet。", "The URL may declare only one Resource Facet."));
   }
-  const subjectFacet = subjectFacets[0] ?? null;
-  if (subjectFacet !== null && !FACET_ID.test(subjectFacet)) {
+  const resourceFacet = resourceFacets[0] ?? null;
+  if (resourceFacet !== null && !FACET_ID.test(resourceFacet)) {
     throw new Error(t(
-      `URL 包含无效的 Subject Facet 标识：${subjectFacet || "<empty>"}。`,
-      `The URL contains an invalid Subject-Facet identifier: ${subjectFacet || "<empty>"}.`,
+      `URL 包含无效的 Resource Facet 标识：${resourceFacet || "<empty>"}。`,
+      `The URL contains an invalid Resource-Facet identifier: ${resourceFacet || "<empty>"}.`,
     ));
   }
-  if (subject !== null && facet === null) {
-    throw new Error(t("Subject 深链必须声明其集合 Facet。", "A Subject deep link must declare its collection Facet."));
+  if (resource !== null && facet === null) {
+    throw new Error(t("Resource 深链必须声明其集合 Facet。", "A Resource deep link must declare its collection Facet."));
   }
-  if (subjectFacet !== null && subject === null) {
-    throw new Error(t("Subject Facet 缺少 Subject。", "A Subject Facet requires a Subject."));
+  if (resourceFacet !== null && resource === null) {
+    throw new Error(t("Resource Facet 缺少 Resource。", "A Resource Facet requires a Resource."));
   }
-  return { facet, subject, subjectFacet };
+  return { facet, resource, resourceFacet };
 }
 
 export function parseCommandFacet(search = "") {
@@ -160,23 +160,23 @@ export function parseCommandFacet(search = "") {
 
 export async function restoreCommandSelection({
   collectionFacet,
-  loadCollection,
+  loadResourceList,
   ownerAddress,
   selectOwner,
-  selectSubject,
-  subjectFacet,
-  subjectRef,
+  selectResource,
+  resourceFacet,
+  resourceSelector,
 }) {
   const ownerSelected = selectOwner();
-  if (!subjectRef || ownerSelected === false) {
+  if (!resourceSelector || ownerSelected === false) {
     return ownerSelected !== false;
   }
-  const collection = await loadCollection(ownerAddress, collectionFacet);
+  const collection = await loadResourceList(ownerAddress, collectionFacet);
   if (!collection) {
     return null;
   }
-  return selectSubject(ownerAddress, collectionFacet, subjectRef, {
-    facet: subjectFacet,
+  return selectResource(ownerAddress, collectionFacet, resourceSelector, {
+    facet: resourceFacet,
   });
 }
 
@@ -186,25 +186,25 @@ export function updateCommandPath(
   command,
   {
     defaultFacet = null,
-    defaultSubjectFacet = null,
+    defaultResourceFacet = null,
     facet = null,
     mode = "push",
-    subject = null,
-    subjectFacet = null,
+    resource = null,
+    resourceFacet = null,
   } = {},
 ) {
   if (mode === "none") {
     return;
   }
   const params = new URLSearchParams();
-  if (facet && (subject || facet !== defaultFacet)) {
+  if (facet && (resource || facet !== defaultFacet)) {
     params.set("facet", facet);
   }
-  if (subject) {
-    params.set("subject", subject);
+  if (resource) {
+    params.set("resource", resource);
   }
-  if (subjectFacet && subjectFacet !== defaultSubjectFacet) {
-    params.set("subject-facet", subjectFacet);
+  if (resourceFacet && resourceFacet !== defaultResourceFacet) {
+    params.set("resource-facet", resourceFacet);
   }
   const query = params.size > 0 ? `?${params}` : "";
   const path = `${commandPath(command)}${query}`;

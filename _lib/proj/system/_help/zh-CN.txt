@@ -1,9 +1,11 @@
 SWAW Kit：项目目录绑定的便携开发与项目控制入口。
 
-命令目录就是命令地址；每个可执行命令目录必须且只能包含一个受支持的 run.*。
-以下列表由 Proj Core 扫描真实命令目录动态生成，不维护独立 catalog。
+swawkit.resource.json 声明静态 Command Resource，subcommands Collection Facet 拥有子资源。
+Core 将这棵声明树投影为规范命令地址；以下列表由真实资源树动态生成，不维护独立 Catalog。
+可执行资源通过 execute Operation Facet 提供且只提供一个本地 run.* 或执行声明。
 
-命令通过 swawkit.module.json 声明所需 Provider Export 身份与自己提供的具名 Export。
+Resource 通过 swawkit.exports.json 提供具名 Export；execute Facet 通过
+swawkit.requirements.json 声明所需 Provider Export 身份。
 可使用纯只读检查：
 {{COMMAND}} .check <command-address> [--json]
 

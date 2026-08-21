@@ -12,6 +12,9 @@ use crate::context::EntryContext;
 use crate::core_command::PreparedCoreCommand;
 use crate::data_root::DataRootSession;
 use crate::entry_config::EntryConfigStore;
+use crate::route_resolution::{
+    CommandQuery, ResolvedFacetCall, RouteResolutionError, RouteResolver,
+};
 use crate::run_journal::StartRunJournal;
 
 pub(crate) use error::RuntimeServiceError;
@@ -20,7 +23,7 @@ pub(crate) use execution::{PreparedExecution, RuntimeExecutionRunner, RuntimeExe
 use model::validate_invocation;
 pub(crate) use model::{
     COMMAND_RUN_PROTOCOL, CommandRunDocument, CommandRunState, RuntimeQueryOutput,
-    StartCommandRunRequest,
+    StartFacetRunRequest,
 };
 use registry::RunRegistry;
 
@@ -52,21 +55,29 @@ impl RuntimeService {
         }
     }
 
-    pub(crate) async fn submit(
+    pub(crate) async fn submit_facet(
         &self,
-        request: StartCommandRunRequest,
+        request: StartFacetRunRequest,
     ) -> Result<CommandRunDocument, RuntimeServiceError> {
         request
             .validate()
             .map_err(RuntimeServiceError::InvalidRequest)?;
         self.require_current_generation()?;
         let prepared = self
-            .prepare_submission(request.address, request.arguments)
+            .prepare_facet_submission(request.route, request.tail)
             .await?;
+        self.start_prepared(prepared, request.source).await
+    }
+
+    async fn start_prepared(
+        &self,
+        prepared: PreparedRun,
+        source: crate::run_journal::RunJournalSource,
+    ) -> Result<CommandRunDocument, RuntimeServiceError> {
         let journal_request = StartRunJournal {
             module_data_root: prepared.journal.module_data_root,
             address: prepared.execution.address().to_owned(),
-            source: request.source,
+            source,
             argument_count: prepared.execution.argument_count(),
         };
         let runs = self.runs.clone();
@@ -99,6 +110,7 @@ impl RuntimeService {
         self.require_current_generation()?;
         let data_root = self.data_root.resolved();
         let prepared = prepare_command(
+            self.clone(),
             self.context.clone(),
             data_root.path().to_path_buf(),
             address.to_owned(),
@@ -125,16 +137,17 @@ impl RuntimeService {
         Ok(())
     }
 
-    async fn prepare_submission(
+    async fn prepare_facet_submission(
         &self,
-        address: String,
-        arguments: Vec<String>,
+        route: swawkit_proj_protocol::FacetRoute,
+        tail: Vec<String>,
     ) -> Result<PreparedRun, RuntimeServiceError> {
         let data_root = self.data_root.resolved();
         let context = self.context.clone();
         let data_root_path = data_root.path().to_path_buf();
+        let runtime_service = self.clone();
         let prepared = tokio::task::spawn_blocking(move || {
-            prepare_command(context, data_root_path, address, arguments)
+            prepare_facet_command(runtime_service, context, data_root_path, route, tail)
         })
         .await
         .map_err(|error| RuntimeServiceError::PreparationWorker(error.to_string()))??;
@@ -160,6 +173,7 @@ struct PreparedCommand {
 }
 
 fn prepare_command(
+    runtime_service: RuntimeService,
     context: EntryContext,
     data_root: std::path::PathBuf,
     address: String,
@@ -167,8 +181,120 @@ fn prepare_command(
 ) -> Result<PreparedCommand, RuntimeServiceError> {
     let config_store = EntryConfigStore::new(&context.swawkit_home, &data_root);
     let config_state = config_store.read();
-    let catalog = CatalogSnapshot::discover(&context, config_state.ready())
+    let config = config_state.ready().cloned();
+    let catalog = CatalogSnapshot::discover(&context, config.as_ref())
         .map_err(|_| RuntimeServiceError::CatalogDiscovery)?;
+    prepare_command_in_catalog(
+        runtime_service,
+        context,
+        data_root,
+        config,
+        catalog,
+        address,
+        arguments,
+    )
+}
+
+fn prepare_facet_command(
+    runtime_service: RuntimeService,
+    context: EntryContext,
+    data_root: std::path::PathBuf,
+    route: swawkit_proj_protocol::FacetRoute,
+    tail: Vec<String>,
+) -> Result<PreparedCommand, RuntimeServiceError> {
+    let config_store = EntryConfigStore::new(&context.swawkit_home, &data_root);
+    let config_state = config_store.read();
+    let config = config_state.ready().cloned();
+    let catalog = CatalogSnapshot::discover(&context, config.as_ref())
+        .map_err(|_| RuntimeServiceError::CatalogDiscovery)?;
+    let invocation = {
+        let query = SnapshotCommandQuery {
+            runtime_service: &runtime_service,
+            context: &context,
+            data_root: &data_root,
+            config: config.as_ref(),
+            catalog: &catalog,
+        };
+        match RouteResolver::new(&catalog, &query)
+            .resolve_facet_call(&route)
+            .map_err(map_route_resolution_error)?
+        {
+            ResolvedFacetCall::Invocation(invocation) => invocation,
+            ResolvedFacetCall::Document(_) => {
+                return Err(RuntimeServiceError::CommandInvalid(
+                    "only operation Facets can start command runs".to_owned(),
+                ));
+            }
+        }
+    };
+    if !tail.is_empty() && !invocation.accepts_tail {
+        return Err(RuntimeServiceError::InvalidRequest(
+            "the requested operation Facet does not accept trailing arguments",
+        ));
+    }
+    let mut arguments = invocation.arguments;
+    arguments.extend(tail);
+    validate_invocation(&invocation.address, &arguments)
+        .map_err(RuntimeServiceError::InvalidRequest)?;
+    prepare_command_in_catalog(
+        runtime_service,
+        context,
+        data_root,
+        config,
+        catalog,
+        invocation.address,
+        arguments,
+    )
+}
+
+struct SnapshotCommandQuery<'a> {
+    runtime_service: &'a RuntimeService,
+    context: &'a EntryContext,
+    data_root: &'a std::path::Path,
+    config: Option<&'a crate::entry_config::EntryConfig>,
+    catalog: &'a CatalogSnapshot,
+}
+
+impl CommandQuery for SnapshotCommandQuery<'_> {
+    fn query(
+        &self,
+        address: &str,
+        arguments: &[String],
+    ) -> Result<RuntimeQueryOutput, RuntimeServiceError> {
+        validate_invocation(address, arguments).map_err(RuntimeServiceError::InvalidRequest)?;
+        self.runtime_service.require_current_generation()?;
+        let prepared = prepare_command_in_catalog(
+            self.runtime_service.clone(),
+            self.context.clone(),
+            self.data_root.to_path_buf(),
+            self.config.cloned(),
+            self.catalog.clone(),
+            address.to_owned(),
+            arguments.to_vec(),
+        )?;
+        self.runtime_service.runs.query(prepared.execution)
+    }
+}
+
+fn map_route_resolution_error(error: RouteResolutionError) -> RuntimeServiceError {
+    match error {
+        RouteResolutionError::NotFound(_) => RuntimeServiceError::CommandNotFound,
+        RouteResolutionError::Invalid(message) => RuntimeServiceError::CommandInvalid(message),
+        RouteResolutionError::Internal(message) => RuntimeServiceError::Query(message),
+        RouteResolutionError::Runtime(error) => error,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn prepare_command_in_catalog(
+    runtime_service: RuntimeService,
+    context: EntryContext,
+    data_root: std::path::PathBuf,
+    config: Option<crate::entry_config::EntryConfig>,
+    catalog: CatalogSnapshot,
+    address: String,
+    arguments: Vec<String>,
+) -> Result<PreparedCommand, RuntimeServiceError> {
     if !catalog
         .commands
         .iter()
@@ -199,7 +325,7 @@ fn prepare_command(
     .map_err(RuntimeServiceError::DependenciesNotReady)?;
 
     let execution_context =
-        CommandExecutionContext::for_host(&context, config_state.ready(), &catalog, &data_root)
+        CommandExecutionContext::for_host(&context, config.as_ref(), &catalog, &data_root)
             .map_err(|error| RuntimeServiceError::ExecutionContext(error.to_string()))?;
     let journal = PreparedJournal {
         module_data_root: command_data_root(&execution_context, command)
@@ -221,8 +347,15 @@ fn prepare_command(
     let execution = if command.adapter == CommandAdapter::Core {
         PreparedExecution::core(
             spec,
-            PreparedCoreCommand::for_runtime(command, argv, catalog, context, data_root)
-                .map_err(|error| RuntimeServiceError::CommandInvalid(error.to_string()))?,
+            PreparedCoreCommand::for_runtime(
+                command,
+                argv,
+                catalog,
+                context,
+                data_root,
+                Arc::new(runtime_service),
+            )
+            .map_err(|error| RuntimeServiceError::CommandInvalid(error.to_string()))?,
         )
     } else {
         PreparedExecution::process(

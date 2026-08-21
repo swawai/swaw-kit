@@ -1,4 +1,0 @@
-{
-  "schema": "swawkit.command-module/v12",
-  "execution": { "type": "core", "handler": "entry.instances" }
-}

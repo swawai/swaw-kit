@@ -44,14 +44,14 @@ fn command_check_uses_declared_provider_state_and_returns_a_machine_exit_code() 
     fixture.core_command(".check", "meta.check");
     let provider = fixture.command(".provider", "run.exe", "fixture");
     fs::write(
-        provider.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v12","provides":[{"id":"fixture"}]}"#,
+        provider.join("swawkit.exports.json"),
+        r#"{"schema":"swawkit.resource-exports/v1","exports":[{"id":"fixture"}]}"#,
     )
     .unwrap();
     let consumer = fixture.command(".consumer", "run.exe", "fixture");
     fs::write(
-        consumer.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v12","requires":[{"provider":".provider","export":"fixture"}]}"#,
+        consumer.join("execute/swawkit.requirements.json"),
+        r#"{"schema":"swawkit.facet-requirements/v1","requirements":[{"provider":"$/system::provider","export":"fixture"}]}"#,
     )
     .unwrap();
     fixture.bind();
@@ -120,8 +120,8 @@ fn directory_check_is_read_only_and_does_not_require_entry_config() {
     fixture.core_command(".check/dir/exists", "meta.check.dir.exists");
     let provider = fixture.command(".provider", "run.exe", "fixture");
     fs::write(
-        provider.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v12","provides":[{"id":"fixture"}]}"#,
+        provider.join("swawkit.exports.json"),
+        r#"{"schema":"swawkit.resource-exports/v1","exports":[{"id":"fixture"}]}"#,
     )
     .unwrap();
     fixture.initialize();

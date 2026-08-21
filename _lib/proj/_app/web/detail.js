@@ -43,7 +43,6 @@ export function createDetailView(elements) {
     elements.propertyEntry.textContent = command.adapter
       ? `${command.entry} · ${command.adapter}`
       : command.entry;
-    renderModuleContract(command.module);
     elements.detailHelp.textContent = command.help
       || t("该命令尚未提供详细帮助。", "This command has no detailed help yet.");
     elements.commandHelpAddress.textContent = command.address;
@@ -51,36 +50,6 @@ export function createDetailView(elements) {
       `已选择命令 ${command.address}`,
       `Selected command ${command.address}`,
     );
-  }
-
-  function renderModuleContract(module) {
-    elements.moduleContractSection.hidden = !module;
-    elements.moduleRequires.replaceChildren();
-    elements.moduleProvides.replaceChildren();
-    if (!module) {
-      return;
-    }
-    appendItems(
-      elements.moduleRequires,
-      module.requires.map(({ provider, export: exportId }) => (
-        `${provider}#${exportId}`
-      )),
-      t("无声明依赖", "No declared requirements"),
-    );
-    appendItems(
-      elements.moduleProvides,
-      module.provides.map(({ id }) => id),
-      t("不提供 Export", "No Export provided"),
-    );
-  }
-
-  function appendItems(list, items, emptyText) {
-    const values = items.length > 0 ? items : [emptyText];
-    for (const value of values) {
-      const item = document.createElement("li");
-      item.textContent = value;
-      list.append(item);
-    }
   }
 
   async function copyInvocation() {

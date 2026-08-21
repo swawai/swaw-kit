@@ -7,7 +7,7 @@ import {
   pinnedContextRef,
 } from "./context-tray-model.js";
 
-function subject() {
+function resource() {
   return {
     facets: [{
       id: "add",
@@ -22,59 +22,68 @@ function subject() {
         type: "command",
       },
     }],
-    ref: { id: "test", kind: "context", type: "instance" },
-    via: {
-      facet: "contexts",
-      subject: {
-        address: ".context",
-        space: "system",
-        type: "command",
+    identity: {
+      id: "test",
+      kind: {
+        resource: { hops: [{ facet: "system", selector: "context" }] },
+        facet: "contexts",
       },
+      type: "instance",
     },
+    collectionFacet: "contexts",
+    ownerRef: { address: ".context", space: "system", type: "command" },
+    route: "$/system::context/contexts::test",
+    selector: "test",
   };
 }
 
 describe("Context tray model", () => {
   test("persists only typed identity and collection provenance", () => {
-    const record = createPinnedContextRecord(subject());
+    const record = createPinnedContextRecord(resource());
     expect(parsePinnedContextRecord(JSON.stringify(record))).toEqual(record);
-    expect(pinnedContextRef(record)).toBe("::context/test");
+    expect(pinnedContextRef(record)).toBe("$/system::context/contexts::test");
     expect(JSON.stringify(record)).not.toContain("resolver");
   });
 
   test("rejects untrusted or extended session records", () => {
-    const record = createPinnedContextRecord(subject());
+    const record = createPinnedContextRecord(resource());
     expect(() => parsePinnedContextRecord(JSON.stringify({
       ...record,
       resolver: { address: ".context/show" },
     }))).toThrow("invalid shape");
     expect(() => createPinnedContextRecord({
-      ...subject(),
-      ref: { id: "test", kind: "run", type: "instance" },
-    })).toThrow("Context Subject");
+      ...resource(),
+      identity: {
+        ...resource().identity,
+        kind: {
+          resource: { hops: [{ facet: "system", selector: "runs" }] },
+          facet: "all",
+        },
+      },
+    })).toThrow("Context Resource");
   });
 
   test("maps the selected command through the declared add operation", () => {
     const invocation = contextAddInvocation(
-      subject(),
+      resource(),
       { address: ".dev/status", space: "system" },
       { commands: [] },
     );
     expect(invocation).toEqual({
-      address: ".context/add",
-      arguments: ["test", ".dev/status"],
+      arguments: [".dev/status"],
+      route: "$/system::context/contexts::test/add",
       state: "available",
     });
   });
 
   test("does not run for an existing command or an undeclared capability", () => {
     expect(contextAddInvocation(
-      subject(),
+      resource(),
       { address: ".dev/status", space: "system" },
       { commands: [{ address: ".dev/status", space: "system" }] },
     )).toEqual({ state: "present" });
     expect(contextAddInvocation(
-      { ...subject(), facets: [] },
+      { ...resource(), facets: [] },
       { address: ".dev/status", space: "system" },
       { commands: [] },
     )).toBeNull();

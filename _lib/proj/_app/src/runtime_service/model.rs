@@ -1,4 +1,5 @@
 use serde::Serialize;
+use swawkit_proj_protocol::FacetRoute;
 
 use crate::run_journal::{RunJournalEvent, RunJournalSource};
 
@@ -8,15 +9,15 @@ const MAX_ARGUMENT_UTF16: usize = 4096;
 const MAX_COMMAND_UTF16: usize = 8192;
 
 #[derive(Debug)]
-pub(crate) struct StartCommandRunRequest {
-    pub address: String,
-    pub arguments: Vec<String>,
+pub(crate) struct StartFacetRunRequest {
+    pub route: FacetRoute,
+    pub tail: Vec<String>,
     pub source: RunJournalSource,
 }
 
-impl StartCommandRunRequest {
+impl StartFacetRunRequest {
     pub(crate) fn validate(&self) -> Result<(), &'static str> {
-        validate_invocation(&self.address, &self.arguments)
+        validate_invocation(&self.route.canonical_route(), &self.tail)
     }
 }
 
@@ -90,26 +91,21 @@ impl CommandRunState {
 mod tests {
     use super::*;
 
-    fn request(address: &str, arguments: Vec<String>) -> StartCommandRunRequest {
-        StartCommandRunRequest {
-            address: address.to_owned(),
-            arguments,
+    fn request(tail: Vec<String>) -> StartFacetRunRequest {
+        StartFacetRunRequest {
+            route: FacetRoute::parse("$/system::demo/execute").expect("test Facet Route"),
+            tail,
             source: RunJournalSource::Web,
         }
     }
 
     #[test]
     fn validates_argument_limits_without_a_transport() {
-        assert!(request(".demo", vec![]).validate().is_ok());
-        assert!(request("", vec![]).validate().is_err());
+        assert!(request(vec![]).validate().is_ok());
+        assert!(request(vec!["x".to_owned(); 129]).validate().is_err());
+        assert!(request(vec!["x".repeat(4097)]).validate().is_err());
         assert!(
-            request(".demo", vec!["x".to_owned(); 129])
-                .validate()
-                .is_err()
-        );
-        assert!(request(".demo", vec!["x".repeat(4097)]).validate().is_err());
-        assert!(
-            request(".demo", vec!["contains\0nul".to_owned()])
+            request(vec!["contains\0nul".to_owned()])
                 .validate()
                 .is_err()
         );
@@ -119,31 +115,25 @@ mod tests {
     fn validates_the_address_utf16_limit() {
         let exact = "😀".repeat(MAX_ARGUMENT_UTF16 / 2);
         assert_eq!(exact.encode_utf16().count(), MAX_ARGUMENT_UTF16);
-        assert!(request(&exact, vec![]).validate().is_ok());
+        assert!(validate_invocation(&exact, &[]).is_ok());
 
         let oversized = format!("{exact}x");
         assert_eq!(oversized.encode_utf16().count(), MAX_ARGUMENT_UTF16 + 1);
-        assert!(request(&oversized, vec![]).validate().is_err());
+        assert!(validate_invocation(&oversized, &[]).is_err());
     }
 
     #[test]
     fn validates_the_total_arguments_utf16_limit() {
-        let exact = request(
-            "a",
-            vec![
-                "x".repeat(MAX_ARGUMENT_UTF16),
-                "y".repeat(MAX_ARGUMENT_UTF16 - 1),
-            ],
-        );
-        assert!(exact.validate().is_ok());
+        let exact = vec![
+            "x".repeat(MAX_ARGUMENT_UTF16),
+            "y".repeat(MAX_ARGUMENT_UTF16 - 1),
+        ];
+        assert!(validate_invocation("a", &exact).is_ok());
 
-        let oversized = request(
-            "a",
-            vec![
-                "x".repeat(MAX_ARGUMENT_UTF16),
-                "y".repeat(MAX_ARGUMENT_UTF16),
-            ],
-        );
-        assert!(oversized.validate().is_err());
+        let oversized = vec![
+            "x".repeat(MAX_ARGUMENT_UTF16),
+            "y".repeat(MAX_ARGUMENT_UTF16),
+        ];
+        assert!(validate_invocation("a", &oversized).is_err());
     }
 }

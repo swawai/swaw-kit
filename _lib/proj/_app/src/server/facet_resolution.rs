@@ -5,41 +5,21 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
+use swawkit_proj_protocol::FacetRoute;
 
 use crate::{
-    catalog::{CatalogSnapshot, CommandNode, CommandSpace},
-    command_check::COMMAND_CHECK_PROTOCOL,
+    catalog::CatalogSnapshot,
     entry_config::EntryConfigStore,
-    facet::{Facet, FacetKind, FacetResolver, valid_facet_id},
+    route_resolution::{RouteResolutionError, RouteResolver},
     runtime_service::{RuntimeService, RuntimeServiceError},
-    subject::{SUBJECT_COLLECTION_PROTOCOL, SubjectCollection, SubjectRef},
 };
 
 use super::{ServerState, api_error, command_run::runtime_service_error};
 
-mod collection;
-
-use collection::{collection_subject_kind, validate_collection_contract};
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct FacetResolutionRequest {
-    subject: SubjectRef,
-    facet: String,
-    #[serde(default)]
-    via: Option<FacetCollectionRef>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct FacetCollectionRef {
-    subject: SubjectRef,
-    facet: String,
-}
-
-struct FacetResolutionDocument {
-    value: serde_json::Value,
-    collection: Option<SubjectCollection>,
+pub(super) struct RouteResolutionRequest {
+    route: String,
 }
 
 struct ResolutionContext {
@@ -51,21 +31,59 @@ type ApiResult<T> = Result<T, (StatusCode, Json<super::ApiError>)>;
 
 pub(super) async fn post_facet_resolution(
     State(state): State<ServerState>,
-    Json(request): Json<FacetResolutionRequest>,
+    Json(request): Json<RouteResolutionRequest>,
 ) -> Response {
-    if !valid_facet_id(&request.facet) {
-        return api_error(StatusCode::UNPROCESSABLE_ENTITY, "facet id is invalid").into_response();
-    }
+    let route = match FacetRoute::parse(&request.route) {
+        Ok(route) => route,
+        Err(error) => {
+            return api_error(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()).into_response();
+        }
+    };
     let resolution = match resolution_context(&state).await {
         Ok(resolution) => resolution,
         Err(error) => return error.into_response(),
     };
-    match tokio::task::spawn_blocking(move || resolve_request(&resolution, request)).await {
+    match tokio::task::spawn_blocking(move || {
+        RouteResolver::new(&resolution.catalog, &resolution.runtime_service)
+            .resolve_document(&route)
+    })
+    .await
+    {
         Ok(Ok(document)) => Json(document.value).into_response(),
-        Ok(Err(error)) => error.into_response(),
+        Ok(Err(error)) => resolution_error(error).into_response(),
         Err(error) => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("facet resolution worker failed: {error}"),
+        )
+        .into_response(),
+    }
+}
+
+pub(super) async fn post_view_bundle(
+    State(state): State<ServerState>,
+    Json(request): Json<RouteResolutionRequest>,
+) -> Response {
+    let route = match FacetRoute::parse(&request.route) {
+        Ok(route) => route,
+        Err(error) => {
+            return api_error(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()).into_response();
+        }
+    };
+    let resolution = match resolution_context(&state).await {
+        Ok(resolution) => resolution,
+        Err(error) => return error.into_response(),
+    };
+    match tokio::task::spawn_blocking(move || {
+        RouteResolver::new(&resolution.catalog, &resolution.runtime_service)
+            .resolve_view_bundle(&route)
+    })
+    .await
+    {
+        Ok(Ok(bundle)) => Json(bundle).into_response(),
+        Ok(Err(error)) => resolution_error(error).into_response(),
+        Err(error) => api_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("view bundle worker failed: {error}"),
         )
         .into_response(),
     }
@@ -98,328 +116,22 @@ async fn resolution_context(state: &ServerState) -> ApiResult<ResolutionContext>
     })?
 }
 
-fn resolve_request(
-    context: &ResolutionContext,
-    request: FacetResolutionRequest,
-) -> ApiResult<FacetResolutionDocument> {
-    let facet = match &request.subject {
-        SubjectRef::Command {
-            space,
-            namespace,
-            address,
-        } => {
-            if request.via.is_some() {
-                return Err(api_error(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "a command Subject facet cannot declare a via collection",
-                ));
-            }
-            command_facet(
-                &context.catalog,
-                *space,
-                namespace.as_deref(),
-                address,
-                &request.facet,
-            )?
-            .clone()
-        }
-        SubjectRef::Instance { .. } => {
-            let via = request.via.as_ref().ok_or_else(|| {
-                api_error(
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    "an instance Subject facet requires a via collection",
-                )
-            })?;
-            instance_facet(context, &request.subject, &request.facet, via)?
-        }
-    };
-    let document = resolve_declared_facet(context, &facet)?;
-    if let Some(collection) = &document.collection {
-        if collection.protocol != SUBJECT_COLLECTION_PROTOCOL
-            || &collection.owner != &request.subject
-            || collection.facet != request.facet
-        {
-            return Err(api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "collection facet resolver returned a mismatched owner or facet",
-            ));
-        }
-        validate_collection_contract(&context.catalog, collection, &facet)?;
-    }
-    Ok(document)
-}
-
-fn command_facet<'a>(
-    catalog: &'a CatalogSnapshot,
-    space: CommandSpace,
-    namespace: Option<&str>,
-    address: &str,
-    facet_id: &str,
-) -> ApiResult<&'a Facet> {
-    let command = catalog
-        .commands
-        .iter()
-        .find(|command| {
-            command.space == space
-                && command.namespace.as_deref() == namespace
-                && command.address == address
-                && command.alias_of.is_none()
-        })
-        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Subject not found"))?;
-    command
-        .facets
-        .iter()
-        .find(|facet| facet.id == facet_id)
-        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Subject facet not found"))
-}
-
-fn instance_facet(
-    context: &ResolutionContext,
-    subject_ref: &SubjectRef,
-    facet_id: &str,
-    via: &FacetCollectionRef,
-) -> ApiResult<Facet> {
-    if !valid_facet_id(&via.facet) {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "via facet id is invalid",
-        ));
-    }
-    let SubjectRef::Command {
-        space,
-        namespace,
-        address,
-    } = &via.subject
-    else {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "a via collection must belong to a command Subject",
-        ));
-    };
-    let collection_facet = command_facet(
-        &context.catalog,
-        *space,
-        namespace.as_deref(),
-        address,
-        &via.facet,
-    )?;
-    if collection_facet.kind != FacetKind::Collection {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "the requested via facet is not a collection",
-        ));
-    }
-    let document = resolve_declared_facet(context, collection_facet)?;
-    let collection = document.collection.ok_or_else(|| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "collection facet resolver returned the wrong document type",
-        )
-    })?;
-    if &collection.owner != &via.subject || collection.facet != via.facet {
-        return Err(api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "collection facet resolver returned a mismatched owner or facet",
-        ));
-    }
-    validate_collection_contract(&context.catalog, &collection, collection_facet)?;
-    let subject = collection
-        .subjects
-        .iter()
-        .find(|subject| &subject.reference == subject_ref)
-        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Subject not found"))?;
-    if !subject
-        .facet_ids
-        .iter()
-        .any(|candidate| candidate == facet_id)
-    {
-        return Err(api_error(StatusCode::NOT_FOUND, "Subject facet not found"));
-    }
-    let subject_kind = collection_subject_kind(&context.catalog, collection_facet)?;
-    let SubjectRef::Instance { id, .. } = subject_ref else {
-        unreachable!("SubjectCollection v2 only contains instance Subjects");
-    };
-    subject_kind
-        .instantiate(facet_id, id)
-        .map_err(|_| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Subject facet template is invalid",
-            )
-        })?
-        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Subject facet not found"))
-}
-
-fn resolve_declared_facet(
-    context: &ResolutionContext,
-    facet: &Facet,
-) -> ApiResult<FacetResolutionDocument> {
-    if facet.kind == FacetKind::Operation {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "operation facets must run through the command execution boundary",
-        ));
-    }
-    let Some(FacetResolver::Command {
-        address,
-        arguments,
-        accepts_tail,
-        confirmation,
-        returns,
-    }) = &facet.resolver
-    else {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "the requested facet has no document resolver",
-        ));
-    };
-    if *accepts_tail || confirmation.is_some() {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "document resolvers must use exact arguments without confirmation",
-        ));
-    }
-    let returns = returns.as_deref().ok_or_else(|| {
-        api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "document resolvers must declare their return protocol",
-        )
-    })?;
-    if (facet.kind == FacetKind::Collection) != (returns == SUBJECT_COLLECTION_PROTOCOL) {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "collection facets must return the Subject collection protocol",
-        ));
-    }
-    resolve_command_document(context, address, arguments, returns)
-}
-
-fn resolve_command_document(
-    context: &ResolutionContext,
-    address: &str,
-    arguments: &[String],
-    returns: &str,
-) -> ApiResult<FacetResolutionDocument> {
-    exact_runnable_command(&context.catalog, address)?;
-    let output = context
-        .runtime_service
-        .query(address, arguments)
-        .map_err(facet_query_error)?;
-    let value: serde_json::Value = serde_json::from_str(&output.stdout).map_err(|_| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "facet resolver command returned invalid JSON",
-        )
-    })?;
-    validate_return_protocol(&value, returns)?;
-    validate_resolver_exit(&value, returns, output.exit_code)?;
-    let collection = if returns == SUBJECT_COLLECTION_PROTOCOL {
-        let collection: SubjectCollection =
-            serde_json::from_value(value.clone()).map_err(|_| {
-                api_error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "facet resolver command returned an invalid Subject collection",
-                )
-            })?;
-        collection.validate().map_err(|_| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "facet resolver command returned an invalid Subject collection",
-            )
-        })?;
-        Some(collection)
-    } else {
-        None
-    };
-    Ok(FacetResolutionDocument { value, collection })
-}
-
-fn facet_query_error(error: RuntimeServiceError) -> (StatusCode, Json<super::ApiError>) {
+fn resolution_error(error: RouteResolutionError) -> (StatusCode, Json<super::ApiError>) {
     match error {
-        error @ RuntimeServiceError::RuntimeUpdateRequired { .. }
-        | error @ RuntimeServiceError::RuntimeGenerationUnavailable(_) => {
-            runtime_service_error(error)
+        RouteResolutionError::NotFound(message) => api_error(StatusCode::NOT_FOUND, message),
+        RouteResolutionError::Invalid(message) => {
+            api_error(StatusCode::UNPROCESSABLE_ENTITY, message)
         }
-        _ => api_error(
+        RouteResolutionError::Internal(message) => {
+            api_error(StatusCode::INTERNAL_SERVER_ERROR, message)
+        }
+        RouteResolutionError::Runtime(
+            error @ (RuntimeServiceError::RuntimeUpdateRequired { .. }
+            | RuntimeServiceError::RuntimeGenerationUnavailable(_)),
+        ) => runtime_service_error(error),
+        RouteResolutionError::Runtime(_) => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             "facet resolver command failed",
         ),
     }
-}
-
-fn validate_resolver_exit(
-    document: &serde_json::Value,
-    returns: &str,
-    exit_code: i32,
-) -> ApiResult<()> {
-    if returns != COMMAND_CHECK_PROTOCOL {
-        return if exit_code == 0 {
-            Ok(())
-        } else {
-            Err(api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("facet resolver command exited with code {exit_code}"),
-            ))
-        };
-    }
-
-    let ready = document
-        .get("ready")
-        .and_then(serde_json::Value::as_bool)
-        .ok_or_else(|| {
-            api_error(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "command-check resolver returned an invalid ready state",
-            )
-        })?;
-    if matches!((exit_code, ready), (0, true) | (1, false)) {
-        Ok(())
-    } else {
-        Err(api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "command-check resolver exit code does not match document readiness",
-        ))
-    }
-}
-
-fn validate_return_protocol(document: &serde_json::Value, expected: &str) -> ApiResult<()> {
-    let object = document.as_object().ok_or_else(|| {
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "facet resolver command must return a JSON object",
-        )
-    })?;
-    let protocol = object.get("protocol").and_then(serde_json::Value::as_str);
-    let schema = object.get("schema").and_then(serde_json::Value::as_str);
-    if matches!((protocol, schema), (Some(actual), None) | (None, Some(actual)) if actual == expected)
-    {
-        Ok(())
-    } else {
-        Err(api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "facet resolver command returned the wrong protocol",
-        ))
-    }
-}
-
-fn exact_runnable_command<'a>(
-    catalog: &'a CatalogSnapshot,
-    address: &str,
-) -> ApiResult<&'a CommandNode> {
-    let mut matches = catalog.commands.iter().filter(|command| {
-        command.address == address
-            && !command.is_control()
-            && command.runnable
-            && command.alias_of.is_none()
-    });
-    let command = matches
-        .next()
-        .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "resolver command not found"))?;
-    if matches.next().is_some() {
-        return Err(api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "resolver command address is ambiguous",
-        ));
-    }
-    Ok(command)
 }

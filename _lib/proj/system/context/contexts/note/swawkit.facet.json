@@ -1,0 +1,9 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "operation",
+  "presentation": {
+    "icon": "+",
+    "label": { "zh-CN": "追加说明", "en": "Append note" },
+    "summary": { "zh-CN": "向 Context 追加一段说明", "en": "Append a note to this Context" }
+  }
+}

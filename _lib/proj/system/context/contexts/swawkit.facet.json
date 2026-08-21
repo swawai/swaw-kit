@@ -1,0 +1,12 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "collection",
+  "presentation": {
+    "icon": "◆",
+    "label": { "zh-CN": "上下文", "en": "Contexts" },
+    "summary": {
+      "zh-CN": "浏览持久化的 Agent 上下文",
+      "en": "Browse persisted Agent contexts"
+    }
+  }
+}

@@ -1,4 +1,4 @@
-export const protocol = "swawkit.command-catalog/v20";
+export const protocol = "swawkit.command-catalog/v24";
 
 export function node(address, overrides = {}) {
   const space = overrides.space ?? (address.startsWith(".") || address === "" ? "system" : "module");
@@ -22,29 +22,12 @@ export function node(address, overrides = {}) {
     adapter: null,
     handler: null,
     product: null,
-    module: null,
     help: null,
-    subjectKinds: [],
+    resourceKinds: [],
     facets: [],
-    view: null,
     diagnostic: null,
     ...overrides,
   };
-  if (
-    command.module === null
-    && new Set(["core", "runtime", "native"]).has(command.adapter)
-  ) {
-    command.module = {
-      schema: "swawkit.command-module/v12",
-      execution: command.adapter === "native"
-        ? { type: "native" }
-        : command.adapter === "runtime"
-          ? { type: "runtime", product: command.product }
-          : { type: command.adapter, handler: command.handler },
-      requires: [],
-      provides: [],
-    };
-  }
   return command;
 }
 

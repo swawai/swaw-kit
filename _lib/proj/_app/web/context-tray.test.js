@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { createContextTrayView } from "./context-tray.js";
 
-const STORAGE_KEY = "swawkit.web-pinned-context/v1";
+const STORAGE_KEY = "swawkit.web-pinned-context/v2";
 
 function element() {
   return {
@@ -34,9 +34,8 @@ function storage() {
   };
 }
 
-function subject() {
+function resource(id = "tray-test") {
   return {
-    canonicalRef: "::context/tray-test",
     facets: [
       {
         id: "overview",
@@ -45,7 +44,7 @@ function subject() {
         resolver: {
           acceptsTail: false,
           address: ".context/show",
-          arguments: ["tray-test", "--json"],
+          arguments: [id, "--json"],
           confirmation: null,
           returns: "swawkit.context/v2",
           type: "command",
@@ -58,20 +57,27 @@ function subject() {
         resolver: {
           acceptsTail: true,
           address: ".context/add",
-          arguments: ["tray-test"],
+          arguments: [id],
           confirmation: null,
           returns: null,
           type: "command",
         },
       },
     ],
-    label: "::tray-test",
-    ref: { id: "tray-test", kind: "context", type: "instance" },
-    summary: "0 个命令 · 0 条说明",
-    via: {
-      facet: "contexts",
-      subject: { address: ".context", space: "system", type: "command" },
+    collectionFacet: "contexts",
+    identity: {
+      id,
+      kind: {
+        resource: { hops: [{ facet: "system", selector: "context" }] },
+        facet: "contexts",
+      },
+      type: "instance",
     },
+    label: `::${id}`,
+    ownerRef: { address: ".context", space: "system", type: "command" },
+    route: `$/system::context/contexts::${id}`,
+    selector: id,
+    summary: "0 个命令 · 0 条说明",
   };
 }
 
@@ -89,18 +95,18 @@ describe("Context tray", () => {
   test("pins, invokes the declared add Facet, refreshes, and unpins", async () => {
     const dom = elements();
     const session = storage();
-    const instance = subject();
+    const instance = resource();
     let latest = document_();
     const calls = [];
     const pinned = [];
     const rendered = [];
     const tray = createContextTrayView(dom, {
-      async executeOperation(address, arguments_) {
-        calls.push({ address, arguments: arguments_ });
+      async executeOperation(route, arguments_) {
+        calls.push({ route, arguments: arguments_ });
         latest = document_([{ address: ".dev/status", space: "system" }]);
       },
       async loadDocument() { return latest; },
-      async loadSubject() { return instance; },
+      async loadResource() { return instance; },
       onPinnedChange(reference) { pinned.push(reference); },
       renderFields(_fields, projection) { rendered.push(projection.commands); },
       storage: session,
@@ -112,21 +118,22 @@ describe("Context tray", () => {
     expect(dom.contextTrayAdd.disabled).toBe(false);
     expect(JSON.parse(session.getItem(STORAGE_KEY))).toEqual({
       schema: STORAGE_KEY,
-      subject: { id: "tray-test", kind: "context", type: "instance" },
-      via: {
+      identity: instance.identity,
+      source: {
         facet: "contexts",
-        subject: { address: ".context", space: "system", type: "command" },
+        owner: { address: ".context", space: "system", type: "command" },
+        selector: "tray-test",
       },
     });
 
     expect(await tray.addCurrentCommand()).toBe(true);
     expect(calls).toEqual([{
-      address: ".context/add",
-      arguments: ["tray-test", ".dev/status"],
+      route: "$/system::context/contexts::tray-test/add",
+      arguments: [".dev/status"],
     }]);
     expect(rendered.at(-1)).toEqual([{ address: ".dev/status", space: "system" }]);
     expect(dom.contextTrayPresentLabel.hidden).toBe(false);
-    expect(pinned.at(-1)).toBe("::context/tray-test");
+    expect(pinned.at(-1)).toBe("$/system::context/contexts::tray-test");
 
     tray.unpin();
     expect(dom.contextTray.hidden).toBe(true);
@@ -134,26 +141,27 @@ describe("Context tray", () => {
     expect(pinned.at(-1)).toBeNull();
   });
 
-  test("restores through current Subject and projection resolvers", async () => {
+  test("restores through current Resource and projection resolvers", async () => {
     const dom = elements();
     const session = storage();
-    const instance = subject();
+    const instance = resource();
     session.setItem(STORAGE_KEY, JSON.stringify({
       schema: STORAGE_KEY,
-      subject: { id: "tray-test", kind: "context", type: "instance" },
-      via: {
+      identity: instance.identity,
+      source: {
         facet: "contexts",
-        subject: { address: ".context", space: "system", type: "command" },
+        owner: { address: ".context", space: "system", type: "command" },
+        selector: "tray-test",
       },
     }));
     const loaded = [];
     const tray = createContextTrayView(dom, {
       async loadDocument(resolved) {
-        loaded.push(resolved.canonicalRef);
+        loaded.push(resolved.route);
         return document_();
       },
-      async loadSubject(record) {
-        loaded.push(record.via.facet);
+      async loadResource(record) {
+        loaded.push(record.source.facet);
         return instance;
       },
       renderFields() {},
@@ -161,29 +169,24 @@ describe("Context tray", () => {
     });
 
     expect(await tray.restore()).toBe(true);
-    expect(loaded).toEqual(["contexts", "::context/tray-test"]);
-    expect(tray.pinnedRef()).toBe("::context/tray-test");
+    expect(loaded).toEqual(["contexts", "$/system::context/contexts::tray-test"]);
+    expect(tray.pinnedRef()).toBe("$/system::context/contexts::tray-test");
     expect(dom.contextTray.hidden).toBe(false);
   });
 
   test("does not apply an old operation result to a newly pinned Context", async () => {
     const dom = elements();
     const session = storage();
-    const first = subject();
-    const second = {
-      ...subject(),
-      canonicalRef: "::context/other",
-      label: "::other",
-      ref: { id: "other", kind: "context", type: "instance" },
-    };
+    const first = resource();
+    const second = resource("other");
     let finish;
     const operation = new Promise((resolve) => { finish = resolve; });
     const tray = createContextTrayView(dom, {
       async executeOperation() { await operation; },
-      async loadDocument(resolved) { return document_().id === resolved.ref.id
+      async loadDocument(resolved) { return document_().id === resolved.identity.id
         ? document_()
-        : { ...document_(), id: resolved.ref.id }; },
-      async loadSubject() { return first; },
+        : { ...document_(), id: resolved.identity.id }; },
+      async loadResource() { return first; },
       renderFields() {},
       storage: session,
     });
@@ -195,13 +198,13 @@ describe("Context tray", () => {
     finish();
 
     expect(await adding).toBe(true);
-    expect(tray.pinnedRef()).toBe("::context/other");
+    expect(tray.pinnedRef()).toBe("$/system::context/contexts::other");
     expect(dom.contextTrayFeedback.textContent).toBe("");
   });
 
   test("refreshes Runtime status when its operation reaches a stale Host", async () => {
     const dom = elements();
-    const instance = subject();
+    const instance = resource();
     let notifications = 0;
     const tray = createContextTrayView(dom, {
       async executeOperation() {
@@ -210,7 +213,7 @@ describe("Context tray", () => {
         throw error;
       },
       async loadDocument() { return document_(); },
-      async loadSubject() { return instance; },
+      async loadResource() { return instance; },
       onRuntimeUpdateRequired() { notifications += 1; },
       renderFields() {},
       storage: storage(),

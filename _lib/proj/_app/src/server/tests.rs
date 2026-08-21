@@ -42,6 +42,31 @@ fn test_host_runtime(context: &EntryContext) -> HostRuntimeDocument {
     .expect("test Host runtime")
 }
 
+fn system_execute_route(address: &str) -> String {
+    let mut segments = address
+        .strip_prefix('.')
+        .expect("test System command address")
+        .split('/');
+    let root = segments.next().expect("test System command root");
+    let mut route = format!("$/system::{root}");
+    for child in segments {
+        route.push_str(&format!("/subcommands::{child}"));
+    }
+    route.push_str("/execute");
+    route
+}
+
+fn module_execute_route(address: &str) -> String {
+    let mut segments = address.split('/');
+    let namespace = segments.next().expect("test Module namespace");
+    let mut route = format!("$/modules::{namespace}");
+    for child in segments {
+        route.push_str(&format!("/subcommands::{child}"));
+    }
+    route.push_str("/execute");
+    route
+}
+
 struct Fixture {
     root: PathBuf,
     release_id: String,
@@ -91,6 +116,32 @@ impl Fixture {
         fs::create_dir_all(path.parent().expect("fixture file parent"))
             .expect("create fixture file parent");
         fs::write(path, text).expect("write fixture file");
+    }
+
+    fn resource(&self, relative: &str) -> PathBuf {
+        let directory = self.directory(relative);
+        self.file(
+            &format!("{relative}/swawkit.resource.json"),
+            r#"{"schema":"swawkit.resource/v1","kind":"command"}"#,
+        );
+        directory
+    }
+
+    fn executable_resource(&self, relative: &str, entry: &str, text: &str) -> PathBuf {
+        let directory = self.resource(relative);
+        self.file(
+            &format!("{relative}/execute/swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+        );
+        self.file(&format!("{relative}/execute/{entry}"), text);
+        directory
+    }
+
+    fn subcommands(&self, relative: &str) {
+        self.file(
+            &format!("{relative}/subcommands/swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"collection"}"#,
+        );
     }
 
     fn context(&self) -> EntryContext {
@@ -444,14 +495,29 @@ async fn serves_only_the_declared_local_surface() {
             "text/javascript; charset=utf-8",
         ),
         (
-            "/assets/subject-collection-model.js",
+            "/assets/resource-list-model.js",
             "text/javascript; charset=utf-8",
         ),
         (
-            "/assets/subject-explorer.js",
+            "/assets/view-bundle-model.js",
             "text/javascript; charset=utf-8",
         ),
-        ("/assets/subject-facet.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/resource-explorer.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/resource-facet.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/resource-kind-model.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/resource-route.js",
+            "text/javascript; charset=utf-8",
+        ),
         (
             "/assets/entry-manager-model.js",
             "text/javascript; charset=utf-8",

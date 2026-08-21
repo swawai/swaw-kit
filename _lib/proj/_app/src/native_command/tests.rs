@@ -37,11 +37,7 @@ impl Fixture {
         for directory in [&system_root, &project_root, &owner_root, &owner_data_root] {
             fs::create_dir_all(directory).expect("create fixture directory");
         }
-        fs::write(
-            owner_root.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
-        )
-        .expect("write owner manifest");
+        declare_execution(&owner_root, serde_json::json!({ "type": "native" }));
         Self {
             root,
             system_root,
@@ -186,18 +182,49 @@ fn source_changes_do_not_invalidate_an_explicitly_selected_release() {
 fn execution_contract_drift_blocks_an_old_selected_release() {
     let fixture = Fixture::new();
     fixture.publish(b"published executable");
-    let port = fixture.owner_root.join("show");
-    fs::create_dir_all(&port).unwrap();
-    fs::write(
-        port.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"delegate","owner":{"type":"command","space":"module","namespace":"swaw","address":"swaw/fixture"}}}"#,
-    )
-    .unwrap();
+    let collection = fixture.owner_root.join("subcommands");
+    fs::create_dir_all(&collection).unwrap();
+    write_json_file(
+        &collection.join("swawkit.facet.json"),
+        &serde_json::json!({ "schema": "swawkit.facet/v1", "kind": "collection" }),
+    );
+    let port = collection.join("show");
+    declare_execution(
+        &port,
+        serde_json::json!({
+            "type": "native-delegate",
+            "owner": "$/modules::swaw/subcommands::fixture/execute"
+        }),
+    );
     let error = fixture.resolve().unwrap_err().to_string();
     assert!(
         error.contains("execution contract does not match"),
         "{error}"
     );
+}
+
+fn declare_execution(directory: &Path, implementation: serde_json::Value) {
+    fs::create_dir_all(directory.join("execute")).unwrap();
+    write_json_file(
+        &directory.join("swawkit.resource.json"),
+        &serde_json::json!({ "schema": "swawkit.resource/v1", "kind": "command" }),
+    );
+    write_json_file(
+        &directory.join("execute/swawkit.facet.json"),
+        &serde_json::json!({ "schema": "swawkit.facet/v1", "kind": "operation" }),
+    );
+    write_json_file(
+        &directory.join("execute/swawkit.execution.json"),
+        &serde_json::json!({
+            "schema": "swawkit.facet-execution/v2",
+            "implementation": implementation
+        }),
+    );
+}
+
+fn write_json_file(path: &Path, value: &serde_json::Value) {
+    fs::create_dir_all(path.parent().expect("JSON parent")).unwrap();
+    fs::write(path, serde_json::to_vec(value).unwrap()).unwrap();
 }
 
 #[test]

@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
+use swawkit_proj_protocol::{RESOURCE_LIST_PROTOCOL, WebViewSource};
 
-use crate::{subject::SUBJECT_COLLECTION_PROTOCOL, subject_kind::SubjectKindRef};
+use crate::resource_kind::ResourceKindRef;
 
 const MAX_ARGUMENTS: usize = 32;
 const MAX_ARGUMENT_LENGTH: usize = 4096;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Facet {
     pub id: String,
     pub kind: FacetKind,
@@ -15,9 +16,11 @@ pub struct Facet {
     pub label: String,
     pub summary: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub subject_kind: Option<SubjectKindRef>,
+    pub resource_kind: Option<ResourceKindRef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolver: Option<FacetResolver>,
+    #[serde(skip_serializing)]
+    pub view: Option<WebViewSource>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -76,26 +79,33 @@ impl Facet {
         if !renderer_matches {
             return Err("facet kind and renderer are incompatible".to_owned());
         }
+        if let Some(view) = &self.view {
+            view.validate().map_err(|error| error.to_string())?;
+            if self.kind != FacetKind::Collection {
+                return Err("first-slice Web View is only valid for a collection Facet".to_owned());
+            }
+        }
 
-        match (&self.kind, &self.resolver, &self.subject_kind) {
-            (FacetKind::Collection, Some(FacetResolver::Command { .. }), Some(subject_kind))
-                if subject_kind.validate().is_ok() => {}
+        match (&self.kind, &self.resolver, &self.resource_kind) {
+            (FacetKind::Collection, Some(FacetResolver::Command { .. }), Some(resource_kind))
+                if resource_kind.validate().is_ok() => {}
             (FacetKind::Collection, Some(FacetResolver::Catalog { .. }), None) => {}
             (FacetKind::Collection, _, _) => {
                 return Err(
-                    "a command-resolved collection must declare one valid subjectKind".to_owned(),
+                    "a command-resolved collection must declare one valid resourceKind".to_owned(),
                 );
             }
             (_, _, None) => {}
-            _ => return Err("only a collection facet may declare subjectKind".to_owned()),
+            _ => return Err("only a collection Facet may declare resourceKind".to_owned()),
         }
 
         match &self.resolver {
             None => return Err("facet must declare a resolver".to_owned()),
             Some(FacetResolver::Catalog { relation }) => {
-                if self.kind != FacetKind::Collection || relation != "children" {
+                if self.kind != FacetKind::Collection || relation != "subcommands" {
                     return Err(
-                        "a catalog resolver is only valid for the children collection".to_owned(),
+                        "a catalog resolver is only valid for the subcommands Collection"
+                            .to_owned(),
                     );
                 }
             }
@@ -163,18 +173,15 @@ fn validate_command_resolver(
     }
     match facet.kind {
         FacetKind::Collection => {
-            if returns != Some(SUBJECT_COLLECTION_PROTOCOL)
-                || accepts_tail
-                || confirmation.is_some()
-            {
+            if returns != Some(RESOURCE_LIST_PROTOCOL) || accepts_tail || confirmation.is_some() {
                 return Err(format!(
-                    "collection facet resolver must return {SUBJECT_COLLECTION_PROTOCOL} without interactive input"
+                    "collection facet resolver must return {RESOURCE_LIST_PROTOCOL} without interactive input"
                 ));
             }
         }
         FacetKind::Projection => {
             if returns.is_none()
-                || returns == Some(SUBJECT_COLLECTION_PROTOCOL)
+                || returns == Some(RESOURCE_LIST_PROTOCOL)
                 || accepts_tail
                 || confirmation.is_some()
             {

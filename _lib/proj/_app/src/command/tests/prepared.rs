@@ -15,7 +15,7 @@ fn preparation_owns_the_adapter_invocation_without_starting_it() {
         .expect("prepare command recipe");
 
     assert_eq!(prepared.adapter(), CommandAdapter::Pwsh);
-    assert_eq!(prepared.entry_path(), directory.join("run.ps1"));
+    assert_eq!(prepared.entry_path(), directory.join("execute/run.ps1"));
     assert_eq!(prepared.arguments(), argv(&["alpha", "two words"]));
     assert_eq!(prepared.working_directory(), fixture.project_root.as_path());
     assert_eq!(
@@ -35,10 +35,16 @@ fn preparation_owns_the_adapter_invocation_without_starting_it() {
 fn logical_plan_does_not_resolve_a_native_artifact() {
     let fixture = Fixture::new();
     let directory = module_directory(&fixture.swaw_module_root, "planned-native");
-    fs::create_dir_all(&directory).unwrap();
+    let execute = directory.join("execute");
+    fs::create_dir_all(&execute).unwrap();
     fs::write(
-        directory.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
+        execute.join("swawkit.facet.json"),
+        r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+    )
+    .unwrap();
+    fs::write(
+        execute.join("swawkit.execution.json"),
+        r#"{"schema":"swawkit.facet-execution/v2","implementation":{"type":"native"}}"#,
     )
     .unwrap();
     let catalog = fixture.catalog();
@@ -154,14 +160,15 @@ exit 0"#
 fn isolated_project_launch_replaces_dirty_conditional_project_environment() {
     let fixture = Fixture::new();
     let directory = module_directory(&fixture.project_module_root, "build");
-    fs::create_dir_all(&directory).expect("create project command directory");
+    let execute = directory.join("execute");
+    fs::create_dir_all(&execute).expect("create project execute Facet");
     fs::write(
-        directory.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v12"}"#,
+        execute.join("swawkit.facet.json"),
+        r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
     )
     .expect("write project command manifest");
     fs::write(
-        directory.join("run.ps1"),
+        execute.join("run.ps1"),
         r#"$output = Join-Path $env:SWAWKIT_HOME 'project-environment.txt'
 [IO.File]::WriteAllLines(
     $output,
@@ -214,13 +221,14 @@ exit 0"#,
 fn cmd_launch_pins_comspec_from_the_isolated_baseline() {
     let fixture = Fixture::new();
     let directory = command_directory(&fixture.system_root, ".batch-launch");
-    fs::create_dir_all(&directory).unwrap();
+    let execute = directory.join("execute");
+    fs::create_dir_all(&execute).unwrap();
     fs::write(
-        directory.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v12"}"#,
+        execute.join("swawkit.facet.json"),
+        r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
     )
     .unwrap();
-    fs::write(directory.join("run.cmd"), "@exit /b 0\r\n").unwrap();
+    fs::write(execute.join("run.cmd"), "@exit /b 0\r\n").unwrap();
     let catalog = fixture.catalog();
     let context = fixture.context();
     let prepared = CommandExecutor::new(&context, &catalog)

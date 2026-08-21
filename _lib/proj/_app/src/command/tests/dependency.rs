@@ -10,23 +10,7 @@ fn dependency_readiness_stops_execution_before_journal_or_command_side_effects()
         ".consumer",
         "Set-Content (Join-Path $env:SWAWKIT_PROJ_DATA_ROOT 'consumer-ran.txt') 'ran'; exit 0",
     );
-    write_json(
-        &provider.join("swawkit.module.json"),
-        &serde_json::json!({
-            "schema": "swawkit.command-module/v12",
-            "provides": [{ "id": "fixture" }]
-        }),
-    );
-    write_json(
-        &consumer.join("swawkit.module.json"),
-        &serde_json::json!({
-            "schema": "swawkit.command-module/v12",
-            "requires": [{
-                "provider": ".provider",
-                "export": "fixture"
-            }]
-        }),
-    );
+    declare_dependency(&provider, &consumer);
     let catalog = fixture.catalog();
     let context = fixture.context();
 
@@ -57,23 +41,7 @@ fn dependency_readiness_allows_a_matching_ready_publication() {
         ".consumer",
         "Set-Content (Join-Path $env:SWAWKIT_PROJ_DATA_ROOT 'consumer-ran.txt') 'ran'; exit 0",
     );
-    write_json(
-        &provider.join("swawkit.module.json"),
-        &serde_json::json!({
-            "schema": "swawkit.command-module/v12",
-            "provides": [{ "id": "fixture" }]
-        }),
-    );
-    write_json(
-        &consumer.join("swawkit.module.json"),
-        &serde_json::json!({
-            "schema": "swawkit.command-module/v12",
-            "requires": [{
-                "provider": ".provider",
-                "export": "fixture"
-            }]
-        }),
-    );
+    declare_dependency(&provider, &consumer);
     let provider_data = fixture.data_root.join("modules/system/provider");
     fs::create_dir_all(provider_data.join("export")).unwrap();
     write_json(
@@ -103,23 +71,7 @@ fn dependency_readiness_rejects_the_retired_provider_export_list() {
         ".consumer",
         "Set-Content (Join-Path $env:SWAWKIT_PROJ_DATA_ROOT 'consumer-ran.txt') 'ran'; exit 0",
     );
-    write_json(
-        &provider.join("swawkit.module.json"),
-        &serde_json::json!({
-            "schema": "swawkit.command-module/v12",
-            "provides": [{ "id": "fixture" }]
-        }),
-    );
-    write_json(
-        &consumer.join("swawkit.module.json"),
-        &serde_json::json!({
-            "schema": "swawkit.command-module/v12",
-            "requires": [{
-                "provider": ".provider",
-                "export": "fixture"
-            }]
-        }),
-    );
+    declare_dependency(&provider, &consumer);
     let provider_data = fixture.data_root.join("modules/system/provider");
     fs::create_dir_all(provider_data.join("export")).unwrap();
     write_json(
@@ -140,4 +92,24 @@ fn dependency_readiness_rejects_the_retired_provider_export_list() {
 
     assert!(error.to_string().contains("shape is invalid"));
     assert!(!fixture.data_root.join("consumer-ran.txt").exists());
+}
+
+fn declare_dependency(provider: &std::path::Path, consumer: &std::path::Path) {
+    write_json(
+        &provider.join("swawkit.exports.json"),
+        &serde_json::json!({
+            "schema": "swawkit.resource-exports/v1",
+            "exports": [{ "id": "fixture" }]
+        }),
+    );
+    write_json(
+        &consumer.join("execute/swawkit.requirements.json"),
+        &serde_json::json!({
+            "schema": "swawkit.facet-requirements/v1",
+            "requirements": [{
+                "provider": "$/system::provider",
+                "export": "fixture"
+            }]
+        }),
+    );
 }

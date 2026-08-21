@@ -26,10 +26,12 @@ function resolver(overrides = {}) {
   };
 }
 
-function subjectKindRef(kind = "item", address = ".fixture") {
+function resourceKindRef(facet = "items") {
   return {
-    kind,
-    provider: { type: "command", space: "system", address },
+    source: {
+      resource: { hops: [{ facet: "system", selector: "fixture" }] },
+      facet,
+    },
   };
 }
 
@@ -59,7 +61,7 @@ describe("Facet model", () => {
         id: "items",
         kind: "collection",
         renderer: "collection",
-        subjectKind: subjectKindRef(),
+        resourceKind: resourceKindRef(),
         resolver: resolver({ returns: undefined }),
       }),
     ], "facets", invalid)).toThrow("must declare returns");
@@ -71,32 +73,34 @@ describe("Facet model", () => {
         id: "items",
         kind: "collection",
         renderer: "collection",
-        subjectKind: subjectKindRef(),
+        resourceKind: resourceKindRef(),
         resolver: resolver({ returns: "fixture.items/v1" }),
       }),
-    ], "facets", invalid)).toThrow("swawkit.subject-collection/v3");
+    ], "facets", invalid)).toThrow("swawkit.resource-list/v2");
     expect(() => normalizeFacets([
       facet({
-        resolver: resolver({ returns: "swawkit.subject-collection/v3" }),
+        resolver: resolver({ returns: "swawkit.resource-list/v2" }),
       }),
-    ], "facets", invalid)).toThrow("projection resolver cannot return a Subject collection");
+    ], "facets", invalid)).toThrow("projection resolver cannot return a Resource List");
   });
 
-  test("requires a collection to name one explicit command Subject kind provider", () => {
+  test("requires a collection to name one exact Resource Kind source", () => {
     const collection = facet({
       id: "items",
       kind: "collection",
       renderer: "collection",
-      subjectKind: subjectKindRef("item", ".items"),
-      resolver: resolver({ returns: "swawkit.subject-collection/v3" }),
+      resourceKind: resourceKindRef("items"),
+      resolver: resolver({ returns: "swawkit.resource-list/v2" }),
     });
-    expect(normalizeFacets([collection], "facets", invalid)[0].subjectKind).toEqual({
-      kind: "item",
-      provider: { type: "command", space: "system", address: ".items" },
+    expect(normalizeFacets([collection], "facets", invalid)[0].resourceKind).toEqual({
+      source: {
+        resource: { hops: [{ facet: "system", selector: "fixture" }] },
+        facet: "items",
+      },
     });
     expect(() => normalizeFacets([
-      { ...collection, subjectKind: "item" },
-    ], "facets", invalid)).toThrow("subjectKind must be an object");
+      { ...collection, resourceKind: "item" },
+    ], "facets", invalid)).toThrow("resourceKind must be an object");
   });
 
   test("keeps operation resolvers distinct from returned documents", () => {

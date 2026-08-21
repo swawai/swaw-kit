@@ -1,0 +1,9 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "projection",
+  "presentation": {
+    "icon": "i",
+    "label": { "zh-CN": "概览", "en": "Overview" },
+    "summary": { "zh-CN": "查看 Context 内容", "en": "Inspect Context contents" }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "collection",
+  "presentation": {
+    "icon": "◆",
+    "label": { "zh-CN": "全部运行记录", "en": "All Runs" },
+    "summary": {
+      "zh-CN": "浏览所有命令最近的持久运行",
+      "en": "Browse recent persisted runs across commands"
+    }
+  }
+}

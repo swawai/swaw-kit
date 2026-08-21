@@ -1,21 +1,42 @@
-use std::collections::BTreeSet;
-
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use swawkit_proj_protocol::{FacetRoute, ResourceIdentity, ResourceList, ResourceListing};
 
 use crate::error::{ContextError, ContextResult};
-use crate::model::{CommandSpace, ContextRecord};
+use crate::model::ContextRecord;
 use crate::runtime::Language;
 
-const MODULE_SCHEMA: &str = "swawkit.command-module/v12";
-const MODULE_CONTRACT: &str = include_str!("../swawkit.module.json");
-const SUBJECT_COLLECTION_PROTOCOL: &str = "swawkit.subject-collection/v3";
-const CONTEXT_KIND: &str = "context";
+const FACET_SCHEMA: &str = "swawkit.facet/v1";
+const CONTEXT_KIND_ROUTE: &str = "$/system::context/contexts";
+const CONTEXT_FACETS: [(&str, &str); 7] = [
+    (
+        "overview",
+        include_str!("../contexts/overview/swawkit.facet.json"),
+    ),
+    (
+        "render",
+        include_str!("../contexts/render/swawkit.facet.json"),
+    ),
+    ("add", include_str!("../contexts/add/swawkit.facet.json")),
+    (
+        "remove",
+        include_str!("../contexts/remove/swawkit.facet.json"),
+    ),
+    ("note", include_str!("../contexts/note/swawkit.facet.json")),
+    (
+        "prompt",
+        include_str!("../contexts/prompt/swawkit.facet.json"),
+    ),
+    (
+        "delete",
+        include_str!("../contexts/delete/swawkit.facet.json"),
+    ),
+];
 
 pub(crate) fn render_markdown(record: &ContextRecord) -> String {
     let mut lines = vec![
         format!("# Context: {}", record.id),
         String::new(),
-        format!("Subject: `::context/{}`", record.id),
+        format!("Resource: `$/system::context/contexts::{}`", record.id),
         String::new(),
         "## Commands".to_owned(),
         String::new(),
@@ -59,20 +80,20 @@ pub(crate) fn render_markdown(record: &ContextRecord) -> String {
     lines.join("\n")
 }
 
-pub(crate) fn subject_collection(
+pub(crate) fn resource_list(
     language: Language,
     records: Vec<ContextRecord>,
-) -> ContextResult<SubjectCollection> {
+) -> ContextResult<ResourceList> {
+    let source = FacetRoute::parse(CONTEXT_KIND_ROUTE).map_err(protocol_error)?;
     let facet_ids = context_facet_ids()?;
-    let subjects = records
+    let resources = records
         .into_iter()
-        .map(|record| SubjectSummary {
-            reference: SubjectRef::Instance {
-                kind: CONTEXT_KIND.to_owned(),
-                id: record.id.clone(),
-            },
-            label: format!("::{CONTEXT_KIND}/{}", record.id),
-            summary: match language {
+        .map(|record| {
+            let route = source
+                .resource()
+                .child(source.facet(), &record.id)
+                .map_err(protocol_error)?;
+            let summary = match language {
                 Language::ZhCn => format!(
                     "{} 个命令 · {} 条说明",
                     record.commands.len(),
@@ -83,108 +104,52 @@ pub(crate) fn subject_collection(
                     record.commands.len(),
                     record.notes.len()
                 ),
-            },
-            facet_ids: facet_ids.clone(),
+            };
+            ResourceListing::new(
+                ResourceIdentity::instance(source.clone(), record.id.clone())
+                    .map_err(protocol_error)?,
+                record.id.clone(),
+                route,
+                facet_ids.clone(),
+                record.id,
+                summary,
+            )
+            .map_err(protocol_error)
         })
-        .collect();
-    Ok(SubjectCollection {
-        protocol: SUBJECT_COLLECTION_PROTOCOL.to_owned(),
-        owner: SubjectRef::Command {
-            space: CommandSpace::System,
-            namespace: None,
-            address: ".context".to_owned(),
-        },
-        facet: "contexts".to_owned(),
-        subjects,
-    })
+        .collect::<ContextResult<Vec<_>>>()?;
+    ResourceList::new(source, resources).map_err(protocol_error)
 }
 
 fn context_facet_ids() -> ContextResult<Vec<String>> {
-    let contract: ModuleContract = serde_json::from_str(MODULE_CONTRACT).map_err(|error| {
-        ContextError::new(format!("invalid embedded Context module contract: {error}"))
-    })?;
-    if contract.schema != MODULE_SCHEMA {
-        return Err(ContextError::new(format!(
-            "unsupported Context module contract schema '{}'",
-            contract.schema
-        )));
-    }
-    let kind = contract
-        .subject_kinds
-        .iter()
-        .find(|kind| kind.kind == CONTEXT_KIND)
-        .ok_or_else(|| ContextError::new("Context Subject kind is unavailable"))?;
-    let mut unique = BTreeSet::new();
-    let facet_ids = kind
-        .facets
-        .iter()
-        .map(|facet| facet.id.clone())
-        .collect::<Vec<_>>();
-    if facet_ids.is_empty() || facet_ids.iter().any(|id| !unique.insert(id.clone())) {
-        return Err(ContextError::new(
-            "Context Subject facets must be non-empty and unique",
-        ));
+    let mut facet_ids = Vec::with_capacity(CONTEXT_FACETS.len());
+    for (id, source) in CONTEXT_FACETS {
+        let manifest: FacetManifest = serde_json::from_str(source).map_err(|error| {
+            ContextError::new(format!("invalid embedded Context Facet '{id}': {error}"))
+        })?;
+        if manifest.schema != FACET_SCHEMA || manifest.kind == "collection" {
+            return Err(ContextError::new(format!(
+                "Context Facet '{id}' must be a current operation or projection"
+            )));
+        }
+        facet_ids.push(id.to_owned());
     }
     Ok(facet_ids)
 }
 
+fn protocol_error(error: impl std::fmt::Display) -> ContextError {
+    ContextError::new(error.to_string())
+}
+
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ModuleContract {
+struct FacetManifest {
     schema: String,
-    #[serde(default)]
-    subject_kinds: Vec<SubjectKindContract>,
-}
-
-#[derive(Deserialize)]
-struct SubjectKindContract {
     kind: String,
-    facets: Vec<FacetContract>,
-}
-
-#[derive(Deserialize)]
-struct FacetContract {
-    id: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct SubjectCollection {
-    protocol: String,
-    owner: SubjectRef,
-    facet: String,
-    subjects: Vec<SubjectSummary>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-enum SubjectRef {
-    Command {
-        space: CommandSpace,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        namespace: Option<String>,
-        address: String,
-    },
-    Instance {
-        kind: String,
-        id: String,
-    },
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct SubjectSummary {
-    #[serde(rename = "ref")]
-    reference: SubjectRef,
-    label: String,
-    summary: String,
-    facet_ids: Vec<String>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{CONTEXT_SCHEMA, ContextCommand};
+    use crate::model::{CONTEXT_SCHEMA, CommandSpace, ContextCommand};
 
     fn record() -> ContextRecord {
         ContextRecord {
@@ -201,23 +166,23 @@ mod tests {
     }
 
     #[test]
-    fn markdown_is_deterministic_and_uses_the_context_subject_address() {
+    fn markdown_uses_the_canonical_context_resource_route() {
         let output = render_markdown(&record());
-        assert!(
-            output.starts_with("# Context: release-check\n\nSubject: `::context/release-check`")
-        );
+        assert!(output.starts_with(
+            "# Context: release-check\n\nResource: `$/system::context/contexts::release-check`"
+        ));
         assert!(output.contains("- `.dev/status` (system)"));
         assert!(output.ends_with("## Final Prompt\n\nContinue."));
     }
 
     #[test]
-    fn collection_facets_come_from_the_embedded_domain_manifest() {
-        let collection = subject_collection(Language::En, vec![record()]).unwrap();
-        let value = serde_json::to_value(collection).unwrap();
-        assert_eq!(value["protocol"], SUBJECT_COLLECTION_PROTOCOL);
-        assert_eq!(value["subjects"][0]["ref"]["id"], "release-check");
+    fn resource_grants_come_from_the_embedded_facet_declarations() {
+        let list = resource_list(Language::En, vec![record()]).unwrap();
+        let value = serde_json::to_value(list).unwrap();
+        assert_eq!(value["protocol"], "swawkit.resource-list/v2");
+        assert_eq!(value["resources"][0]["identity"]["id"], "release-check");
         assert!(
-            value["subjects"][0]["facetIds"]
+            value["resources"][0]["facetIds"]
                 .as_array()
                 .unwrap()
                 .contains(&serde_json::json!("overview"))

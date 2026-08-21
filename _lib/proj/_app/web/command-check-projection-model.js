@@ -113,7 +113,7 @@ function dependency(value, field, budget, depth = 0) {
   };
 }
 
-export function createCommandCheckProjection(value, subject) {
+export function createCommandCheckProjection(value, commandResource) {
   const document_ = object(value, "check");
   exactKeys(document_, "check", ["command", "dependencies", "protocol", "ready"]);
   if (document_.protocol !== COMMAND_CHECK_PROTOCOL) {
@@ -129,7 +129,7 @@ export function createCommandCheckProjection(value, subject) {
     "space",
   ]);
   const identity = normalizeCommandIdentity(command, "command", invalid);
-  if (!sameCommandIdentity(identity, subject)) {
+  if (!sameCommandIdentity(identity, commandResource)) {
     throw invalid("command identity 与选中的命令不一致。");
   }
   const normalizedCommand = {

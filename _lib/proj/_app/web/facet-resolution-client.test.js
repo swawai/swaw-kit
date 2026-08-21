@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  createCollectionResolutionLoader,
+  createViewBundleLoader,
   FacetResolutionError,
   RUNTIME_UPDATE_REQUIRED_CODE,
-  resolveFacet,
+  resolveCollectionView,
+  resolveDocumentFacet,
 } from "./facet-resolution-client.js";
 
 function response(document) {
@@ -12,7 +13,7 @@ function response(document) {
 }
 
 describe("Facet resolution client", () => {
-  test("posts a command Subject and selected Facet", async () => {
+  test("posts one canonical Command Facet Route", async () => {
     let request = null;
     const command = { address: ".check", space: "system" };
     const facet = {
@@ -21,7 +22,7 @@ describe("Facet resolution client", () => {
       resolver: { returns: "swawkit.command-check/v3", type: "command" },
     };
     const document = { protocol: "swawkit.command-check/v3" };
-    const result = await resolveFacet({}, command, facet, {
+    const result = await resolveDocumentFacet(command, facet, {
       fetchImpl: async (url, options) => {
         request = { options, url };
         return response(document);
@@ -29,48 +30,36 @@ describe("Facet resolution client", () => {
     });
 
     expect(result).toBe(document);
-    expect(request.url).toBe("/api/v2/facet-resolutions");
+    expect(request.url).toBe("/api/v3/facet-resolutions");
     expect(request.options.method).toBe("POST");
-    expect(JSON.parse(request.options.body)).toEqual({
-      facet: "status",
-      subject: { address: ".check", space: "system", type: "command" },
-    });
+    expect(JSON.parse(request.options.body)).toEqual({ route: "$/system::check/status" });
   });
 
-  test("includes collection provenance for an instance Subject", async () => {
+  test("encodes Collection provenance in a dynamic Resource Facet Route", async () => {
     let body = null;
-    const subject = { ref: { type: "instance", kind: "run", id: "run-01" } };
+    const resource = { route: "$/system::tool/runs::run-01" };
     const facet = {
       id: "overview",
       kind: "projection",
       resolver: { returns: "swawkit.run/v1", type: "command" },
     };
-    const via = {
-      facet: "runs",
-      subject: { address: ".runs", space: "system", type: "command" },
-    };
-    await resolveFacet({}, subject, facet, {
+    await resolveDocumentFacet(resource, facet, {
       fetchImpl: async (_url, options) => {
         body = JSON.parse(options.body);
         return response({ protocol: "swawkit.run/v1" });
       },
-      via,
     });
-    expect(body).toEqual({ facet: "overview", subject: subject.ref, via });
+    expect(body).toEqual({ route: "$/system::tool/runs::run-01/overview" });
   });
 
   test("rejects instance-owned collections instead of exposing half-usable children", async () => {
-    const subject = { ref: { type: "instance", kind: "run", id: "run-01" } };
-    await expect(resolveFacet({}, subject, {
+    const resource = { route: "$/system::runs/all::run-01" };
+    await expect(resolveCollectionView({}, resource, {
       id: "artifacts",
       kind: "collection",
     }, {
       fetchImpl: async () => { throw new Error("must not fetch"); },
-      via: {
-        facet: "runs",
-        subject: { address: ".runs", space: "system", type: "command" },
-      },
-    })).rejects.toThrow("recursive provenance");
+    })).rejects.toThrow("Nested dynamic Resource collections");
   });
 
   test("preserves the Runtime generation error for the application boundary", async () => {
@@ -80,7 +69,7 @@ describe("Facet resolution client", () => {
       kind: "projection",
       resolver: { returns: "swawkit.command-check/v3", type: "command" },
     };
-    const error = await resolveFacet({}, command, facet, {
+    const error = await resolveDocumentFacet(command, facet, {
       fetchImpl: async () => ({
         json: async () => ({
           code: RUNTIME_UPDATE_REQUIRED_CODE,
@@ -97,15 +86,15 @@ describe("Facet resolution client", () => {
     expect(error.message).toContain("Runtime 已更新");
   });
 
-  test("does not let stale collection responses or errors replace the latest state", async () => {
+  test("does not let stale View Bundle responses or errors replace the latest state", async () => {
     const pending = [];
     const resolved = [];
     const errors = [];
-    const loader = createCollectionResolutionLoader({
+    const loader = createViewBundleLoader({
       onError(_owner, _facet, error) { errors.push(error.message); },
       onLoading() {},
-      onResolved(collection) { resolved.push(collection.value); },
-      resolveCollection() {
+      onResolved(list) { resolved.push(list.value); },
+      resolveViewBundle() {
         return new Promise((resolve, reject) => pending.push({ reject, resolve }));
       },
     });
@@ -126,5 +115,25 @@ describe("Facet resolution client", () => {
 
     expect(resolved).toEqual(["current", "newest"]);
     expect(errors).toEqual([]);
+  });
+
+  test("drops a View Bundle resolved for an obsolete Catalog generation", async () => {
+    let settle;
+    const resolved = [];
+    const loader = createViewBundleLoader({
+      onError() {},
+      onLoading() {},
+      onResolved(bundle) { resolved.push(bundle); },
+      resolveViewBundle() {
+        return new Promise((resolve) => { settle = resolve; });
+      },
+    });
+
+    const obsolete = loader.load(".dev", "subcommands");
+    loader.reset();
+    settle({ value: "old Catalog" });
+
+    expect(await obsolete).toBeNull();
+    expect(resolved).toEqual([]);
   });
 });

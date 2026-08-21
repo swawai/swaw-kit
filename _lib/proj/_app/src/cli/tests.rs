@@ -15,9 +15,15 @@ use super::*;
 mod check;
 mod control;
 mod entry_manager;
+mod facet_route;
 mod runs;
+mod view;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+const COMMAND_RESOURCE: &str = r#"{"schema":"swawkit.resource/v1","kind":"command"}"#;
+const SUBCOMMANDS_FACET: &str = r#"{"schema":"swawkit.facet/v1","kind":"collection"}"#;
+const EXECUTE_FACET: &str = r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#;
 
 fn run(
     context: &EntryContext,
@@ -221,32 +227,78 @@ impl Fixture {
         fs::create_dir_all(self.data_root()).expect("create fixture DataRoot");
     }
 
-    fn command(&self, address: &str, entry_name: &str, body: &str) -> PathBuf {
-        let mut directory = self.context.system_root();
-        if !address.is_empty() {
-            for segment in address.trim_start_matches('.').split('/') {
-                directory.push(segment);
-                fs::create_dir_all(&directory).expect("create command directory");
-                let manifest = directory.join("swawkit.module.json");
-                if !manifest.exists() {
-                    fs::write(manifest, r#"{"schema":"swawkit.command-module/v12"}"#)
-                        .expect("write command manifest");
-                }
+    fn resource(&self, address: &str) -> PathBuf {
+        Self::resource_in(&self.context.system_root(), address.trim_start_matches('.'))
+    }
+
+    fn resource_in(root: &Path, address: &str) -> PathBuf {
+        let mut segments = address.split('/').filter(|segment| !segment.is_empty());
+        let Some(first) = segments.next() else {
+            return root.to_owned();
+        };
+        let mut directory = root.join(first);
+        Self::write_resource_marker(&directory);
+        for segment in segments {
+            let collection = directory.join("subcommands");
+            fs::create_dir_all(&collection).expect("create subcommands facet directory");
+            let declaration = collection.join("swawkit.facet.json");
+            if !declaration.exists() {
+                fs::write(declaration, SUBCOMMANDS_FACET)
+                    .expect("write subcommands facet declaration");
             }
+            directory = collection.join(segment);
+            Self::write_resource_marker(&directory);
         }
-        fs::create_dir_all(&directory).expect("create command directory");
-        fs::write(directory.join(entry_name), body).expect("write command entry");
         directory
     }
 
+    fn write_resource_marker(directory: &Path) {
+        fs::create_dir_all(directory).expect("create Resource directory");
+        let marker = directory.join("swawkit.resource.json");
+        if !marker.exists() {
+            fs::write(marker, COMMAND_RESOURCE).expect("write Resource declaration");
+        }
+    }
+
+    fn execute_facet(resource: &Path) -> PathBuf {
+        let directory = resource.join("execute");
+        fs::create_dir_all(&directory).expect("create execute facet directory");
+        let declaration = directory.join("swawkit.facet.json");
+        if !declaration.exists() {
+            fs::write(declaration, EXECUTE_FACET).expect("write execute facet declaration");
+        }
+        directory
+    }
+
+    fn command(&self, address: &str, entry_name: &str, body: &str) -> PathBuf {
+        if address.is_empty() {
+            let root = self.context.system_root();
+            fs::write(root.join(entry_name), body).expect("write root command entry");
+            return root;
+        }
+        let resource = self.resource(address);
+        fs::write(Self::execute_facet(&resource).join(entry_name), body)
+            .expect("write command entry");
+        resource
+    }
+
+    fn module_command(&self, address: &str, entry_name: &str, body: &str) -> PathBuf {
+        let resource = Self::resource_in(&self.context.swaw_module_root(), address);
+        fs::write(Self::execute_facet(&resource).join(entry_name), body)
+            .expect("write Module command entry");
+        resource
+    }
+
     fn core_command(&self, address: &str, handler: &str) -> PathBuf {
-        self.command(
-            address,
-            "swawkit.module.json",
-            &format!(
-                "{{\"schema\":\"swawkit.command-module/v12\",\"execution\":{{\"type\":\"core\",\"handler\":\"{handler}\"}}}}"
+        let resource = self.resource(address);
+        fs::write(
+            Self::execute_facet(&resource).join("swawkit.execution.json"),
+            format!(
+                "{{\"schema\":\"swawkit.facet-execution/v2\",\"implementation\":{{\"type\":\"core\",\"handler\":\"{handler}\"}}}}"
             ),
         )
+        .expect("write core execution declaration");
+        resource
     }
 }
 

@@ -5,9 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::Value;
 
 use super::*;
-use crate::catalog::{
-    CATALOG_PROTOCOL, CommandModuleContract, CommandNode, CommandSpace, ModuleProvision,
-};
+use crate::catalog::{CATALOG_PROTOCOL, CommandNode, CommandProvision, CommandSpace};
 
 #[test]
 fn ready_directory_has_a_frozen_json_document_and_success_exit() {
@@ -131,34 +129,18 @@ fn check_command() -> CommandNode {
         DIRECTORY_EXISTS_ADDRESS,
         Some("core"),
         Some(DIRECTORY_EXISTS_HANDLER),
-        None,
     )
 }
 
 fn provider_command() -> CommandNode {
-    command(
-        ".provider",
-        Some("exe"),
-        None,
-        Some(CommandModuleContract {
-            schema: "swawkit.command-module/v12".to_owned(),
-            execution: None,
-            requires: Vec::new(),
-            provides: vec![ModuleProvision {
-                id: "fixture".to_owned(),
-            }],
-            facets: Vec::new(),
-            subject_kinds: Vec::new(),
-        }),
-    )
+    let mut command = command(".provider", Some("exe"), None);
+    command.provisions = vec![CommandProvision {
+        id: "fixture".to_owned(),
+    }];
+    command
 }
 
-fn command(
-    address: &str,
-    adapter: Option<&str>,
-    handler: Option<&str>,
-    module: Option<CommandModuleContract>,
-) -> CommandNode {
+fn command(address: &str, adapter: Option<&str>, handler: Option<&str>) -> CommandNode {
     let path = address
         .trim_start_matches('.')
         .split('/')
@@ -176,14 +158,20 @@ fn command(
         adapter: adapter.map(str::to_owned),
         handler: handler.map(str::to_owned),
         product: None,
-        module,
+        requirements: Vec::new(),
+        provisions: Vec::new(),
+        delegate_owner: None,
+        declares_native: false,
+        declared_facets: Vec::new(),
+        declared_resource_kinds: Vec::new(),
         help: None,
-        subject_kinds: Vec::new(),
+        resource_kinds: Vec::new(),
         facets: Vec::new(),
-        view: None,
         diagnostic: None,
+        authored_resource: true,
         help_diagnostic: None,
         directory: PathBuf::new(),
+        executor_directory: PathBuf::new(),
         native_owner: None,
     }
 }

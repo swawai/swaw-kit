@@ -6,11 +6,11 @@ import {
 } from "./catalog-model.js";
 import {
   availableCommand,
-  childrenColumnWidth,
   choiceColumnModels,
   commandHasChoices,
   commandMenuExpanded,
   selectedCommandFacet,
+  viewColumnWidth,
 } from "./explorer-model.js";
 import {
   commandMenuId,
@@ -23,14 +23,14 @@ import {
   showCommandMenu,
 } from "./command-menu.js";
 import { t } from "./i18n.js";
-import { appendSubjectSection } from "./subject-explorer.js";
+import { appendResourceSection } from "./resource-explorer.js";
 
 export {
   availableCommand,
-  childrenColumnWidth,
   choiceColumnModels,
   commandHasChoices,
   commandMenuExpanded,
+  viewColumnWidth,
 } from "./explorer-model.js";
 
 function spaceLabel(space) {
@@ -59,18 +59,20 @@ export function createExplorerView({
   columns,
   detailPanel,
   getCommandFacets = () => [],
-  getSubjectFacets = () => [],
+  getResourceFacets = () => [],
+  onResolveCollection = () => {},
   onSelectCommand,
-  onSelectSubject = () => {},
+  onSelectResource = () => {},
 }) {
   let catalog = null;
   let selectedPath = [];
-  let selectedSubjectRef = null;
-  let selectedSubjectCollection = null;
+  let selectedResourceRoute = null;
+  let selectedResourceList = null;
   let expandedCommandMenuAddress = null;
   const commandStates = new Map();
-  const subjectCollections = new Map();
-  const subjectCollectionErrors = new Map();
+  const collectionViews = new Map();
+  const collectionViewErrors = new Map();
+  const requestedCollections = new Set();
 
   function collectionKey(owner, facet) {
     return `${owner}#${facet}`;
@@ -288,7 +290,6 @@ export function createExplorerView({
     column.id = "finder-column-0";
     column.dataset.depth = "0";
     column.dataset.scrollKey = "root";
-    column.dataset.width = "normal";
     for (const space of ["system", "module"]) {
       appendSection(
         column,
@@ -313,33 +314,39 @@ export function createExplorerView({
     const column = document.createElement("div");
     const parent = catalog.commandByAddress.get(parentAddress);
     const facet = facetsFor(parent).find(({ name }) => name === mode);
+    const key = collectionKey(parentAddress, mode);
+    const collectionView = collectionViews.get(key);
+    const resourceList = collectionView?.resourceList ?? null;
+    if (!collectionView && !collectionViewErrors.has(key) && !requestedCollections.has(key)) {
+      requestedCollections.add(key);
+      queueMicrotask(() => onResolveCollection(parentAddress, mode));
+    }
     column.className = "finder-column";
     column.id = `finder-column-${depth}`;
     column.dataset.depth = String(depth);
     column.dataset.scrollKey = `${mode}:${parentAddress}`;
-    column.dataset.width = childrenColumnWidth(parent);
+    column.dataset.width = viewColumnWidth(collectionView);
     column.setAttribute("role", "group");
     column.setAttribute(
       "aria-label",
       facet?.label ?? t(`${parent.address} 集合`, `${parent.address} collection`),
     );
-    if (facet?.resolver?.type === "catalog" && facet.resolver.relation === "children") {
+    if (resourceList?.resources.every((resource) => resource.command !== null)) {
       appendSection(
         column,
-        facet.label,
-        childrenOf(catalog, parentAddress),
+        resourceList.label,
+        resourceList.resources.map((resource) => resource.command),
         depth,
       );
     } else {
-      const key = collectionKey(parentAddress, mode);
-      appendSubjectSection({
-        collection: subjectCollections.get(key),
+      appendResourceSection({
+        collection: resourceList,
         column,
-        error: subjectCollectionErrors.get(key),
-        getSubjectFacets,
+        error: collectionViewErrors.get(key),
+        getResourceFacets,
         label: facet?.label,
-        onSelect: selectSubjectRecord,
-        selectedSubjectRef,
+        onSelect: selectResourceRecord,
+        selectedResourceRoute,
       });
     }
     return column;
@@ -356,7 +363,7 @@ export function createExplorerView({
       catalog,
       selectedPath,
       facetsFor,
-      selectedSubjectCollection,
+      selectedResourceList,
     );
     for (const { command, depth, mode } of models) {
       columns.append(createChoiceColumn(command.address, depth, mode));
@@ -389,8 +396,8 @@ export function createExplorerView({
     if (!command) {
       return false;
     }
-    selectedSubjectRef = null;
-    selectedSubjectCollection = null;
+    selectedResourceRoute = null;
+    selectedResourceList = null;
     selectedPath = [...selectedPath.slice(0, depth), address];
     if (options.menu === "open") {
       expandedCommandMenuAddress = address;
@@ -424,8 +431,8 @@ export function createExplorerView({
     if (!command) {
       return false;
     }
-    selectedSubjectRef = null;
-    selectedSubjectCollection = null;
+    selectedResourceRoute = null;
+    selectedResourceList = null;
     selectedPath = addressPath(address);
     expandedCommandMenuAddress = facetsFor(command).length > 0
       ? address
@@ -439,9 +446,9 @@ export function createExplorerView({
     return true;
   }
 
-  function selectSubjectRecord(subject, options = {}) {
-    const key = collectionKey(subject.owner, subject.collectionFacet);
-    const current = subjectCollections.get(key)?.subjectByRef.get(subject.canonicalRef);
+  function selectResourceRecord(resource, options = {}) {
+    const key = collectionKey(resource.owner, resource.collectionFacet);
+    const current = collectionViews.get(key)?.resourceList.resourceByRoute.get(resource.route);
     if (!current) {
       return false;
     }
@@ -450,20 +457,22 @@ export function createExplorerView({
       return false;
     }
     selectedPath = addressPath(owner.address);
-    selectedSubjectRef = current.canonicalRef;
-    selectedSubjectCollection = { facet: current.collectionFacet, owner: current.owner };
+    selectedResourceRoute = current.route;
+    selectedResourceList = { facet: current.collectionFacet, owner: current.owner };
     expandedCommandMenuAddress = null;
-    onSelectSubject(current, options);
+    onSelectResource(current, options);
     renderColumns({
-      focusKey: current.canonicalRef,
+      focusKey: current.route,
       focusDetail: options.focusDetail === true,
     });
     return true;
   }
 
-  function selectSubject(owner, facet, reference, options = {}) {
-    const subject = subjectCollections.get(collectionKey(owner, facet))?.subjectByRef.get(reference);
-    return subject ? selectSubjectRecord(subject, options) : false;
+  function selectResource(owner, facet, selector, options = {}) {
+    const resource = collectionViews
+      .get(collectionKey(owner, facet))
+      ?.resourceList.resourceBySelector.get(selector);
+    return resource ? selectResourceRecord(resource, options) : false;
   }
 
   function defaultCommand() {
@@ -526,6 +535,9 @@ export function createExplorerView({
   }
 
   function setCatalog(nextCatalog, options = {}) {
+    collectionViews.clear();
+    collectionViewErrors.clear();
+    requestedCollections.clear();
     const previous = selectedPath.at(-1);
     catalog = nextCatalog;
     const preferred = options.address ?? previous;
@@ -548,27 +560,29 @@ export function createExplorerView({
     }
   }
 
-  function setSubjectCollection(collection) {
-    const selected = selectedSubjectRef;
-    if (collection) {
-      const key = collectionKey(collection.owner, collection.facet);
-      subjectCollections.set(key, collection);
-      subjectCollectionErrors.delete(key);
+  function setCollectionView(bundle) {
+    const selected = selectedResourceRoute;
+    if (bundle) {
+      const { resourceList } = bundle;
+      const key = collectionKey(resourceList.owner, resourceList.facet);
+      collectionViews.set(key, bundle);
+      collectionViewErrors.delete(key);
+      requestedCollections.add(key);
     }
     if (!catalog) {
       return;
     }
     if (selected) {
-      const current = [...subjectCollections.values()]
-        .flatMap(({ subjects }) => subjects)
-        .find(({ canonicalRef }) => canonicalRef === selected);
+      const current = [...collectionViews.values()]
+        .flatMap(({ resourceList }) => resourceList.resources)
+        .find(({ route }) => route === selected);
       if (current) {
-        selectedSubjectRef = current.canonicalRef;
+        selectedResourceRoute = current.route;
       } else {
-        const owner = selectedSubjectCollection?.owner;
-        const facet = selectedSubjectCollection?.facet;
-        selectedSubjectRef = null;
-        selectedSubjectCollection = null;
+        const owner = selectedResourceList?.owner;
+        const facet = selectedResourceList?.facet;
+        selectedResourceRoute = null;
+        selectedResourceList = null;
         const command = owner
           ? availableCommand(catalog, owner)
           : null;
@@ -584,19 +598,21 @@ export function createExplorerView({
     renderColumns();
   }
 
-  function setSubjectCollectionLoading(owner, facet) {
+  function setCollectionViewLoading(owner, facet) {
     const key = collectionKey(owner, facet);
-    subjectCollections.delete(key);
-    subjectCollectionErrors.delete(key);
+    collectionViews.delete(key);
+    collectionViewErrors.delete(key);
+    requestedCollections.add(key);
     if (catalog) {
       renderColumns();
     }
   }
 
-  function setSubjectCollectionError(owner, facet, message) {
+  function setCollectionViewError(owner, facet, message) {
     const key = collectionKey(owner, facet);
-    subjectCollections.delete(key);
-    subjectCollectionErrors.set(key, message);
+    collectionViews.delete(key);
+    collectionViewErrors.set(key, message);
+    requestedCollections.add(key);
     if (catalog) {
       renderColumns();
     }
@@ -638,11 +654,11 @@ export function createExplorerView({
     handleKeyboard,
     selectAddress,
     selectCommand,
-    selectSubject,
+    selectResource,
     setCatalog,
     setCommandState,
-    setSubjectCollection,
-    setSubjectCollectionError,
-    setSubjectCollectionLoading,
+    setCollectionView,
+    setCollectionViewError,
+    setCollectionViewLoading,
   };
 }

@@ -42,16 +42,8 @@ async fn response_document(response: Response) -> Value {
 #[tokio::test]
 async fn missing_config_is_a_valid_default_without_a_project_namespace() {
     let fixture = Fixture::new();
-    fixture.file(
-        "home/_lib/proj/system/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/demo/run.ps1", "");
-    fixture.file(
-        "home/.swaw/project-demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/.swaw/project-demo/run.ps1", "");
+    fixture.executable_resource("home/_lib/proj/system/demo", "run.ps1", "");
+    fixture.executable_resource("home/.swaw/project-demo", "run.ps1", "");
     let app = fixture.app();
 
     let response = send(
@@ -92,11 +84,7 @@ async fn semantic_invalid_config_exposes_a_valid_error_document() {
         "home/data/proj.swawkit/_entry-config.json",
         r#"{"schema":"swawkit.entry-config/v0","language":"invalid","projectRoot":null}"#,
     );
-    fixture.file(
-        "home/_lib/proj/system/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/demo/run.ps1", "");
+    fixture.executable_resource("home/_lib/proj/system/demo", "run.ps1", "");
     let app = fixture.app();
 
     let response = send(
@@ -121,11 +109,7 @@ async fn semantic_invalid_config_exposes_a_valid_error_document() {
 #[tokio::test]
 async fn validates_a_project_root_and_publishes_the_project_namespace() {
     let fixture = Fixture::new();
-    fixture.file(
-        "home/.swaw/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/.swaw/demo/run.ps1", "");
+    fixture.executable_resource("home/.swaw/demo", "run.ps1", "");
     let app = fixture.app();
     let initial = response_document(
         send(
@@ -181,11 +165,7 @@ async fn binding_unavailability_is_local_and_can_be_repaired() {
     fixture.file("home/_lib/proj/system/_help/en.txt", "English help");
     let unavailable_root = fixture.root.join("not-created-yet");
     let repaired_root = fixture.directory("repaired-project");
-    fixture.file(
-        "repaired-project/.swaw/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("repaired-project/.swaw/demo/run.ps1", "");
+    fixture.executable_resource("repaired-project/.swaw/demo", "run.ps1", "");
     let app = fixture.app();
     let initial = response_document(
         send(

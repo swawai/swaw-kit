@@ -157,7 +157,11 @@ mod tests {
         let fixture = Fixture::new();
         fs::create_dir(fixture.0.join("_src")).unwrap();
         fs::write(fixture.0.join("_src/main.rs"), "fn main() {}\n").unwrap();
-        fs::write(fixture.0.join("swawkit.module.json"), r#"{"facets":[]}"#).unwrap();
+        fs::write(
+            fixture.0.join("swawkit.resource.json"),
+            r#"{"schema":"swawkit.resource/v1","kind":"command"}"#,
+        )
+        .unwrap();
         fs::create_dir(fixture.0.join("_help")).unwrap();
         fs::write(fixture.0.join("_help/en.txt"), "help").unwrap();
         fs::create_dir(fixture.0.join("target")).unwrap();
@@ -176,7 +180,11 @@ mod tests {
         let resource_change = build_input_snapshot(&fixture.0, &contract, &[]).unwrap();
         assert_ne!(generated_change.revision, resource_change.revision);
 
-        fs::write(fixture.0.join("swawkit.module.json"), r#"{"facets":[1]}"#).unwrap();
+        fs::write(
+            fixture.0.join("swawkit.resource.json"),
+            r#"{"schema":"swawkit.resource/v1","kind":"changed"}"#,
+        )
+        .unwrap();
         let manifest_change = build_input_snapshot(&fixture.0, &contract, &[]).unwrap();
         assert_ne!(resource_change.revision, manifest_change.revision);
 

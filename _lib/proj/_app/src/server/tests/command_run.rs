@@ -97,11 +97,7 @@ impl ProcessControl for FakeRun {
 
 fn ready_fixture(fixture: &Fixture) {
     fixture.directory("home/_lib/proj");
-    fixture.file(
-        "home/_lib/proj/system/demo/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/demo/run.ps1", "");
+    fixture.executable_resource("home/_lib/proj/system/demo", "run.ps1", "");
 }
 
 fn command_app(fixture: &Fixture, runner: Arc<FakeRunner>) -> (Router, RuntimeService) {
@@ -125,7 +121,7 @@ async fn post_run(app: Router, document: Value) -> Response {
     app.oneshot(
         Request::builder()
             .method(Method::POST)
-            .uri("/api/v2/command-runs")
+            .uri("/api/v3/command-runs")
             .header(HOST, AUTHORITY)
             .header(CONTENT_TYPE, "application/json")
             .body(Body::from(document.to_string()))
@@ -148,13 +144,21 @@ async fn stale_host_rejects_new_runs_with_a_machine_readable_update_error() {
     ready_fixture(&fixture);
     let runner = Arc::new(FakeRunner::default());
     let (app, _) = command_app(&fixture, runner.clone());
-    let running = post_run(app.clone(), json!({"address": ".demo", "arguments": []})).await;
+    let running = post_run(
+        app.clone(),
+        json!({"route": system_execute_route(".demo"), "arguments": []}),
+    )
+    .await;
     assert_eq!(running.status(), StatusCode::CREATED);
     let running = response_json(running).await;
     let run_id = running["id"].as_str().expect("running id").to_owned();
     let selected_release_id = fixture.select_update();
 
-    let response = post_run(app.clone(), json!({"address": ".demo", "arguments": []})).await;
+    let response = post_run(
+        app.clone(),
+        json!({"route": system_execute_route(".demo"), "arguments": []}),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let document = response_json(response).await;
     assert_eq!(
@@ -171,7 +175,7 @@ async fn stale_host_rejects_new_runs_with_a_machine_readable_update_error() {
         .oneshot(
             Request::builder()
                 .method(Method::GET)
-                .uri(format!("/api/v2/command-runs/{run_id}?after=0"))
+                .uri(format!("/api/v3/command-runs/{run_id}?after=0"))
                 .header(HOST, AUTHORITY)
                 .body(Body::empty())
                 .expect("valid read request"),
@@ -184,7 +188,7 @@ async fn stale_host_rejects_new_runs_with_a_machine_readable_update_error() {
         .oneshot(
             Request::builder()
                 .method(Method::DELETE)
-                .uri(format!("/api/v2/command-runs/{run_id}"))
+                .uri(format!("/api/v3/command-runs/{run_id}"))
                 .header(HOST, AUTHORITY)
                 .body(Body::empty())
                 .expect("valid cancel request"),
@@ -204,7 +208,7 @@ async fn publishes_the_contract_and_incremental_output_cursor() {
 
     let response = post_run(
         app.clone(),
-        json!({"address": ".demo", "arguments": ["alpha"]}),
+        json!({"route": system_execute_route(".demo"), "arguments": ["alpha"]}),
     )
     .await;
     assert_eq!(response.status(), StatusCode::CREATED);
@@ -217,7 +221,7 @@ async fn publishes_the_contract_and_incremental_output_cursor() {
         .to_owned();
     let created = response_json(response).await;
     let id = created["id"].as_str().expect("command run id");
-    assert_eq!(location, format!("/api/v2/command-runs/{id}"));
+    assert_eq!(location, format!("/api/v3/command-runs/{id}"));
     assert_eq!(created["protocol"], "swawkit.command-run/v2");
     assert_eq!(created["address"], ".demo");
     assert_eq!(created["state"], "running");
@@ -300,11 +304,16 @@ async fn cancels_a_run_and_joins_it_during_shutdown() {
     ready_fixture(&fixture);
     let runner = Arc::new(FakeRunner::default());
     let (app, runs) = command_app(&fixture, Arc::clone(&runner));
-    let created =
-        response_json(post_run(app.clone(), json!({"address": ".demo", "arguments": []})).await)
-            .await;
+    let created = response_json(
+        post_run(
+            app.clone(),
+            json!({"route": system_execute_route(".demo"), "arguments": []}),
+        )
+        .await,
+    )
+    .await;
     let location = format!(
-        "/api/v2/command-runs/{}",
+        "/api/v3/command-runs/{}",
         created["id"].as_str().expect("command run id")
     );
 
@@ -329,14 +338,16 @@ async fn limits_active_runs_to_four() {
 
     for _ in 0..4 {
         assert_eq!(
-            post_run(app.clone(), json!({"address": ".demo"}))
+            post_run(app.clone(), json!({"route": system_execute_route(".demo")}))
                 .await
                 .status(),
             StatusCode::CREATED
         );
     }
     assert_eq!(
-        post_run(app, json!({"address": ".demo"})).await.status(),
+        post_run(app, json!({"route": system_execute_route(".demo")}))
+            .await
+            .status(),
         StatusCode::TOO_MANY_REQUESTS
     );
     assert_eq!(runner.specs().len(), 4);
@@ -353,13 +364,19 @@ async fn resolves_a_fresh_project_working_directory_for_every_run() {
     let second_root = fixture.directory("second-project");
     for root in [&first_root, &second_root] {
         let module = root.join(".swaw/project-cwd");
-        fs::create_dir_all(&module).expect("create project command module");
+        let execute = module.join("execute");
+        fs::create_dir_all(&execute).expect("create project execute Facet");
         fs::write(
-            module.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v12"}"#,
+            module.join("swawkit.resource.json"),
+            r#"{"schema":"swawkit.resource/v1","kind":"command"}"#,
         )
-        .expect("write project command contract");
-        fs::write(module.join("run.ps1"), "").expect("write project command entry");
+        .expect("write project command Resource");
+        fs::write(
+            execute.join("swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+        )
+        .expect("write execute Facet");
+        fs::write(execute.join("run.ps1"), "").expect("write project command entry");
     }
 
     let mut config = EntryConfigRecord::default();
@@ -369,9 +386,12 @@ async fn resolves_a_fresh_project_working_directory_for_every_run() {
         .save(config.clone())
         .expect("save first project root");
     assert_eq!(
-        post_run(app.clone(), json!({"address": "project/project-cwd"}))
-            .await
-            .status(),
+        post_run(
+            app.clone(),
+            json!({"route": "$/modules::project/subcommands::project-cwd/execute"})
+        )
+        .await
+        .status(),
         StatusCode::CREATED
     );
 
@@ -381,9 +401,12 @@ async fn resolves_a_fresh_project_working_directory_for_every_run() {
         .save(config)
         .expect("save second project root");
     assert_eq!(
-        post_run(app, json!({"address": "project/project-cwd"}))
-            .await
-            .status(),
+        post_run(
+            app,
+            json!({"route": "$/modules::project/subcommands::project-cwd/execute"})
+        )
+        .await
+        .status(),
         StatusCode::CREATED
     );
 
@@ -401,10 +424,11 @@ async fn rejects_unrepresentable_or_oversized_arguments_before_starting() {
     let too_many = (0..129).map(|_| "x").collect::<Vec<_>>();
 
     for request in [
-        json!({"address": ".demo", "arguments": too_many}),
-        json!({"address": ".demo", "arguments": ["x".repeat(4097)]}),
-        json!({"address": ".demo", "arguments": ["x".repeat(4096), "y".repeat(4096)]}),
-        json!({"address": ".demo", "arguments": ["contains\0nul"]}),
+        json!({"route": system_execute_route(".demo"), "arguments": too_many}),
+        json!({"route": system_execute_route(".demo"), "arguments": ["x".repeat(4097)]}),
+        json!({"route": system_execute_route(".demo"), "arguments": ["x".repeat(4096), "y".repeat(4096)]}),
+        json!({"route": system_execute_route(".demo"), "arguments": ["contains\0nul"]}),
+        json!({"address": ".demo", "arguments": []}),
     ] {
         assert_eq!(
             post_run(app.clone(), request).await.status(),
@@ -416,33 +440,26 @@ async fn rejects_unrepresentable_or_oversized_arguments_before_starting() {
 }
 
 #[tokio::test]
-async fn accepts_only_exact_runnable_non_control_catalog_commands() {
+async fn accepts_only_existing_operation_facet_routes() {
     let fixture = Fixture::new();
     ready_fixture(&fixture);
-    fixture.directory("home/_lib/proj/system/group");
-    fixture.file(
-        "home/_lib/proj/system/group/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/system/entry/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
+    fixture.resource("home/_lib/proj/system/group");
+    fixture.resource("home/_lib/proj/system/entry");
     let runner = Arc::new(FakeRunner::default());
     let (app, runs) = command_app(&fixture, Arc::clone(&runner));
 
-    for (address, expected) in [
-        ("", StatusCode::UNPROCESSABLE_ENTITY),
-        (".missing", StatusCode::NOT_FOUND),
-        (".group", StatusCode::UNPROCESSABLE_ENTITY),
-        (".entry", StatusCode::UNPROCESSABLE_ENTITY),
+    for (route, expected) in [
+        ("".to_owned(), StatusCode::UNPROCESSABLE_ENTITY),
+        (system_execute_route(".missing"), StatusCode::NOT_FOUND),
+        (system_execute_route(".group"), StatusCode::NOT_FOUND),
+        (system_execute_route(".entry"), StatusCode::NOT_FOUND),
     ] {
         assert_eq!(
-            post_run(app.clone(), json!({"address": address}))
+            post_run(app.clone(), json!({"route": route}))
                 .await
                 .status(),
             expected,
-            "{address}"
+            "{route}"
         );
     }
     assert!(runner.specs().is_empty());
@@ -453,20 +470,20 @@ async fn accepts_only_exact_runnable_non_control_catalog_commands() {
 async fn rejects_unready_dependencies_before_starting_a_run_or_journal() {
     let fixture = Fixture::new();
     ready_fixture(&fixture);
+    fixture.executable_resource("home/_lib/proj/system/provider", "run.ps1", "");
     fixture.file(
-        "home/_lib/proj/system/provider/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12","provides":[{"id":"fixture"}]}"#,
+        "home/_lib/proj/system/provider/swawkit.exports.json",
+        r#"{"schema":"swawkit.resource-exports/v1","exports":[{"id":"fixture"}]}"#,
     );
-    fixture.file("home/_lib/proj/system/provider/run.ps1", "");
+    fixture.executable_resource("home/_lib/proj/system/consumer", "run.ps1", "");
     fixture.file(
-        "home/_lib/proj/system/consumer/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12","requires":[{"provider":".provider","export":"fixture"}]}"#,
+        "home/_lib/proj/system/consumer/execute/swawkit.requirements.json",
+        r#"{"schema":"swawkit.facet-requirements/v1","requirements":[{"provider":"$/system::provider","export":"fixture"}]}"#,
     );
-    fixture.file("home/_lib/proj/system/consumer/run.ps1", "");
     let runner = Arc::new(FakeRunner::default());
     let (app, runs) = command_app(&fixture, Arc::clone(&runner));
 
-    let response = post_run(app, json!({"address": ".consumer"})).await;
+    let response = post_run(app, json!({"route": system_execute_route(".consumer")})).await;
 
     assert_eq!(response.status(), StatusCode::CONFLICT);
     assert!(runner.specs().is_empty());
@@ -485,9 +502,11 @@ async fn bounds_retained_output_without_stopping_the_stream_cursor() {
     ready_fixture(&fixture);
     let runner = Arc::new(FakeRunner::default());
     let (app, runs) = command_app(&fixture, Arc::clone(&runner));
-    let created = response_json(post_run(app.clone(), json!({"address": ".demo"})).await).await;
+    let created =
+        response_json(post_run(app.clone(), json!({"route": system_execute_route(".demo")})).await)
+            .await;
     let location = format!(
-        "/api/v2/command-runs/{}",
+        "/api/v3/command-runs/{}",
         created["id"].as_str().expect("command run id")
     );
     let run = runner.run(0);
@@ -517,11 +536,11 @@ async fn retains_only_the_latest_thirty_two_terminal_runs() {
     let mut locations = Vec::new();
 
     for index in 0..33 {
-        let response = post_run(app.clone(), json!({"address": ".demo"})).await;
+        let response = post_run(app.clone(), json!({"route": system_execute_route(".demo")})).await;
         assert_eq!(response.status(), StatusCode::CREATED);
         let document = response_json(response).await;
         locations.push(format!(
-            "/api/v2/command-runs/{}",
+            "/api/v3/command-runs/{}",
             document["id"].as_str().expect("command run id")
         ));
         runner.run(index).complete(ProcessOutcome::Exited(0));

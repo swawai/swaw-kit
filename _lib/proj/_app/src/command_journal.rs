@@ -19,7 +19,7 @@ use crate::{
 pub use crate::run_journal::{RunJournalDocument, RunJournalHistoryDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunSubjectRecord {
+pub struct RunRecord {
     pub id: String,
     pub source: &'static str,
     pub state: &'static str,
@@ -117,12 +117,12 @@ impl CommandJournalAccess {
         read_run_history(&self.module_data_root, &self.address)
     }
 
-    pub fn subject_runs(&self) -> io::Result<Vec<RunSubjectRecord>> {
+    pub fn runs(&self) -> io::Result<Vec<RunRecord>> {
         self.history().map(|history| {
             history
                 .into_runs()
                 .into_iter()
-                .map(|run| RunSubjectRecord {
+                .map(|run| RunRecord {
                     id: run.id,
                     source: match run.source {
                         crate::run_journal::RunJournalSource::Cli => "CLI",
@@ -252,14 +252,20 @@ mod tests {
                 adapter: Some("exe".to_owned()),
                 handler: None,
                 product: None,
-                module: None,
+                requirements: Vec::new(),
+                provisions: Vec::new(),
+                delegate_owner: None,
+                declares_native: false,
+                declared_facets: Vec::new(),
+                declared_resource_kinds: Vec::new(),
                 help: None,
-                subject_kinds: Vec::new(),
+                resource_kinds: Vec::new(),
                 facets: Vec::new(),
-                view: None,
                 diagnostic: None,
+                authored_resource: true,
                 help_diagnostic: None,
                 directory: PathBuf::new(),
+                executor_directory: PathBuf::new(),
                 native_owner: None,
             }
         }

@@ -1,0 +1,1 @@
+{"schema":"swawkit.facet/v1","kind":"collection","presentation":{"icon":"=","label":{"zh-CN":"运行记录","en":"Runs"},"summary":{"zh-CN":"浏览该命令的持久运行","en":"Browse persisted runs for this command"}}}

@@ -1,0 +1,1 @@
+{"schema":"swawkit.facet-execution/v2","implementation":{"type":"invoke","target":"$/system::runs/execute","arguments":["--json",{"bind":"resource.route"}],"returns":"swawkit.resource-list/v2"}}

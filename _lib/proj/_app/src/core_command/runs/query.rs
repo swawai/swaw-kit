@@ -2,21 +2,24 @@ use std::collections::BTreeSet;
 use std::io;
 use std::path::Path;
 
-use crate::catalog::{CatalogSnapshot, CommandSpace};
+use crate::catalog::{CatalogSnapshot, CommandSpace, command_for_resource_route};
 use crate::command_journal::{CommandJournalAccess, CommandLocator, RunJournalDocument};
-use crate::subject::{SUBJECT_COLLECTION_PROTOCOL, SubjectCollection, SubjectRef, SubjectSummary};
+use swawkit_proj_protocol::{
+    FacetRoute, ResourceIdentity, ResourceList, ResourceListing, ResourceRoute,
+};
 
-use super::{ALL_RUNS_FACET, RUN_KIND, RUNS_ADDRESS, RUNS_FACET};
+use super::{RUN_KIND, RUNS_ADDRESS, RUNS_FACET};
 use crate::core_command::CoreCommandError;
 
 pub(super) fn run_collection(
     snapshot: &CatalogSnapshot,
     data_root: &Path,
-) -> Result<SubjectCollection, CoreCommandError> {
-    let facet_ids = run_facet_ids(snapshot)?;
+) -> Result<ResourceList, CoreCommandError> {
+    let (kind, facet_ids) = run_kind_contract(snapshot)?;
+    let source = kind.clone();
     let mut runs = Vec::new();
     for (locator, journal) in all_journals(snapshot, data_root)? {
-        for run in journal.subject_runs().map_err(journal_error)? {
+        for run in journal.runs().map_err(journal_error)? {
             runs.push((run.started_at_unix_ms, locator.clone(), run));
         }
     }
@@ -29,7 +32,7 @@ pub(super) fn run_collection(
     runs.truncate(32);
 
     let mut seen = BTreeSet::new();
-    let subjects = runs
+    let resources = runs
         .into_iter()
         .map(|(_, locator, run)| {
             if !seen.insert(run.id.clone()) {
@@ -38,71 +41,65 @@ pub(super) fn run_collection(
                     run.id
                 )));
             }
-            Ok(SubjectSummary {
-                reference: SubjectRef::Instance {
-                    kind: RUN_KIND.to_owned(),
-                    id: run.id,
-                },
-                label: super::render::format_timestamp(run.started_at_unix_ms),
-                summary: run_summary(&locator, run.state, run.source, run.event_count),
-                facet_ids: facet_ids.clone(),
-            })
+            let route = source
+                .resource()
+                .child(source.facet(), &run.id)
+                .map_err(protocol_error)?;
+            ResourceListing::new(
+                ResourceIdentity::instance(kind.clone(), run.id.clone()).map_err(protocol_error)?,
+                run.id,
+                route,
+                facet_ids.clone(),
+                super::render::format_timestamp(run.started_at_unix_ms),
+                run_summary(&locator, run.state, run.source, run.event_count),
+            )
+            .map_err(protocol_error)
         })
         .collect::<Result<Vec<_>, CoreCommandError>>()?;
-    Ok(SubjectCollection {
-        protocol: SUBJECT_COLLECTION_PROTOCOL.to_owned(),
-        owner: SubjectRef::Command {
-            space: CommandSpace::System,
-            namespace: None,
-            address: RUNS_ADDRESS.to_owned(),
-        },
-        facet: ALL_RUNS_FACET.to_owned(),
-        subjects,
-    })
+    ResourceList::new(source, resources).map_err(protocol_error)
 }
 
 pub(super) fn command_run_collection(
     snapshot: &CatalogSnapshot,
     data_root: &Path,
     target: &str,
-) -> Result<SubjectCollection, CoreCommandError> {
-    let facet_ids = run_facet_ids(snapshot)?;
-    let locator = CommandLocator::from_cli_target(snapshot, target)
+) -> Result<ResourceList, CoreCommandError> {
+    let (kind, facet_ids) = run_kind_contract(snapshot)?;
+    let route = ResourceRoute::parse(target)
         .map_err(|error| CoreCommandError::domain(error.to_string()))?;
-    let command = snapshot
-        .commands
-        .iter()
-        .find(|command| command.address == locator.address())
-        .ok_or_else(|| CoreCommandError::domain("command not found"))?;
-    let owner = SubjectRef::Command {
-        space: command.space,
-        namespace: command.namespace.clone(),
-        address: locator.address().to_owned(),
-    };
+    let command = command_for_resource_route(snapshot, &route).ok_or_else(|| {
+        CoreCommandError::domain(format!(
+            "Resource Route '{route}' does not identify a Command Resource"
+        ))
+    })?;
+    let locator = CommandLocator::parse(&command.address)
+        .map_err(|error| CoreCommandError::domain(error.to_string()))?;
+    let source = FacetRoute::new(route, RUNS_FACET).map_err(protocol_error)?;
     let locator_label = locator.to_string();
     let journal = CommandJournalAccess::resolve(data_root, snapshot, locator)
         .map_err(|error| CoreCommandError::domain(error.to_string()))?;
-    let subjects = journal
-        .subject_runs()
+    let resources = journal
+        .runs()
         .map_err(journal_error)?
         .into_iter()
         .take(32)
-        .map(|run| SubjectSummary {
-            reference: SubjectRef::Instance {
-                kind: RUN_KIND.to_owned(),
-                id: run.id,
-            },
-            label: super::render::format_timestamp(run.started_at_unix_ms),
-            summary: run_summary(&locator_label, run.state, run.source, run.event_count),
-            facet_ids: facet_ids.clone(),
+        .map(|run| {
+            let resource_route = source
+                .resource()
+                .child(source.facet(), &run.id)
+                .map_err(protocol_error)?;
+            ResourceListing::new(
+                ResourceIdentity::instance(kind.clone(), run.id.clone()).map_err(protocol_error)?,
+                run.id,
+                resource_route,
+                facet_ids.clone(),
+                super::render::format_timestamp(run.started_at_unix_ms),
+                run_summary(&locator_label, run.state, run.source, run.event_count),
+            )
+            .map_err(protocol_error)
         })
-        .collect();
-    Ok(SubjectCollection {
-        protocol: SUBJECT_COLLECTION_PROTOCOL.to_owned(),
-        owner,
-        facet: RUNS_FACET.to_owned(),
-        subjects,
-    })
+        .collect::<Result<Vec<_>, CoreCommandError>>()?;
+    ResourceList::new(source, resources).map_err(protocol_error)
 }
 
 pub(super) fn global_run(
@@ -142,7 +139,9 @@ pub(super) fn global_run_access(
     })
 }
 
-fn run_facet_ids(snapshot: &CatalogSnapshot) -> Result<Vec<String>, CoreCommandError> {
+fn run_kind_contract(
+    snapshot: &CatalogSnapshot,
+) -> Result<(FacetRoute, Vec<String>), CoreCommandError> {
     let owner = snapshot
         .commands
         .iter()
@@ -151,13 +150,20 @@ fn run_facet_ids(snapshot: &CatalogSnapshot) -> Result<Vec<String>, CoreCommandE
                 && command.address == RUNS_ADDRESS
                 && command.alias_of.is_none()
         })
-        .ok_or_else(|| CoreCommandError::domain("Run Subject owner command is unavailable"))?;
+        .ok_or_else(|| CoreCommandError::domain("Run Resource Kind owner is unavailable"))?;
     let kind = owner
-        .subject_kinds
+        .resource_kinds
         .iter()
         .find(|kind| kind.kind == RUN_KIND)
-        .ok_or_else(|| CoreCommandError::domain("Run Subject kind is unavailable"))?;
-    Ok(kind.facets.iter().map(|facet| facet.id.clone()).collect())
+        .ok_or_else(|| CoreCommandError::domain("Run Resource Kind is unavailable"))?;
+    Ok((
+        kind.source.clone(),
+        kind.facets.iter().map(|facet| facet.id.clone()).collect(),
+    ))
+}
+
+fn protocol_error(error: impl std::fmt::Display) -> CoreCommandError {
+    CoreCommandError::domain(error.to_string())
 }
 
 fn all_journals(

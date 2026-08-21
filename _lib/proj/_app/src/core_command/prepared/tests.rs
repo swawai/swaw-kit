@@ -1,9 +1,14 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
 use crate::catalog::{CATALOG_PROTOCOL, CatalogSnapshot, CommandAdapter, CommandSpace};
 use crate::command::ResolvedCommand;
 use crate::context::EntryContext;
+use crate::route_resolution::CommandQuery;
+use crate::runtime_service::{RuntimeQueryOutput, RuntimeServiceError};
 
 use super::*;
 
@@ -68,6 +73,7 @@ fn runtime_preparation_is_explicit_for_every_supported_handler() {
         (".check", "meta.check"),
         (".check/dir/exists", "meta.check.dir.exists"),
         (".runs", "meta.runs"),
+        (".view/source", "meta.view.source"),
     ] {
         let command = fixture.command(address, handler);
         fixture
@@ -149,7 +155,22 @@ impl Fixture {
             },
             self.context.clone(),
             self.data_root.clone(),
+            Arc::new(RejectQuery),
         )
+    }
+}
+
+struct RejectQuery;
+
+impl CommandQuery for RejectQuery {
+    fn query(
+        &self,
+        _address: &str,
+        _arguments: &[String],
+    ) -> Result<RuntimeQueryOutput, RuntimeServiceError> {
+        Err(RuntimeServiceError::Query(
+            "fixture query must not run during preparation".to_owned(),
+        ))
     }
 }
 

@@ -3,23 +3,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::{
     entry_config::EntryLanguage,
     facet::{Facet, FacetResolver},
-    subject::SubjectRef,
-    subject_kind::SubjectKindRef,
+    resource_kind::ResourceKindRef,
 };
 
 use super::{
-    CommandNode, CommandSpace,
-    module_contract::{ModuleFacet, ModuleFacetArgument, ModuleFacetBinding, ModuleFacetResolver},
+    CommandNode,
+    declaration::{FacetArgumentDeclaration, FacetDeclaration, FacetResolverDeclaration},
 };
 
 mod defaults;
 
-use defaults::{children_facet, default_facets};
+use defaults::{default_facets, subcommands_facet};
 
 const HELP_ADDRESS: &str = ".help";
 const CHECK_ADDRESS: &str = ".check";
-const RUNS_ADDRESS: &str = ".runs";
-const RUN_KIND: &str = "run";
 
 #[derive(Clone, Copy)]
 struct ResolverCapability {
@@ -58,63 +55,30 @@ pub(super) fn resolve_command_facets(commands: &mut [CommandNode], language: Ent
     let check_available = capabilities
         .get(CHECK_ADDRESS)
         .is_some_and(|capability| capability.web_runnable());
-    let runs_available = capabilities
-        .get(RUNS_ADDRESS)
-        .is_some_and(|capability| capability.web_runnable());
-    let subject_kind_providers = commands
+    let resource_kind_providers = commands
         .iter()
         .flat_map(|command| {
-            command.subject_kinds.iter().map(|subject_kind| {
+            command.resource_kinds.iter().map(|resource_kind| {
                 (
-                    subject_kind.kind.clone(),
-                    SubjectRef::Command {
-                        space: command.space,
-                        namespace: command.namespace.clone(),
-                        address: command.address.clone(),
+                    resource_kind.source.clone(),
+                    ResourceKindRef {
+                        source: resource_kind.source.clone(),
                     },
                 )
             })
         })
         .collect::<BTreeMap<_, _>>();
-    let run_subject_kind = subject_kind_providers
-        .get(RUN_KIND)
-        .filter(|provider| {
-            matches!(
-                provider,
-                SubjectRef::Command {
-                    space: CommandSpace::System,
-                    namespace: None,
-                    address,
-                } if address == RUNS_ADDRESS
-            )
-        })
-        .cloned()
-        .map(|provider| SubjectKindRef {
-            kind: RUN_KIND.to_owned(),
-            provider,
-        });
     for command in commands {
-        let children = parents
+        let subcommands = parents
             .contains(&command.address)
-            .then(|| children_facet(language));
-        let defaults = default_facets(
-            command,
-            language,
-            help_available,
-            check_available,
-            runs_available,
-            run_subject_kind.as_ref(),
-        );
-        let core_ids = children
+            .then(|| subcommands_facet(language));
+        let defaults = default_facets(command, language, help_available, check_available);
+        let core_ids = subcommands
             .iter()
             .chain(defaults.iter())
             .map(|facet| facet.id.clone())
             .collect::<BTreeSet<_>>();
-        let declarations = command
-            .module
-            .as_ref()
-            .map(|module| module.facets.clone())
-            .unwrap_or_default();
+        let declarations = command.declared_facets.clone();
         let declaration_order = declarations
             .iter()
             .map(|facet| facet.id.clone())
@@ -123,12 +87,7 @@ pub(super) fn resolve_command_facets(commands: &mut [CommandNode], language: Ent
         let mut declared = BTreeMap::new();
         for declaration in declarations {
             let id = declaration.id.clone();
-            match resolve_declared_facet(
-                &command.address,
-                declaration,
-                &capabilities,
-                &subject_kind_providers,
-            ) {
+            match resolve_declared_facet(declaration, &capabilities, &resource_kind_providers) {
                 Ok(facet) => {
                     declared.insert(id, facet);
                 }
@@ -137,8 +96,8 @@ pub(super) fn resolve_command_facets(commands: &mut [CommandNode], language: Ent
         }
 
         let mut facets = Vec::new();
-        if let Some(children) = children {
-            append_core_facet(&mut facets, children, &declared_ids, &mut declared);
+        if let Some(subcommands) = subcommands {
+            append_core_facet(&mut facets, subcommands, &declared_ids, &mut declared);
         }
         for id in declaration_order
             .iter()
@@ -169,22 +128,28 @@ fn append_core_facet(
 }
 
 fn resolve_declared_facet(
-    owner: &str,
-    declaration: ModuleFacet,
+    declaration: FacetDeclaration,
     capabilities: &BTreeMap<String, ResolverCapability>,
-    subject_kind_providers: &BTreeMap<String, SubjectRef>,
+    resource_kind_providers: &BTreeMap<swawkit_proj_protocol::FacetRoute, ResourceKindRef>,
 ) -> Result<Facet, String> {
-    if let Some(subject_kind) = &declaration.subject_kind {
-        if subject_kind_providers.get(&subject_kind.kind) != Some(&subject_kind.provider) {
-            return Err(format!(
-                "facet '{}' references an unavailable Subject kind provider",
-                declaration.id
-            ));
-        }
-    }
+    let resource_kind = declaration
+        .resource_kind
+        .as_ref()
+        .map(|source| {
+            resource_kind_providers.get(source).cloned().ok_or_else(|| {
+                format!(
+                    "facet '{}' references unavailable Resource Kind definition '{}'",
+                    declaration.id, source
+                )
+            })
+        })
+        .transpose()?;
     let resolver = match declaration.resolver {
         None => None,
-        Some(ModuleFacetResolver::Command {
+        Some(FacetResolverDeclaration::Catalog { relation }) => {
+            Some(FacetResolver::Catalog { relation })
+        }
+        Some(FacetResolverDeclaration::Invoke {
             address,
             arguments,
             accepts_tail,
@@ -206,13 +171,10 @@ fn resolve_declared_facet(
             let arguments = arguments
                 .into_iter()
                 .map(|argument| match argument {
-                    ModuleFacetArgument::Literal(value) => value,
-                    ModuleFacetArgument::Binding(binding) => match binding.bind {
-                        ModuleFacetBinding::CommandAddress => owner.to_owned(),
-                        ModuleFacetBinding::SubjectId => {
-                            unreachable!("module validation rejects subject.id in Command facets")
-                        }
-                    },
+                    FacetArgumentDeclaration::Literal(value) => value,
+                    FacetArgumentDeclaration::ResourceSelector => {
+                        unreachable!("Resource Loader rejects selector bindings in command Facets")
+                    }
                 })
                 .collect();
             Some(FacetResolver::Command {
@@ -231,8 +193,9 @@ fn resolve_declared_facet(
         icon: declaration.icon,
         label: declaration.label,
         summary: declaration.summary,
-        subject_kind: declaration.subject_kind,
+        resource_kind,
         resolver,
+        view: declaration.view,
     })
 }
 

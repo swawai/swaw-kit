@@ -1,0 +1,9 @@
+{
+  "schema": "swawkit.facet-execution/v2",
+  "implementation": {
+    "type": "invoke",
+    "target": "$/system::context/subcommands::delete/execute",
+    "arguments": [{ "bind": "resource.selector" }],
+    "confirmation": "Delete this Context? 此操作不可撤销。"
+  }
+}

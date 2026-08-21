@@ -28,20 +28,27 @@ const PROGRESS_FRAME: &str = "\u{001e}swawkit-event-v1 {\"schema\":\"swawkit.com
 const TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[tokio::test]
-async fn executes_and_cancels_direct_commands_through_the_http_router() {
+async fn executes_and_cancels_operation_routes_through_the_http_router() {
     let fixture = Fixture::new();
     fixture.directory("home/_lib/proj");
     let normal_root = fixture.directory("home/_lib/proj/modules/webdirectnormal");
     let cancel_root = fixture.directory("home/_lib/proj/modules/webdirectcancel");
     for command_root in [&normal_root, &cancel_root] {
+        let execute = command_root.join("execute");
+        fs::create_dir_all(&execute).expect("create execute Facet");
         fs::write(
-            command_root.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v12"}"#,
+            command_root.join("swawkit.resource.json"),
+            r#"{"schema":"swawkit.resource/v1","kind":"command"}"#,
         )
-        .expect("write direct command manifest");
+        .expect("write direct command Resource");
+        fs::write(
+            execute.join("swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+        )
+        .expect("write execute Facet");
     }
-    install_command_executable(&normal_root.join("run.exe"));
-    install_command_executable(&cancel_root.join("run.exe"));
+    install_command_executable(&normal_root.join("execute/run.exe"));
+    install_command_executable(&cancel_root.join("execute/run.exe"));
     let normal_script = normal_root.join("fixture.cmd");
     let cancel_script = cancel_root.join("fixture.cmd");
     fs::write(
@@ -160,12 +167,12 @@ async fn start_native_run(app: &Router, address: &str, script: &Path) -> (String
         .oneshot(
             Request::builder()
                 .method(Method::POST)
-                .uri("/api/v2/command-runs")
+                .uri("/api/v3/command-runs")
                 .header(HOST, AUTHORITY)
                 .header(CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     json!({
-                        "address": address,
+                        "route": module_execute_route(address),
                         "arguments": arguments
                     })
                     .to_string(),

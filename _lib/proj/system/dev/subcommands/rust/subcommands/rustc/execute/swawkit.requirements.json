@@ -1,0 +1,1 @@
+{"schema":"swawkit.facet-requirements/v1","requirements":[{"provider":"$/system::dev/subcommands::setup","export":"environment"}]}

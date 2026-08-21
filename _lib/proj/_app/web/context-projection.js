@@ -41,11 +41,11 @@ export function createContextProjectionRenderer(elements, options = {}) {
   const onPin = options.onPin ?? (() => {});
   let pinnedRef = null;
   let selectedDocument = null;
-  let selectedSubject = null;
+  let selectedResource = null;
 
   function updatePin() {
-    const pinned = selectedSubject?.canonicalRef === pinnedRef;
-    elements.contextProjectionPin.disabled = pinned || !selectedSubject;
+    const pinned = selectedResource?.route === pinnedRef;
+    elements.contextProjectionPin.disabled = pinned || !selectedResource;
     elements.contextProjectionPinLabel.hidden = pinned;
     elements.contextProjectionPinnedLabel.hidden = !pinned;
   }
@@ -59,7 +59,7 @@ export function createContextProjectionRenderer(elements, options = {}) {
     elements.contextProjectionPrompt.hidden = true;
     elements.contextProjectionPromptEmpty.hidden = false;
     selectedDocument = null;
-    selectedSubject = null;
+    selectedResource = null;
     updatePin();
   }
 
@@ -68,13 +68,13 @@ export function createContextProjectionRenderer(elements, options = {}) {
     clear();
   }
 
-  function render(subject, payload) {
-    const document_ = createContextProjection(payload, subject.ref.id);
+  function render(resource, payload) {
+    const document_ = createContextProjection(payload, resource.identity.id);
     selectedDocument = document_;
-    selectedSubject = subject;
-    elements.contextProjectionTitle.textContent = subject.label;
-    elements.contextProjectionRef.textContent = subject.canonicalRef;
-    elements.contextProjectionSummary.textContent = subject.summary;
+    selectedResource = resource;
+    elements.contextProjectionTitle.textContent = resource.label;
+    elements.contextProjectionRef.textContent = resource.route;
+    elements.contextProjectionSummary.textContent = resource.summary;
     renderContextFields({
       commandEmpty: elements.contextProjectionCommandEmpty,
       commands: elements.contextProjectionCommands,
@@ -93,8 +93,8 @@ export function createContextProjectionRenderer(elements, options = {}) {
   }
 
   elements.contextProjectionPin.addEventListener("click", () => {
-    if (selectedSubject && selectedDocument) {
-      onPin(selectedSubject, selectedDocument);
+    if (selectedResource && selectedDocument) {
+      onPin(selectedResource, selectedDocument);
     }
   });
 

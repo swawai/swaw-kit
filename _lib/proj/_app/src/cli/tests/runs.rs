@@ -3,12 +3,11 @@ use super::*;
 #[test]
 fn runs_read_history_and_latest_after_the_target_stops_being_runnable() {
     let fixture = Fixture::new();
-    let runs_directory = fixture.core_command(".runs", "meta.runs");
-    fs::write(
-        runs_directory.join("swawkit.module.json"),
-        include_str!("../../../../system/runs/swawkit.module.json"),
-    )
-    .expect("write Runs module contract");
+    let runs_directory = fixture.context.system_root().join("runs");
+    copy_tree(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../system/runs"),
+        &runs_directory,
+    );
     let command_directory = fixture.command(
         ".demo",
         "run.cmd",
@@ -36,12 +35,12 @@ fn runs_read_history_and_latest_after_the_target_stops_being_runnable() {
         .file_name()
         .to_string_lossy()
         .into_owned();
-    fs::remove_file(command_directory.join("run.cmd")).unwrap();
+    fs::remove_file(command_directory.join("execute/run.cmd")).unwrap();
 
     for arguments in [
         vec![".runs"],
         vec![".runs", "--json"],
-        vec![".runs", "--json", ".demo"],
+        vec![".runs", "--json", "$/system::demo"],
         vec![".runs", "--run", &run_id],
         vec![".runs", ".demo"],
         vec![".runs", ".demo", "--latest", "1"],
@@ -74,4 +73,17 @@ fn runs_read_history_and_latest_after_the_target_stops_being_runnable() {
     )
     .unwrap_err();
     assert!(removed.to_string().contains("command not found: .logs"));
+}
+
+fn copy_tree(source: &Path, target: &Path) {
+    fs::create_dir_all(target).expect("create Runs fixture directory");
+    for entry in fs::read_dir(source).expect("read Runs fixture source") {
+        let entry = entry.expect("read Runs fixture entry");
+        let target = target.join(entry.file_name());
+        if entry.file_type().expect("read Runs fixture type").is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("copy Runs fixture file");
+        }
+    }
 }

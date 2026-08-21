@@ -5,9 +5,10 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
+use swawkit_proj_protocol::FacetRoute;
 
 use crate::run_journal::RunJournalSource;
-use crate::runtime_service::{RuntimeServiceError, StartCommandRunRequest};
+use crate::runtime_service::{RuntimeServiceError, StartFacetRunRequest};
 
 use super::{ServerState, api_error, coded_api_error};
 
@@ -16,24 +17,30 @@ pub(super) const RUNTIME_GENERATION_UNAVAILABLE_CODE: &str = "runtimeGenerationU
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct StartCommandRunBody {
-    address: String,
+pub(super) struct StartFacetRunBody {
+    route: String,
     #[serde(default)]
     arguments: Vec<String>,
 }
 
 pub(super) async fn post_command_run(
     State(state): State<ServerState>,
-    Json(body): Json<StartCommandRunBody>,
+    Json(body): Json<StartFacetRunBody>,
 ) -> Response {
-    let request = StartCommandRunRequest {
-        address: body.address,
-        arguments: body.arguments,
+    let route = match FacetRoute::parse(&body.route) {
+        Ok(route) => route,
+        Err(error) => {
+            return api_error(StatusCode::UNPROCESSABLE_ENTITY, error.to_string()).into_response();
+        }
+    };
+    let request = StartFacetRunRequest {
+        route,
+        tail: body.arguments,
         source: RunJournalSource::Web,
     };
-    match state.runtime_service.submit(request).await {
+    match state.runtime_service.submit_facet(request).await {
         Ok(document) => {
-            let location = HeaderValue::from_str(&format!("/api/v2/command-runs/{}", document.id))
+            let location = HeaderValue::from_str(&format!("/api/v3/command-runs/{}", document.id))
                 .expect("command run identifiers are valid Location values");
             (StatusCode::CREATED, [(LOCATION, location)], Json(document)).into_response()
         }

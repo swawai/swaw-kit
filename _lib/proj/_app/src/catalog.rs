@@ -1,7 +1,6 @@
 use crate::{
     context::EntryContext,
     entry_config::{EntryConfig, EntryLanguage},
-    subject::SubjectRef,
 };
 use serde::Serialize;
 use std::collections::VecDeque;
@@ -11,17 +10,19 @@ use std::path::{Path, PathBuf};
 use swawkit_proj_protocol::CommandIdentity;
 
 mod address;
+mod declaration;
 mod entry;
 mod facet;
 mod filesystem;
 mod identity;
-mod module_contract;
-mod subject_kind;
-mod view;
+mod native_owner;
+mod resource_kind;
+mod resource_loader;
+mod route;
 
 pub use crate::facet::{Facet, FacetKind, FacetRenderer, FacetResolver};
 use address::child_address;
-pub(crate) use entry::{CommandAdapter, ResolvedEntry, resolve_entry};
+pub(crate) use entry::{CommandAdapter, resolve_entry};
 use facet::resolve_command_facets;
 pub(crate) use filesystem::named_directories;
 use filesystem::{
@@ -29,17 +30,14 @@ use filesystem::{
 };
 use identity::CommandId;
 pub use identity::CommandSpace;
-pub(crate) use module_contract::MODULE_CONTRACT_FILE;
-use module_contract::read_local_module_contract;
-pub use module_contract::{
-    CommandModuleContract, MODULE_CONTRACT_PROTOCOL, ModuleExecution, ModuleProvision,
-    ModuleRequirement,
+use native_owner::resolve_native_owners;
+use resource_kind::resolve_resource_kinds;
+pub(crate) use route::{
+    PlannedFacetRoute, PlannedResourceRoute, command_for_resource_route, plan_facet_route,
 };
-use subject_kind::resolve_subject_kinds;
-use view::read_local_web_view;
-pub use view::{ChildrenColumnView, ColumnWidth, CommandView, RunOperationView, RunView};
+pub use swawkit_proj_protocol::{CommandProvision, CommandRequirement};
 
-pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v20";
+pub const CATALOG_PROTOCOL: &str = "swawkit.command-catalog/v24";
 
 pub const HELP_ADDRESS: &str = ".help";
 pub const HELP_MARKERS: [&str; 3] = [HELP_ADDRESS, "-h", "--help"];
@@ -116,7 +114,7 @@ impl CatalogSnapshot {
         let system_path = absolute_path(system_root)?;
         let mut commands = scan_root(
             PendingDirectory {
-                module: read_pending_module(&system_path, language),
+                declaration: read_pending_declaration(&system_path),
                 path: system_path,
                 id: CommandId::system(Vec::new()),
             },
@@ -131,7 +129,7 @@ impl CatalogSnapshot {
                 };
                 scan_root(
                     PendingDirectory {
-                        module: read_pending_module(&path, language),
+                        declaration: read_pending_declaration(&path),
                         path,
                         id: CommandId::module(&module_root.namespace, Vec::new()),
                     },
@@ -152,7 +150,7 @@ impl CatalogSnapshot {
                 .then_with(|| left.address.cmp(&right.address))
         });
         resolve_native_owners(&mut commands);
-        resolve_subject_kinds(&mut commands);
+        resolve_resource_kinds(&mut commands);
         resolve_command_facets(&mut commands, language);
 
         Ok(Self {
@@ -182,17 +180,22 @@ fn scan_root(
     let mut pending = VecDeque::from([root]);
     let mut commands = Vec::new();
     while let Some(current) = pending.pop_front() {
-        commands.push(scan_node(&current, entry_name, language));
+        let scanned = scan_node(&current, entry_name, language);
+        commands.push(scanned.command);
+        if let Some(children) = scanned.resource_children {
+            pending.extend(children);
+            continue;
+        }
         for child in child_directories(&current.path)? {
             let Some(child_command) = child_address(&current, &child.name) else {
                 continue;
             };
-            let module = read_pending_module(&child.path, language);
-            if !matches!(module, PendingModule::Absent) {
+            let declaration = read_pending_declaration(&child.path);
+            if !matches!(declaration, PendingDeclaration::Absent) {
                 pending.push_back(PendingDirectory {
                     path: child.path,
                     id: child_command.id,
-                    module,
+                    declaration,
                 });
             }
         }
@@ -229,17 +232,31 @@ pub struct CommandNode {
     pub adapter: Option<String>,
     pub handler: Option<String>,
     pub product: Option<String>,
-    pub module: Option<CommandModuleContract>,
+    #[serde(skip)]
+    pub(crate) requirements: Vec<CommandRequirement>,
+    #[serde(skip)]
+    pub(crate) provisions: Vec<CommandProvision>,
+    #[serde(skip)]
+    pub(crate) delegate_owner: Option<String>,
+    #[serde(skip)]
+    pub(crate) declares_native: bool,
+    #[serde(skip)]
+    pub(crate) declared_facets: Vec<declaration::FacetDeclaration>,
+    #[serde(skip)]
+    pub(crate) declared_resource_kinds: Vec<declaration::ResourceKindDeclaration>,
     pub help: Option<HelpDocument>,
-    pub subject_kinds: Vec<crate::subject_kind::SubjectKind>,
+    pub resource_kinds: Vec<crate::resource_kind::ResourceKind>,
     pub facets: Vec<Facet>,
-    pub view: Option<CommandView>,
     pub diagnostic: Option<String>,
+    #[serde(skip)]
+    pub(crate) authored_resource: bool,
     /// Retains the Help protocol state without expanding the public Web API.
     #[serde(skip)]
     pub help_diagnostic: Option<String>,
     #[serde(skip)]
     pub directory: PathBuf,
+    #[serde(skip)]
+    pub(crate) executor_directory: PathBuf,
     #[serde(skip)]
     pub(crate) native_owner: Option<String>,
 }
@@ -264,21 +281,21 @@ pub struct HelpDocument {
 struct PendingDirectory {
     path: PathBuf,
     id: CommandId,
-    module: PendingModule,
+    declaration: PendingDeclaration,
 }
 
 #[derive(Debug)]
-enum PendingModule {
+enum PendingDeclaration {
     Absent,
-    Valid(CommandModuleContract),
-    Invalid(String),
+    Resource,
+    InvalidResource(String),
 }
 
-fn read_pending_module(path: &Path, language: EntryLanguage) -> PendingModule {
-    match read_local_module_contract(path, language) {
-        Ok(Some(module)) => PendingModule::Valid(module),
-        Ok(None) => PendingModule::Absent,
-        Err(error) => PendingModule::Invalid(error.to_string()),
+fn read_pending_declaration(path: &Path) -> PendingDeclaration {
+    match resource_loader::has_resource_marker(path) {
+        Ok(true) => PendingDeclaration::Resource,
+        Ok(false) => PendingDeclaration::Absent,
+        Err(error) => return PendingDeclaration::InvalidResource(error),
     }
 }
 
@@ -287,54 +304,90 @@ struct ChildCommand {
     id: CommandId,
 }
 
-fn scan_node(pending: &PendingDirectory, entry_name: &str, language: EntryLanguage) -> CommandNode {
+struct ScannedNode {
+    command: CommandNode,
+    /// `Some` means the Resource Loader owns traversal, including the empty/error case.
+    resource_children: Option<Vec<PendingDirectory>>,
+}
+
+fn scan_node(pending: &PendingDirectory, entry_name: &str, language: EntryLanguage) -> ScannedNode {
     let address = pending.id.address();
     let mut diagnostics = Vec::new();
-    let (module, module_valid) = match &pending.module {
-        PendingModule::Absent => (None, true),
-        PendingModule::Valid(module) => (Some(module.clone()), true),
-        PendingModule::Invalid(error) => {
-            diagnostics.push(error.clone());
-            (None, false)
+    if let PendingDeclaration::InvalidResource(error) = &pending.declaration {
+        diagnostics.push(error.clone());
+    }
+    let is_resource = matches!(&pending.declaration, PendingDeclaration::Resource);
+    let mut requirements = Vec::new();
+    let mut provisions = Vec::new();
+    let mut delegate_owner = None;
+    let mut declares_native = false;
+    let mut declared_facets = Vec::new();
+    let mut declared_resource_kinds = Vec::new();
+    let resource_owns_traversal = matches!(
+        &pending.declaration,
+        PendingDeclaration::Resource | PendingDeclaration::InvalidResource(_)
+    );
+    let resource_command = if is_resource {
+        let reference = CommandIdentity::new(
+            pending.id.space,
+            pending.id.namespace.as_deref(),
+            pending.id.path.clone(),
+        )
+        .map_err(|error| error.to_string())
+        .and_then(|identity| resource_loader::resource_route_for_command(&identity));
+        match reference {
+            Ok(reference) => Some(resource_loader::load_command_resource(
+                &pending.path,
+                reference,
+                language,
+            )),
+            Err(error) => {
+                diagnostics.push(error);
+                None
+            }
         }
+    } else {
+        None
     };
-    let local_entry = match resolve_entry(&pending.path) {
-        Ok(entry) => entry,
-        Err(error) => {
-            diagnostics.push(error.to_string());
-            None
+    let mut resource_children = resource_owns_traversal.then(Vec::new);
+    let (local_entry, command_directory) = if let Some(resource) = resource_command {
+        diagnostics.extend(resource.diagnostics);
+        requirements = resource.requirements;
+        provisions = resource.provisions;
+        delegate_owner = resource.delegate_owner;
+        declares_native = resource.declares_native;
+        declared_facets = resource.facets;
+        declared_resource_kinds = resource.resource_kinds;
+        if let Some(pending_children) = resource_children.as_mut() {
+            for child in resource.children {
+                let Some(id) = pending.id.child(&child.selector) else {
+                    diagnostics.push(format!(
+                        "subcommands selector '{}' cannot become a Command identity",
+                        child.selector
+                    ));
+                    continue;
+                };
+                pending_children.push(PendingDirectory {
+                    declaration: read_pending_declaration(&child.directory),
+                    path: child.directory,
+                    id,
+                });
+            }
         }
+        (resource.entry, resource.execution_directory)
+    } else if is_resource {
+        (None, pending.path.clone())
+    } else {
+        let entry = match resolve_entry(&pending.path) {
+            Ok(entry) => entry,
+            Err(error) => {
+                diagnostics.push(error.to_string());
+                None
+            }
+        };
+        (entry, pending.path.clone())
     };
-    let declared_execution = module
-        .as_ref()
-        .and_then(|contract| contract.execution.as_ref());
-    let entry = match (local_entry, declared_execution) {
-        (Some(_), Some(_)) => {
-            diagnostics.push(format!(
-                "command declares both a local run.* entry and {MODULE_CONTRACT_FILE} execution"
-            ));
-            None
-        }
-        (None, Some(ModuleExecution::Core { handler })) => Some(ResolvedEntry::declared(
-            CommandAdapter::Core,
-            Some(handler.clone()),
-            None,
-        )),
-        (None, Some(ModuleExecution::Runtime { product })) => Some(ResolvedEntry::declared(
-            CommandAdapter::Runtime,
-            None,
-            Some(product.clone()),
-        )),
-        (None, Some(ModuleExecution::Native)) => {
-            Some(ResolvedEntry::declared(CommandAdapter::Native, None, None))
-        }
-        (None, Some(ModuleExecution::Delegate { .. })) => Some(ResolvedEntry::declared(
-            CommandAdapter::Delegate,
-            None,
-            None,
-        )),
-        (entry, None) => entry,
-    };
+    let entry = local_entry;
     let entry = entry.and_then(|entry| {
         if let Some(diagnostic) = entry.invalid_declared_owner(pending.id.space, &address) {
             diagnostics.push(diagnostic.to_owned());
@@ -357,8 +410,7 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str, language: EntryLangua
             );
             None
         }
-        entry if module_valid => entry,
-        _ => None,
+        entry => entry,
     };
     let (help, help_diagnostic) =
         match read_local_help(&pending.path, entry_name, &address, language) {
@@ -369,15 +421,7 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str, language: EntryLangua
                 (None, Some(diagnostic))
             }
         };
-    let view = match read_local_web_view(&pending.path) {
-        Ok(view) => view,
-        Err(error) => {
-            diagnostics.push(error.to_string());
-            None
-        }
-    };
-
-    CommandNode {
+    let command = CommandNode {
         address,
         space: pending.id.space,
         namespace: pending.id.namespace.clone(),
@@ -391,151 +435,26 @@ fn scan_node(pending: &PendingDirectory, entry_name: &str, language: EntryLangua
             .map(|entry| entry.adapter.as_str().to_owned()),
         handler: entry.as_ref().and_then(|entry| entry.handler.clone()),
         product: entry.and_then(|entry| entry.product),
-        module,
+        requirements,
+        provisions,
+        delegate_owner,
+        declares_native,
+        declared_facets,
+        declared_resource_kinds,
         help,
-        subject_kinds: Vec::new(),
+        resource_kinds: Vec::new(),
         facets: Vec::new(),
-        view,
         diagnostic: (!diagnostics.is_empty()).then(|| diagnostics.join("; ")),
+        authored_resource: is_resource,
         help_diagnostic,
         directory: pending.path.clone(),
+        executor_directory: command_directory,
         native_owner: None,
-    }
-}
-
-fn resolve_native_owners(commands: &mut [CommandNode]) {
-    let entries = commands
-        .iter()
-        .map(|command| {
-            (
-                command.address.clone(),
-                (
-                    command.space,
-                    command.namespace.clone(),
-                    command.path.clone(),
-                    command.adapter.clone(),
-                    command
-                        .module
-                        .as_ref()
-                        .and_then(|module| module.execution.as_ref())
-                        .is_some_and(|execution| matches!(execution, ModuleExecution::Native)),
-                ),
-            )
-        })
-        .collect::<std::collections::BTreeMap<_, _>>();
-
-    for command in commands {
-        match command.adapter.as_deref() {
-            Some("native") if command.runnable => {
-                command.native_owner = Some(command.address.clone());
-            }
-            Some("delegate") if command.runnable => {
-                match delegated_native_owner(&entries, command) {
-                    Ok(owner) => command.native_owner = Some(owner),
-                    Err(diagnostic) => {
-                        command.runnable = false;
-                        command.entry = None;
-                        command.adapter = None;
-                        command.handler = None;
-                        command.product = None;
-                        command.diagnostic = Some(match command.diagnostic.take() {
-                            Some(existing) => format!("{existing}; {diagnostic}"),
-                            None => diagnostic,
-                        });
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn delegated_native_owner(
-    entries: &std::collections::BTreeMap<
-        String,
-        (
-            CommandSpace,
-            Option<String>,
-            Vec<String>,
-            Option<String>,
-            bool,
-        ),
-    >,
-    command: &CommandNode,
-) -> Result<String, String> {
-    let Some(ModuleExecution::Delegate { owner }) = command
-        .module
-        .as_ref()
-        .and_then(|module| module.execution.as_ref())
-    else {
-        return Err(format!(
-            "delegated command '{}' has no execution owner declaration",
-            command.address
-        ));
     };
-    let SubjectRef::Command {
-        space,
-        namespace,
-        address,
-    } = owner
-    else {
-        return Err("delegated execution owner must be a command".to_owned());
-    };
-    if *space != command.space || namespace != &command.namespace {
-        return Err(format!(
-            "delegated execution owner '{}' must use the command's space and namespace",
-            address
-        ));
+    ScannedNode {
+        command,
+        resource_children,
     }
-    let Some((owner_space, owner_namespace, owner_path, adapter, _)) = entries.get(address) else {
-        return Err(format!(
-            "delegated execution owner '{}' is missing from the Catalog",
-            address
-        ));
-    };
-    if *owner_space != command.space || owner_namespace != &command.namespace {
-        return Err(format!(
-            "delegated execution owner '{}' has an incompatible command identity",
-            address
-        ));
-    }
-    let owner_identity =
-        CommandIdentity::new(*owner_space, owner_namespace.as_deref(), owner_path.clone())
-            .map_err(|error| format!("invalid delegated execution owner identity: {error}"))?;
-    let command_identity = CommandIdentity::new(
-        command.space,
-        command.namespace.as_deref(),
-        command.path.clone(),
-    )
-    .map_err(|error| format!("invalid delegated command identity: {error}"))?;
-    if !owner_identity.is_true_ancestor_of(&command_identity) {
-        return Err(format!(
-            "delegated execution owner '{}' must be an ancestor of '{}'",
-            address, command.address
-        ));
-    }
-    if let Some((nested_address, _)) = entries.iter().find(|(_, candidate)| {
-        let (space, namespace, path, _, declares_native) = candidate;
-        *declares_native
-            && CommandIdentity::new(*space, namespace.as_deref(), path.clone()).is_ok_and(
-                |nested| {
-                    owner_identity.is_true_ancestor_of(&nested)
-                        && nested.is_true_ancestor_of(&command_identity)
-                },
-            )
-    }) {
-        return Err(format!(
-            "delegated command '{}' cannot cross nested native owner '{}' to reach '{}'",
-            command.address, nested_address, address
-        ));
-    }
-    if adapter.as_deref() != Some("native") {
-        return Err(format!(
-            "delegated execution owner '{}' must declare native execution",
-            address
-        ));
-    }
-    Ok(address.clone())
 }
 
 fn read_local_help(

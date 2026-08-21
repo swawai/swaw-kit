@@ -1,0 +1,1 @@
+{"schema":"swawkit.facet-execution/v2","implementation":{"type":"invoke","target":"$/system::context/subcommands::delete/execute","arguments":[{"bind":"resource.selector"}]}}

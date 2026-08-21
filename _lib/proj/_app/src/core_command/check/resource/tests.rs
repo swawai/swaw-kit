@@ -5,10 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use swawkit_proj_protocol::{CommandIdentity, command_data_root};
 
 use super::{ResourceErrorKind, ResourceOutcome, inspect_provider_export_directory};
-use crate::catalog::{
-    CATALOG_PROTOCOL, CatalogSnapshot, CommandModuleContract, CommandNode,
-    MODULE_CONTRACT_PROTOCOL, ModuleProvision,
-};
+use crate::catalog::{CATALOG_PROTOCOL, CatalogSnapshot, CommandNode, CommandProvision};
 
 static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -256,26 +253,25 @@ fn provider(address: &str, alias_of: Option<&str>, declares_export: bool) -> Com
         adapter: None,
         handler: None,
         product: None,
-        module: Some(CommandModuleContract {
-            schema: MODULE_CONTRACT_PROTOCOL.to_owned(),
-            execution: None,
-            requires: Vec::new(),
-            provides: declares_export
-                .then(|| ModuleProvision {
-                    id: "fixture".to_owned(),
-                })
-                .into_iter()
-                .collect(),
-            facets: Vec::new(),
-            subject_kinds: Vec::new(),
-        }),
+        requirements: Vec::new(),
+        provisions: declares_export
+            .then(|| CommandProvision {
+                id: "fixture".to_owned(),
+            })
+            .into_iter()
+            .collect(),
+        delegate_owner: None,
+        declares_native: false,
+        declared_facets: Vec::new(),
+        declared_resource_kinds: Vec::new(),
         help: None,
-        subject_kinds: Vec::new(),
+        resource_kinds: Vec::new(),
         facets: Vec::new(),
-        view: None,
         diagnostic: None,
+        authored_resource: true,
         help_diagnostic: None,
         directory: Path::new("fixture-command").to_path_buf(),
+        executor_directory: Path::new("fixture-command").to_path_buf(),
         native_owner: None,
     }
 }

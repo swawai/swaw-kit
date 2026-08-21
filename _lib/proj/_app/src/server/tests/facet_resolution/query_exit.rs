@@ -2,14 +2,22 @@ use super::*;
 
 fn check_surface(fixture: &Fixture) {
     fixture.file(
-        "home/_lib/proj/system/check/swawkit.module.json",
-        include_str!("../../../../../system/check/swawkit.module.json"),
+        "home/_lib/proj/system/check/swawkit.resource.json",
+        include_str!("../../../../../system/check/swawkit.resource.json"),
     );
     fixture.file(
-        "home/_lib/proj/system/tool/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12","requires":[{"provider":".provider","export":"fixture"}]}"#,
+        "home/_lib/proj/system/check/execute/swawkit.facet.json",
+        include_str!("../../../../../system/check/execute/swawkit.facet.json"),
     );
-    fixture.file("home/_lib/proj/system/tool/run.cmd", "");
+    fixture.file(
+        "home/_lib/proj/system/check/execute/swawkit.execution.json",
+        include_str!("../../../../../system/check/execute/swawkit.execution.json"),
+    );
+    fixture.executable_resource("home/_lib/proj/system/tool", "run.cmd", "");
+    fixture.file(
+        "home/_lib/proj/system/tool/execute/swawkit.requirements.json",
+        r#"{"schema":"swawkit.facet-requirements/v1","requirements":[{"provider":"$/system::provider","export":"fixture"}]}"#,
+    );
 }
 
 fn command_check_document(ready: bool) -> Value {
@@ -59,14 +67,7 @@ async fn resolves_a_blocked_command_check_document_from_exit_code_one() {
         BTreeMap::from([(argv, 1)]),
     );
 
-    let response = resolve(
-        app,
-        json!({
-            "subject": {"type":"command", "space":"system", "address":".tool"},
-            "facet": "check"
-        }),
-    )
-    .await;
+    let response = resolve(app, json!({"route": "$/system::tool/check"})).await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
@@ -91,14 +92,7 @@ async fn command_check_facet_does_not_mutate_entry_lifecycle_state() {
         BTreeMap::from([(argv, 1)]),
     );
 
-    let response = resolve(
-        app,
-        json!({
-            "subject": {"type":"command", "space":"system", "address":".tool"},
-            "facet": "check"
-        }),
-    )
-    .await;
+    let response = resolve(app, json!({"route": "$/system::tool/check"})).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert!(!data_root.join("_entry.json").exists());
@@ -109,15 +103,7 @@ async fn command_check_facet_does_not_mutate_entry_lifecycle_state() {
 async fn rejects_exit_codes_that_violate_the_declared_return_protocol() {
     let fixture = Fixture::new();
     check_surface(&fixture);
-    fixture.file(
-        "home/_lib/proj/system/report/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/system/report/json/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
+    report_surface(&fixture);
     fixture
         .config_store()
         .save(crate::entry_config::EntryConfigRecord::default())
@@ -135,10 +121,7 @@ async fn rejects_exit_codes_that_violate_the_declared_return_protocol() {
                 )]),
                 BTreeMap::from([(check_argv.clone(), exit_code)]),
             ),
-            json!({
-                "subject": {"type":"command", "space":"system", "address":".tool"},
-                "facet": "check"
-            }),
+            json!({"route": "$/system::tool/check"}),
         )
         .await;
         assert_eq!(
@@ -158,10 +141,7 @@ async fn rejects_exit_codes_that_violate_the_declared_return_protocol() {
             )]),
             BTreeMap::from([(report_argv, 1)]),
         ),
-        json!({
-            "subject": {"type":"command", "space":"system", "address":".report"},
-            "facet": "status"
-        }),
+        json!({"route": "$/system::report/status"}),
     )
     .await;
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);

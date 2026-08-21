@@ -5,9 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::{Value, json};
 
 use super::*;
-use crate::catalog::{
-    CATALOG_PROTOCOL, CommandModuleContract, MODULE_CONTRACT_PROTOCOL, ModuleProvision,
-};
+use crate::catalog::{CATALOG_PROTOCOL, CommandProvision};
 
 static NEXT_ROOT: AtomicU64 = AtomicU64::new(0);
 
@@ -384,8 +382,8 @@ fn snapshot(commands: Vec<CommandNode>) -> CatalogSnapshot {
 
 fn command(
     address: &str,
-    requires: Vec<ModuleRequirement>,
-    provides: Vec<ModuleProvision>,
+    requires: Vec<CommandRequirement>,
+    provides: Vec<CommandProvision>,
 ) -> CommandNode {
     CommandNode {
         address: address.to_owned(),
@@ -399,29 +397,28 @@ fn command(
         adapter: Some("exe".to_owned()),
         handler: None,
         product: None,
-        module: Some(CommandModuleContract {
-            schema: MODULE_CONTRACT_PROTOCOL.to_owned(),
-            execution: None,
-            requires,
-            provides,
-            facets: Vec::new(),
-            subject_kinds: Vec::new(),
-        }),
+        requirements: requires,
+        provisions: provides,
+        delegate_owner: None,
+        declares_native: false,
+        declared_facets: Vec::new(),
+        declared_resource_kinds: Vec::new(),
         help: None,
-        subject_kinds: Vec::new(),
+        resource_kinds: Vec::new(),
         facets: Vec::new(),
-        view: None,
         diagnostic: None,
+        authored_resource: true,
         help_diagnostic: None,
         directory: PathBuf::new(),
+        executor_directory: PathBuf::new(),
         native_owner: None,
     }
 }
 
 fn module_command(
     address: &str,
-    requires: Vec<ModuleRequirement>,
-    provides: Vec<ModuleProvision>,
+    requires: Vec<CommandRequirement>,
+    provides: Vec<CommandProvision>,
 ) -> CommandNode {
     let mut command = command(address, requires, provides);
     command.space = CommandSpace::Module;
@@ -436,15 +433,15 @@ fn module_command(
     command
 }
 
-fn requirement(provider: &str, export: &str) -> ModuleRequirement {
-    ModuleRequirement {
+fn requirement(provider: &str, export: &str) -> CommandRequirement {
+    CommandRequirement {
         provider: provider.to_owned(),
         export: export.to_owned(),
     }
 }
 
-fn provision(id: &str) -> ModuleProvision {
-    ModuleProvision { id: id.to_owned() }
+fn provision(id: &str) -> CommandProvision {
+    CommandProvision { id: id.to_owned() }
 }
 
 fn publish(data_root: &Path, provider: &CommandNode) {

@@ -143,11 +143,7 @@ mod tests {
             fs::create_dir_all(&system).unwrap();
             fs::create_dir_all(owner.join("_src")).unwrap();
             fs::create_dir(&data).unwrap();
-            fs::write(
-                owner.join("swawkit.module.json"),
-                r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
-            )
-            .unwrap();
+            write_native(&owner);
             fs::write(owner.join("_src/main.rs"), "fn main() {}\n").unwrap();
             Self {
                 root,
@@ -188,11 +184,7 @@ mod tests {
         let fixture = Fixture::new();
         let owner = fixture.system.join("context");
         fs::create_dir_all(owner.join("_src")).unwrap();
-        fs::write(
-            owner.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"native"}}"#,
-        )
-        .unwrap();
+        write_native(&owner);
         fs::write(owner.join("_src/main.rs"), "fn main() {}\n").unwrap();
 
         let document = inspect(&fixture.context(), ".context").unwrap();
@@ -255,5 +247,25 @@ mod tests {
             outdated.selected_build_input_revision,
             current.selected_build_input_revision
         );
+    }
+
+    fn write_native(owner: &std::path::Path) {
+        let execute = owner.join("execute");
+        fs::create_dir_all(&execute).unwrap();
+        fs::write(
+            owner.join("swawkit.resource.json"),
+            r#"{"schema":"swawkit.resource/v1","kind":"command"}"#,
+        )
+        .unwrap();
+        fs::write(
+            execute.join("swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+        )
+        .unwrap();
+        fs::write(
+            execute.join("swawkit.execution.json"),
+            r#"{"schema":"swawkit.facet-execution/v2","implementation":{"type":"native"}}"#,
+        )
+        .unwrap();
     }
 }

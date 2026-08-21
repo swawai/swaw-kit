@@ -3,12 +3,12 @@ import { describe, expect, test } from "bun:test";
 import {
   availableCommand,
   captureColumnScrollOffsets,
-  childrenColumnWidth,
   choiceColumnModels,
   commandHasChoices,
   commandMenuExpanded,
   createExplorerView,
   restoreColumnScrollOffsets,
+  viewColumnWidth,
 } from "./explorer.js";
 
 function domNode(tagName = "") {
@@ -69,11 +69,6 @@ describe("Explorer command-space behavior", () => {
     expect(commandMenuExpanded(null, ".dev/rust")).toBe(false);
   });
 
-  test("uses the parent command's declared child column width", () => {
-    expect(childrenColumnWidth({ childrenColumnWidth: "wide" })).toBe("wide");
-    expect(childrenColumnWidth({})).toBe("normal");
-  });
-
   test("reveals choices only through declared Facets", () => {
     const parent = { address: "proj" };
     const leaf = { address: "project/build" };
@@ -81,9 +76,98 @@ describe("Explorer command-space behavior", () => {
       childrenByParent: new Map([[parent.address, [leaf]]]),
     };
 
-    expect(commandHasChoices(catalog, parent, [{ name: "children" }])).toBe(true);
+    expect(commandHasChoices(catalog, parent, [{ name: "subcommands" }])).toBe(true);
     expect(commandHasChoices(catalog, leaf, [{ name: "overview" }])).toBe(true);
     expect(commandHasChoices(catalog, leaf, [])).toBe(false);
+  });
+
+  test("takes column width from the resolved View Bundle", () => {
+    expect(viewColumnWidth({ view: { width: "wide" } })).toBe("wide");
+    expect(viewColumnWidth(null)).toBe("normal");
+  });
+
+  test("loads one selected Collection View Bundle and applies its column width", async () => {
+    const previous = {
+      document: globalThis.document,
+      requestAnimationFrame: globalThis.requestAnimationFrame,
+      window: globalThis.window,
+    };
+    const present = {
+      document: "document" in globalThis,
+      requestAnimationFrame: "requestAnimationFrame" in globalThis,
+      window: "window" in globalThis,
+    };
+    const columns = domNode("main");
+    const command = {
+      address: ".dev",
+      parent: "",
+      runnable: false,
+      space: "system",
+      summary: "Development tools",
+    };
+    const facet = {
+      icon: ">",
+      kind: "collection",
+      label: "Subcommands",
+      name: "subcommands",
+      resolver: { relation: "subcommands", type: "catalog" },
+      selected: true,
+      summary: "Browse tools",
+    };
+    const resolutions = [];
+
+    globalThis.document = {
+      addEventListener() {},
+      createElement: (tagName) => domNode(tagName),
+    };
+    globalThis.window = { addEventListener() {} };
+    globalThis.requestAnimationFrame = () => 0;
+    try {
+      const view = createExplorerView({
+        columns,
+        detailPanel: domNode("aside"),
+        getCommandFacets: () => [facet],
+        onResolveCollection(owner, selectedFacet) {
+          resolutions.push([owner, selectedFacet]);
+        },
+        onSelectCommand() {},
+      });
+      const catalog = {
+        childrenByParent: new Map(),
+        collator: new Intl.Collator("en"),
+        commandByAddress: new Map([[command.address, command]]),
+        roots: [command],
+      };
+
+      view.setCatalog(catalog);
+      await Promise.resolve();
+      expect(resolutions).toEqual([[command.address, facet.name]]);
+
+      view.setCollectionView({
+        resourceList: {
+          facet: facet.name,
+          label: facet.label,
+          owner: command.address,
+          resourceByRoute: new Map(),
+          resourceBySelector: new Map(),
+          resources: [],
+        },
+        view: { width: "wide" },
+      });
+      const rendered = columns.querySelectorAll(".finder-column");
+      expect(rendered).toHaveLength(2);
+      expect(rendered[1].dataset.width).toBe("wide");
+      await Promise.resolve();
+      expect(resolutions).toHaveLength(1);
+    } finally {
+      for (const name of Object.keys(previous)) {
+        if (present[name]) {
+          globalThis[name] = previous[name];
+        } else {
+          delete globalThis[name];
+        }
+      }
+    }
   });
 
   test("renders an enabled menu toggle for a command with Facets", () => {
@@ -172,8 +256,8 @@ describe("Explorer command-space behavior", () => {
         ? [{ name: "overview", selected: true }]
         : [{
           kind: "collection",
-          name: "children",
-          resolver: { relation: "children", type: "catalog" },
+          name: "subcommands",
+          resolver: { relation: "subcommands", type: "catalog" },
           selected: false,
         }],
     );
@@ -183,8 +267,8 @@ describe("Explorer command-space behavior", () => {
       env.address,
     ]);
     expect(overviewModels.map(({ mode }) => mode)).toEqual([
-      "children",
-      "children",
+      "subcommands",
+      "subcommands",
     ]);
 
     catalog.childrenByParent.set(bun.address, [{
@@ -195,8 +279,8 @@ describe("Explorer command-space behavior", () => {
       [entry.address, env.address, bun.address],
       (command) => [{
         kind: "collection",
-        name: "children",
-        resolver: { relation: "children", type: "catalog" },
+        name: "subcommands",
+        resolver: { relation: "subcommands", type: "catalog" },
         selected: command.address === bun.address,
       }],
     );
@@ -207,7 +291,7 @@ describe("Explorer command-space behavior", () => {
     ]);
   });
 
-  test("keeps the collection column visible for a selected Subject", () => {
+  test("keeps the collection column visible for a selected Resource", () => {
     const context = { address: ".context" };
     const catalog = {
       commandByAddress: new Map([[context.address, context]]),
@@ -223,7 +307,7 @@ describe("Explorer command-space behavior", () => {
     expect(models.map(({ mode }) => mode)).toEqual(["contexts"]);
   });
 
-  test("treats structural, Subject, and projection Facets as mutually exclusive", () => {
+  test("treats structural, Resource, and projection Facets as mutually exclusive", () => {
     const context = { address: ".context" };
     const list = { address: ".context/list" };
     const catalog = {
@@ -236,16 +320,16 @@ describe("Explorer command-space behavior", () => {
       () => [
         {
           kind: "collection",
-          name: "children",
-          resolver: { relation: "children", type: "catalog" },
-          selected: selected === "children",
+          name: "subcommands",
+          resolver: { relation: "subcommands", type: "catalog" },
+          selected: selected === "subcommands",
         },
         { kind: "collection", name: "contexts", selected: selected === "contexts" },
         { name: "unsupported", selected: selected === "unsupported" },
       ],
     );
 
-    expect(modelsFor("children").map(({ mode }) => mode)).toEqual(["children"]);
+    expect(modelsFor("subcommands").map(({ mode }) => mode)).toEqual(["subcommands"]);
     expect(modelsFor("contexts").map(({ mode }) => mode)).toEqual(["contexts"]);
     expect(modelsFor("unsupported")).toEqual([]);
   });
@@ -253,7 +337,7 @@ describe("Explorer command-space behavior", () => {
   test("restores vertical offsets only for columns representing the same parent", () => {
     let rendered = [
       { dataset: { scrollKey: "root" }, scrollTop: 17 },
-      { dataset: { scrollKey: "children:.dev/rust" }, scrollTop: 559 },
+      { dataset: { scrollKey: "subcommands:.dev/rust" }, scrollTop: 559 },
     ];
     const columns = {
       querySelectorAll() {
@@ -264,8 +348,8 @@ describe("Explorer command-space behavior", () => {
 
     rendered = [
       { dataset: { scrollKey: "root" }, scrollTop: 0 },
-      { dataset: { scrollKey: "children:.dev/rust" }, scrollTop: 0 },
-      { dataset: { scrollKey: "children:proj" }, scrollTop: 0 },
+      { dataset: { scrollKey: "subcommands:.dev/rust" }, scrollTop: 0 },
+      { dataset: { scrollKey: "subcommands:proj" }, scrollTop: 0 },
     ];
     restoreColumnScrollOffsets(columns, offsets);
 

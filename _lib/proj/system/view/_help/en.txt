@@ -1,0 +1,1 @@
+Inspect platform-neutral View Sources through canonical Resource–Facet routes. Use source to resolve one Facet View and its referenced Resource List as a closed JSON bundle. HTML rendering is intentionally outside this command.

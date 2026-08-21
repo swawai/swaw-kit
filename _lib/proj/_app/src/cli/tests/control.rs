@@ -79,17 +79,10 @@ fn entry_control_commands_create_and_update_entry_config() {
     fixture.core_command(".entry", "entry.config");
     fixture.core_command(".entry/language", "entry.config.set");
     fixture.core_command(".entry/apply", "entry.config.apply");
-    fixture.command(
-        ".entry/project",
-        "swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fs::create_dir_all(fixture.context.system_root().join("entry/project/_help")).unwrap();
+    let project = fixture.resource(".entry/project");
+    fs::create_dir_all(project.join("_help")).unwrap();
     fs::write(
-        fixture
-            .context
-            .system_root()
-            .join("entry/project/_help/zh-CN.txt"),
+        project.join("_help/zh-CN.txt"),
         "Set Entry Config project settings",
     )
     .unwrap();
@@ -172,14 +165,7 @@ fn oversized_entry_config_does_not_block_system_or_swaw_and_apply_is_recoverable
     let fixture = Fixture::new();
     fixture.core_command(".entry/apply", "entry.config.apply");
     fixture.command(".system-ok", "run.cmd", "@exit /b 17\r\n");
-    let swaw = fixture.context.swaw_module_root().join("swaw-ok");
-    fs::create_dir_all(&swaw).unwrap();
-    fs::write(
-        swaw.join("swawkit.module.json"),
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    )
-    .unwrap();
-    fs::write(swaw.join("run.cmd"), "@exit /b 18\r\n").unwrap();
+    fixture.module_command("swaw-ok", "run.cmd", "@exit /b 18\r\n");
     fixture.initialize();
 
     let stored_path = fixture.data_root().join("_entry-config.json");

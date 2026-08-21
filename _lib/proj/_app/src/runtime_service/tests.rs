@@ -103,13 +103,19 @@ impl Fixture {
 
     fn install_command(&self) {
         let root = self.root.join("home/_lib/proj/system/demo");
-        fs::create_dir_all(&root).expect("create fixture command");
+        let execute = root.join("execute");
+        fs::create_dir_all(&execute).expect("create fixture execute Facet");
         fs::write(
-            root.join("swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v12"}"#,
+            root.join("swawkit.resource.json"),
+            r#"{"schema":"swawkit.resource/v1","kind":"command"}"#,
         )
-        .expect("write fixture command manifest");
-        fs::write(root.join("run.ps1"), "").expect("write fixture command entry");
+        .expect("write fixture command Resource");
+        fs::write(
+            execute.join("swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+        )
+        .expect("write execute Facet");
+        fs::write(execute.join("run.ps1"), "").expect("write fixture command entry");
     }
 
     fn select_update(&self) -> String {
@@ -141,10 +147,11 @@ impl Drop for Fixture {
     }
 }
 
-fn request() -> StartCommandRunRequest {
-    StartCommandRunRequest {
-        address: ".demo".to_owned(),
-        arguments: Vec::new(),
+fn request() -> StartFacetRunRequest {
+    StartFacetRunRequest {
+        route: swawkit_proj_protocol::FacetRoute::parse("$/system::demo/execute")
+            .expect("test Facet Route"),
+        tail: Vec::new(),
         source: RunJournalSource::Web,
     }
 }
@@ -160,7 +167,7 @@ async fn missing_entry_config_does_not_gate_command_submission() {
         runner.clone(),
     );
 
-    let error = match service.submit(request()).await {
+    let error = match service.submit_facet(request()).await {
         Ok(_) => panic!("recording runner must reject process start"),
         Err(error) => error,
     };
@@ -182,7 +189,7 @@ async fn shutdown_rejects_submit_and_query_with_typed_errors() {
     );
     service.shutdown().expect("shut down Runtime service");
 
-    let submit_error = match service.submit(request()).await {
+    let submit_error = match service.submit_facet(request()).await {
         Ok(_) => panic!("shutdown service must reject submission"),
         Err(error) => error,
     };
@@ -210,7 +217,7 @@ async fn updated_runtime_rejects_new_work_without_gating_existing_run_controls()
     let selected_release_id = fixture.select_update();
 
     let submit_error = service
-        .submit(request())
+        .submit_facet(request())
         .await
         .expect_err("reject stale Host submit");
     assert!(matches!(
@@ -258,7 +265,7 @@ async fn invalid_runtime_selector_fails_closed_before_new_work() {
     .expect("corrupt Runtime selector");
 
     assert!(matches!(
-        service.submit(request()).await,
+        service.submit_facet(request()).await,
         Err(RuntimeServiceError::RuntimeGenerationUnavailable(_))
     ));
     assert!(matches!(

@@ -1,32 +1,84 @@
 use std::collections::BTreeMap;
 use std::io;
+use std::path::Path;
 use std::sync::Arc;
 
 use super::*;
 use crate::process_runner::{ProcessControl, ProcessObserver, ProcessOutcome, ProcessOutputStream};
 use crate::runtime_service::{PreparedExecution, RuntimeExecutionRunner, RuntimeService};
 
+mod command_run;
 mod query_exit;
 
 fn context_surface(fixture: &Fixture) {
-    fixture.file(
-        "home/_lib/proj/system/context/swawkit.module.json",
-        include_str!("../../../../system/context/swawkit.module.json"),
-    );
-    for name in [
-        "add", "delete", "list", "new", "note", "prompt", "remove", "render", "show",
-    ] {
-        fixture.file(
-            &format!("home/_lib/proj/system/context/{name}/swawkit.module.json"),
-            r#"{"schema":"swawkit.command-module/v12","execution":{"type":"delegate","owner":{"type":"command","space":"system","address":".context"}}}"#,
-        );
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../system/context");
+    let target = fixture.directory("home/_lib/proj/system/context");
+    fs::copy(
+        source.join("swawkit.resource.json"),
+        target.join("swawkit.resource.json"),
+    )
+    .expect("copy Context Resource marker");
+    for name in ["execute", "subcommands", "contexts"] {
+        copy_authoring_tree(&source.join(name), &target.join(name));
+    }
+}
+
+fn copy_authoring_tree(source: &Path, target: &Path) {
+    fs::create_dir_all(target).expect("create Resource authoring fixture directory");
+    for entry in fs::read_dir(source).expect("read Resource authoring fixture") {
+        let entry = entry.expect("read Resource authoring fixture entry");
+        let target = target.join(entry.file_name());
+        if entry.file_type().expect("read fixture entry type").is_dir() {
+            copy_authoring_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("copy Resource authoring fixture file");
+        }
     }
 }
 
 fn runs_surface(fixture: &Fixture) {
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../system/runs");
+    let target = fixture.directory("home/_lib/proj/system/runs");
+    fs::copy(
+        source.join("swawkit.resource.json"),
+        target.join("swawkit.resource.json"),
+    )
+    .expect("copy Runs Resource marker");
+    for name in ["execute", "all"] {
+        copy_authoring_tree(&source.join(name), &target.join(name));
+    }
+}
+
+fn runs_reference(fixture: &Fixture, resource: &str) {
     fixture.file(
-        "home/_lib/proj/system/runs/swawkit.module.json",
-        include_str!("../../../../system/runs/swawkit.module.json"),
+        &format!("{resource}/runs/swawkit.facet.json"),
+        r#"{"schema":"swawkit.facet/v1","kind":"collection","presentation":{"icon":"=","label":{"zh-CN":"运行记录","en":"Runs"},"summary":{"zh-CN":"浏览该命令的持久运行","en":"Browse persisted runs for this command"}}}"#,
+    );
+    fixture.file(
+        &format!("{resource}/runs/swawkit.resource-kind.json"),
+        r#"{"schema":"swawkit.resource-kind/v1","ref":"$/system::runs/all"}"#,
+    );
+    fixture.file(
+        &format!("{resource}/runs/swawkit.execution.json"),
+        r#"{"schema":"swawkit.facet-execution/v2","implementation":{"type":"invoke","target":"$/system::runs/execute","arguments":["--json",{"bind":"resource.route"}],"returns":"swawkit.resource-list/v2"}}"#,
+    );
+}
+
+fn report_surface(fixture: &Fixture) {
+    fixture.resource("home/_lib/proj/system/report");
+    fixture.subcommands("home/_lib/proj/system/report");
+    fixture.executable_resource(
+        "home/_lib/proj/system/report/subcommands/json",
+        "run.cmd",
+        "",
+    );
+    fixture.file(
+        "home/_lib/proj/system/report/status/swawkit.facet.json",
+        r#"{"schema":"swawkit.facet/v1","kind":"projection","presentation":{"icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"}}}"#,
+    );
+    fixture.file(
+        "home/_lib/proj/system/report/status/swawkit.execution.json",
+        r#"{"schema":"swawkit.facet-execution/v2","implementation":{"type":"invoke","target":"$/system::report/subcommands::json/execute","arguments":[],"returns":"fixture.report/v1"}}"#,
     );
 }
 
@@ -34,7 +86,7 @@ async fn resolve(app: Router, request: Value) -> Response {
     app.oneshot(
         Request::builder()
             .method(Method::POST)
-            .uri("/api/v2/facet-resolutions")
+            .uri("/api/v3/facet-resolutions")
             .header(HOST, AUTHORITY)
             .header(CONTENT_TYPE, "application/json")
             .body(Body::from(
@@ -44,6 +96,22 @@ async fn resolve(app: Router, request: Value) -> Response {
     )
     .await
     .expect("facet resolution response")
+}
+
+async fn resolve_view(app: Router, request: Value) -> Response {
+    app.oneshot(
+        Request::builder()
+            .method(Method::POST)
+            .uri("/api/v3/view-bundles")
+            .header(HOST, AUTHORITY)
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&request).expect("request JSON"),
+            ))
+            .expect("view bundle request"),
+    )
+    .await
+    .expect("view bundle response")
 }
 
 struct FacetQueryRunner {
@@ -122,20 +190,16 @@ fn context_documents(
 ) -> BTreeMap<Vec<String>, String> {
     let command_count = commands.as_array().map_or(0, Vec::len);
     let note_count = notes.as_array().map_or(0, Vec::len);
-    let collection = json!({
-        "protocol": "swawkit.subject-collection/v3",
-        "owner": command_ref(),
-        "facet": "contexts",
-        "subjects": [{
-            "ref": context_ref(id),
-            "label": format!("::context/{id}"),
-            "summary": format!("{command_count} 个命令 · {note_count} 条说明"),
-            "facetIds": ["overview", "render", "add", "remove", "note", "prompt", "delete"]
-        }]
-    });
+    let collection = collection_document(json!([resource_listing(
+        id,
+        format!("{command_count} 个命令 · {note_count} 条说明"),
+        json!([
+            "overview", "render", "add", "remove", "note", "prompt", "delete"
+        ]),
+    )]));
     let mut documents = BTreeMap::from([(
         vec![".context/list".to_owned(), "--json".to_owned()],
-        serde_json::to_string(&collection).expect("Context collection JSON"),
+        collection,
     )]);
     if include_record {
         let record = json!({
@@ -153,26 +217,38 @@ fn context_documents(
     documents
 }
 
-fn command_ref() -> Value {
-    json!({"type": "command", "space": "system", "address": ".context"})
+fn context_kind_route() -> Value {
+    json!({
+        "resource": {"hops": [{"facet": "system", "selector": "context"}]},
+        "facet": "contexts"
+    })
 }
 
-fn context_ref(id: &str) -> Value {
-    json!({"type": "instance", "kind": "context", "id": id})
+fn resource_listing(id: &str, summary: String, facet_ids: Value) -> Value {
+    json!({
+        "identity": {"type": "instance", "kind": context_kind_route(), "id": id},
+        "selector": id,
+        "route": {"hops": [
+            {"facet": "system", "selector": "context"},
+            {"facet": "contexts", "selector": id}
+        ]},
+        "facetIds": facet_ids,
+        "label": id,
+        "summary": summary
+    })
 }
 
-fn collection_document(subjects: Value) -> String {
+fn collection_document(resources: Value) -> String {
     serde_json::to_string(&json!({
-        "protocol": "swawkit.subject-collection/v3",
-        "owner": command_ref(),
-        "facet": "contexts",
-        "subjects": subjects,
+        "protocol": "swawkit.resource-list/v2",
+        "source": context_kind_route(),
+        "resources": resources,
     }))
-    .expect("collection document")
+    .expect("Resource List document")
 }
 
 #[tokio::test]
-async fn resolves_a_declared_collection_and_projects_subject_facets() {
+async fn resolves_a_declared_collection_with_route_scoped_resource_grants() {
     let fixture = Fixture::new();
     context_surface(&fixture);
     fixture
@@ -186,31 +262,44 @@ async fn resolves_a_declared_collection_and_projects_subject_facets() {
         false,
     );
 
-    let response = resolve(
-        facet_app(&fixture, documents),
-        json!({"subject": command_ref(), "facet": "contexts"}),
-    )
-    .await;
+    let app = facet_app(&fixture, documents);
+    let response = resolve(app.clone(), json!({"route": "$/system::context/contexts"})).await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("Context collection body");
     let document: Value = serde_json::from_slice(&body).expect("Context collection JSON");
-    assert_eq!(document["protocol"], "swawkit.subject-collection/v3");
-    assert_eq!(document["owner"], command_ref());
-    assert_eq!(document["facet"], "contexts");
-    assert_eq!(document["subjects"][0]["ref"], context_ref("mycontext01"));
-    assert_eq!(document["subjects"][0]["summary"], "1 个命令 · 1 条说明");
-    let facet_ids = document["subjects"][0]["facetIds"]
+    assert_eq!(document["protocol"], "swawkit.resource-list/v2");
+    assert_eq!(document["source"], context_kind_route());
+    assert_eq!(
+        document["resources"][0]["identity"],
+        json!({"type": "instance", "kind": context_kind_route(), "id": "mycontext01"})
+    );
+    assert_eq!(document["resources"][0]["summary"], "1 个命令 · 1 条说明");
+    let facet_ids = document["resources"][0]["facetIds"]
         .as_array()
         .expect("facet ids");
     assert!(facet_ids.contains(&json!("overview")));
     assert!(facet_ids.contains(&json!("add")));
-    assert!(document["subjects"][0].get("facets").is_none());
+    assert!(document["resources"][0].get("facets").is_none());
+
+    let response = resolve_view(app, json!({"route": "$/system::context/contexts"})).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("Context View Bundle body");
+    let bundle: Value = serde_json::from_slice(&body).expect("Context View Bundle JSON");
+    assert_eq!(bundle["protocol"], "swawkit.view-bundle/web/v1");
+    assert_eq!(bundle["target"], context_kind_route());
+    assert_eq!(bundle["view"]["width"], "wide");
+    assert_eq!(
+        bundle["resources"]["facet-result"]["protocol"],
+        "swawkit.resource-list/v2"
+    );
 }
 
 #[tokio::test]
-async fn resolves_an_instance_projection_only_through_its_declared_via_collection() {
+async fn resolves_an_instance_projection_only_through_its_collection_route() {
     let fixture = Fixture::new();
     context_surface(&fixture);
     fixture
@@ -222,11 +311,7 @@ async fn resolves_an_instance_projection_only_through_its_declared_via_collectio
 
     let response = resolve(
         app.clone(),
-        json!({
-            "subject": context_ref("release-check"),
-            "facet": "overview",
-            "via": {"subject": command_ref(), "facet": "contexts"}
-        }),
+        json!({"route": "$/system::context/contexts::release-check/overview"}),
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -238,22 +323,15 @@ async fn resolves_an_instance_projection_only_through_its_declared_via_collectio
     assert_eq!(document["id"], "release-check");
 
     assert_eq!(
-        resolve(
-            app.clone(),
-            json!({"subject": context_ref("release-check"), "facet": "overview"}),
-        )
-        .await
-        .status(),
-        StatusCode::UNPROCESSABLE_ENTITY
+        resolve(app.clone(), json!({"route": "$/system::context/overview"}),)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
     );
     assert_eq!(
         resolve(
             app,
-            json!({
-                "subject": context_ref("missing"),
-                "facet": "overview",
-                "via": {"subject": command_ref(), "facet": "contexts"}
-            }),
+            json!({"route": "$/system::context/contexts::missing/overview"}),
         )
         .await
         .status(),
@@ -262,29 +340,37 @@ async fn resolves_an_instance_projection_only_through_its_declared_via_collectio
 }
 
 #[tokio::test]
-async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provider() {
+async fn resolves_a_command_runs_collection_with_shared_kind_identity_and_local_route() {
     let fixture = Fixture::new();
     runs_surface(&fixture);
-    fixture.file(
-        "home/_lib/proj/system/tool/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/tool/run.cmd", "");
+    fixture.executable_resource("home/_lib/proj/system/tool", "run.cmd", "");
+    runs_reference(&fixture, "home/_lib/proj/system/tool");
     fixture
         .config_store()
         .save(crate::entry_config::EntryConfigRecord::default())
         .expect("ready Entry Config");
-    let tool_ref = json!({"type": "command", "space": "system", "address": ".tool"});
-    let run_ref = json!({"type": "instance", "kind": "run", "id": "run-01"});
+    let kind = json!({
+        "resource": {"hops": [{"facet": "system", "selector": "runs"}]},
+        "facet": "all"
+    });
+    let source = json!({
+        "resource": {"hops": [{"facet": "system", "selector": "tool"}]},
+        "facet": "runs"
+    });
+    let identity = json!({"type": "instance", "kind": kind, "id": "run-01"});
     let collection = json!({
-        "protocol": "swawkit.subject-collection/v3",
-        "owner": tool_ref,
-        "facet": "runs",
-        "subjects": [{
-            "ref": run_ref,
+        "protocol": "swawkit.resource-list/v2",
+        "source": source.clone(),
+        "resources": [{
+            "identity": identity.clone(),
+            "selector": "run-01",
+            "route": {"hops": [
+                {"facet": "system", "selector": "tool"},
+                {"facet": "runs", "selector": "run-01"}
+            ]},
+            "facetIds": ["overview", "open"],
             "label": "2026-08-16 00:00:00.000Z",
-            "summary": ".tool · exited · CLI · 1 events",
-            "facetIds": ["overview", "open"]
+            "summary": ".tool · exited · CLI · 1 events"
         }]
     });
     let journal = json!({
@@ -295,7 +381,11 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
         &fixture,
         BTreeMap::from([
             (
-                vec![".runs".to_owned(), "--json".to_owned(), ".tool".to_owned()],
+                vec![
+                    ".runs".to_owned(),
+                    "--json".to_owned(),
+                    "$/system::tool".to_owned(),
+                ],
                 serde_json::to_string(&collection).expect("Run collection JSON"),
             ),
             (
@@ -305,22 +395,18 @@ async fn resolves_a_command_runs_collection_through_the_runs_subject_kind_provid
         ]),
     );
 
-    let response = resolve(app.clone(), json!({"subject": tool_ref, "facet": "runs"})).await;
+    let response = resolve(app.clone(), json!({"route": "$/system::tool/runs"})).await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("Run collection body");
     let document: Value = serde_json::from_slice(&body).expect("Run collection JSON");
-    assert_eq!(document["owner"]["address"], ".tool");
-    assert_eq!(document["subjects"][0]["ref"], run_ref);
+    assert_eq!(document["source"], source);
+    assert_eq!(document["resources"][0]["identity"], identity);
 
     let response = resolve(
         app,
-        json!({
-            "subject": run_ref,
-            "facet": "overview",
-            "via": {"subject": tool_ref, "facet": "runs"}
-        }),
+        json!({"route": "$/system::tool/runs::run-01/overview"}),
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -340,17 +426,24 @@ async fn resolves_the_runs_commands_all_collection_as_a_distinct_global_scope() 
         .config_store()
         .save(crate::entry_config::EntryConfigRecord::default())
         .expect("ready Entry Config");
-    let owner = json!({"type": "command", "space": "system", "address": ".runs"});
-    let run_ref = json!({"type": "instance", "kind": "run", "id": "run-01"});
+    let source = json!({
+        "resource": {"hops": [{"facet": "system", "selector": "runs"}]},
+        "facet": "all"
+    });
+    let identity = json!({"type": "instance", "kind": source.clone(), "id": "run-01"});
     let collection = json!({
-        "protocol": "swawkit.subject-collection/v3",
-        "owner": owner,
-        "facet": "all",
-        "subjects": [{
-            "ref": run_ref,
+        "protocol": "swawkit.resource-list/v2",
+        "source": source.clone(),
+        "resources": [{
+            "identity": identity.clone(),
+            "selector": "run-01",
+            "route": {"hops": [
+                {"facet": "system", "selector": "runs"},
+                {"facet": "all", "selector": "run-01"}
+            ]},
+            "facetIds": ["overview", "open"],
             "label": "2026-08-16 00:00:00.000Z",
-            "summary": ".tool · exited · CLI · 1 events",
-            "facetIds": ["overview", "open"]
+            "summary": ".tool · exited · CLI · 1 events"
         }]
     });
     let app = facet_app(
@@ -361,15 +454,14 @@ async fn resolves_the_runs_commands_all_collection_as_a_distinct_global_scope() 
         )]),
     );
 
-    let response = resolve(app, json!({"subject": owner, "facet": "all"})).await;
+    let response = resolve(app, json!({"route": "$/system::runs/all"})).await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
         .expect("global Run collection body");
     let document: Value = serde_json::from_slice(&body).expect("global Run collection JSON");
-    assert_eq!(document["owner"]["address"], ".runs");
-    assert_eq!(document["facet"], "all");
-    assert_eq!(document["subjects"][0]["ref"], run_ref);
+    assert_eq!(document["source"], source);
+    assert_eq!(document["resources"][0]["identity"], identity);
 }
 
 #[tokio::test]
@@ -383,35 +475,23 @@ async fn rejects_unknown_facets_and_the_removed_context_specific_routes() {
     let app = facet_app(&fixture, BTreeMap::new());
 
     assert_eq!(
-        resolve(
-            app.clone(),
-            json!({"subject": command_ref(), "facet": "missing"}),
-        )
-        .await
-        .status(),
+        resolve(app.clone(), json!({"route": "$/system::context/missing"}),)
+            .await
+            .status(),
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        resolve(
-            app.clone(),
-            json!({"subject": command_ref(), "facet": "Overview"}),
-        )
-        .await
-        .status(),
+        resolve(app.clone(), json!({"route": "$/system::context/Overview"}),)
+            .await
+            .status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
         resolve(
             app.clone(),
             json!({
-                "subject": context_ref("test"),
-                "facet": "overview",
-                "via": {
-                    "subject": command_ref(),
-                    "facet": "contexts",
-                    "resolver": {"type": "command", "address": ".context/list"},
-                    "arguments": ["--json"]
-                }
+                "route": "$/system::context/contexts::test/overview",
+                "resolver": {"type": "command", "address": ".context/list"}
             }),
         )
         .await
@@ -435,15 +515,7 @@ async fn rejects_unknown_facets_and_the_removed_context_specific_routes() {
 #[tokio::test]
 async fn executes_any_declared_query_command_without_a_domain_handler() {
     let fixture = Fixture::new();
-    fixture.file(
-        "home/_lib/proj/system/report/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/system/report/json/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
+    report_surface(&fixture);
     fixture
         .config_store()
         .save(crate::entry_config::EntryConfigRecord::default())
@@ -456,14 +528,7 @@ async fn executes_any_declared_query_command_without_a_domain_handler() {
         )]),
     );
 
-    let response = resolve(
-        app,
-        json!({
-            "subject": {"type":"command", "space":"system", "address":".report"},
-            "facet": "status"
-        }),
-    )
-    .await;
+    let response = resolve(app, json!({"route": "$/system::report/status"})).await;
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
@@ -478,15 +543,7 @@ async fn executes_any_declared_query_command_without_a_domain_handler() {
 #[tokio::test]
 async fn stale_host_rejects_executable_facet_queries_with_the_update_code() {
     let fixture = Fixture::new();
-    fixture.file(
-        "home/_lib/proj/system/report/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12","facets":[{"id":"status","kind":"projection","renderer":"overview","icon":"i","label":{"zh-CN":"状态","en":"Status"},"summary":{"zh-CN":"读取报告","en":"Read report"},"resolver":{"type":"command","address":".report/json","arguments":[],"returns":"fixture.report/v1"}}]}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/system/report/json/swawkit.module.json",
-        r#"{"schema":"swawkit.command-module/v12"}"#,
-    );
-    fixture.file("home/_lib/proj/system/report/json/run.cmd", "");
+    report_surface(&fixture);
     fixture
         .config_store()
         .save(crate::entry_config::EntryConfigRecord::default())
@@ -500,14 +557,7 @@ async fn stale_host_rejects_executable_facet_queries_with_the_update_code() {
     );
     fixture.select_update();
 
-    let response = resolve(
-        app,
-        json!({
-            "subject": {"type":"command", "space":"system", "address":".report"},
-            "facet": "status"
-        }),
-    )
-    .await;
+    let response = resolve(app, json!({"route": "$/system::report/status"})).await;
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
@@ -520,19 +570,14 @@ async fn stale_host_rejects_executable_facet_queries_with_the_update_code() {
 }
 
 #[tokio::test]
-async fn validates_resolved_collections_before_using_their_subject_facets() {
+async fn validates_resource_identity_routes_and_grants_before_using_facets() {
     let fixture = Fixture::new();
     context_surface(&fixture);
     fixture
         .config_store()
         .save(crate::entry_config::EntryConfigRecord::default())
         .expect("ready Entry Config");
-    let summary = json!({
-        "ref": context_ref("release-check"),
-        "label": "::context/release-check",
-        "summary": "1 command",
-        "facetIds": ["overview"],
-    });
+    let summary = resource_listing("release-check", "1 command".to_owned(), json!(["overview"]));
     let duplicate_app = facet_app(
         &fixture,
         BTreeMap::from([(
@@ -543,33 +588,26 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
     assert_eq!(
         resolve(
             duplicate_app,
-            json!({
-                "subject": context_ref("release-check"),
-                "facet": "overview",
-                "via": {"subject": command_ref(), "facet": "contexts"}
-            }),
+            json!({"route": "$/system::context/contexts::release-check/overview"}),
         )
         .await
         .status(),
         StatusCode::INTERNAL_SERVER_ERROR
     );
 
+    let mut invalid_route = summary.clone();
+    invalid_route["route"]["hops"][1]["selector"] = json!("another-context");
     let invalid_shape_app = facet_app(
         &fixture,
         BTreeMap::from([(
             vec![".context/list".to_owned(), "--json".to_owned()],
-            collection_document(json!([{
-                "ref": context_ref("release-check"),
-                "label": "::context/release-check",
-                "summary": "1 command",
-                "facetIds": []
-            }])),
+            collection_document(json!([invalid_route])),
         )]),
     );
     assert_eq!(
         resolve(
             invalid_shape_app,
-            json!({"subject": command_ref(), "facet": "contexts"}),
+            json!({"route": "$/system::context/contexts"}),
         )
         .await
         .status(),
@@ -580,18 +618,17 @@ async fn validates_resolved_collections_before_using_their_subject_facets() {
         &fixture,
         BTreeMap::from([(
             vec![".context/list".to_owned(), "--json".to_owned()],
-            collection_document(json!([{
-                "ref": context_ref("release-check"),
-                "label": "::context/release-check",
-                "summary": "1 command",
-                "facetIds": ["missing"]
-            }])),
+            collection_document(json!([resource_listing(
+                "release-check",
+                "1 command".to_owned(),
+                json!(["missing"]),
+            )])),
         )]),
     );
     assert_eq!(
         resolve(
             invalid_target_app,
-            json!({"subject": command_ref(), "facet": "contexts"}),
+            json!({"route": "$/system::context/contexts"}),
         )
         .await
         .status(),

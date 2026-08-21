@@ -70,7 +70,7 @@ impl ResolvedCommand {
             namespace: node.namespace.clone(),
             path: node.path.clone(),
             directory: node.directory.clone(),
-            entry_path: node.directory.join(entry_name),
+            entry_path: node.executor_directory.join(entry_name),
             adapter,
             handler: node.handler.clone(),
             product: node.product.clone(),

@@ -1,11 +1,13 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSpace};
 use crate::command::ResolvedCommand;
 use crate::context::EntryContext;
+use crate::route_resolution::CommandQuery;
 
-use super::{CoreCommandError, CoreCommandOutcome, check, help, runs};
+use super::{CoreCommandError, CoreCommandOutcome, check, help, runs, view};
 
 /// An owned in-process command invocation.
 ///
@@ -28,6 +30,11 @@ pub(crate) enum PreparedCoreCommand {
         argv: Vec<OsString>,
         data_root: PathBuf,
     },
+    View {
+        snapshot: CatalogSnapshot,
+        argv: Vec<OsString>,
+        query: Arc<dyn CommandQuery>,
+    },
 }
 
 impl PreparedCoreCommand {
@@ -38,6 +45,7 @@ impl PreparedCoreCommand {
         snapshot: CatalogSnapshot,
         context: EntryContext,
         data_root: PathBuf,
+        query: Arc<dyn CommandQuery>,
     ) -> Result<Self, CoreCommandError> {
         if command.adapter != CommandAdapter::Core || command.space != CommandSpace::System {
             return Err(CoreCommandError::domain(format!(
@@ -69,6 +77,11 @@ impl PreparedCoreCommand {
                 argv,
                 data_root,
             }),
+            Some("meta.view.source") => Ok(Self::View {
+                snapshot,
+                argv,
+                query,
+            }),
             Some(handler) => Err(CoreCommandError::domain(format!(
                 "unsupported Runtime Core command handler: {handler}"
             ))),
@@ -96,6 +109,14 @@ impl PreparedCoreCommand {
                 argv,
                 data_root,
             } => required(runs::execute(&snapshot, &argv, &data_root), ".runs"),
+            Self::View {
+                snapshot,
+                argv,
+                query,
+            } => required(
+                view::execute_with_query(&snapshot, &argv, query.as_ref()),
+                ".view/source",
+            ),
         }
     }
 }
