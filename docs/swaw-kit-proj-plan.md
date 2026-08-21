@@ -1,107 +1,46 @@
-# SWAW Kit Proj 协议地图与开发计划
+# SWAW Kit Proj 当前事实与演进计划
 
-## 1. 方向
+> 事实基线：2026-08-21。正文只记录当前代码和测试能够证明的行为；尚未实现的内容只进入“行动计划”。
 
-Proj 下一阶段不应继续从“Core 还要支持什么功能”出发，而应改成：
+## 1. 结论
 
-> **先设计领域理想中的自治命令模块，再识别它无法独立保证的跨领域不变量；只有这些不变量才进入 Core 协议。**
+Proj 下一阶段的主线不是继续扩张 Command 特例，而是：
 
-Core 类似宪法：只维护身份、发现、路径、执行、进程、发布代、Host 和 Journal 等必须全局一致的规则。命令模块拥有业务参数、状态、迁移、产物格式、深度校验、帮助和用户动作。一个领域发生变化时，默认只重建或重发该领域，不应被迫修改共享 Core。
+> **用 Resource 表达稳定对象，用 Facet 表达对象的方法，用 Resource List 表达集合边；只有身份、安全和全局一致性约束才进入 Core。**
 
-工程上应把当前系统理解为 **8 个协议族**，而不是几十个同等重要的 JSON schema：
+System 生产树已经完成 Resource–Facet 纵向 hard cut，但仍以 backing Command identity 承担执行、DataRoot 与 Journal 身份。`_protocol` 的 Resource–Facet v1 已进入生产 Catalog 作者路径；`.help`、`.check`、`.entry`、`.runtime`、`.module`、`.dev`、`.context` 与 `.runs` 都不再依赖 Command Module manifest。
 
-1. Entry 与启动。
-2. 命令发现与身份。
-3. 执行与 Delegate。
-4. Help、Facet、Subject 与 Web 投影。
-5. Host 与 Runtime 控制。
-6. 不可变发布与更新。
-7. Export、依赖与 Check。
-8. Run、Event、Journal 与日志。
+旧 `<command>/_view/web.json` 与 `swawkit.command-view/web/v4` 已从 Core、Catalog 和 Web 删除。它错误地让 Command 同时拥有布局和 `run.operations`；新 `view/web.json` 只属于 Facet，当前已把 `normal|wide` 列宽接入 Catalog 与 Finder，操作仍由 Facet 语义拥有。
 
-其中 2、3、4、7、8 是命令作者直接面对的协议；1、5、6 主要是平台内部协议。具体版本只在文末索引，不在正文反复堆叠。
+Core 的进入门槛是：至少两个无关领域需要同一不变量，或者领域自行实现会破坏身份、安全或全局一致性。业务参数、状态、迁移、产物格式、深度校验和用户动作留在命令模块。
 
-## 2. 一个自治命令模块
+## 2. 当前系统快照
 
-### 2.1 源码树
+### 2.1 仓库组成
 
-最小结构按需出现，不要求所有模块套同一大模板：
+| 位置 | 当前职责 |
+| --- | --- |
+| `bootstrap.ps1`、`bootstrap.json`、`_bootstrap/` | 冷启动入口、布局与基础工具链准备 |
+| `_launcher/` | C 实现的最小 Entry Launcher |
+| `_app/` | Rust Core CLI、Host、RuntimeService、Loopback HTTP 与内嵌 Web UI |
+| `_protocol/` | App 与 Native builder 共用的 Rust 协议类型和校验 |
+| `_runtime/` | Entry Runtime 的构建、发布和 release 操作 |
+| `_toolchain/` | Bootstrap/开发工具链的 PowerShell 实现 |
+| `system/` | 随产品发布的 System 命令模块 |
+| `_test/` | PowerShell 黑盒、构建、发布和恢复测试 |
 
-```text
-<command>/
-├─ swawkit.module.json       # 发现 token 与框架声明
-├─ _help/                    # 可选；zh-CN.txt / en.txt
-├─ run.*                     # 可选；与 manifest.execution 互斥
-├─ check/                    # 可选；普通子命令，不是特殊回调 ABI
-│  └─ swawkit.module.json
-├─ <child-command>/          # 可选；每个子命令有自己的 Manifest
-└─ src/ 或 _lib/             # 可选；领域私有，Core 不解释
-```
+当前 `system/` 有 57 个 `swawkit.resource.json`、109 个 `swawkit.facet.json`、86 个 `swawkit.execution.json`，以及 0 个 `swawkit.module.json`。其中 `.context` 是唯一 Native owner，9 个静态子命令通过各自 execute Facet 的 `native-delegate` 复用它的 Release；`contexts` 动态 Collection 与 7 个实例 Facet 模板也全部来自目录协议。`.runs/all` 本地定义 `run` kind 与 2 个实例 Facet 模板；33 个真正会写 Journal 的 Command Resource 各自显式声明 `runs` Collection，并用 Resource Kind ref 精确复用该定义。`.view/source` 已提供只读 View Bundle 解析入口。
 
-当前 Rust Native 领域通常是一个 owner 加多个端口；`Cargo.toml/Cargo.lock` 是现行 builder 输入，不是跨语言 Native 协议：
+仓库当前没有 `_lib/proj/modules/`，因此没有随仓库交付的 `swaw/*` 模块实例；`project/*` 的真实来源是 Entry 绑定项目的 `<projectRoot>/.swaw/`，也不应在本文中写成已经存在的仓库示例。
 
-```text
-<owner>/
-├─ swawkit.module.json       # execution.native
-├─ Cargo.toml
-├─ Cargo.lock
-├─ src/
-│  ├─ main.rs
-│  ├─ command.rs
-│  ├─ model.rs
-│  ├─ store.rs
-│  ├─ publication.rs
-│  └─ check.rs
-├─ _help/
-└─ <port>/
-   ├─ swawkit.module.json    # execution.delegate -> owner
-   └─ _help/
-```
-
-Native owner 内部应由同一份命令注册表驱动运行分派与 `--swawkit-describe`，避免“可执行命令列表”和“发布自描述列表”漂移。
-
-### 2.2 运行时 DataRoot
-
-Command identity 唯一映射到 Command DataRoot：
-
-```text
-System .dev/setup              -> <EntryDataRoot>/modules/system/dev/setup/
-Module project/proj/build/app  -> <EntryDataRoot>/modules/project/proj/build/app/
-```
-
-目录所有权按能力出现：
-
-```text
-<CommandDataRoot>/
-├─ state/          # 领域持久状态
-├─ locks/          # 领域并发控制
-├─ work/           # 可替换候选与中间结果
-├─ export/         # 对消费者公开的稳定产物
-├─ _state.json     # Provider 拥有并写入；Core 与 Consumer 可只读校验
-├─ _runs/          # Core 独占；按逻辑命令记录运行
-└─ _native/        # Module manager 独占；仅 native owner 使用
-```
-
-`state/locks/work/export` 都不是强制模板。结构命令可以只有 Manifest；普通脚本命令只需 Manifest、帮助和一个 `run.*`。Native delegate 的 Journal、帮助、依赖和逻辑 DataRoot 仍属于叶子命令，共享领域状态与 `run.exe` Release 才属于 owner。
-
-### 2.3 五种常见形态
-
-1. **结构节点**：只有 Manifest，负责组织子命令。
-2. **可运行叶子**：一个 `run.*`，或一个显式 `execution`。
-3. **Native owner + Delegate**：一个原生 Release 服务多个逻辑端口。
-4. **Provider**：拥有发布事务、`provides`、`export/`、Provider State 和显式 checker。
-5. **Consumer**：声明 `requires`，在真正使用时自行深检产物。
-
-新增功能应先选择最小形态。不要因为可能出现更多子命令就提前创建 Native owner，也不要因为一个模块需要某项检查就先扩张 Core。
-
-## 3. 总体运行链
+### 2.2 运行链
 
 ```mermaid
 flowchart LR
   L["Entry Launcher"] --> C["Core CLI"]
   L --> I["Core internal-host"]
   I --> H["Entry Host"]
-  B["Browser"] <-->|"IPv4 loopback HTTP"| H
+  B["Browser"] <-->|"127.0.0.1 HTTP"| H
   H --> R["in-process RuntimeService"]
   C --> P["Prepared Command"]
   R --> P
@@ -109,247 +48,266 @@ flowchart LR
   X --> J["Run Journal"]
 ```
 
-CLI Core 在自己的进程中执行；Host 直接链接同一 Core library，并在 Host 进程内运行 `RuntimeService`。当前没有“Host 与独立 Core daemon 通过命名管道通信”这条链路。
+Launcher 无参数进入 Host，有参数进入 CLI。Host 直接链接同一 Core library，并在进程内持有 `RuntimeService`；当前不存在独立 Core daemon，也没有 Host/Core named-pipe 命令数据面。Named Event 只承担 Host singleton lease 和 restart ready handshake。
 
-## 4. 八个协议族
+## 3. 命令作者面对的主路径
 
-### 4.1 Entry 与启动
+### 3.1 最小源码结构
 
-- 根 `<entry>.exe` 的文件名唯一映射 `data/proj.<entry>/`；manager `swawkit.exe` 固定映射 `data/proj.swawkit/`。
-- Launcher 与规范 DataRoot 的配对就是 Entry 地址，普通热路径不读取第二份身份文件。
-- Launcher 只接受 `cli` 与 `internal-host` 两个 composition root；无参数启动 Host，有参数启动 CLI Core。
-- 只有 manager 能 create/migrate 普通 Entry；只有 manager 缺少 Runtime 时可以进入冷 Bootstrap。普通 Entry 缺状态时 fail closed。
-- `_entry-config.json` 只拥有 `language + projectRoot?`。缺失表示 `zh-CN + 无 project binding`；项目不可用只关闭 project namespace，不阻断 System 与 `swaw`。
-- `launcher.json` 是 `swawkit.entry-launcher/v1` 事务回执，不是身份文件；旧 `_entry.json`（`swawkit.proj-entry.v0`）只作为显式迁移证据，运行时不读取。
-- Bun/Pwsh/MSVC/Rust 选项属于 `.dev` 自有 Settings，不属于 Entry Config 或 Core。
+```text
+<resource>/
+├─ swawkit.resource.json     # 唯一 Resource 发现 marker
+├─ _help/                    # 可选；zh-CN.txt / en.txt
+├─ execute/                  # 可选 Operation Facet
+│  ├─ swawkit.facet.json
+│  ├─ swawkit.execution.json 或 run.*
+│  └─ swawkit.requirements.json
+├─ runs/                     # 可选；只有会写 Journal 的命令才显式声明
+│  ├─ swawkit.facet.json
+│  ├─ swawkit.resource-kind.json
+│  └─ swawkit.execution.json
+├─ subcommands/              # 可选静态 Collection Facet
+│  ├─ swawkit.facet.json
+│  └─ <child-resource>/
+└─ <domain-facet>/           # 可选 Collection/Projection/Operation
+   ├─ swawkit.facet.json
+   ├─ swawkit.resource-kind.json
+   ├─ swawkit.execution.json
+   └─ view/web.json
+```
 
-### 4.2 命令发现与身份
+Resource、Facet、Execution、Requirements、Exports、Resource Kind 和 Web View 是按所有权拆开的严格协议；目录名是 selector/Facet id 的单一事实源，JSON 不重复身份。业务 schema、构建步骤、Export 类型和 checker 代码仍不进入 Core authoring 协议。
 
-固定来源只有：
+一个 execute Facet 只能有一个执行来源：规范本地 `run.exe/run.ts/run.py/run.ps1/run.cmd`，或 `swawkit.execution.json`。当前 Facet Execution v2 的实现类型是 `core/runtime/native/native-delegate/invoke`：`native-delegate` 只复用祖先 Native owner 的 Release；`invoke` 让普通 Facet 显式调用另一个 Resource 的 execute Facet。`resource.selector` 只用于动态模板，`resource.route` 只用于已知静态 Resource；结构 Resource 可以没有 execute，`run.py` 目前只诊断、不可执行。
 
-| space | 物理来源 | 地址示例 |
+### 3.2 身份与 DataRoot
+
+固定发现来源是：
+
+| space | 来源 | 地址示例 |
 | --- | --- | --- |
 | System | `_lib/proj/system/` | `.context/add` |
-| Module `swaw` | `_lib/proj/modules/` | `swaw/example` |
-| Module `project` | `<projectRoot>/.swaw/` | `project/proj/build/app` |
+| Module `swaw` | `_lib/proj/modules/` | `swaw/example`，当前仓库无实例 |
+| Module `project` | `<projectRoot>/.swaw/` | `project/proj/build/app`，由外部项目提供 |
 
-来源根是特殊扫描锚点；其他目录只有存在规范 `swawkit.module.json` 才进入 Catalog，缺失 Manifest 会剪枝整棵子树。地址段使用可移植 lower-kebab 语法，目录、CLI、DataRoot、Web route 和 Journal 都消费同一个结构化 Command identity。
-
-Manifest 是严格闭合声明，当前字段只有：
+目录发现与 CLI 执行仍归一到唯一 backing `CommandIdentity`；Resource Route 是一次访问路径，不是第二套存储身份。DataRoot、Native Release 与 Journal 继续只按 backing identity 映射到 `<EntryDataRoot>/modules/<space>/...`，访问 Route 可以进入审计上下文，但不能改变存储键：
 
 ```text
-schema
-execution?
-requires[]
-provides[]
-facets[]
-subjectKinds[]
+<CommandDataRoot>/
+├─ state/          # 领域持久状态，可选
+├─ locks/          # 领域并发控制，可选
+├─ work/           # 候选和中间结果，可选
+├─ export/         # 对消费者公开的稳定产物，可选
+├─ _state.json     # Provider 发布信号
+├─ _runs/          # Core 独占的逻辑命令 Journal
+└─ _native/        # Module manager 独占的 Native Release
 ```
 
-Manifest 不重复自身地址，也不包含业务 schema、构建步骤、Export 类型 DSL 或 checker 代码。无效声明只形成局部诊断，不获得可运行能力。
+Core 每次调用都重建干净的 Command Environment，移除继承的 `SWAWKIT_HOME` 和 `SWAWKIT_PROJ_*`，再投影 Entry、命令身份、DataRoot、调用目录、module roots 和 native owner 事实。
 
-### 4.3 执行与 Delegate
+### 3.3 Native owner 与 Native Delegate
 
-一个可运行命令必须且只能有一个执行来源：规范本地 `run.exe/run.ts/run.py/run.ps1/run.cmd`，或 Manifest `execution`。两者互斥；结构命令可以没有执行来源。
+当前唯一 Native owner 是 `.context`，其 9 个子端口使用 `native-delegate`。Native Delegate 保留自己的身份、DataRoot、Help、依赖、Facet 和 Journal，只复用 owner 的不可变 `run.exe` Release。
 
-| execution | 适用边界 |
-| --- | --- |
-| `core` | 极少数需要进程内状态或特权协调的精确 System handler |
-| `runtime` | Bootstrap 必须随产品存在的独立 Module/Dev 管理器 |
-| `native` | 拥有独立原生项目与内容寻址 Release 的领域 owner |
-| `delegate` | 显式复用同一 native owner 的逻辑叶子端口 |
+Owner 必须是同 space 的真实祖先、明确声明 `native` execution；Module owner 还必须同 namespace，且不能跨过中间 Native owner。`native-delegate` 不是 alias、Facet 继承或 IPC。
 
-`delegate` 不是 alias、继承或 IPC。owner 必须是 Catalog 中可运行、精确声明 `execution.native` 的同 space 真祖先；Module 还必须同 namespace，且不能穿过中间 native owner。叶子保留自己的 identity、DataRoot、帮助、依赖、Facet 和 Journal；执行时只启动一次 owner 的当前 `run.exe`。
+### 3.4 Help、Facet、Resource Kind 与 Resource List
 
-本地 `run.exe/run.ps1/run.cmd` 可由 Catalog 允许的 System 或 Module 命令使用；`run.ts` 当前只允许 Module；`run.py` 在受管 Framework Python 建立前只诊断、不可运行。
+Help 来自 `_help/zh-CN.txt` 和 `_help/en.txt`，首个非空行进入 Catalog summary，全文进入 detail。支持 `{{COMMAND}}`、`{{ADDRESS}}`、`{{INVOCATION}}`；`.help`、`-h`、`--help` 由 Core 处理，`<target> --help` 交给目标命令。
 
-Core 为每次调用重建干净的 Command Environment，显式移除继承的 `SWAWKIT_HOME` 与 `SWAWKIT_PROJ_*`，再投影 Entry、Command identity、DataRoot、调用目录、固定 module roots 和 native owner 事实。业务模块不能依赖父 shell 中碰巧存在的框架变量。
+Facet 由 `swawkit.facet.json` 表达 `collection/projection/operation`；`swawkit.execution.json` 使用同一 Facet Execution v2 的 `invoke` 实现指向目标 Facet，并声明 `resource.selector` 或 `resource.route` 结构化绑定，不再发明第二套 delegate 协议。`swawkit.resource-kind.json` 只有两种互斥形态：本地 `kind` 定义，或指向定义 Collection Facet 的精确 `ref`。Ref 不允许链式引用、本地模板或本地成员；Collection 自己的 resolver、presentation、View 与本次授权仍由引用端拥有。
 
-### 4.4 Help、Facet、Subject 与 Web 投影
+当前 Runtime 集合 wire 是 `swawkit.resource-list/v2`。每条 `ResourceListing` 同时携带稳定 `identity`、本次访问的 `route`、Collection 内的 `selector`、显示文本，以及本次 Collection 真正授予的 `facetIds`。因此同一个 Run 可以同时经 `$/system::runs/all::R1` 与某命令的 `.../runs::R1` 到达并共享 identity，但两条 listing 会分别实例化自己的 Facet 子集，不能混用授权。
 
-Help 是文件协议，不是独立 JSON DSL：
+## 4. 八个协议族的当前事实
 
-- 命令可提供 `_help/zh-CN.txt` 与 `_help/en.txt`；英文缺失时回退中文。
-- 首个非空行进入 Catalog summary，全文作为 detail。
-- 允许 `{{COMMAND}}`、`{{ADDRESS}}`、`{{INVOCATION}}` 三个占位符。
-- `.help [address]`、`-h/--help [address]` 由 Core 读取；`<target> --help` 仍交给目标命令。
-- Web 的默认 Help Facet 消费同一 Catalog 文档，不维护第二份帮助。
+| 协议族 | 当前主要协议/版本 | 已确认边界 |
+| --- | --- | --- |
+| Entry 与启动 | Launch Environment `6`；Entry Config/State `v1`；Inventory/Instance/Mutation `v2`；Launcher receipt `v1` | Entry 文件名与 DataRoot 配对是身份；旧 `_entry.json` 仅作显式迁移证据 |
+| 发现与身份 | Resource/Facet/Resource Kind `v1`；Resource List `v2`；Catalog `v24` | System 只由规范 Resource marker 发现；identity 标识稳定节点，Route 记录访问与 provenance，backing Command identity 仍是执行与存储身份 |
+| 执行与 Delegate | Facet Execution `v2`；Command Environment `3`；Native Execution Contract `v4`；Native Release `v3` | 一个 Facet 一个执行来源；Native Delegate 只复用 owner Release，Invoke 只表达显式 Facet 调用 |
+| Help、Resource 与 Web | Help 文件约定；Resource List `v2`；View Source/Bundle Web `v1` | SubjectCollection v3 与旧 Command View Web v4 已删除；`.view/source` 与 `/api/v3/view-bundles` 生成同一封闭 Bundle，Finder 不再从 Catalog 读取 View Source |
+| Host 与 Runtime 控制 | Host Runtime/Status/Runtime Status `v3`；HTTP `/api/v2` | Loopback authority、control header 和 generation gate 共同守边界 |
+| 发布与更新 | Runtime Release Set `v4`；Framework Command Runtime `v1`；Runtime Cleanup `v1` | staging 校验后发布内容寻址目录，`current` 是原子普通文件 selector |
+| Export、依赖与 Check | Provider State `v3`；Dev Settings/State `v1`；CommandCheck `v3`；Dir Exists `v1` | Core 只验证声明、Ready 与路径；业务产物由 Provider/Consumer 深检 |
+| Run、Event 与 Journal | live Run `v2`；Journal State/Event `v2`；public Journal `v3`；History `v1`；Event Frame `v1` | owner lock 是活性事实；磁盘 retention/prune 尚未实现 |
 
-Facet 与 SubjectKind 也由 Manifest 声明。Facet 只有 `collection`、`projection`、`operation` 三种语义，resolver 指向显式命令与结构化参数绑定。SubjectKind 为动态领域对象声明可用 Facet；SubjectCollection 返回实例成员关系。
+协议发生破坏性变化时直接 bump 并 hard cut。只有确有长期价值的持久状态才设计有界迁移；默认不保留双栈或无删除条件的 fallback。
 
-Facet 是“如何浏览或操作一个对象”的投影，不是隐藏执行 DSL。Web 只消费 Catalog 和 resolver，不从目录或命令名猜测功能。一个全局 SubjectKind 只能有一个 Provider；查询实例时必须由 `via` collection 证明成员关系，不能凭裸 ID 跨集合访问。当前 `_view/web.json` 没有真实模块使用，新增模块不应依赖它，后续应审计删除并让 Facet 成为唯一主路径。
+## 5. Resource–Facet 生产主路径
 
-### 4.5 Host 与 Runtime 控制
+### 5.1 已实现事实
 
-Host 数据面是随机 browser-safe `127.0.0.1` 端口上的 HTTP：
+- `swawkit.command-view/web/v4`、Command Catalog 顶级 `view` 字段、`childrenColumnWidth` 和 `runOperations` 已删除，Catalog 已 bump 为 v24；Web 布局只存在于 Facet 的作者 View Source，由 Bundle 解析边界读取，不进入公共 Catalog wire。
+- `_protocol` 已定义结构化 `ResourceRoute`、`FacetRoute` 与解析联合类型 `RouteTarget`，语法为 `Resource / Facet :: Resource / Facet`。
+- `swawkit.resource-list/v2` 已冻结 `source + resources[]` 的窄 wire；selector 只负责在本次集合中选择，identity、route 与 `facetIds` 分别承担稳定身份、访问 provenance 和局部能力授予。同一个 Resource 可以由不同集合返回，不复制稳定 identity，也不合并各条边的授权。
+- 作者协议已拆为 `swawkit.resource/v1`、`swawkit.facet/v1`、`swawkit.resource-kind/v1` 与 `swawkit.facet-execution/v2`。Execution v2 使用 `core/runtime/native/native-delegate/invoke`，不接受旧 `command/delegate` 变体。
+- Resource Kind 支持本地定义与精确 Facet Route 引用；Catalog 先解析全部本地定义，再解析引用，因此缺失目标和引用链都会失败为局部诊断，而不会靠 kind 字符串猜 provider。
+- Web 协议已定义 `swawkit.view-source/web/v1` 和封闭的 `swawkit.view-bundle/web/v1`，第一片只支持 `resource-list` 与 `normal|wide`；`.context/contexts`、`.runs/all` 当前声明 `wide`。
+- 测试 fixture 对齐当前真实执行边界：`.dev` 不可执行；`.dev/bun` 由本地 `run.ps1` 执行；`.dev/bun/mode` 由 Runtime 声明执行。后两者各自拥有 execute Facet。
+- 动态 fixture 使用 `kind=context` 与源码侧 Facet 模板；Collection 和实例方法都通过 `invoke` 调用已有 Resource 的 execute Facet。Core 没有通用的运行时目录扫描协议。
 
-- Host 在 `runtime/hosts/<running-release-id>.json` 发布 `protocol + instanceKeySha256 + releaseId + bootId + pid + url`。
-- health response 用 headers 回显 instance/release/boot，发现方逐项校验。
-- Web API 与 Facet query 直接进入 Host 进程内的 RuntimeService。
-- 所有请求都校验精确 authority；管理控制端点再要求各自的 control header 或并发前置条件。响应使用 `no-store`、CSP 与固定 authority 边界。
+Resource 作者协议是生产 Catalog 唯一 reader。Resource marker 一旦出现，整个子树只由 Resource Loader 遍历，声明损坏也不会退回目录猜测。旧 Command Module reader、共享协议类型、Native 发布扫描路径和 Web `module` 投影均已物理删除；旧文档只保留在“不能获得 Catalog membership”的负向测试中。
 
-Win32 named Event 只用于每 session、每 generation 的 Host singleton lease，以及 restart ready handshake；它不传命令数据，所以不是 named-pipe IPC。
+### 5.2 P1 Loader 纵切事实
 
-Host 只在 running Release 仍等于 `runtime/current` 时接受新 Run、可执行 Facet query 和写操作。升级后旧 Host 仍能展示/取消既有 Run，但会以 `runtimeUpdateRequired` 拒绝创造新事实。系统不会“封死旧端口”；generation gate 才是正确边界。
+- `_app/src/catalog/resource_loader/` 已进入生产构建；`CatalogSnapshot::discover` 对 Resource marker 使用安全 Loader，并把 execute Facet 编译为当前 backing Command executor。
+- Loader 对协议文件实施 canonical 大小写、普通文件/目录、reparse point、单目录 512 项、协议文件 64 KiB、确定排序与扫描前后目录复检。
+- 错误按最小所有者隔离：坏 View 只移除 View，坏 Facet 只移除该 Facet，坏 Collection 输出只让本次 Facet 解析失败；父 Resource 保持可用并携带诊断。
+- `subcommands` 是 Catalog 唯一认可的静态 Command 子资源入口。其他 Collection 的 Resource List 由声明的 `invoke` resolver 返回，再按 Resource Kind 与本次 `facetIds` 校验；Core 不从任意 DataRoot 自动扫描 Resource。
+- 只有 `execute` Facet 能直接持有 canonical `run.exe|run.ts|run.py|run.ps1|run.cmd`、`swawkit.execution.json` 的 `core/runtime/native/native-delegate` 实现，以及 `swawkit.requirements.json`。其他作者 Facet和动态 Facet 模板只允许用 `swawkit.execution.json` 的 `invoke` 调用另一个 Resource 的 execute Facet；静态成员只允许出现在 `subcommands`。
+- 当前 Catalog golden test 已证明：`.check -> $/system::check`、`.check/dir -> .../subcommands::dir`、`.check/dir/exists -> .../subcommands::exists`，以及既有 `.dev` 三层映射；Resource Route 只是投影，DataRoot 仍由 backing `CommandIdentity` 派生。
+- Loader 已从同一 Collection 快照生成 `ResourceList` 与 `ViewBundle`。`RouteResolver`、HTTP Facet resolution、`/api/v3/view-bundles` 与 `.view/source` 共用 Resource List 解析及动态 membership 校验；Finder 已删除 Subject adapter，并只从 View Bundle 同时取得布局与 Resource List。未声明 `view/web.json` 时平台生成 `normal + resource-list` 默认视图；DataRoot 仍使用 backing Command identity。
+- Core 不再根据“命令可执行”自动合成 `runs` Facet。33 个会进入 Journal 的生产 Command Resource 各自拥有三份窄声明：Collection、指向 `$/system::runs/all` 的 Kind ref，以及通过 `resource.route` 调用 `.runs` query 的 Invoke；只读 Core 命令与控制命令没有虚假的 Runs 能力。
 
-### 4.6 不可变发布与更新
+### 5.3 目标作者结构
 
-三个发布平面不能混用 selector：
+```text
+dev/
+├─ swawkit.resource.json
+└─ subcommands/
+   ├─ swawkit.facet.json
+   ├─ view/web.json
+   └─ bun/
+      ├─ swawkit.resource.json
+      ├─ execute/
+      │  ├─ swawkit.facet.json
+      │  └─ run.ps1
+      └─ subcommands/
+         ├─ swawkit.facet.json
+         └─ mode/
+            ├─ swawkit.resource.json
+            └─ execute/
+               ├─ swawkit.facet.json
+               └─ swawkit.execution.json
+```
 
-1. **Framework Command Runtime**：固定框架 `run.ts/run.ps1` 使用的 Bun/Pwsh。
-2. **Entry Runtime Release**：每个 Entry 独立发布 Core/Host/Module/Dev 四制品。
-3. **Native Command Release**：每个 native owner 由 `.module/instantiate` 独立发布 `run.exe`。
+扫描器按父节点类型和 marker 工作，不依赖 `_facets/`、`_members/` 包装：
 
-共同规则是：在同父目录 staging，完整校验后 rename 为内容寻址不可变目录，最后由 publisher 原子发布独立普通文件 `current`。reader 要求它是 regular、non-reparse file，拒绝 symlink、junction 等 reparse；协议不把人工创建的 hardlink 当成受支持写法。
+- Resource 的直接子目录只有含 `swawkit.facet.json` 才是 Facet。
+- Collection Facet 的直接子目录只有含 `swawkit.resource.json` 才是静态 owned Resource。
+- `view/` 是 Facet 内保留的表示协议目录，不是 `::` 可选择的集合成员。
+- Facet 目录名和 Resource selector 来自目录名，JSON 不重复保存身份。
+- `swawkit.resource.json` 声明节点；“listed”属于集合边，因此不增加 `swawkit.listed.json` 第二模式。
 
-已运行进程始终绑定旧的不可变 Release 路径；新 Launcher 或下次 native 调用读取新 selector，因此新旧版本自然共存。Native Manifest、Delegate 集合、Command Environment ABI 或依赖身份变化会改变执行契约 revision，使旧 native Release 在启动前 fail closed；源码变化本身只让 `.module/status` 显示 outdated，不在每次命令时扫描源码。
+文件增量保持线性且按能力付费：一个结构 Resource 是 1 个 marker；增加 execute 是 Facet + 实现 2 个文件，Requirement 可选；增加普通方法是 Facet + invoke 2 个文件，Web View 可选；一个动态实例方法模板也是 Facet + invoke 2 个文件。当前最大的重复基数是 33 个命令级 `runs` 各 3 个声明，共 99 个文件；先用布局守卫保证三份语义一致，不在协议未稳定时引入生成器、继承或新的 ref 模式。
 
-`.runtime/cleanup` 在 selected 无效时整体 fail closed；其他 invalid 或 in-use Release 以原因保留。它通过进程 image 的精确 Release 路径识别占用，并在删除前复查；清理候选先改名为 tombstone 再删除。发布永不覆盖旧 Release。
+### 5.4 Route 与动态 Resource
 
-### 4.7 Export、依赖与 Check
+Canonical grammar 是：
 
-Manifest 只声明逻辑身份：
+```text
+route := root-resource ( "/" facet-id ( "::" selector )? )*
+```
+
+示例：
+
+```text
+$/system::dev/subcommands::bun/subcommands::mode/execute
+$/system::context/contexts::release-check/overview
+```
+
+`/facet` 永远是方法；只有 Collection Facet 后允许 `::selector`。CLI 已接受显式 `$...` FacetRoute 作为第一个参数：Collection/Projection 返回经协议校验的 JSON 文档，Operation 归一为 backing command 与绑定参数后进入原有执行、依赖和 Journal 边界。Web command-run 也已 hard cut 为 `/api/v3/command-runs { route, arguments }`：客户端只提交 canonical Operation Route 与用户追加参数，selector、固定参数、动态 membership 和本次 `facetIds` 都由 Host 在同一 Entry Config/Catalog 快照内重新解析；旧 `/api/v2/command-runs` 与公开的 `address + arguments` 启动入口已删除。`.dev/subcommands::bun/execute` 暂不作为输入，因为它与现有 `.dev/bun` CommandAddress 共享前缀；在 direct Command CLI hard cut 前，不能靠 Catalog 猜测同一字符串究竟是 Resource 还是 Facet。`CommandIdentity`、DataRoot、Journal 与 Native contract 有意保持为唯一 backing identity。
+
+`swawkit.resource-kind.json` 使用 singular `kind`，例如 Collection Facet `contexts` 产生 `kind=context` 的 Resource。本地定义与引用的最小形态分别是：
 
 ```json
-{
-  "schema": "swawkit.command-module/v12",
-  "requires": [{ "provider": ".dev/setup", "export": "environment" }],
-  "provides": [{ "id": "environment" }]
-}
+{"schema":"swawkit.resource-kind/v1","kind":"run"}
+{"schema":"swawkit.resource-kind/v1","ref":"$/system::runs/all"}
 ```
 
-框架没有通用 Export Contract、集中 schema 目录、八类 Export DSL 或 Provider descriptor。`provider + export` 只回答“依赖谁的哪个具名能力”。
+Ref 复用目标定义的 kind identity 与完整实例 Facet 模板，但不会镜像目标 Collection 的 resolver、presentation 或 View。`::` 选择当前 Collection resolver 返回的 Resource；结果既可以来自静态 `subcommands`，也可以来自领域查询或 Core 聚合，但不能被定义成通用“扫目录”操作。
 
-Provider State 是 Provider command 级别的发布信号，严格只有 `schema/status/inputRevision/token`。一个 Provider 的多个 Export 必须属于同一原子 generation；若它们需要独立更新和独立 Ready 状态，应拆成不同 Provider command，而不是扩张 Core 为 per-export 状态机。
+### 5.5 View 边界
 
-推荐发布闭环：
+`<facet>/view/web.json` 描述该 Facet 所占列的 Web View Source。它不声明 resolver、arguments、confirmation、raw HTML、脚本、任意 CSS 或远程资源。
 
-```text
-unavailable -> work/ 构建与自检 -> export/ 原子发布 -> ready
-```
+平台入口 `.view/source <FacetRoute>` 已使用统一 `RouteResolver` 生成同一 Catalog 快照下的 View Source 与 Resource List Bundle。这里 `FacetRoute` 是“一个 `ResourceRoute` 加末端 Facet”的逻辑方法地址，不是 Command identity；HTML render 等 Bundle 稳定后再决定。`::view` 不进入 grammar，因为 `::` 只选择 Collection 的结果 Resource。
 
-推荐消费闭环：
-
-```text
-读取 Ready State -> 读取并深检业务产物 -> 复读同一 State -> 使用
-```
-
-State 复读只证明读取与校验期间 generation 没有变化；随后应使用已经读取的字节、不可变 Release member 或已固定的文件 handle。复读本身不是资源 lease。
-
-业务产物可拥有自己的 schema、长度、hash、token 或服务探测逻辑；这些都由 Provider/Consumer 领域代码维护。Core `.check <command>` 只递归检查 Catalog 声明、Provider publication Ready 与路径安全，并返回可选 checker 的结构化 command identity 与 arguments；CLI 由此计算调用命令，Web 由 identity 计算 `/commands/...`，Manifest 不保存 URL。Core 不自动运行领域代码，也不证明业务内容可用。
-
-Provider 可提供普通命令 `<provider>/check <export-id>`，复用真实发布/消费校验并给出诊断。`.check/dir/exists <provider>::export[/path]` 是一个高频、只读、路径安全敏感的通用原语；没有第二个真实需求前，不增加 JSON、service、secret 等 Core check DSL。
-
-### 4.8 Run、Event、Journal 与日志
-
-每次 journaled command execution 都在逻辑命令自己的 DataRoot 记录；`.help`、`.check`、`.runs` 和部分 control path 可在 Journal 前直接处理：
-
-```text
-_runs/
-├─ .<run-id>.owner.lock
-└─ <run-id>/
-   ├─ _state.json
-   └─ events.jsonl
-```
-
-owner lock 的独占句柄是活性事实；异常退出由下次读取确定性收敛为 `failed`，并记录 interruption 原因，不根据 PID 或半写文件猜测成功。Journal 记录 CLI/Web source、状态、exit code、stdout/stderr 和结构化 progress event。
-
-RuntimeService 统一 Run 注册、增量读取、取消、Host shutdown 与 Windows Job Object 进程树回收。`.runs`（不是 `.runes`）提供全局或指定命令的历史、latest、run document 与增量事件查询。历史查询最多返回 32 项，RuntimeService 最多保留 32 个 terminal live records。
-
-Journal 当前只接受现行 State/Event/Run ID，不保留旧版本兼容读取。尚未完成的是磁盘 retention/prune：旧 `_runs` 会持续累积，必须在定义数量、年龄、容量和占用安全策略后再提供显式清理。
-
-## 5. Core 与 Module 的责任矩阵
+## 6. 平台与模块责任
 
 | 事项 | Core / 平台 | 命令模块 |
 | --- | --- | --- |
-| 地址、来源根、Manifest 校验 | 统一 | 声明 |
-| 参数和业务语义 | 不理解 | 完全拥有 |
-| Entry/Command DataRoot 与框架保留路径 | 统一映射并守边界 | 负责自身 state/work/export 与产物路径安全 |
-| 进程、Job、取消、Journal | 统一 | 输出、事件与退出码 |
-| Provider 粗粒度 Ready | 读取并递归断言 | 原子发布 |
-| Export 格式、hash、服务存活性 | 不理解 | 发布并在使用边界深检 |
-| Help、Facet、Subject | 聚合与路由 | 内容、对象和领域动作 |
-| Native 构建发布机制 | `.module` 负责通用构建、校验与发布 | owner 提供源码、Cargo.lock 与 describe ABI |
-| Settings、安装、修复、领域迁移 | 不代管 | 领域自己定义显式或有界流程 |
-| Secret、全局变量、跨命令编排 | 不预设 | 先由真实领域证明需求 |
+| 地址、来源根、Resource/Facet 声明 | 统一映射与校验 | 声明能力 |
+| 参数、业务状态、迁移 | 不理解 | 完全拥有 |
+| DataRoot 与保留路径 | 映射并守边界 | 管理 state/work/export |
+| 进程、Job、取消、Journal | 统一 | 输出事件与退出码 |
+| Provider Ready | 读取并递归断言 | 原子发布 generation |
+| Export 格式、hash、服务存活 | 不理解 | 发布并在使用边界深检 |
+| Help、Facet、Resource | 聚合、路由并校验本次 listing 授权 | 内容、对象与动作 |
+| 安装、修复、领域迁移 | 不代管 | 提供显式、有界流程 |
 
-新增 Core 协议的门槛是：**至少两个无关领域需要同一不变量，或者本地实现会破坏安全性、身份或全局一致性。** 进程树、路径隔离和 generation fence 天然属于 Core；业务 JSON、工具安装、Export 语义和领域健康检查不属于。
+发布主路径是 `work/ 构建与自检 -> export/ 原子发布 -> Ready State`；消费主路径是 `读取 Ready -> 深检产物 -> 复读同一 State -> 使用已读取/固定的资源`。State 复读只能证明校验期间 generation 未变化，不是资源 lease。
 
-## 6. 模块开发顺序
+## 7. 模块开发顺序
 
-新领域按以下顺序推进：
+1. 定义 bounded context、命令树和用户可见端口。
+2. 定义领域自己的 state/work/export、原子提交点和失败恢复。
+3. 用最小 `run.*` 或 Native owner/delegate 完成业务闭环。
+4. 加入 Help；只有 UI 真正需要动态对象投影时才声明 Facet/Resource Kind。
+5. 只有真实跨模块消费时才增加 Resource Export 与 execute-Facet Requirement，同时实现 Provider checker 与 Consumer use-time validation。
+6. 先用 CLI 黑盒证明行为，再验证 Catalog/Web、升级、取消和 Journal 边界。
+7. 发现至少两个无关领域重复且无法安全自治的约束后，才提炼 Core 协议。
 
-1. 定义 bounded context、命令树与用户可见端口。
-2. 定义模块自己的 state/work/export、原子提交点和失败恢复。
-3. 先用最小 `run.*` 或 native owner/delegate 完成业务闭环。
-4. 加入 Help；只有 UI 真需要对象投影时才声明 Facet/SubjectKind。
-5. 只有真实跨模块消费时才添加 `provides/requires`，并同时实现 Provider checker 与 Consumer use-time validation。
-6. 用 CLI 黑盒证明行为，再验证 Catalog/Web 投影和升级/取消/Journal 边界。
-7. 发现两个以上领域重复且无法安全自治的约束后，才提炼新的 Core 协议。
+完成标准：身份/DataRoot 同源；一个执行来源；状态和发布只有一个事实源；失败保持旧 Release 可用；普通运行不安装、不构建、不隐式修复；领域测试和至少一个真实 CLI 黑盒通过。
 
-Definition of Done：
+## 8. 下一步行动计划
 
-- 目录地址、Manifest、DataRoot 与 Web identity 同源。
-- 一个命令只有一个执行来源；Native delegate owner 明确。
-- 帮助描述真实入口和修复方式。
-- 状态与发布拥有单一事实源和原子提交点。
-- Provider checker 与 Consumer 使用同一深检代码或同一领域规则。
-- 普通运行不安装、不构建、不隐式修复。
-- 失败保持旧 Release 可用，没有无删除条件的 fallback。
-- 领域测试与至少一个真实 CLI 黑盒通过。
+### P0：Resource–Facet 协议基础（已完成）
 
-## 7. 下一步
+- 旧 Command View Web v4 已纵向删除，Catalog v24、Rust 与 Web 测试通过。
+- Resource Route、Resource List v2、作者 marker、动态 Kind、Facet Execution 与 View Source/Bundle 已进入共享 `_protocol`。
+- 静态和动态 fixture 证明扁平目录语法；生产 Loader 已扫描完整 System tree。DataRoot 有意继续由稳定 backing Command identity 派生，尚不以访问 Route 为键。
+- `.help` 中错误宣称的 `.h` 已移除；当前保留 `.help`、`-h`、`--help`。
 
-### P0：建立 Module Authoring Reference
+### P1：安全 Loader 与 Catalog 投影（已进入生产）
 
-先用现有三个真实领域形成作者参考与 conformance matrix，而不是新增 schema：
+- fixture Loader 已覆盖静态 Resource、Resource Kind/Facet 模板、execute 的本地与声明式实现、普通 Facet 的 invoke、局部诊断与 Web View Bundle。
+- 当前 Catalog 身份已通过 golden projection 映射到 Resource Route；Backing `CommandIdentity`、DataRoot 与执行身份保持不变。
+- `.help` 是首个真实生产纵切：旧 Manifest 已删除，Core execution 只来自 `help/execute/swawkit.execution.json`。
+- `.check` 是首个带嵌套静态子资源的完整域：旧的 3 个 Manifest 已删除；`.check/dir` 只由 `subcommands` Collection 产生，`.check` 与 `.check/dir/exists` 的执行只来自各自 `execute` Facet。
+- `.entry` 的 8 个旧 Manifest 已删除；一个可执行根、一个结构子资源和 6 个可执行子资源都由同一 Resource–Facet 结构表达，原有 Core handler 与 Help 归属不变。
+- `.runtime` 的 5 个旧 Manifest 已删除；状态根、cleanup 与两个 Host 动作是 Operation Facet，`host` 只保留结构与 Help。
+- `.module` 的 3 个旧 Manifest 已删除；`instantiate/status` 首次以 Runtime execute Facet 进入生产。Catalog 已把稳定 Resource `directory` 与具体 `executorDirectory` 分开，源码所有权、环境变量和 Native owner 不再错误指向 `execute/`。
+- `.dev` 的 24 个旧 Manifest 已删除；14 个 Runtime、7 个本地 PowerShell execute 与 3 个结构 Resource 使用同一目录模型。execute Facet 的 `swawkit.requirements.json` 用 Resource Route 指向 Provider，Resource 的 `swawkit.exports.json` 声明 Export；Catalog 只在 backing 执行边界编译为现有 Command dependency。
+- `.context` 的 10 个旧 Manifest 已删除；Native owner 与 9 个 `native-delegate` 的所有权来自 execute Facet。`contexts` Collection 声明 `kind=context`，7 个实例方法模板各自在目录内拥有 presentation 与 invoke execution。
+- `.runs` 的最后 1 个旧 Manifest 已删除；`all` Collection 本地声明 `kind=run`。33 个 Journal-producing Command Resource 显式拥有 `runs` Collection，并精确 ref `$/system::runs/all`；同一 run 经全局或命令集合到达时共享底层 Journal identity，但保留各自访问 Route。
+- System 生产树已完成 57/57 Resource hard cut；迁移不承担旧作者格式的外部兼容。
 
-- `.context`：Native owner + Delegate + Subject/Facet。
-- `.dev/setup`：Settings + Provider + Export + checker。
-- `project/proj/build/...`：脚本 Provider/Consumer + 业务产物校验。
+### P2：删除旧作者主路径（已完成）
 
-为五种形态各冻结一个仓库内 canonical example：结构节点 `.dev`、脚本叶子 `project/demo/echo`、Native owner `.context`、Provider `.dev/setup`、Consumer `project/demo/managed-msvc`；再检查它们仍有哪些 Core 地址特判。每种形态至少有一个 CLI 黑盒 conformance test；先形成可执行参考，不急着做模块生成器。
+- Command Module parser、校验、共享类型和 fixture 已物理删除；内部声明类型已收口为 Resource/Facet 语义。
+- Catalog v24 不再输出 `module` 或 Facet View Source；Web detail 不再合成旧依赖 UI。
+- Catalog 与 Web 的默认静态/执行 Facet 已统一为作者词汇 `subcommands/execute`，不再投影成 `children/run`；`run` 只保留为执行面板的 renderer 名称。
+- Native 发布扫描器只沿 `subcommands` Collection 遍历，并只从 execute Facet 建立 Native/Delegate 域。
+- CLI、Runtime 黑盒 fixture 与布局守卫只会作者 Resource/Facet；布局守卫同时验证本地 execute 脚本引用的真实目标。
+- 旧 `swawkit.module.json` 只保留在拒绝旧协议的负向测试输入中，不是兼容入口。
 
-### P1：删除没有真实使用者的协议面
+### P3：统一 Resource List Runtime wire 与 Finder（已完成）
 
-- 审计并优先删除当前无人使用、与 Facet 重叠的 `_view/web.json` / Command View v4。
-- 修正 `.help` 用户文档仍宣称 `.h` 的漂移；实现只接受 `.help`、`-h`、`--help`。
-- 审计 native owner 根地址是否都拥有有意义的默认行为；优先补 list/status，而不是新增 `runnable:false` 字段。
-
-### P1：补齐 Journal retention
-
-先冻结可解释的 count/age/bytes 与 active-owner 安全规则，再提供显式 preview/apply 清理；不要先加入后台自动删除。
+1. `RouteResolver` 已收口 Catalog projection、动态 membership、Resource Kind capability、resolver return protocol 和 View Bundle 生成；HTTP Facet resolution 与 `.view/source` 共用该服务。
+2. `.view/source <FacetRoute>` 已输出封闭的 `swawkit.view-bundle/web/v1`；CLI 与 Host Runtime query 使用同一实现，不增加旧协议兼容入口。
+3. `swawkit.resource-list/v2` 已进入 `.context`、全局/命令级 `.runs`、HTTP 与 Web Finder；`ResourceListing` 的 identity、route、selector 与 `facetIds` 已由 Rust/JS 两侧严格校验。
+4. Catalog 已 hard cut 为 v24，`resourceKinds/resourceKind` 与 `resource.selector` 成为唯一词汇；旧 SubjectCollection、SubjectKind、`ref/via/canonicalRef` Web 模型及资源文件已物理删除。
+5. Finder 已通过 `/api/v3/view-bundles` 直接消费封闭 View Bundle；布局与 Resource List 来自同一 Catalog/Collection 快照，Catalog 不再公开 Facet View Source。`view/web.json` 保持可选，未声明时平台使用 `normal + resource-list` 默认视图。
+6. CLI 已接受 canonical `$...` FacetRoute：`$/system::dev/subcommands::bun/execute` 归一为 `.dev/bun`，动态 Operation 会先重新解析 Collection membership 与本次 `facetIds`，再绑定 selector；静态/动态 Route 都不会创建第二份 DataRoot、Release 或 Journal identity。
+7. Web command-run 已 hard cut 为 FacetRoute：Host 在一个准备任务中固定 Entry Config/Catalog，让动态 Collection 查询、局部 `facetIds` 授权、selector/固定参数绑定、依赖检查与 backing execution preparation 共用同一快照；Web 只发送用户 tail，不能再指定或覆盖 resolver address/固定参数。HTTP 黑盒已证明移除局部 `add` grant 后，同一 Context Route 不会启动 backing operation。
 
 ### 暂不做
 
+- Journal retention/prune：等 Resource–Facet/Route 协议稳定后，再冻结 count/age/bytes、active-owner、不可删除条件及 preview/apply；不加入后台自动删除。
 - Host/Core named-pipe 数据面。
 - 通用 Export Contract、类型注册表或 Artifact registry。
-- Playbook DSL。
-- 全局或祖先继承的 `.var/.secret` 环境。
+- Playbook DSL 与祖先继承的 `.var/.secret` 环境。
 - 没有第二个真实需求的 Core check 原语。
 - 受管工具链未闭环前的 `run.py`。
-
-## 8. 当前版本索引
-
-| 协议族 | 当前主要版本 |
-| --- | --- |
-| Entry / Launch | Launch Environment `6`；Entry Config/State `v1`；Entry Inventory/Instance State/Mutation `v2`；Entry Launcher receipt `v1` |
-| Discovery / Identity | Command Module `v12`；Catalog `v20` |
-| Execution / Delegate | Command Environment `3`；Native Execution Contract `v4`；Native Release `v3` |
-| Help / Subject / Web | Help 文件约定（无独立版本）；SubjectCollection `v3`；Command View `v4`（待审计删除） |
-| Host / Runtime control | Host Runtime/Status/Runtime Status `v3`；HTTP `/api/v2` |
-| Publication / Update | Runtime Release Set `v4`；Framework Command Runtime `v1`；Runtime Cleanup `v1` |
-| Export / Check | Provider State `v3`；Dev Settings/State `v1`；CommandCheck `v3`；Dir Exists `v1` |
-| Run / Journal | live CommandRun `v2`；Journal State/Event `v2`；public Journal `v3`；History `v1`；progress Frame/Event `v1` |
-
-领域 payload（例如 Dev Environment、Context record、Launcher build artifact）可以独立版本化，但不应被提升为跨领域框架协议。协议 wire 发生破坏性变化时直接 bump 并 hard cut；只有确有长期数据价值的持久状态才单独设计有界迁移，不能默认保留双栈。
 
 ## 9. 架构护栏
 
 评审新的 Core 能力时只问三件事：
 
-1. 理想的自治命令模块为何不能在领域内解决它？
+1. 理想的自治命令模块为什么不能在领域内解决它？
 2. 它是否保护至少两个无关领域共享的身份、安全或一致性不变量？
-3. 它是否拥有单一事实源、原子授予点、真实第二使用者和明确失败边界？
+3. 它是否有单一事实源、原子授予点、真实第二使用者和明确失败边界？
 
-长期目标不是让一切都成为协议，而是让协议只承担真正的公共秩序：**Core 为一致性付费，Module 为领域变化付费。**
+长期目标不是让一切都成为协议，而是让协议只承担公共秩序：**Core 为一致性付费，Module 为领域变化付费。**
