@@ -1,0 +1,32 @@
+帮助和状态：
+  {{COMMAND}} .help en             显示英文帮助
+  {{COMMAND}} .help zh             显示中文帮助
+  {{COMMAND}} .info                显示入口身份、认证状态和当前 gh 运行时
+  {{COMMAND}} .doctor              检查运行时、配置目录和活动 GitHub 账号
+
+运行时：
+  {{COMMAND}} .setup               检查系统 gh；缺失时设置经过 SHA-256 校验的便携 gh
+
+身份终端：
+  {{COMMAND}}                      用当前 GitHub 身份打开配置的默认终端
+  {{COMMAND}} .cmd                 打开 cmd.exe
+  {{COMMAND}} .powershell          打开 Windows PowerShell 5
+  {{COMMAND}} .pwsh                打开 PowerShell 7+（需可用）
+  {{COMMAND}} .gitbash             打开 Git Bash（需可用）
+
+GitHub CLI：
+  非点号命令原样传给 gh。系统 PATH 中没有 gh 时，会自动设置共享的便携运行时。
+  仓库由当前工作目录或 gh 原生的 -R 参数决定；此入口只绑定 GitHub 主机和账号身份。
+  直接执行的 gh 命令默认禁用交互、分页器和动画；缺少必要参数时会立即报错。
+  auth login 和身份终端保留交互。删除确认及其他业务决策必须由调用者显式传入。
+  auth login 会自动使用入口的 GH_HOST 和 GH_ID_GIT_PROTOCOL；不允许通过命令行覆盖。
+  SSH 模式自动传入 --skip-ssh-key；私钥仍由 git1 管理，gh 登录仍用于 GitHub API。
+
+示例：
+  {{COMMAND}} auth login
+  {{COMMAND}} auth status
+  {{COMMAND}} repo view
+  {{COMMAND}} pr list
+  {{COMMAND}} pr list -R owner/repo
+
+不要在入口中保存 GH_TOKEN 或其他 token。环境中的 token 会覆盖该入口保存的身份，因此本工具会拒绝它们。

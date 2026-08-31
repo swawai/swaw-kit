@@ -1,0 +1,32 @@
+Help and status:
+  {{COMMAND}} .help en             Show English help.
+  {{COMMAND}} .help zh             Show Chinese help.
+  {{COMMAND}} .info                Show the bound identity, authentication state, and gh runtime.
+  {{COMMAND}} .doctor              Check the runtime, profile directory, and active GitHub account.
+
+Runtime:
+  {{COMMAND}} .setup               Check for system gh; set up the SHA-256 verified portable gh when absent.
+
+Identity terminals:
+  {{COMMAND}}                      Open the configured default terminal with this GitHub identity.
+  {{COMMAND}} .cmd                 Open cmd.exe.
+  {{COMMAND}} .powershell          Open Windows PowerShell 5.
+  {{COMMAND}} .pwsh                Open PowerShell 7+ when available.
+  {{COMMAND}} .gitbash             Open Git Bash when available.
+
+GitHub CLI:
+  Non-dot commands are passed through to gh. When gh is absent from the system PATH, a shared portable runtime is set up automatically.
+  The current directory or gh's native -R option selects a repository; this entry binds only the GitHub host and account identity.
+  Direct gh commands disable prompts, paging, and animation by default; missing required input fails immediately.
+  auth login and identity terminals remain interactive. The caller must explicitly provide deletion consent and other business decisions.
+  auth login automatically uses the entry's GH_HOST and GH_ID_GIT_PROTOCOL; command-line overrides are rejected.
+  SSH mode adds --skip-ssh-key; git1 still owns private keys, while gh login authenticates the GitHub API.
+
+Examples:
+  {{COMMAND}} auth login
+  {{COMMAND}} auth status
+  {{COMMAND}} repo view
+  {{COMMAND}} pr list
+  {{COMMAND}} pr list -R owner/repo
+
+Do not store GH_TOKEN or another token in this entry. Environment tokens override the saved identity, so this kit rejects them.
