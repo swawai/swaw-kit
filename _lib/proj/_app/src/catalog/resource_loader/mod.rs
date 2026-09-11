@@ -107,7 +107,13 @@ impl Loader {
 
         let mut execution = self.load_execution(&snapshot);
         let mut local_entry = self.load_local_entry(&snapshot);
-        let mut requirements = self.load_requirements(&snapshot);
+        let mut requirements = match self.load_requirements(&snapshot) {
+            Ok(requirements) => requirements,
+            Err(error) => {
+                self.report(directory.join(REQUIREMENTS_FILE), error);
+                return None;
+            }
+        };
         if execution.is_some() && local_entry.is_some() {
             self.report(
                 directory,
@@ -252,7 +258,13 @@ impl Loader {
         }
         let mut execution = self.load_execution(&snapshot);
         let mut local_entry = self.load_local_entry(&snapshot);
-        let mut requirements = self.load_requirements(&snapshot);
+        let mut requirements = match self.load_requirements(&snapshot) {
+            Ok(requirements) => requirements,
+            Err(error) => {
+                self.report(directory.join(REQUIREMENTS_FILE), error);
+                return None;
+            }
+        };
         if execution.is_some() && local_entry.is_some() {
             self.report(
                 directory,

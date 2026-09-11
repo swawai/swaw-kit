@@ -11,6 +11,8 @@ use swawkit_proj_protocol::{
 
 use super::{load_command_resource, load_resource_tree};
 
+mod requirements;
+
 fn fixture(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../_protocol/tests/fixtures/resource-facet")

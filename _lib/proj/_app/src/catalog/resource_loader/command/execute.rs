@@ -7,37 +7,33 @@ use crate::catalog::{CommandAdapter, entry::ResolvedEntry};
 
 pub(super) struct CompiledExecute {
     pub(super) entry: Option<ResolvedEntry>,
+    pub(super) requirements: Vec<CommandRequirement>,
     pub(super) delegate_owner: Option<String>,
     pub(super) declares_native: bool,
 }
 
-pub(super) fn compile_requirements(
-    facet: &LoadedFacet,
-    diagnostics: &mut Vec<String>,
-) -> Vec<CommandRequirement> {
+fn compile_requirements(facet: &LoadedFacet) -> Result<Vec<CommandRequirement>, String> {
     let Some(manifest) = &facet.requirements else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     manifest
         .requirements
         .iter()
-        .filter_map(|requirement| {
+        .map(|requirement| {
             let provider = ResourceRoute::parse(&requirement.provider)
                 .map_err(|error| error.to_string())
                 .and_then(|route| super::super::command_identity_for_resource_route(&route));
-            match provider {
-                Ok(provider) => Some(CommandRequirement {
+            provider
+                .map(|provider| CommandRequirement {
                     provider: provider.address(),
                     export: requirement.export.clone(),
-                }),
-                Err(error) => {
-                    diagnostics.push(format!(
+                })
+                .map_err(|error| {
+                    format!(
                         "Facet requirement provider '{}' is not a backing Command Resource: {error}",
                         requirement.provider
-                    ));
-                    None
-                }
-            }
+                    )
+                })
         })
         .collect()
 }
@@ -46,6 +42,13 @@ pub(super) fn compile_execute_facet(
     facet: &LoadedFacet,
     diagnostics: &mut Vec<String>,
 ) -> CompiledExecute {
+    let requirements = match compile_requirements(facet) {
+        Ok(requirements) => requirements,
+        Err(error) => {
+            diagnostics.push(error);
+            return unavailable();
+        }
+    };
     if facet.kind != ResourceFacetKind::Operation {
         diagnostics.push(format!(
             "CLI execute Facet '{}' must be an operation",
@@ -162,6 +165,7 @@ pub(super) fn compile_execute_facet(
     };
     CompiledExecute {
         entry,
+        requirements,
         delegate_owner,
         declares_native,
     }
@@ -170,6 +174,7 @@ pub(super) fn compile_execute_facet(
 fn unavailable() -> CompiledExecute {
     CompiledExecute {
         entry: None,
+        requirements: Vec::new(),
         delegate_owner: None,
         declares_native: false,
     }

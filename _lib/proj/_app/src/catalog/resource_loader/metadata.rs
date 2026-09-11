@@ -84,17 +84,14 @@ impl Loader {
     }
 
     pub(super) fn load_requirements(
-        &mut self,
+        &self,
         snapshot: &DirectorySnapshot,
-    ) -> Option<FacetRequirementsManifest> {
-        let bytes = self.protocol_file(snapshot, REQUIREMENTS_FILE, false)?;
-        match parse_facet_requirements_manifest(&bytes) {
-            Ok(requirements) => Some(requirements),
-            Err(error) => {
-                self.report(snapshot.path.join(REQUIREMENTS_FILE), error);
-                None
-            }
-        }
+    ) -> Result<Option<FacetRequirementsManifest>, String> {
+        snapshot
+            .protocol_file(REQUIREMENTS_FILE, false)?
+            .map(|bytes| parse_facet_requirements_manifest(&bytes))
+            .transpose()
+            .map_err(|error| error.to_string())
     }
 
     pub(super) fn load_resource_kind(

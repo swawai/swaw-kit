@@ -7,8 +7,7 @@ use std::path::{Path, PathBuf};
 use swawkit_proj_protocol::{CommandProvision, CommandRequirement, ResourceRoute};
 
 use self::{
-    execute::{compile_execute_facet, compile_requirements},
-    facets::compile_authored_facets,
+    execute::compile_execute_facet, facets::compile_authored_facets,
     subcommands::compile_subcommands,
 };
 use super::load_resource_tree;
@@ -116,13 +115,12 @@ pub(in crate::catalog) fn load_command_resource(
             diagnostics,
         };
     };
-    let requirements = compile_requirements(execute, &mut diagnostics);
     let compiled = compile_execute_facet(execute, &mut diagnostics);
     ResourceCommandContract {
         entry: compiled.entry,
         execution_directory: execute.directory.clone(),
         children,
-        requirements,
+        requirements: compiled.requirements,
         provisions,
         delegate_owner: compiled.delegate_owner,
         declares_native: compiled.declares_native,
