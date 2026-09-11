@@ -372,6 +372,7 @@ function Test-EntryGitSshCommandWins {
     New-Item -ItemType Directory -Path $binDir | Out-Null
     $fakeGitContent = @'
 @echo off
+if /i "%~1"=="config" if /i "%~2"=="--show-scope" exit /b 0
 echo SSH:%GIT_SSH_COMMAND%
 echo SSH_VARIANT:%GIT_SSH_VARIANT%
 exit /b 0
@@ -420,6 +421,7 @@ function Test-BareCustomWordsPassThroughToGit {
     New-Item -ItemType Directory -Path $binDir | Out-Null
     $fakeGitContent = @'
 @echo off
+if /i "%~1"=="config" if /i "%~2"=="--show-scope" exit /b 0
 echo GIT_ARGS:%*
 exit /b 0
 '@ -replace "`n", "`r`n"

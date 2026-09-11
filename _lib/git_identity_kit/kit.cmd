@@ -464,17 +464,12 @@ echo [ERROR] Git identity entry, HTTPS host, and account must not contain "@".
 exit /b 1
 
 :AssertAuthorizationBoundary
-call git config --list >nul 2>nul
-if errorlevel 1 goto :AuthorizationConfigInspectionFailed
-call git config --get-regexp "^(http|credential)\." 2>nul | %SystemRoot%\System32\findstr.exe /i /r /c:"^http\.extraheader ." /c:"^http\..*\.extraheader ." /c:"^http\.cookiefile ." /c:"^http\..*\.cookiefile ." /c:"^http\.sslcert ." /c:"^http\..*\.sslcert ." /c:"^http\.sslkey ." /c:"^http\..*\.sslkey ." /c:"^http\.delegation ." /c:"^http\..*\.delegation ." /c:"^credential\..*\.helper ." >nul
-if errorlevel 2 goto :AuthorizationConfigInspectionFailed
-if errorlevel 1 exit /b 0
-echo [ERROR] Git config contains hidden HTTPS authorization that can bypass this identity.
-echo Remove HTTP credential headers, cookies, client certificates, and URL-scoped credential helpers before using this entry.
-exit /b 1
+if not exist "%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" goto :MissingAuthorizationPowerShell
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%~dp0authorization-boundary.ps1"
+exit /b %ERRORLEVEL%
 
-:AuthorizationConfigInspectionFailed
-echo [ERROR] Git configuration could not be inspected for HTTPS authorization bypasses.
+:MissingAuthorizationPowerShell
+echo [ERROR] Trusted Windows PowerShell executable not found.
 exit /b 1
 
 :MissingIdentity

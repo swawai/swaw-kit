@@ -104,7 +104,11 @@ function Test-SshModeRejectsHttpsCredentials {
     $fakeGit = @'
 @echo off
 if /i "%~1"=="config" if /i "%~2"=="--list" exit /b 0
-if /i "%~1"=="config" if /i "%~2"=="--get-regexp" exit /b 1
+if /i "%~1"=="config" if /i "%~2"=="--show-scope" (
+  echo global file:C:/fake-global.gitconfig credential.https://github.com.helper
+  exit /b 0
+)
+echo ARGS:%*
 echo ASKPASS:%GIT_ASKPASS%
 echo CONFIG:%GIT_CONFIG_PARAMETERS%
 set GIT_CONFIG_KEY_
@@ -130,6 +134,7 @@ echo SSL_CERT:%GIT_SSL_CERT%
         $env:PATH = "$binDir;$oldPath"
         $output = Invoke-Captured $EntryPath @("status") 0 "SSH credential boundary"
         Assert-True ($output.Contains("deny-credential-prompt.cmd")) "SSH mode should install its explicit credential blocker."
+        Assert-True ($output.Contains("ARGS:status")) "a lower-scope URL helper should be reset instead of blocking SSH commands."
         Assert-True (-not $output.Contains("inherited-askpass")) "SSH mode should not inherit an external GIT_ASKPASS."
         Assert-True ($output.Contains("CONFIG:'credential.helper'=''")) "SSH mode should reset inherited credential helpers."
         Assert-InjectedConfigPair $output "transfer.credentialsInUrl" "die" "SSH mode should reject credentials embedded in HTTPS URLs."
@@ -148,6 +153,40 @@ echo SSL_CERT:%GIT_SSL_CERT%
         $env:GCM_CREDENTIAL_STORE = $oldStore
         $env:GIT_EXEC_PATH = $oldExecPath
         $env:GIT_SSL_CERT = $oldSslCert
+    }
+}
+
+function Test-AuthorizationBoundaryUsesTrustedPowerShell {
+    param([string]$EntryPath, [string]$TempRoot)
+
+    $workingDirectory = Join-Path $TempRoot "powershell-shadow-repo"
+    $binDirectory = Join-Path $TempRoot "powershell-shadow-bin"
+    New-Item -ItemType Directory -Path $workingDirectory, $binDirectory | Out-Null
+
+    $systemWhere = Join-Path $env:SystemRoot "System32\where.exe"
+    Assert-True (Test-Path -LiteralPath $systemWhere -PathType Leaf) "PowerShell shadow test requires the system where.exe fixture."
+    [IO.File]::Copy($systemWhere, (Join-Path $workingDirectory "PowerShell.exe"))
+
+    $fakeGit = @'
+@echo off
+if /i "%~1"=="config" if /i "%~2"=="--show-scope" exit /b 0
+echo GIT_ARGS:%*
+exit /b 0
+'@ -replace "`n", "`r`n"
+    [IO.File]::WriteAllText((Join-Path $binDirectory "git.cmd"), $fakeGit, [Text.UTF8Encoding]::new($false))
+
+    $oldPath = $env:PATH
+    try {
+        $env:PATH = "$binDirectory;$oldPath"
+        Push-Location $workingDirectory
+        try {
+            $output = Invoke-Captured $EntryPath @("status") 0 "trusted authorization PowerShell"
+        } finally {
+            Pop-Location
+        }
+        Assert-True ($output.Contains("GIT_ARGS:status")) "authorization inspection should ignore a PowerShell.exe placed in the current repository."
+    } finally {
+        $env:PATH = $oldPath
     }
 }
 
@@ -236,6 +275,7 @@ function Test-HiddenHttpsAuthorizationIsRejected {
         Pop-Location
     }
     Assert-True ($output.Contains("URL-scoped credential helpers")) "entry should reject a helper that would outrank its guarded helper."
+    Assert-True ($output.Contains("local: credential.https://github.example.com/repo.helper")) "helper diagnostics should identify the unsafe key and scope without printing its value."
     Assert-True (-not $output.Contains("evil-helper")) "authorization boundary diagnostics should not expose helper commands."
 }
 
@@ -398,6 +438,7 @@ try {
     Test-CredentialsEmbeddedInUrlAreRejected $httpsEntry
     Test-GitGlobalBoundaryOverridesAreRejected $httpsEntry $tempRoot
     Test-SshModeRejectsHttpsCredentials $sshEntry $tempRoot
+    Test-AuthorizationBoundaryUsesTrustedPowerShell $sshEntry $tempRoot
     Test-EntryPreservesLiteralArguments $sshEntry $tempRoot
     Test-EntryClearsInheritedRepositoryOverrides $sshEntry $tempRoot
     Test-SyncReplacesHttpsModeWithSshMode $httpsEntry $tempRoot
