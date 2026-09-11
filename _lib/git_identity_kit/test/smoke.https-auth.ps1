@@ -208,8 +208,7 @@ function Test-EntryInjectsAuthoritativeHttpsIdentity {
     $fakeGit = Join-Path $binDir "git.cmd"
     $fakeGitContent = @'
 @echo off
-if /i "%~1"=="config" if /i "%~2"=="--list" exit /b 0
-if /i "%~1"=="config" if /i "%~2"=="--get-regexp" exit /b 1
+if /i "%~1"=="config" if /i "%~2"=="--show-scope" exit /b 0
 echo GIT_ARGS:%*
 echo GCM_NAMESPACE:%GCM_NAMESPACE%
 echo GCM_INTERACTIVE:%GCM_INTERACTIVE%
