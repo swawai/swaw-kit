@@ -5,9 +5,10 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
-. (Join-Path $PSScriptRoot '_toolchain\bootstrap.ps1')
-. (Join-Path $PSScriptRoot '_toolchain\_lib\runtime-release.ps1')
+. (Join-Path $PSScriptRoot '_bootstrap\toolchain.ps1')
+. (Join-Path $PSScriptRoot '_runtime\release.ps1')
 $Layout = Get-ProjBootstrapLayout
+
 function Test-ProjBootstrapRuntime {
     param([Parameter(Mandatory = $true)][object]$BuildLayout)
 
@@ -28,7 +29,8 @@ function Test-ProjBootstrapRuntime {
     }
     try {
         [void](Read-ProjSelectedRuntimeReleaseSet `
-            -RuntimeRoot $BuildLayout.RuntimeRoot)
+            -RuntimeRoot $BuildLayout.RuntimeRoot `
+            -ProjHome $BuildLayout.ProjHome)
         return $true
     } catch {
         return $false
@@ -65,16 +67,53 @@ try {
             } finally {
                 $BuildLock.Dispose()
             }
-            & $BuildLayout.AppPublishPath `
+            $ModuleTargetDirectory = Assert-ProjDevPathInsideDataRoot `
+                -Path $BuildLayout.ModuleBuildRoot `
+                -DataRoot $Toolchain.Context.DataRoot `
+                -Activity 'building the Bootstrap Module executable'
+            $ModuleBuildLock = Enter-ProjDevFileLock `
+                -Path (Join-Path $BuildLayout.LockRoot 'module-build.lock') `
+                -ControlledRoot $Toolchain.Context.DataRoot `
+                -TimeoutSeconds 1800
+            try {
+                Invoke-ProjBootstrapRustProductBuild `
+                    -ProductName 'Module' `
+                    -CandidateName 'swawkit-proj-module.exe' `
+                    -CargoPath ([string]$Toolchain.CargoPath) `
+                    -ManifestPath $BuildLayout.ModuleManifestPath `
+                    -TargetDirectory $ModuleTargetDirectory | Out-Host
+            } finally {
+                $ModuleBuildLock.Dispose()
+            }
+            $DevTargetDirectory = Assert-ProjDevPathInsideDataRoot `
+                -Path $BuildLayout.DevBuildRoot `
+                -DataRoot $Toolchain.Context.DataRoot `
+                -Activity 'building the Bootstrap Dev runtime'
+            $DevBuildLock = Enter-ProjDevFileLock `
+                -Path (Join-Path $BuildLayout.LockRoot 'dev-build.lock') `
+                -ControlledRoot $Toolchain.Context.DataRoot `
+                -TimeoutSeconds 1800
+            try {
+                Invoke-ProjBootstrapRustProductBuild `
+                    -ProductName 'Dev' `
+                    -CandidateName 'swawkit-proj-dev.exe' `
+                    -CargoPath ([string]$Toolchain.CargoPath) `
+                    -ManifestPath $BuildLayout.DevManifestPath `
+                    -TargetDirectory $DevTargetDirectory | Out-Host
+            } finally {
+                $DevBuildLock.Dispose()
+            }
+            & $BuildLayout.RuntimePublishPath `
                 -CandidateCorePath (Join-Path $TargetDirectory (
                     'release\swawkit-proj.exe'
                 )) `
                 -CandidateHostPath (Join-Path $TargetDirectory (
                     'release\swawkit-proj-host.exe'
                 )) `
-                -CandidateToolchainPath (Join-Path $TargetDirectory (
-                    'release\swawkit-proj-toolchain.exe'
-                )) `
+                -CandidateModulePath $BuildLayout.ModuleCandidatePath `
+                -CandidateDevPath $BuildLayout.DevCandidatePath `
+                -CommandRuntimeId ([string]$Toolchain.CommandRuntimeId) `
+                -RuntimeRoot $BuildLayout.RuntimeRoot `
                 -ProjHome $BuildLayout.ProjHome `
                 -CandidateRoot $Toolchain.Context.DataRoot
         }

@@ -1,0 +1,13 @@
+Inspect aggregate Host and native Runtime release state for the current Entry.
+
+Usage:
+  {{INVOCATION}}
+  {{INVOCATION}} --json
+
+The state includes the selected release, published release count, Host PID, running release, and whether a restart into a newer release is available.
+JSON uses swawkit.runtime-status/v3. Its swawkit.host-status/v3 member carries the instance key derived from the canonical DataRoot, the running release, and the boot ID. Status is therefore bound to one Host generation rather than guessed from a PID or Launcher file.
+
+Subcommands:
+  host.exit       Gracefully exit this Entry Host.
+  host.restart    Restart Host into the selected release.
+  cleanup         Preview or remove unused old releases.

@@ -1,0 +1,12 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "operation",
+  "presentation": {
+    "icon": "#",
+    "label": { "zh-CN": "渲染", "en": "Render" },
+    "summary": {
+      "zh-CN": "生成确定性的 Agent Markdown",
+      "en": "Generate deterministic Agent Markdown"
+    }
+  }
+}

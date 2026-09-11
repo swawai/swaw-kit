@@ -1,38 +1,29 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ToolchainPath
+    [Parameter(Mandatory = $true)][string]$DevPath
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\setup.ps1')
+. (Join-Path $PSScriptRoot '_lib\stage0-toolchain.ps1')
 . (Join-Path $PSScriptRoot '_lib\bun-fixture.ps1')
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
-    'SWAWKIT_PROJ_CORE_COMMAND_PHASE',
     'SWAWKIT_PROJ_CORE_COMMAND_ADDRESS',
     'SWAWKIT_HOME',
     'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_ACTION_ROOT',
+    'SWAWKIT_PROJ_PROJECT_MODULE_ROOT',
+    'SWAWKIT_PROJ_MODULE_ROOTS',
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
-    'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
-    'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
-    'SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE',
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256',
-    'SWAWKIT_PROJ_UV_MODE',
-    'SWAWKIT_PROJ_UV_VERSION',
-    'SWAWKIT_PROJ_PYTHON_MODE',
-    'SWAWKIT_PROJ_PYTHON_VERSION',
     'SWAWKIT_PROJ_PWSH_MODE',
-    'SWAWKIT_PROJ_GO_MODE',
-    'SWAWKIT_PROJ_GO_VERSION',
     'SWAWKIT_PROJ_TEST_BUN_CAPTURE'
 )
 $EnvironmentSnapshot = Enter-ProjBunIsolatedEnvironment `
@@ -50,9 +41,9 @@ $ControlHome = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..'))
 $SystemPowerShell = Join-Path $env:SystemRoot (
     'System32\WindowsPowerShell\v1.0\powershell.exe'
 )
-$ResolvedToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
-if (-not [IO.File]::Exists($ResolvedToolchainPath)) {
-    throw "Toolchain test candidate is missing: $ResolvedToolchainPath"
+$ResolvedDevPath = [IO.Path]::GetFullPath($DevPath)
+if (-not [IO.File]::Exists($ResolvedDevPath)) {
+    throw "Toolchain test candidate is missing: $ResolvedDevPath"
 }
 
 try {
@@ -81,7 +72,7 @@ try {
     $Definition = New-ProjBunTestDefinition `
         -ArchivePath $ArchivePath `
         -Sha256 (Get-ProjDevFileSha256 -Path $ArchivePath)
-    $Context = New-ProjDevContext `
+    $Context = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
         -CacheDataRoot $CacheDataRoot `
@@ -159,7 +150,7 @@ try {
     $UnpinnedDefinition.ProjectSha256 = ''
     $UnpinnedDefinition.Sha256 = ''
     $UnpinnedDefinition.Verification = 'unverified'
-    $UnpinnedContext = New-ProjDevContext `
+    $UnpinnedContext = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot (Join-Path $TemporaryRoot 'unpinned-data') `
         -CacheDataRoot $CacheDataRoot
@@ -225,7 +216,7 @@ try {
         -Message 'clean artifact retry did not produce a valid installation'
 
     $BadDataRoot = Join-Path $TemporaryRoot 'bad-data'
-    $BadContext = New-ProjDevContext `
+    $BadContext = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $BadDataRoot `
         -CacheDataRoot $CacheDataRoot
@@ -254,7 +245,7 @@ try {
             -Definition $Definition)) `
         -Message 'installed-file corruption was not detected'
     [IO.File]::Delete($ArchivePath)
-    $PeerContext = New-ProjDevContext `
+    $PeerContext = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot (Join-Path $TemporaryRoot 'peer project data') `
         -CacheDataRoot $CacheDataRoot
@@ -290,31 +281,42 @@ try {
 
     $ActionRoot = Join-Path $ProjectRoot '.swaw'
     [void][IO.Directory]::CreateDirectory($ActionRoot)
+    # Stage-0 assertions above retain their frozen contract. The native product
+    # command below starts at the v3 command boundary and reads Dev Settings.
     Set-ProjBunProcessEnvironment -Values @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-        SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.setup'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_HOME = $ControlHome
-        SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
-        SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
+        SWAWKIT_PROJ_MODULE_ROOTS = (@{
+            project = $ActionRoot
+        } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_DATA_ROOT = $null
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $InvocationRoot
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = ('sha256-' + ('a' * 64))
-        SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE = $ResolvedToolchainPath
-        SWAWKIT_PROJ_BUN_MODE = 'disabled'
-        SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
     }
     $SetupDataRoot = Join-Path $TemporaryRoot 'setup entry data'
     [void][IO.Directory]::CreateDirectory($SetupDataRoot)
-    $SetupProfilePath = Join-Path $SetupDataRoot '_profile.json'
-    [IO.File]::WriteAllText($SetupProfilePath, '{}')
     $env:SWAWKIT_PROJ_DATA_ROOT = $SetupDataRoot
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $SetupProfilePath
+    $SettingsRoot = Join-Path $SetupDataRoot 'modules\system\dev\setup'
+    [void][IO.Directory]::CreateDirectory($SettingsRoot)
+    [IO.File]::WriteAllText(
+        (Join-Path $SettingsRoot '_settings.json'),
+        (@{
+            schema = 'swawkit.proj-dev-settings/v1'
+            bun = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            pwsh = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            msvc = @{ mode = 'disabled'; channel = '' }
+            rust = @{
+                mode = 'disabled'
+                toolchain = ''
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+        } | ConvertTo-Json -Depth 4),
+        [Text.UTF8Encoding]::new($false)
     )
     $LegacyStatePath = Join-Path $SetupDataRoot (
-        'modules\kernel\.dev\setup\export\_state.json'
+        'modules\system\dev\setup\export\_state.json'
     )
     [void][IO.Directory]::CreateDirectory(
         (Split-Path -Path $LegacyStatePath -Parent)
@@ -324,69 +326,30 @@ try {
         '{"schema":"swawkit.proj-dev.environment-state.v2"}'
     )
     $SetupResult = Invoke-ProjToolchainCommandFixture `
-        -Executable $ResolvedToolchainPath `
-        -Handler 'dev.setup'
+        -Executable $ResolvedDevPath `
+        -Handler '.dev/setup'
     Assert-ProjBunTest `
         -Condition ($SetupResult.ExitCode -eq 0 -and
-            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\env.cmd')) -and
-            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\env.ps1')) -and
-            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\_state.json')) -and
-            -not [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\_state.json')) -and
+            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.cmd')) -and
+            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.ps1')) -and
+            [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\system\dev\setup\_state.json')) -and
+            -not [IO.File]::Exists((Join-Path $SetupDataRoot 'modules\system\dev\setup\export\_state.json')) -and
             -not [IO.Directory]::Exists(
-                (Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\bun')
+                (Join-Path $SetupDataRoot 'modules\system\dev\setup\export\bun')
             )) `
-        -Message "real disabled .dev.setup entry failed: $($SetupResult.Output)"
+        -Message "real disabled .dev/setup entry failed: $($SetupResult.Output)"
     $SetupEnvHash = Get-ProjDevFileSha256 `
-        -Path (Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\env.ps1')
+        -Path (Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.ps1')
     $RejectedSetup = Invoke-ProjToolchainCommandFixture `
-        -Executable $ResolvedToolchainPath `
-        -Handler 'dev.setup' `
+        -Executable $ResolvedDevPath `
+        -Handler '.dev/setup' `
         -Arguments @('unexpected')
     Assert-ProjBunTest `
         -Condition ($RejectedSetup.ExitCode -eq 1 -and
             (Get-ProjDevFileSha256 `
-                -Path (Join-Path $SetupDataRoot 'modules\kernel\.dev\setup\export\env.ps1')
+                -Path (Join-Path $SetupDataRoot 'modules\system\dev\setup\export\env.ps1')
             ) -ceq $SetupEnvHash) `
-        -Message '.dev.setup accepted arguments or changed state after rejection'
-
-    $PendingDataRoot = Join-Path $TemporaryRoot 'pending setup data'
-    [void][IO.Directory]::CreateDirectory($PendingDataRoot)
-    $PendingProfilePath = Join-Path $PendingDataRoot '_profile.json'
-    [IO.File]::WriteAllText($PendingProfilePath, '{}')
-    $env:SWAWKIT_PROJ_DATA_ROOT = $PendingDataRoot
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $PendingProfilePath
-    )
-    $env:SWAWKIT_PROJ_GO_MODE = 'managed'
-    $env:SWAWKIT_PROJ_GO_VERSION = '1.22.4'
-    $env:SWAWKIT_PROJ_PYTHON_MODE = 'uv'
-    $env:SWAWKIT_PROJ_PYTHON_VERSION = '3.13'
-    $env:SWAWKIT_PROJ_UV_MODE = 'managed'
-    $env:SWAWKIT_PROJ_UV_VERSION = '0.10.2'
-    $PendingSetup = Invoke-ProjToolchainCommandFixture `
-        -Executable $ResolvedToolchainPath `
-        -Handler 'dev.setup'
-    Assert-ProjBunTest `
-        -Condition ($PendingSetup.ExitCode -eq 1 -and
-            $PendingSetup.Output.Contains(
-                '.dev.setup does not yet handle these enabled declarations: go, python, uv.'
-            ) -and
-            [IO.File]::Exists((Join-Path $PendingDataRoot 'modules\kernel\.dev\setup\_state.json')) -and
-            -not [IO.Directory]::Exists((Join-Path $PendingDataRoot 'modules\kernel\.dev\setup\export')) -and
-            -not [IO.Directory]::Exists(
-                (Join-Path $ProjectRoot 'data\proj_cache')
-            )) `
-        -Message 'an unsupported enabled module did not fail before side effects'
-    foreach ($Name in @(
-        'SWAWKIT_PROJ_GO_MODE',
-        'SWAWKIT_PROJ_GO_VERSION',
-        'SWAWKIT_PROJ_PYTHON_MODE',
-        'SWAWKIT_PROJ_PYTHON_VERSION',
-        'SWAWKIT_PROJ_UV_MODE',
-        'SWAWKIT_PROJ_UV_VERSION'
-    )) {
-        [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
-    }
+        -Message '.dev/setup accepted arguments or changed state after rejection'
 
     Assert-ProjBunTest `
         -Condition (

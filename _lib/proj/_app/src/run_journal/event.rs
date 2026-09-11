@@ -5,8 +5,6 @@ use crate::command_event::CommandProgress;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum RunJournalPhase {
-    GuardGlobal,
-    GuardCommand,
     Run,
     Worker,
 }

@@ -1,7 +1,17 @@
 import { normalizeCommandEvents } from "./command-event-client.js";
+import {
+  RUNTIME_GENERATION_UNAVAILABLE_CODE,
+  RUNTIME_UPDATE_REQUIRED_CODE,
+  runtimeGenerationMessage,
+} from "./runtime-generation.js";
 
-const COMMAND_RUNS_URL = "/api/v2/command-runs";
-const COMMAND_RUN_PROTOCOL = "swawkit.command-run/v1";
+export {
+  RUNTIME_GENERATION_UNAVAILABLE_CODE,
+  RUNTIME_UPDATE_REQUIRED_CODE,
+} from "./runtime-generation.js";
+
+const COMMAND_RUNS_URL = "/api/v3/command-runs";
+const COMMAND_RUN_PROTOCOL = "swawkit.command-run/v2";
 const COMMAND_RUN_STATES = new Set([
   "running",
   "canceling",
@@ -11,10 +21,11 @@ const COMMAND_RUN_STATES = new Set([
 ]);
 
 export class CommandRunError extends Error {
-  constructor(message, status = 0) {
+  constructor(message, status = 0, code = null) {
     super(message);
     this.name = "CommandRunError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -96,17 +107,19 @@ async function readApiError(response, fallback) {
   try {
     const document = await response.json();
     if (typeof document?.error === "string" && document.error) {
-      return document.error;
+      const code = typeof document.code === "string" ? document.code : null;
+      const message = runtimeGenerationMessage(code) ?? document.error;
+      return { code, message };
     }
   } catch {
     // The HTTP status and fallback remain sufficient for a non-JSON error.
   }
-  return fallback;
+  return { code: null, message: fallback };
 }
 
-export async function startCommandRun(address, arguments_, fetchRun = fetch) {
-  if (typeof address !== "string" || address.length === 0) {
-    throw new CommandRunError("命令地址不能为空。");
+export async function startCommandRun(route, arguments_, fetchRun = fetch) {
+  if (typeof route !== "string" || !route.startsWith("$/")) {
+    throw new CommandRunError("Facet Route 必须是以 $/ 开头的 canonical route。");
   }
   if (!Array.isArray(arguments_) || arguments_.some((value) => typeof value !== "string")) {
     throw new CommandRunError("命令参数必须是字符串数组。");
@@ -117,12 +130,14 @@ export async function startCommandRun(address, arguments_, fetchRun = fetch) {
       Accept: "application/json",
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ address, arguments: arguments_ }),
+    body: JSON.stringify({ route, arguments: arguments_ }),
   });
   if (response.status !== 201) {
+    const error = await readApiError(response, `Host 返回 HTTP ${response.status}`);
     throw new CommandRunError(
-      await readApiError(response, `Host 返回 HTTP ${response.status}`),
+      error.message,
       response.status,
+      error.code,
     );
   }
   const location = response.headers.get("location");
@@ -147,9 +162,11 @@ export async function readCommandRun(id, after, fetchRun = fetch) {
     { cache: "no-store", headers: { Accept: "application/json" } },
   );
   if (response.status !== 200) {
+    const error = await readApiError(response, `Host 返回 HTTP ${response.status}`);
     throw new CommandRunError(
-      await readApiError(response, `Host 返回 HTTP ${response.status}`),
+      error.message,
       response.status,
+      error.code,
     );
   }
   const snapshot = normalizeCommandRunSnapshot(await response.json());
@@ -172,9 +189,11 @@ export async function cancelCommandRun(id, fetchRun = fetch) {
     { method: "DELETE", headers: { Accept: "application/json" } },
   );
   if (response.status !== 204) {
+    const error = await readApiError(response, `Host 返回 HTTP ${response.status}`);
     throw new CommandRunError(
-      await readApiError(response, `Host 返回 HTTP ${response.status}`),
+      error.message,
       response.status,
+      error.code,
     );
   }
 }

@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\setup.ps1')
+. (Join-Path $PSScriptRoot '_lib\stage0-toolchain.ps1')
 
 function Assert-ProjPwshTest {
     param(
@@ -119,7 +119,7 @@ try {
     foreach ($Directory in @($ProjectRoot, $ArchiveRoot)) {
         [void][IO.Directory]::CreateDirectory($Directory)
     }
-    $Context = New-ProjDevContext `
+    $Context = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
         -CacheDataRoot $CacheDataRoot `

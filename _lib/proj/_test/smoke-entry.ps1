@@ -3,7 +3,8 @@ param(
     [string]$LauncherPath = '',
     [string]$CorePath = '',
     [string]$HostPath = '',
-    [string]$ToolchainPath = ''
+    [string]$ModulePath = '',
+    [string]$DevPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -47,7 +48,8 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -LauncherPath $LauncherPath `
     -CorePath $CorePath `
     -HostPath $HostPath `
-    -ToolchainPath $ToolchainPath
+    -ModulePath $ModulePath `
+    -DevPath $DevPath
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-smoke-$([Guid]::NewGuid().ToString('N'))"
 )
@@ -56,7 +58,8 @@ $PoisonedEnvironment = [ordered]@{
     SWAWKIT_HOME = 'C:\foreign-home'
     SWAWKIT_PROJ_PROTOCOL = 'foreign'
     SWAWKIT_PROJ_TARGET_PROJECT_ROOT = 'C:\foreign-project'
-    SWAWKIT_PROJ_ACTION_ROOT = 'C:\foreign-project\.swaw'
+    SWAWKIT_PROJ_PROJECT_ROOT = 'C:\foreign-project'
+    SWAWKIT_PROJ_PROJECT_MODULE_ROOT = 'C:\foreign-project\.swaw'
     SWAWKIT_PROJ_DATA_ROOT = 'C:\foreign-data'
     SWAWKIT_PROJ_ENTRY_COMMAND = 'foreign-entry'
     SWAWKIT_PROJ_ENTRY_FILE = 'C:\foreign-entry.cmd'
@@ -73,11 +76,12 @@ try {
         -LauncherPath $Artifacts.LauncherPath `
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
-        -ToolchainPath $Artifacts.ToolchainPath
+        -ModulePath $Artifacts.ModulePath `
+        -DevPath $Artifacts.DevPath
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
-    $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
+    $DataRoot = [string]$Runtime.DataRoot
 
     foreach ($Name in $PoisonedEnvironment.Keys) {
         $SavedEnvironment[$Name] = [Environment]::GetEnvironmentVariable(
@@ -93,31 +97,60 @@ try {
 
     $Missing = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
-        -Arguments @('..entry', '--json')
+        -Arguments @('.entry', '--json')
     Assert-ProjEntrySmoke `
         -Condition ($Missing.ExitCode -eq 0) `
-        -Message "..entry --json failed: $($Missing.Text)"
+        -Message ".entry --json failed: $($Missing.Text)"
     $MissingDocument = $Missing.Text | ConvertFrom-Json
     Assert-ProjEntrySmoke `
-        -Condition ($MissingDocument.status -ceq 'setupRequired') `
-        -Message 'a fresh Entry did not report setupRequired'
+        -Condition (
+            $MissingDocument.protocol -ceq 'swawkit.entry-config-state/v1' -and
+            $MissingDocument.status -ceq 'default' -and
+            $MissingDocument.config.language -ceq 'zh-CN' -and
+            $null -eq $MissingDocument.config.projectRoot
+        ) `
+        -Message 'a fresh Entry did not expose its valid unbound default config'
 
     $Saved = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.project.root',
+            '.entry/project/root',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjEntrySmoke `
         -Condition ($Saved.ExitCode -eq 0) `
-        -Message "..entry.project.root failed: $($Saved.Text)"
+        -Message ".entry/project/root failed: $($Saved.Text)"
     $SavedDocument = $Saved.Text | ConvertFrom-Json
     Assert-ProjEntrySmoke `
         -Condition (
             $SavedDocument.status -ceq 'ready' -and
-            $SavedDocument.profile.targetProjectRoot -ceq '${SWAWKIT_HOME}'
+            $SavedDocument.config.projectRoot -ceq '${SWAWKIT_HOME}'
         ) `
-        -Message 'the saved Entry Profile is not ready'
+        -Message 'the saved Entry Config is not ready'
+
+    $English = Invoke-ProjEntrySmoke `
+        -EntryPath $EntryPath `
+        -Arguments @('.entry/language', 'en')
+    Assert-ProjEntrySmoke `
+        -Condition ($English.ExitCode -eq 0) `
+        -Message "failed to select English Entry help: $($English.Text)"
+    foreach ($HelpCase in @(
+        @{ Address = '.entry/project'; Expected = 'Maintain the target project' },
+        @{ Address = '.runtime'; Expected = 'Inspect aggregate Host and native Runtime' }
+    )) {
+        $LocalizedHelp = Invoke-ProjEntrySmoke `
+            -EntryPath $EntryPath `
+            -Arguments @([string]$HelpCase.Address, '--help')
+        Assert-ProjEntrySmoke `
+            -Condition (
+                $LocalizedHelp.ExitCode -eq 0 -and
+                $LocalizedHelp.Text.Contains([string]$HelpCase.Expected)
+            ) `
+            -Message (
+                "$($HelpCase.Address) did not use the saved Entry language: " +
+                $LocalizedHelp.Text
+            )
+    }
 
     $Help = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
@@ -125,8 +158,8 @@ try {
     Assert-ProjEntrySmoke `
         -Condition (
             $Help.ExitCode -eq 0 -and
-            $Help.Text.Contains("${EntryName}:") -and
-            $Help.Text.Contains("$EntryName ..entry")
+            $Help.Text.Contains("$EntryName .entry/language") -and
+            $Help.Text.Contains("$EntryName .context")
         ) `
         -Message "root help did not expose the Entry section: $($Help.Text)"
 
@@ -136,13 +169,13 @@ try {
     Assert-ProjEntrySmoke `
         -Condition (
             $DotHelp.ExitCode -eq 0 -and
-            $DotHelp.Text.Contains("${EntryName}:")
+            $DotHelp.Text.Contains("$EntryName .entry/language")
         ) `
         -Message ".help leaked into its fail-closed adapter: $($DotHelp.Text)"
 
     $DevelopmentStatus = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
-        -Arguments @('.dev.status')
+        -Arguments @('.dev/status')
     Assert-ProjEntrySmoke `
         -Condition (
             $DevelopmentStatus.ExitCode -eq 0 -and
@@ -153,7 +186,7 @@ try {
             $DevelopmentStatus.Text.Contains('[MISSING] rust stable')
         ) `
         -Message (
-            '.dev.status did not execute through the candidate Toolchain: ' +
+            '.dev/status did not execute through the candidate Toolchain: ' +
             $DevelopmentStatus.Text
         )
 
@@ -161,7 +194,7 @@ try {
         $Disabled = Invoke-ProjEntrySmoke `
             -EntryPath $EntryPath `
             -Arguments @(
-                ".dev.$Tool.mode",
+                ".dev/$Tool/mode",
                 'disabled'
             )
         Assert-ProjEntrySmoke `
@@ -171,24 +204,24 @@ try {
     $PwshVersion = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
         -Arguments @(
-            '.dev.pwsh.version',
+            '.dev/pwsh/version',
             '7.6.4'
         )
     Assert-ProjEntrySmoke `
         -Condition ($PwshVersion.ExitCode -eq 0) `
         -Message "failed to select managed PowerShell 7: $($PwshVersion.Text)"
     $ManagedPwshSource = Join-Path $RepoRoot (
-        'data\proj.swawkit\modules\kernel\.dev\setup\export\pwsh\installs\7.6.4'
+        'data\proj.swawkit\modules\system\dev\setup\export\pwsh\installs\7.6.4'
     )
     Copy-ProjFixtureHardLinkTree `
         -Source $ManagedPwshSource `
         -Destination (Join-Path $DataRoot (
-            'modules\kernel\.dev\setup\export\pwsh\installs\7.6.4'
+            'modules\system\dev\setup\export\pwsh\installs\7.6.4'
         ))
     $DevelopmentSetup = Invoke-ProjEntrySmoke `
         -EntryPath $EntryPath `
-        -Arguments @('.dev.setup')
-    $SetupRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
+        -Arguments @('.dev/setup')
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
     Assert-ProjEntrySmoke `
         -Condition (
             $DevelopmentSetup.ExitCode -eq 0 -and
@@ -197,8 +230,32 @@ try {
             [IO.File]::Exists((Join-Path $SetupRoot 'export\env.ps1'))
         ) `
         -Message (
-            '.dev.setup did not execute through Catalog, Core, and the ' +
+            '.dev/setup did not execute through Catalog, Core, and the ' +
             "candidate Toolchain: $($DevelopmentSetup.Text)"
+        )
+
+    $ProjectBinding = Invoke-ProjEntrySmoke `
+        -EntryPath $EntryPath `
+        -Arguments @('.entry/project/root', $RepoRoot)
+    Assert-ProjEntrySmoke `
+        -Condition ($ProjectBinding.ExitCode -eq 0) `
+        -Message "failed to bind the smoke project: $($ProjectBinding.Text)"
+    $ProjectEcho = Invoke-ProjEntrySmoke `
+        -EntryPath $EntryPath `
+        -Arguments @('project/demo/echo', 'smoke')
+    $ProjectModuleRoot = Join-Path $RepoRoot '.swaw'
+    Assert-ProjEntrySmoke `
+        -Condition (
+            $ProjectEcho.ExitCode -eq 0 -and
+            $ProjectEcho.Text.Contains('commandAddress=project/demo/echo') -and
+            $ProjectEcho.Text.Contains("projectRoot=$RepoRoot") -and
+            $ProjectEcho.Text.Contains("projectModuleRoot=$ProjectModuleRoot") -and
+            $ProjectEcho.Text.Contains('arg[0]="smoke"') -and
+            -not $ProjectEcho.Text.Contains('C:\foreign-project')
+        ) `
+        -Message (
+            'the project command did not receive the current binding or inherited ' +
+            "the retired parent environment: $($ProjectEcho.Text)"
         )
 
     $RemovedWeb = Invoke-ProjEntrySmoke `
@@ -212,8 +269,8 @@ try {
         -Message '..web remained a public command after its removal'
 
     Assert-ProjEntrySmoke `
-        -Condition ([IO.File]::Exists((Join-Path $DataRoot '_profile.json'))) `
-        -Message 'the native Entry did not publish its Profile'
+        -Condition ([IO.File]::Exists((Join-Path $DataRoot '_entry-config.json'))) `
+        -Message 'the native Entry did not publish its Entry Config'
 } finally {
     foreach ($Name in $SavedEnvironment.Keys) {
         [Environment]::SetEnvironmentVariable(

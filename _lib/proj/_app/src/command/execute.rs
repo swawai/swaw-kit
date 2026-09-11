@@ -1,14 +1,15 @@
 use std::ffi::OsString;
-use std::path::Path;
 
-use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSource};
-use crate::run_journal::{RunJournal, RunJournalPhase, RunJournalSource, StartRunJournal};
+use crate::catalog::{CatalogSnapshot, CommandAdapter, CommandSpace};
+use crate::command_runtime::CommandRuntime;
+use crate::native_command;
+use crate::run_journal::{RunJournal, RunJournalSource, StartRunJournal};
 
 use super::{
-    CommandError, CommandExecutionContext, CommandResult, ConsoleCancellation, ExecutionPhase,
-    GuardPlan, Invocation, ProcessEnvironment, ResolvedCommand, command_data_root,
-    process::{AdapterLaunch, run_process, run_process_journaled, validate_adapter},
-    resolve_entry_development,
+    CommandError, CommandExecutionContext, CommandResult, ConsoleCancellation, Invocation,
+    PlannedCommand, PreparedCommand, ProcessEnvironment, ResolvedCommand, command_data_root,
+    process::{AdapterLaunch, validate_adapter},
+    validate_dev_executable, validate_module_executable,
 };
 
 pub struct CommandExecutor<'a> {
@@ -21,20 +22,14 @@ impl<'a> CommandExecutor<'a> {
         Self { context, catalog }
     }
 
-    pub fn preflight(
-        kernel_root: &Path,
-        catalog: &CatalogSnapshot,
-        argv: &[OsString],
-    ) -> CommandResult<()> {
+    pub fn validate_invocation(catalog: &CatalogSnapshot, argv: &[OsString]) -> CommandResult<()> {
         let invocation = Invocation::resolve(catalog, argv)?;
         validate_command_adapter(&invocation.command)?;
-        GuardPlan::discover(kernel_root, &invocation.command)?;
         Ok(())
     }
 
     pub fn execute(&self, argv: &[OsString]) -> CommandResult<i32> {
-        let invocation = Invocation::resolve(self.catalog, argv)?;
-        self.execute_invocation(&invocation, None)
+        self.prepare(argv)?.execute()
     }
 
     pub fn execute_journaled(&self, argv: &[OsString]) -> CommandResult<i32> {
@@ -54,16 +49,20 @@ impl<'a> CommandExecutor<'a> {
         argv: &[OsString],
         cancellation: Option<&ConsoleCancellation>,
     ) -> CommandResult<i32> {
-        let invocation = Invocation::resolve(self.catalog, argv)?;
+        let plan = self.plan(argv)?;
         let journal = RunJournal::start(StartRunJournal {
-            module_data_root: command_data_root(self.context, &invocation.command)?,
-            address: invocation.command.address.clone(),
+            module_data_root: command_data_root(self.context, plan.command())?,
+            address: plan.command().address.clone(),
             source: RunJournalSource::Cli,
-            argument_count: invocation.arguments.len(),
-            profile_revision: self.context.profile_revision.clone(),
+            argument_count: plan.argument_count(),
         })
         .map_err(|error| CommandError::new(format!("cannot start command journal: {error}")))?;
-        let result = self.execute_invocation(&invocation, Some(&journal));
+        // Keep the existing side-effect boundary: adapter/runtime/native and
+        // ProcessEnvironment preparation happens after the Journal starts, so
+        // a preparation failure is still persisted as a failed CLI run.
+        let result = self
+            .materialize(plan)
+            .and_then(|prepared| prepared.execute_journaled(&journal));
         if cancellation.is_some_and(|cancellation| {
             cancellation.requested() && !cancellation.termination_failed()
         }) {
@@ -90,159 +89,147 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    fn execute_invocation(
-        &self,
-        invocation: &Invocation,
-        journal: Option<&RunJournal>,
-    ) -> CommandResult<i32> {
+    pub(crate) fn prepare(&self, argv: &[OsString]) -> CommandResult<PreparedCommand> {
+        let plan = self.plan(argv)?;
+        self.materialize(plan)
+    }
+
+    /// Resolves only the logical invocation and its declared dependencies.
+    /// Adapter artifacts, command environment, and OS launch state are
+    /// intentionally deferred until after a Run Journal has started.
+    pub(crate) fn plan(&self, argv: &[OsString]) -> CommandResult<PlannedCommand> {
+        let invocation = Invocation::resolve(self.catalog, argv)?;
+        self.assert_dependencies_ready(&invocation)?;
+        Ok(PlannedCommand::new(invocation))
+    }
+
+    fn assert_dependencies_ready(&self, invocation: &Invocation) -> CommandResult<()> {
+        crate::command_check::assert_dependencies_ready(
+            &self.context.data_root,
+            &self.context.entry_name,
+            self.catalog,
+            &invocation.command.address,
+        )
+        .map_err(CommandError::new)
+    }
+
+    /// Materializes adapter/runtime/native state for an already checked plan.
+    pub(crate) fn materialize(&self, plan: PlannedCommand) -> CommandResult<PreparedCommand> {
+        let invocation = plan.into_invocation();
         validate_command_adapter(&invocation.command)?;
-        let guard_plan = GuardPlan::discover(&self.context.kernel_root, &invocation.command)?;
-
-        for guard in guard_plan.guards {
-            let environment = ProcessEnvironment::for_command(
-                self.context,
-                &invocation.command,
-                ExecutionPhase::Guard(guard.scope),
-            )?;
-            let phase = match guard.scope {
-                super::GuardScope::Global => RunJournalPhase::GuardGlobal,
-                super::GuardScope::Command => RunJournalPhase::GuardCommand,
-            };
-            let exit_code = run(
-                guard.adapter,
-                &guard.entry_path,
-                &[],
-                &self.context.target_project_root,
-                &AdapterLaunch::Direct,
-                &environment,
-                self.context.process_mode,
-                journal,
-                phase,
-            )?;
-            if exit_code != 0 {
-                return Ok(exit_code);
-            }
-        }
-
-        // Guards can repair or invalidate the managed runtime. Resolve mutable adapter
-        // resources only after every guard has completed, immediately before launch.
-        let mut development_environment = None;
+        let mut native_resolution = None;
         let adapter_launch = match invocation.command.adapter {
-            CommandAdapter::Bun => {
-                let resolved = resolve_entry_development(self.context)?;
-                development_environment = Some(resolved.environment);
-                AdapterLaunch::Bun(resolved.bun_executable.ok_or_else(|| {
-                    CommandError::new(format!(
-                        "Bun is disabled for this Entry. Run '{} .dev.bun.mode managed', then '{} .dev.setup'",
-                        self.context.entry_name, self.context.entry_name
-                    ))
-                })?)
+            CommandAdapter::Bun => AdapterLaunch::Bun(self.command_runtime_tool("bun")?),
+            CommandAdapter::Pwsh => AdapterLaunch::Pwsh(self.command_runtime_tool("pwsh")?),
+            CommandAdapter::Runtime => {
+                let product = invocation.command.product.as_deref().ok_or_else(|| {
+                    CommandError::new(
+                        "Catalog invariant failed: Runtime Component command has no product",
+                    )
+                })?;
+                let executable = match product {
+                    "module" => {
+                        validate_module_executable(&self.context.module_executable)?;
+                        self.context.module_executable.clone()
+                    }
+                    "dev" => {
+                        validate_dev_executable(&self.context.dev_executable)?;
+                        self.context.dev_executable.clone()
+                    }
+                    _ => {
+                        return Err(CommandError::new(format!(
+                            "unsupported Runtime Component product '{product}'"
+                        )));
+                    }
+                };
+                AdapterLaunch::Runtime {
+                    executable,
+                    address: invocation.command.address.clone(),
+                }
             }
-            CommandAdapter::Pwsh => {
-                let resolved = resolve_entry_development(self.context)?;
-                development_environment = Some(resolved.environment);
-                AdapterLaunch::Pwsh(resolved.pwsh_executable.ok_or_else(|| {
+            CommandAdapter::Native | CommandAdapter::Delegate => {
+                let instantiate_target = native_command::instantiation_target(&invocation.command)?;
+                let resolution = native_command::resolve_command_executable(
+                    self.context,
+                    self.catalog,
+                    &invocation.command,
+                )
+                .map_err(|error| {
                     CommandError::new(format!(
-                        "PowerShell 7 is disabled for this Entry. Run '{} .dev.pwsh.mode managed', then '{} .dev.setup'",
-                        self.context.entry_name, self.context.entry_name
+                        "{error}; run '{} .module/instantiate {}'",
+                        self.context.entry_name, instantiate_target
                     ))
-                })?)
+                })?;
+                let executable = resolution.executable.clone();
+                native_resolution = Some(resolution);
+                AdapterLaunch::Native(executable)
             }
-            CommandAdapter::Toolchain => AdapterLaunch::Toolchain {
-                executable: self.context.toolchain_executable.clone(),
-                handler: invocation.command.handler.clone().ok_or_else(|| {
-                    CommandError::new("Catalog invariant failed: Toolchain command has no handler")
-                })?,
-            },
             _ => AdapterLaunch::Direct,
         };
-        let mut environment = ProcessEnvironment::for_command(
-            self.context,
-            &invocation.command,
-            ExecutionPhase::Run,
-        )?;
-        if let Some(plan) = &development_environment {
-            environment.apply_development_environment(
-                plan,
-                &self
-                    .context
-                    .data_root
-                    .join("modules/kernel/.dev/setup/export"),
-            )?;
+        let mut environment = ProcessEnvironment::for_command(self.context, &invocation.command)?;
+        if let Some(resolution) = &native_resolution {
+            environment.apply_native_owner(
+                &resolution.owner_address,
+                &resolution.owner_directory,
+                &resolution.owner_data_root,
+            );
         }
-        run(
+        let working_directory = if invocation.command.space == CommandSpace::Module
+            && invocation.command.namespace.as_deref() == Some("project")
+        {
+            self.context.project_root.clone().ok_or_else(|| {
+                CommandError::new(
+                    "Catalog invariant failed: project command has no bound project root",
+                )
+            })?
+        } else {
+            self.context.working_directory.clone()
+        };
+        Ok(PreparedCommand::new(
             invocation.command.adapter,
-            &invocation.command.entry_path,
-            &invocation.arguments,
-            &self.context.target_project_root,
-            &adapter_launch,
-            &environment,
+            invocation.command.entry_path,
+            invocation.arguments,
+            working_directory,
+            adapter_launch,
+            environment,
             self.context.process_mode,
-            journal,
-            RunJournalPhase::Run,
-        )
+        ))
     }
-}
 
-#[allow(clippy::too_many_arguments)]
-fn run(
-    adapter: crate::catalog::CommandAdapter,
-    entry_path: &Path,
-    arguments: &[OsString],
-    working_directory: &Path,
-    adapter_launch: &AdapterLaunch,
-    environment: &ProcessEnvironment,
-    process_mode: super::CommandProcessMode,
-    journal: Option<&RunJournal>,
-    phase: RunJournalPhase,
-) -> CommandResult<i32> {
-    match journal {
-        Some(journal) => run_process_journaled(
-            adapter,
-            entry_path,
-            arguments,
-            working_directory,
-            adapter_launch,
-            environment,
-            process_mode,
-            journal,
-            phase,
-        ),
-        None => run_process(
-            adapter,
-            entry_path,
-            arguments,
-            working_directory,
-            adapter_launch,
-            environment,
-            process_mode,
-        ),
+    fn command_runtime_tool(&self, name: &str) -> CommandResult<std::path::PathBuf> {
+        let runtime =
+            CommandRuntime::open(&self.context.swawkit_home, &self.context.command_runtime_id)
+                .map_err(|error| {
+                    CommandError::new(format!("Command Runtime is invalid: {error}"))
+                })?;
+        runtime
+            .tool(&self.context.swawkit_home, name)
+            .map_err(|error| CommandError::new(format!("Command Runtime tool is invalid: {error}")))
     }
 }
 
 fn validate_command_adapter(command: &ResolvedCommand) -> CommandResult<()> {
     validate_adapter(command.adapter)?;
-    if command.adapter == CommandAdapter::Toolchain && command.handler.is_none() {
+    if command.adapter == CommandAdapter::Runtime && command.product.is_none() {
         return Err(CommandError::new(
-            "Catalog invariant failed: Toolchain command has no handler",
+            "Catalog invariant failed: Runtime Component command has no product",
         ));
     }
-    if command.adapter == CommandAdapter::Bun && command.source != CommandSource::Action {
+    if command.adapter != CommandAdapter::Runtime && command.product.is_some() {
         return Err(CommandError::new(format!(
-            "the run.ts adapter is only supported for Action commands; '{}' is product-owned \
-             and must use a Rust-native entry",
+            "Catalog invariant failed: non-Runtime command '{}' declares a product",
             command.address
         )));
     }
-    if command.adapter == CommandAdapter::Pwsh && command.source == CommandSource::Control {
+    if command.adapter == CommandAdapter::Bun && command.space != CommandSpace::Module {
         return Err(CommandError::new(format!(
-            "the run.ps1 adapter is not supported for Entry command '{}'",
+            "the run.ts adapter is only supported for Module commands; '{}' is a System command",
             command.address
         )));
     }
-    if command.adapter == CommandAdapter::Toolchain && command.source != CommandSource::Kernel {
+    if command.adapter == CommandAdapter::Runtime && command.space != CommandSpace::System {
         return Err(CommandError::new(format!(
-            "the run.toolchain.json adapter is only supported for Kernel commands; '{}' has an invalid owner",
+            "Runtime Component execution is only supported for System commands; '{}' has an invalid owner",
             command.address
         )));
     }

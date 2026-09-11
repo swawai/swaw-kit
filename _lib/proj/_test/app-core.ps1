@@ -5,41 +5,66 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\bootstrap.ps1')
+. (Join-Path $ProjRoot '_bootstrap\toolchain.ps1')
 
 $Toolchain = Initialize-ProjBootstrapToolchain
-$ManifestPath = Join-Path $ProjRoot '_app\Cargo.toml'
+$RustProjects = @(
+    @{
+        Name = 'shared protocol'
+        ManifestPath = Join-Path $ProjRoot '_protocol\Cargo.toml'
+        TargetName = 'protocol-test'
+    },
+    @{
+        Name = 'Module manager'
+        ManifestPath = Join-Path $ProjRoot 'system\module\Cargo.toml'
+        TargetName = 'module-test'
+    },
+    @{
+        Name = 'Dev environment manager'
+        ManifestPath = Join-Path $ProjRoot 'system\dev\Cargo.toml'
+        TargetName = 'dev-test'
+    },
+    @{
+        Name = 'Core'
+        ManifestPath = Join-Path $ProjRoot '_app\Cargo.toml'
+        TargetName = 'app-test'
+    }
+)
 
-& $Toolchain.CargoPath `
-    fmt `
-    --manifest-path $ManifestPath `
-    -- `
-    --check
-if ($LASTEXITCODE -ne 0) {
-    throw "Rust Core formatting check failed with exit code $LASTEXITCODE."
+foreach ($Project in $RustProjects) {
+    & $Toolchain.CargoPath `
+        fmt `
+        --manifest-path $Project.ManifestPath `
+        -- `
+        --check
+    if ($LASTEXITCODE -ne 0) {
+        throw "Rust $($Project.Name) formatting check failed with exit code $LASTEXITCODE."
+    }
 }
 
-$TargetRoot = Assert-ProjDevPathInsideDataRoot `
-    -Path (Join-Path $Toolchain.Context.DataRoot 'build\app-test') `
-    -DataRoot $Toolchain.Context.DataRoot `
-    -Activity 'testing the Rust Proj Core'
 $TestLock = Enter-ProjDevFileLock `
     -Path (Join-Path $Toolchain.Context.LockRoot 'app-test.lock') `
     -ControlledRoot $Toolchain.Context.DataRoot `
     -TimeoutSeconds 1800
 try {
-    & $Toolchain.CargoPath `
-        test `
-        --locked `
-        --offline `
-        --manifest-path $ManifestPath `
-        --target-dir $TargetRoot
-    if ($LASTEXITCODE -ne 0) {
-        throw "Rust Core tests failed with exit code $LASTEXITCODE."
+    foreach ($Project in $RustProjects) {
+        $TargetRoot = Assert-ProjDevPathInsideDataRoot `
+            -Path (Join-Path $Toolchain.Context.DataRoot "build\$($Project.TargetName)") `
+            -DataRoot $Toolchain.Context.DataRoot `
+            -Activity "testing the Rust $($Project.Name)"
+        & $Toolchain.CargoPath `
+            test `
+            --locked `
+            --offline `
+            --manifest-path $Project.ManifestPath `
+            --target-dir $TargetRoot
+        if ($LASTEXITCODE -ne 0) {
+            throw "Rust $($Project.Name) tests failed with exit code $LASTEXITCODE."
+        }
     }
 } finally {
     $TestLock.Dispose()
 }
 
-Write-Host '[PASS] Proj Rust Core test suite' -ForegroundColor Green
+Write-Host '[PASS] Proj Rust product test suites' -ForegroundColor Green
 $global:LASTEXITCODE = 0

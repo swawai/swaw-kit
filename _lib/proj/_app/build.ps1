@@ -47,8 +47,7 @@ try {
 
 foreach ($Name in @(
     'swawkit-proj.exe',
-    'swawkit-proj-host.exe',
-    'swawkit-proj-toolchain.exe'
+    'swawkit-proj-host.exe'
 )) {
     $BuiltPath = Join-Path (Join-Path $TargetDirectory 'release') $Name
     if (-not [IO.File]::Exists($BuiltPath)) {

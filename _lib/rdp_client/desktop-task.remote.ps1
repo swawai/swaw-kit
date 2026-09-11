@@ -401,7 +401,7 @@ try {
     )
     $Request = $RequestJson | ConvertFrom-Json
     $Action = [string]$Request.Action
-    if (@('screenshot', 'pixel', 'click', 'script') -notcontains $Action) {
+    if (@('screenshot', 'pixel', 'click') -notcontains $Action) {
         throw "[INVALID_REQUEST] Unsupported desktop action: $Action"
     }
 
@@ -515,138 +515,6 @@ try {
                 $OriginY + $Y
             )
         }
-    } else {
-        $StepsProperty = $Request.PSObject.Properties['Steps']
-        if ($null -eq $StepsProperty) {
-            throw '[INVALID_REQUEST] Desktop script steps were not provided.'
-        }
-        $Steps = @($StepsProperty.Value)
-        if ($Steps.Count -lt 1 -or $Steps.Count -gt 32) {
-            throw '[INVALID_REQUEST] Desktop script must contain 1 to 32 steps.'
-        }
-        $ValidatedSteps = New-Object 'Collections.Generic.List[object]'
-        $ScreenshotCount = 0
-        for ($Index = 0; $Index -lt $Steps.Count; $Index++) {
-            $Step = $Steps[$Index]
-            $ActionProperty = $Step.PSObject.Properties['Action']
-            if ($null -eq $ActionProperty -or
-                [string]::IsNullOrWhiteSpace([string]$ActionProperty.Value)) {
-                throw (
-                    '[INVALID_REQUEST] Desktop script step {0} has no action.' -f `
-                        ($Index + 1)
-                )
-            }
-            $StepAction = [string]$ActionProperty.Value
-            $ValidatedStep = [ordered]@{ Action = $StepAction }
-            switch ($StepAction) {
-                'screenshot' {
-                    $ScreenshotCount++
-                    if ($ScreenshotCount -gt 8) {
-                        throw (
-                            '[INVALID_REQUEST] Desktop script may contain ' +
-                            'at most 8 screenshots.'
-                        )
-                    }
-                }
-                { $_ -in @('pixel', 'click') } {
-                    $ValidatedStep.X = Resolve-RdpClientDesktopRequestInteger `
-                        -RequestObject $Step `
-                        -Name X
-                    $ValidatedStep.Y = Resolve-RdpClientDesktopRequestInteger `
-                        -RequestObject $Step `
-                        -Name Y
-                    Assert-RdpClientDesktopCoordinate `
-                        -X $ValidatedStep.X `
-                        -Y $ValidatedStep.Y `
-                        -Width $Width `
-                        -Height $Height
-                }
-                'wait' {
-                    $ValidatedStep.Milliseconds = `
-                        Resolve-RdpClientDesktopRequestInteger `
-                            -RequestObject $Step `
-                            -Name Milliseconds `
-                            -Maximum 10000
-                }
-                default {
-                    throw (
-                        '[INVALID_REQUEST] Unsupported desktop script ' +
-                        "action at step $($Index + 1): $StepAction"
-                    )
-                }
-            }
-            $ValidatedSteps.Add([pscustomobject]$ValidatedStep)
-        }
-
-        $StepResults = New-Object 'Collections.Generic.List[object]'
-        $ImageBase64Characters = [int64]0
-        for ($Index = 0; $Index -lt $ValidatedSteps.Count; $Index++) {
-            $Step = $ValidatedSteps[$Index]
-            $StepAction = [string]$Step.Action
-            try {
-                $StepResult = [ordered]@{
-                    Index  = $Index + 1
-                    Action = $StepAction
-                }
-                switch ($StepAction) {
-                    'screenshot' {
-                        $StepResult.ImageBase64 = `
-                            Get-RdpClientDesktopScreenshotBase64 `
-                                -OriginX $OriginX `
-                                -OriginY $OriginY `
-                                -Width $Width `
-                                -Height $Height
-                        $ImageBase64Characters += `
-                            ([string]$StepResult.ImageBase64).Length
-                        if ($ImageBase64Characters -gt 50000000) {
-                            throw (
-                                '[WORKFLOW_RESULT_TOO_LARGE] Encoded workflow ' +
-                                'screenshots exceed the 50,000,000-character limit.'
-                            )
-                        }
-                    }
-                    'pixel' {
-                        $StepX = [int]$Step.X
-                        $StepY = [int]$Step.Y
-                        $StepResult.X = $StepX
-                        $StepResult.Y = $StepY
-                        $StepResult.Color = Get-RdpClientDesktopPixelColor `
-                            -X ($OriginX + $StepX) `
-                            -Y ($OriginY + $StepY)
-                    }
-                    'click' {
-                        $StepX = [int]$Step.X
-                        $StepY = [int]$Step.Y
-                        [SwawKit.RdpClient.DesktopNative]::LeftClick(
-                            $OriginX + $StepX,
-                            $OriginY + $StepY
-                        )
-                        $StepResult.X = $StepX
-                        $StepResult.Y = $StepY
-                    }
-                    'wait' {
-                        $Milliseconds = [int]$Step.Milliseconds
-                        Start-Sleep -Milliseconds $Milliseconds
-                        $StepResult.Milliseconds = $Milliseconds
-                    }
-                    default {
-                        throw (
-                            '[INVALID_REQUEST] Unsupported desktop script ' +
-                            "action: $StepAction"
-                        )
-                    }
-                }
-                $StepResults.Add([pscustomobject]$StepResult)
-            } catch {
-                throw (
-                    '[WORKFLOW_STEP_FAILED] Step {0} ({1}): {2}' -f `
-                        ($Index + 1),
-                        $StepAction,
-                        $_.Exception.Message
-                )
-            }
-        }
-        $Result.Steps = $StepResults.ToArray()
     }
 
     Write-RdpClientDesktopResult `

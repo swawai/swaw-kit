@@ -1,11 +1,12 @@
 use std::{
     io::{Read, Write},
-    net::TcpStream,
+    net::{Ipv4Addr, TcpStream},
     sync::mpsc,
     time::Duration,
 };
 
 use super::*;
+use crate::server::loopback::bind_browser_safe;
 
 #[tokio::test]
 async fn runtime_status_is_one_typed_control_document() {
@@ -25,10 +26,21 @@ async fn runtime_status_is_one_typed_control_document() {
             .expect("Runtime status body"),
     )
     .expect("Runtime status JSON");
-    assert_eq!(document["protocol"], "swawkit.runtime-status/v1");
-    assert_eq!(document["selectedReleaseId"], "1".repeat(64));
-    assert_eq!(document["releaseCount"], 0);
-    assert_eq!(document["host"]["protocol"], "swawkit.host-status/v1");
+    assert_eq!(document["protocol"], "swawkit.runtime-status/v3");
+    assert_eq!(document["selectedReleaseId"], fixture.release_id);
+    assert_eq!(document["releaseCount"], 1);
+    assert_eq!(document["host"]["protocol"], "swawkit.host-status/v3");
+    assert_eq!(
+        document
+            .as_object()
+            .expect("Runtime status object")
+            .keys()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>(),
+        std::collections::BTreeSet::from(
+            ["host", "protocol", "releaseCount", "selectedReleaseId",]
+        )
+    );
     assert_eq!(document["host"]["updateAvailable"], false);
 }
 
@@ -47,9 +59,53 @@ async fn runtime_cleanup_requires_an_explicit_control_action() {
 }
 
 #[tokio::test]
+async fn stale_host_rejects_runtime_cleanup_before_preview_or_apply() {
+    let fixture = Fixture::new();
+    let app = fixture.app();
+    let selected_release_id = fixture.select_update();
+
+    for action in ["runtime-cleanup-preview", "runtime-cleanup-apply"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v2/runtime/cleanup")
+                    .header(HOST, AUTHORITY)
+                    .header("x-swawkit-control", action)
+                    .body(Body::empty())
+                    .expect("valid Runtime cleanup request"),
+            )
+            .await
+            .expect("Runtime cleanup response");
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("Runtime cleanup error body");
+        let document: Value = serde_json::from_slice(&body).expect("Runtime cleanup error JSON");
+        assert_eq!(
+            document["code"],
+            crate::server::command_run::RUNTIME_UPDATE_REQUIRED_CODE
+        );
+        assert!(document["error"].as_str().is_some_and(|error| {
+            error.contains(&fixture.release_id) && error.contains(&selected_release_id)
+        }));
+    }
+    assert!(
+        fixture
+            .root
+            .join("home/data/proj.swawkit/runtime/releases")
+            .join(&fixture.release_id)
+            .is_dir(),
+        "stale cleanup apply must not remove the running generation"
+    );
+}
+
+#[tokio::test]
 async fn binds_independent_random_ports_on_ipv4_loopback() {
-    let first = bind_loopback().await.expect("first listener");
-    let second = bind_loopback().await.expect("second listener");
+    let first = bind_browser_safe().await.expect("first listener");
+    let second = bind_browser_safe().await.expect("second listener");
     let first_address = first.local_addr().expect("first address");
     let second_address = second.local_addr().expect("second address");
 
@@ -66,9 +122,10 @@ fn shutdown_signal_stops_the_live_http_server() {
     fixture.directory("home/_lib/proj");
     let (events, received_events) = mpsc::channel();
     let (shutdown, shutdown_receiver) = oneshot::channel();
-    let host_runtime = test_host_runtime();
+    let context = fixture.context();
+    let host_runtime = test_host_runtime(&context);
     let server_thread = spawn(
-        fixture.context(),
+        context,
         fixture.data_root_session(),
         host_runtime.identity(),
         move |event| events.send(event).map_err(|error| error.to_string()),
@@ -104,8 +161,13 @@ fn shutdown_signal_stops_the_live_http_server() {
     )));
     assert!(response.to_ascii_lowercase().contains(&format!(
         "{}: {}\r\n",
-        crate::host_runtime::HOST_ENTRY_HEADER,
-        document.entry_key_sha256
+        crate::host_runtime::HOST_INSTANCE_HEADER,
+        document.instance_key_sha256
+    )));
+    assert!(response.to_ascii_lowercase().contains(&format!(
+        "{}: {}\r\n",
+        crate::host_runtime::HOST_RELEASE_HEADER,
+        document.release_id
     )));
     assert!(response.ends_with("\r\nok\n"));
 
@@ -123,9 +185,10 @@ fn authenticated_web_shutdown_stops_the_live_http_server() {
     fixture.directory("home/_lib/proj");
     let (events, received_events) = mpsc::channel();
     let (_shutdown, shutdown_receiver) = oneshot::channel();
-    let host_runtime = test_host_runtime();
+    let context = fixture.context();
+    let host_runtime = test_host_runtime(&context);
     let server_thread = spawn(
-        fixture.context(),
+        context,
         fixture.data_root_session(),
         host_runtime.identity(),
         move |event| events.send(event).map_err(|error| error.to_string()),

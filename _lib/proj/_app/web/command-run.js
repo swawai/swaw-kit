@@ -4,6 +4,7 @@ import {
   readCommandRun,
   startCommandRun,
 } from "./command-run-client.js";
+import { isRuntimeGenerationCode } from "./runtime-generation.js";
 import {
   argumentValues,
   commandRunStatus,
@@ -44,12 +45,14 @@ export function createCommandRunView(elements, options = {}) {
   const clearTimer = options.clearTimer ?? globalThis.clearTimeout;
   const pollDelay = options.pollDelay ?? 400;
   const onCompleted = options.onCompleted ?? (() => {});
+  const onRuntimeUpdateRequired = options.onRuntimeUpdateRequired ?? (() => {});
   const commandOutput = createCommandRunOutput(elements, options);
   const commandOperations = createCommandRunOperations(elements, {
     document: documentObject,
     onExecute: (arguments_) => void execute(arguments_),
   });
   let selectedCommand = null;
+  let selectedRoute = null;
   let snapshot = null;
   let cursor = 0;
   let timer = null;
@@ -146,7 +149,7 @@ export function createCommandRunView(elements, options = {}) {
 
   function render() {
     const active = isCommandRunActive(snapshot);
-    const runnable = isCommandRunSupported(selectedCommand);
+    const runnable = selectedRoute !== null && isCommandRunSupported(selectedCommand);
     const status = commandRunStatus(snapshot);
     const editorBlocked = active || submitting || restoring || recoveryUncertain;
     elements.commandRunSection.hidden = !runnable && !active;
@@ -287,6 +290,7 @@ export function createCommandRunView(elements, options = {}) {
     const command = selectedCommand;
     if (
       !isCommandRunSupported(command)
+      || selectedRoute === null
       || isCommandRunActive(snapshot)
       || submitting
       || restoring
@@ -299,15 +303,9 @@ export function createCommandRunView(elements, options = {}) {
     render();
     try {
       const arguments_ = explicitArguments === undefined
-        ? argumentValues(inputs())
+        ? argumentValues([...inputs()].filter((input) => input.dataset.fixed !== "true"))
         : [...explicitArguments];
-      const next = await startCommandRun(command.address, arguments_, fetchRun);
-      if (next.address !== command.address) {
-        throw contractError(t(
-          "创建响应返回了不同的命令地址。",
-          "The create response returned a different command address.",
-        ));
-      }
+      const next = await startCommandRun(selectedRoute, arguments_, fetchRun);
       pollVersion += 1;
       stopTimer();
       snapshot = null;
@@ -316,6 +314,12 @@ export function createCommandRunView(elements, options = {}) {
         schedulePoll(pollVersion);
       }
     } catch (error) {
+      if (
+        error instanceof CommandRunError
+        && isRuntimeGenerationCode(error.code)
+      ) {
+        onRuntimeUpdateRequired(error);
+      }
       setFeedback(
         error instanceof Error
           ? error.message
@@ -451,33 +455,33 @@ export function createCommandRunView(elements, options = {}) {
       confirmation = null,
       key = null,
       label = null,
-      useOperations = true,
+      route = null,
     } = {},
   ) {
     const previous = selectedEditorKey;
     selectedCommand = command ?? null;
+    selectedRoute = selectedCommand && typeof route === "string" && route.startsWith("$/")
+      ? route
+      : null;
     selectedFixedArguments = [...arguments_];
     selectedAcceptsTail = acceptsTail;
     selectedEditorKey = selectedCommand
-      ? key ?? `${selectedCommand.address}\u0000${JSON.stringify({
+      ? key ?? `${selectedRoute}\u0000${JSON.stringify({
         acceptsTail: selectedAcceptsTail,
         arguments: selectedFixedArguments,
         confirmation,
       })}`
       : null;
-    const confirmationCommand = selectedCommand && confirmation
+    const confirmationOperation = selectedCommand && confirmation
       ? {
-        ...selectedCommand,
-        runOperations: [{
-          arguments: selectedFixedArguments,
-          confirmation,
-          id: key ?? "invoke",
-          label: label ?? selectedCommand.address,
-        }],
+        arguments: [],
+        confirmation,
+        id: key ?? "invoke",
+        label: label ?? selectedCommand.address,
       }
       : null;
     commandOperations.select(
-      confirmationCommand ?? (useOperations ? selectedCommand : null),
+      confirmationOperation ? [confirmationOperation] : [],
     );
     if (!isCommandRunActive(snapshot) && previous !== selectedEditorKey) {
       clearArguments();

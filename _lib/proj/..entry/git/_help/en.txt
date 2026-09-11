@@ -1,1 +1,0 @@
-Maintain Git identity settings for the current Entry.

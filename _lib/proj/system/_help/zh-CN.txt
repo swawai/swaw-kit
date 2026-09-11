@@ -1,0 +1,35 @@
+SWAW Kit：项目目录绑定的便携开发与项目控制入口。
+
+swawkit.resource.json 声明静态 Command Resource，subcommands Collection Facet 拥有子资源。
+Core 将这棵声明树投影为规范命令地址；以下列表由真实资源树动态生成，不维护独立 Catalog。
+可执行资源通过 execute Operation Facet 提供且只提供一个本地 run.* 或执行声明。
+
+Resource 通过 swawkit.exports.json 提供具名 Export；execute Facet 通过
+swawkit.requirements.json 声明所需 Provider Export 身份。
+可使用纯只读检查：
+{{COMMAND}} .check <command-address> [--json]
+
+`.check` 只报告命令入口和已声明 Provider 发布是否静态就绪；普通执行会在 Journal 与
+目标进程之前复用同一只读依赖断言。检查不会安装、编译、修复或运行领域代码；
+实际 Consumer 必须在使用边界自行校验领域产物。
+
+极薄 EXE Launcher 负责 Entry 寻址、Host/CLI 分流和原生 argv 边界。入口文件名
+<entry>.exe 唯一映射到规范 data/proj.<entry>，Runtime selector 位于该 DataRoot 的
+runtime/current；普通运行不读取第二份身份文件。
+只有 manager swawkit.exe 能在 Runtime 缺失时冷 Bootstrap；普通 Entry 会 fail closed，
+并要求先通过 manager 创建或修复。入口自身不声明项目配置，也不承担公开命令路由。
+
+_lib\proj\build.ps1 只在 data/proj_cache/bootstrap/build 下生成 App 与 Launcher 候选，
+project/proj/build/launcher 也只发布命令自己的 export/swawkit.exe；二者都不替换根
+Launcher。当前没有 publish/launcher、Launcher 模板或 Favorites 自动发布路径。
+
+System 命令以一个点开头，层级使用斜杠，例如 {{COMMAND}} .entry/language 或
+{{COMMAND}} .context；模块命令从显式命名空间开始，例如
+{{COMMAND}} project/build。CLI 不接受 system/、module/ 或旧式点分隔地址。
+`.entry` 与 `.runtime` 管理 Entry 自身生命周期。
+不带参数启动 {{COMMAND}} 会启动或激活本地 Web 控制台。
+Runtime 状态与控制统一位于：
+{{COMMAND}} .runtime
+{{COMMAND}} .runtime/host/exit
+{{COMMAND}} .runtime/host/restart
+{{COMMAND}} .runtime/cleanup [--apply]

@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\setup.ps1')
+. (Join-Path $PSScriptRoot '_lib\stage0-toolchain.ps1')
 
 function Assert-ProjMsvcCacheTest {
     param(
@@ -40,7 +40,7 @@ try {
     $Definition = Get-ProjDevMsvcDefinition
     $ProjectRoot = Join-Path $TemporaryRoot 'project'
     [void][IO.Directory]::CreateDirectory($ProjectRoot)
-    $Context = New-ProjDevContext `
+    $Context = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot (Join-Path $TemporaryRoot 'data') `
         -CacheDataRoot (Join-Path $TemporaryRoot 'shared cache')
@@ -73,7 +73,7 @@ try {
         -Definition $Definition `
         -Payload $Payload
     [IO.File]::Delete($PayloadSource)
-    $PeerContext = New-ProjDevContext `
+    $PeerContext = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot (Join-Path $TemporaryRoot 'peer data') `
         -CacheDataRoot $Context.CacheDataRoot

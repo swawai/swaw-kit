@@ -1,5 +1,7 @@
+import { normalizeFacetRoute } from "./resource-route.js";
+
 const FACET_ID = /^[a-z][a-z0-9-]{0,31}$/;
-const SUBJECT_COLLECTION_PROTOCOL = "swawkit.subject-collection/v2";
+const RESOURCE_LIST_PROTOCOL = "swawkit.resource-list/v2";
 const KINDS = new Set(["collection", "operation", "projection"]);
 const RENDERERS = new Set(["collection", "edit", "help", "overview", "run"]);
 
@@ -65,10 +67,10 @@ function normalizeResolver(value, field, invalid) {
   const resolver = requireObject(value, field, invalid);
   const type = requireString(resolver.type, `${field}.type`, invalid);
   if (type === "catalog") {
-    if (resolver.relation !== "children") {
-      throw invalid(`${field}.relation must be children.`);
+    if (resolver.relation !== "subcommands") {
+      throw invalid(`${field}.relation must be subcommands.`);
     }
-    return { relation: "children", type: "catalog" };
+    return { relation: "subcommands", type: "catalog" };
   }
   if (type === "command") {
     return normalizeCommandResolver(resolver, field, invalid);
@@ -76,28 +78,13 @@ function normalizeResolver(value, field, invalid) {
   throw invalid(`${field}.type is not supported.`);
 }
 
-function normalizeSubjectKindRef(value, field, invalid) {
+function normalizeResourceKindRef(value, field, invalid) {
   const reference = requireObject(value, field, invalid);
-  const kind = requireString(reference.kind, `${field}.kind`, invalid);
-  if (!FACET_ID.test(kind)) {
-    throw invalid(`${field}.kind must match [a-z][a-z0-9-]{0,31}.`);
-  }
-  const provider = requireObject(reference.provider, `${field}.provider`, invalid);
-  if (
-    provider.type !== "command"
-    || !new Set(["control", "kernel", "action"]).has(provider.source)
-    || typeof provider.address !== "string"
-    || (provider.address.length === 0 && provider.source !== "kernel")
-  ) {
-    throw invalid(`${field}.provider must identify a command Subject.`);
+  if (Object.keys(reference).length !== 1 || reference.source === undefined) {
+    throw invalid(`${field} must name one exact Resource Kind source.`);
   }
   return {
-    kind,
-    provider: {
-      address: provider.address,
-      source: provider.source,
-      type: "command",
-    },
+    source: normalizeFacetRoute(reference.source, `${field}.source`, invalid),
   };
 }
 
@@ -109,6 +96,9 @@ export function normalizeFacets(value, field, invalid) {
   return value.map((rawFacet, facetIndex) => {
     const facetField = `${field}[${facetIndex}]`;
     const facet = requireObject(rawFacet, facetField, invalid);
+    if (Object.hasOwn(facet, "view")) {
+      throw invalid(`${facetField}.view is not part of Command Catalog v24.`);
+    }
     const id = requireString(facet.id, `${facetField}.id`, invalid);
     if (!FACET_ID.test(id) || identifiers.has(id)) {
       throw invalid(`${facetField}.id must be unique and match [a-z][a-z0-9-]{0,31}.`);
@@ -139,9 +129,9 @@ export function normalizeFacets(value, field, invalid) {
     }
 
     const resolver = normalizeResolver(facet.resolver, `${facetField}.resolver`, invalid);
-    const subjectKind = facet.subjectKind === undefined || facet.subjectKind === null
+    const resourceKind = facet.resourceKind === undefined || facet.resourceKind === null
       ? null
-      : normalizeSubjectKindRef(facet.subjectKind, `${facetField}.subjectKind`, invalid);
+      : normalizeResourceKindRef(facet.resourceKind, `${facetField}.resourceKind`, invalid);
     if (
       (kind === "collection") !== (renderer === "collection")
       || (kind === "projection") !== (renderer === "overview")
@@ -156,9 +146,9 @@ export function normalizeFacets(value, field, invalid) {
     }
     if (
       (kind === "collection" && resolver?.type === "command")
-        !== (subjectKind !== null)
+        !== (resourceKind !== null)
     ) {
-      throw invalid(`${facetField} command collection must declare one subjectKind.`);
+      throw invalid(`${facetField} command collection must declare one resourceKind.`);
     }
     if (kind === "operation" && resolver?.type !== "command") {
       throw invalid(`${facetField} operation must declare a command resolver.`);
@@ -176,16 +166,16 @@ export function normalizeFacets(value, field, invalid) {
     if (
       kind === "collection"
       && resolver?.type === "command"
-      && resolver.returns !== SUBJECT_COLLECTION_PROTOCOL
+      && resolver.returns !== RESOURCE_LIST_PROTOCOL
     ) {
-      throw invalid(`${facetField} collection resolver must return ${SUBJECT_COLLECTION_PROTOCOL}.`);
+      throw invalid(`${facetField} collection resolver must return ${RESOURCE_LIST_PROTOCOL}.`);
     }
     if (
       kind === "projection"
       && resolver?.type === "command"
-      && resolver.returns === SUBJECT_COLLECTION_PROTOCOL
+      && resolver.returns === RESOURCE_LIST_PROTOCOL
     ) {
-      throw invalid(`${facetField} projection resolver cannot return a Subject collection.`);
+      throw invalid(`${facetField} projection resolver cannot return a Resource List.`);
     }
     if (kind === "operation" && resolver?.returns !== null) {
       throw invalid(`${facetField} operation resolver cannot return a document.`);
@@ -195,6 +185,6 @@ export function normalizeFacets(value, field, invalid) {
       throw invalid(`${facetField} ${renderer} renderer requires ${coreRendererTarget}.`);
     }
 
-    return { icon, id, kind, label, renderer, resolver, subjectKind, summary };
+    return { icon, id, kind, label, renderer, resolver, resourceKind, summary };
   });
 }

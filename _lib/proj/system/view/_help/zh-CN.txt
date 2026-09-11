@@ -1,0 +1,1 @@
+通过规范的 Resource–Facet Route 检查平台无关的 View Source。使用 source 将一个 Facet View 及其引用的 Resource List 解析为封闭 JSON Bundle。本命令有意不负责 HTML 渲染。

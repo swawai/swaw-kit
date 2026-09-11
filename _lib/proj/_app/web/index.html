@@ -11,8 +11,94 @@
   </head>
   <body>
     <div class="app-shell">
-      <main class="workspace">
-        <section class="catalog-canvas" aria-labelledby="browser-title">
+      <main class="workspace" id="workspace">
+        <nav class="entry-manager-navigation" id="entry-manager-navigation"
+          aria-label="Manager 视图" data-i18n-aria-label-zh="Manager 视图"
+          data-i18n-aria-label-en="Manager views" hidden>
+          <button id="entry-manager-tab" type="button" aria-pressed="true"
+            data-i18n-zh="Entry 实例" data-i18n-en="Entry instances">Entry 实例</button>
+          <button id="entry-console-tab" type="button" aria-pressed="false"
+            data-i18n-zh="命令控制台" data-i18n-en="Command console">命令控制台</button>
+        </nav>
+
+        <section class="entry-manager-panel" id="entry-manager-panel"
+          aria-labelledby="entry-manager-title" hidden>
+          <div class="entry-manager-shell">
+            <header class="entry-manager-heading">
+              <div>
+                <p class="entry-manager-eyebrow">Swaw Kit Manager</p>
+                <h1 id="entry-manager-title" data-i18n-zh="Entry 实例"
+                  data-i18n-en="Entry instances">Entry 实例</h1>
+                <p data-i18n-zh="创建新的独立 Entry，或显式迁移旧 DataRoot。"
+                  data-i18n-en="Create an independent Entry or explicitly migrate a legacy DataRoot.">创建新的独立 Entry，或显式迁移旧 DataRoot。</p>
+              </div>
+              <button class="secondary-button" id="entry-manager-refresh" type="button"
+                data-i18n-zh="刷新状态" data-i18n-en="Refresh status">刷新状态</button>
+            </header>
+
+            <div class="entry-manager-grid">
+              <form class="entry-manager-form" id="entry-manager-form">
+                <div class="entry-manager-card">
+                  <h2 data-i18n-zh="创建或迁移" data-i18n-en="Create or migrate">创建或迁移</h2>
+                  <label for="entry-manager-input" data-i18n-zh="Entry 名称"
+                    data-i18n-en="Entry name">Entry 名称</label>
+                  <div class="entry-manager-input-row">
+                    <input id="entry-manager-input" name="entryName" type="text"
+                      maxlength="48" autocomplete="off" spellcheck="false"
+                      aria-describedby="entry-manager-name-hint">
+                    <span aria-hidden="true">.exe</span>
+                  </div>
+                  <p class="entry-manager-hint" id="entry-manager-name-hint"
+                    data-i18n-zh="使用小写字母、数字和单个连字符；须以字母开头，最多 48 个字符，且不能使用保留名称。"
+                    data-i18n-en="Use lowercase letters, digits, and single hyphens; start with a letter, up to 48 characters, and avoid reserved names.">使用小写字母、数字和单个连字符；须以字母开头，最多 48 个字符，且不能使用保留名称。</p>
+
+                  <dl class="entry-manager-paths">
+                    <div>
+                      <dt>SWAWKIT_HOME</dt>
+                      <dd><code id="entry-manager-home">—</code></dd>
+                    </div>
+                    <div>
+                      <dt data-i18n-zh="Entry 文件" data-i18n-en="Entry file">Entry 文件</dt>
+                      <dd><code id="entry-manager-entry-file">—</code></dd>
+                    </div>
+                    <div>
+                      <dt>DataRoot</dt>
+                      <dd><code id="entry-manager-data-root">—</code></dd>
+                    </div>
+                  </dl>
+
+                  <div class="entry-manager-state-line">
+                    <span data-i18n-zh="状态" data-i18n-en="Status">状态</span>
+                    <strong id="entry-manager-state" data-status="idle">等待检查</strong>
+                  </div>
+                  <ul class="entry-manager-issues" id="entry-manager-issues" hidden></ul>
+                  <p class="entry-manager-feedback" id="entry-manager-feedback"
+                    role="status" aria-live="polite"></p>
+                  <div class="entry-manager-actions">
+                    <button class="entry-manager-primary" id="entry-manager-create"
+                      type="button" disabled data-i18n-zh="创建 Entry"
+                      data-i18n-en="Create Entry">创建 Entry</button>
+                    <button class="secondary-button" id="entry-manager-migrate"
+                      type="button" disabled data-i18n-zh="显式迁移"
+                      data-i18n-en="Explicitly migrate">显式迁移</button>
+                  </div>
+                </div>
+              </form>
+
+              <section class="entry-manager-card entry-manager-inventory"
+                aria-labelledby="entry-manager-inventory-title">
+                <h2 id="entry-manager-inventory-title" data-i18n-zh="已发现的 Entry"
+                  data-i18n-en="Discovered Entries">已发现的 Entry</h2>
+                <p class="entry-manager-inventory-empty" id="entry-manager-inventory-empty"
+                  data-i18n-zh="尚未发现其它 Entry。"
+                  data-i18n-en="No other Entries were discovered.">尚未发现其它 Entry。</p>
+                <ul id="entry-manager-inventory"></ul>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section class="catalog-canvas" id="catalog-canvas" aria-labelledby="browser-title">
           <h1 class="sr-only" id="browser-title">Swaw Kit Project Console</h1>
 
           <div class="explorer-frame" id="explorer-frame">
@@ -31,101 +117,38 @@
                 data-i18n-zh="重新加载" data-i18n-en="Reload">重新加载</button>
             </div>
 
-            <section class="claim-state" id="claim-state" aria-labelledby="claim-title" hidden>
-              <article class="claim-card">
-                <header class="claim-heading">
-                  <p class="claim-eyebrow">DataRoot Claim</p>
-                  <h2 id="claim-title" data-i18n-zh="确认这个入口的数据归属"
-                    data-i18n-en="Confirm data ownership for this Entry">确认这个入口的数据归属</h2>
-                  <p data-i18n-zh="入口文件的身份已经变化。认领前请核对以下信息；确认后，现有 DataRoot 将归属于这个入口。"
-                    data-i18n-en="The Entry file identity changed. Review the details before claiming; the existing DataRoot will then belong to this Entry.">入口文件的身份已经变化。认领前请核对以下信息；确认后，现有 DataRoot 将归属于这个入口。</p>
-                </header>
-
-                <dl class="claim-details">
-                  <div>
-                    <dt>Kind</dt>
-                    <dd><code id="claim-kind">—</code></dd>
-                  </div>
-                  <div>
-                    <dt>Entry Name</dt>
-                    <dd><code id="claim-entry-name">—</code></dd>
-                  </div>
-                  <div class="claim-detail-wide">
-                    <dt>Entry File</dt>
-                    <dd><code id="claim-entry-file">—</code></dd>
-                  </div>
-                  <div class="claim-detail-wide">
-                    <dt>Volume ID</dt>
-                    <dd><code id="claim-volume-id">—</code></dd>
-                  </div>
-                  <div class="claim-detail-wide">
-                    <dt>File ID</dt>
-                    <dd><code id="claim-file-id">—</code></dd>
-                  </div>
-                  <div class="claim-detail-wide">
-                    <dt>Target DataRoot</dt>
-                    <dd><code id="claim-data-root">—</code></dd>
-                  </div>
-                  <div class="claim-detail-wide">
-                    <dt>Source DataRoot</dt>
-                    <dd><code id="claim-source-data-root">—</code></dd>
-                  </div>
-                  <div class="claim-detail-wide">
-                    <dt>Reason</dt>
-                    <dd id="claim-reason">—</dd>
-                  </div>
-                </dl>
-
-                <form class="claim-form" id="claim-form">
-                  <label for="claim-confirmation">
-                    <span data-i18n-zh="输入以下完整名称以确认认领："
-                      data-i18n-en="Enter the full name below to confirm the claim:">输入以下完整名称以确认认领：</span>
-                    <code id="claim-confirmation-name">—</code>
-                  </label>
-                  <div class="claim-controls">
-                    <input id="claim-confirmation" name="confirmation" type="text" required
-                      autocomplete="off" autocapitalize="none" spellcheck="false">
-                    <button class="claim-submit" id="claim-submit" type="submit" disabled
-                      data-i18n-zh="确认认领" data-i18n-en="Confirm claim">确认认领</button>
-                  </div>
-                  <p class="claim-note" data-i18n-zh="名称必须完全一致；大小写和空格都会参与校验。"
-                    data-i18n-en="The name must match exactly, including case and spaces.">名称必须完全一致；大小写和空格都会参与校验。</p>
-                  <p class="claim-feedback" id="claim-feedback" aria-live="polite"></p>
-                </form>
-              </article>
-            </section>
-
             <div class="explorer-flow" id="explorer-flow" hidden>
-              <div class="finder-columns" id="finder-columns" aria-label="命令层级"
-                data-i18n-aria-label-zh="命令层级" data-i18n-aria-label-en="Command hierarchy"></div>
+              <div class="explorer-workspace">
+                <div class="finder-columns" id="finder-columns" aria-label="命令层级"
+                  data-i18n-aria-label-zh="命令层级" data-i18n-aria-label-en="Command hierarchy"></div>
 
-              <aside class="detail-panel" id="detail-panel" tabindex="-1" aria-label="详情"
-                data-i18n-aria-label-zh="详情" data-i18n-aria-label-en="Details">
+                <aside class="detail-panel" id="detail-panel" tabindex="-1" aria-label="详情"
+                  data-i18n-aria-label-zh="详情" data-i18n-aria-label-en="Details">
                 <p class="sr-only" id="selection-status" aria-live="polite"></p>
 
-                <article class="entry-profile-detail" id="entry-profile-detail" hidden>
+                <article class="entry-config-detail" id="entry-config-detail" hidden>
                   <header class="detail-heading">
-                    <h2 id="entry-profile-title"></h2>
-                    <p id="entry-profile-summary"></p>
+                    <h2 id="entry-config-title"></h2>
+                    <p id="entry-config-summary"></p>
                   </header>
 
-                  <p class="profile-state" id="profile-state" data-state="loading">
-                    正在读取 Entry Profile…
+                  <p class="config-state" id="config-state" data-state="loading">
+                    正在读取 Entry Config…
                   </p>
 
-                  <form class="profile-form" id="profile-form">
+                  <form class="config-form" id="config-form">
                     <section class="detail-section">
                       <h3 data-i18n-zh="设置值" data-i18n-en="Setting value">设置值</h3>
                       <div class="form-field">
-                        <label for="profile-value"><code id="profile-setting-address"></code></label>
-                        <input id="profile-value" name="value" type="text"
+                        <label for="config-value"><code id="config-setting-address"></code></label>
+                        <input id="config-value" name="value" type="text"
                           autocomplete="off" spellcheck="false">
                       </div>
                     </section>
-                    <div class="profile-actions">
-                      <button class="secondary-button" id="profile-save-button" type="submit"
+                    <div class="config-actions">
+                      <button class="secondary-button" id="config-save-button" type="submit"
                         data-i18n-zh="保存设置" data-i18n-en="Save setting">保存设置</button>
-                      <p class="profile-feedback" id="profile-feedback" aria-live="polite"></p>
+                      <p class="config-feedback" id="config-feedback" aria-live="polite"></p>
                     </div>
                   </form>
                 </article>
@@ -178,29 +201,11 @@
                           </dl>
                         </section>
 
-                        <section class="detail-section module-contract" id="module-contract-section"
-                          aria-labelledby="module-contract-title" hidden>
-                          <h3 id="module-contract-title" data-i18n-zh="模块契约"
-                            data-i18n-en="Module contract">模块契约</h3>
-                          <div class="module-contract-grid">
-                            <div>
-                              <h4 data-i18n-zh="依赖" data-i18n-en="Requires">依赖</h4>
-                              <ul id="module-requires"></ul>
-                            </div>
-                            <div>
-                              <h4 data-i18n-zh="提供产物" data-i18n-en="Provides">提供产物</h4>
-                              <ul id="module-provides"></ul>
-                            </div>
-                          </div>
-                          <p><code>swawkit .check &lt;command-address&gt;</code>
-                            <span data-i18n-zh="可检查当前状态。"
-                              data-i18n-en="checks the current state.">可检查当前状态。</span></p>
-                        </section>
                       </div>
 
                       <div class="runtime-control" id="runtime-control" hidden>
                         <header class="detail-heading">
-                          <h2 id="runtime-title">..runtime</h2>
+                          <h2 id="runtime-title">.runtime</h2>
                           <p id="runtime-description" data-i18n-zh="查看 Runtime 与 Host 状态，并执行明确的生命周期控制。"
                             data-i18n-en="Inspect Runtime and Host state and perform explicit lifecycle operations.">查看 Runtime 与 Host 状态，并执行明确的生命周期控制。</p>
                         </header>
@@ -267,44 +272,42 @@
                       <pre class="document-projection-json" id="document-projection-json" hidden></pre>
                     </article>
 
-                    <article class="module-check-pane command-facet-pane"
-                      id="module-check-pane" tabindex="-1" hidden>
-                      <header class="module-check-heading">
+                    <article class="command-check-pane command-facet-pane"
+                      id="command-check-pane" tabindex="-1" hidden>
+                      <header class="command-check-heading">
                         <div>
-                          <h2 id="module-check-title"></h2>
-                          <p><code id="module-check-meta"></code></p>
+                          <h2 id="command-check-title"></h2>
+                          <p><code id="command-check-meta"></code></p>
                         </div>
-                        <span class="module-check-state" id="module-check-state"></span>
+                        <span class="command-check-state" id="command-check-state"></span>
                       </header>
 
-                      <p class="module-check-diagnostic" id="module-check-diagnostic" hidden></p>
+                      <p class="command-check-diagnostic" id="command-check-diagnostic" hidden></p>
 
-                      <section class="detail-section" aria-labelledby="module-check-guards-title">
-                        <h3 id="module-check-guards-title" data-i18n-zh="Guard"
-                          data-i18n-en="Guards">Guard</h3>
-                        <ul class="module-check-list" id="module-check-guards"></ul>
-                      </section>
-
-                      <section class="detail-section" aria-labelledby="module-check-dependencies-title">
-                        <h3 id="module-check-dependencies-title" data-i18n-zh="依赖"
+                      <section class="detail-section" aria-labelledby="command-check-dependencies-title">
+                        <h3 id="command-check-dependencies-title" data-i18n-zh="依赖"
                           data-i18n-en="Dependencies">依赖</h3>
-                        <ul class="module-check-list module-check-tree"
-                          id="module-check-dependencies"></ul>
+                        <ul class="command-check-list command-check-tree"
+                          id="command-check-dependencies"></ul>
                       </section>
 
-                      <section class="detail-section" aria-labelledby="module-check-publications-title">
-                        <h3 id="module-check-publications-title" data-i18n-zh="提供物"
-                          data-i18n-en="Publications">提供物</h3>
-                        <ul class="module-check-list" id="module-check-publications"></ul>
-                      </section>
                     </article>
 
                     <article class="context-projection-pane command-facet-pane"
                       id="context-projection-pane" tabindex="-1" hidden>
-                      <header class="detail-heading">
-                        <h2 id="context-projection-title"></h2>
-                        <p><code id="context-projection-ref"></code></p>
-                        <p class="context-projection-summary" id="context-projection-summary"></p>
+                      <header class="detail-heading context-projection-heading">
+                        <div>
+                          <h2 id="context-projection-title"></h2>
+                          <p><code id="context-projection-ref"></code></p>
+                          <p class="context-projection-summary" id="context-projection-summary"></p>
+                        </div>
+                        <button class="secondary-button context-projection-pin" id="context-projection-pin"
+                          type="button">
+                          <span id="context-projection-pin-label" data-i18n-zh="固定"
+                            data-i18n-en="Pin">固定</span>
+                          <span id="context-projection-pinned-label" data-i18n-zh="已固定"
+                            data-i18n-en="Pinned" hidden>已固定</span>
+                        </button>
                       </header>
                       <section class="detail-section" aria-labelledby="context-projection-commands-title">
                         <h3 id="context-projection-commands-title" data-i18n-zh="命令"
@@ -436,6 +439,58 @@
                     </article>
                   </div>
                 </div>
+                </aside>
+              </div>
+
+              <aside class="context-tray" id="context-tray" aria-label="固定 Context"
+                data-i18n-aria-label-zh="固定 Context" data-i18n-aria-label-en="Pinned Context" hidden>
+                <header class="context-tray-heading">
+                  <div>
+                    <p class="context-tray-eyebrow">Context</p>
+                    <h2 id="context-tray-title"></h2>
+                    <code id="context-tray-ref"></code>
+                  </div>
+                  <button class="secondary-button" id="context-tray-unpin" type="button"
+                    data-i18n-zh="取消固定" data-i18n-en="Unpin">取消固定</button>
+                </header>
+                <p class="context-projection-summary" id="context-tray-summary"></p>
+                <p class="context-tray-feedback" id="context-tray-feedback" aria-live="polite"></p>
+
+                <section class="context-tray-add" aria-labelledby="context-tray-add-title">
+                  <div>
+                    <h3 id="context-tray-add-title" data-i18n-zh="当前命令"
+                      data-i18n-en="Current command">当前命令</h3>
+                    <code id="context-tray-command">—</code>
+                  </div>
+                  <button class="secondary-button" id="context-tray-add" type="button" disabled>
+                    <span id="context-tray-add-label" data-i18n-zh="加入 Context"
+                      data-i18n-en="Add to Context">加入 Context</span>
+                    <span id="context-tray-present-label" data-i18n-zh="已在 Context 中"
+                      data-i18n-en="Already added" hidden>已在 Context 中</span>
+                  </button>
+                </section>
+
+                <section class="detail-section" aria-labelledby="context-tray-commands-title">
+                  <h3 id="context-tray-commands-title" data-i18n-zh="命令"
+                    data-i18n-en="Commands">命令</h3>
+                  <ul class="context-projection-list" id="context-tray-commands"></ul>
+                  <p class="context-projection-empty" id="context-tray-command-empty"
+                    data-i18n-zh="尚未添加命令。" data-i18n-en="No commands added yet.">尚未添加命令。</p>
+                </section>
+                <section class="detail-section" aria-labelledby="context-tray-notes-title">
+                  <h3 id="context-tray-notes-title" data-i18n-zh="说明"
+                    data-i18n-en="Notes">说明</h3>
+                  <ul class="context-projection-list context-projection-notes" id="context-tray-notes"></ul>
+                  <p class="context-projection-empty" id="context-tray-notes-empty"
+                    data-i18n-zh="尚未追加说明。" data-i18n-en="No notes appended yet.">尚未追加说明。</p>
+                </section>
+                <section class="detail-section" aria-labelledby="context-tray-prompt-title">
+                  <h3 id="context-tray-prompt-title" data-i18n-zh="最终提示"
+                    data-i18n-en="Final prompt">最终提示</h3>
+                  <pre class="context-projection-prompt" id="context-tray-prompt" hidden></pre>
+                  <p class="context-projection-empty" id="context-tray-prompt-empty"
+                    data-i18n-zh="尚未设置最终提示。" data-i18n-en="No final prompt set yet.">尚未设置最终提示。</p>
+                </section>
               </aside>
             </div>
           </div>

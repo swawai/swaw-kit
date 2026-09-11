@@ -2,7 +2,11 @@ use std::env;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::fmt;
+use std::fs;
+use std::os::windows::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+
+use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 
 use crate::launch::LaunchRequest;
 
@@ -10,6 +14,11 @@ use crate::launch::LaunchRequest;
 #[derive(Debug, Clone)]
 pub struct EntryContext {
     pub swawkit_home: PathBuf,
+    pub data_root: PathBuf,
+    /// Runtime storage that owns the product executable for this process.
+    ///
+    /// This is a running-layout fact, not an Entry-name-derived location.
+    pub runtime_root: PathBuf,
     pub entry_file: PathBuf,
     pub entry_name: String,
     pub invocation_directory: PathBuf,
@@ -18,6 +27,23 @@ pub struct EntryContext {
 }
 
 impl EntryContext {
+    /// Returns whether this process is bound to the one manager Entry.
+    ///
+    /// Manager authority is a derived layout fact, never a caller supplied
+    /// mode bit. Entry lifecycle mutations must check this at their domain
+    /// boundary even when their transport already hides the operation.
+    pub fn is_manager(&self) -> bool {
+        self.entry_name == "swawkit"
+            && self.data_root == self.swawkit_home.join("data/proj.swawkit")
+            && self.runtime_root == self.data_root.join("runtime")
+            && self.entry_file.parent() == Some(self.swawkit_home.as_path())
+            && self
+                .entry_file
+                .file_name()
+                .and_then(OsStr::to_str)
+                .is_some_and(|name| name.eq_ignore_ascii_case("swawkit.exe"))
+    }
+
     pub fn from_launch(request: &LaunchRequest) -> Result<Self, ContextError> {
         Self::from_product_launch(request, "swawkit-proj.exe")
     }
@@ -36,8 +62,16 @@ impl EntryContext {
         Self::from_sources(request, &executable, executable_name)
     }
 
-    pub fn kernel_root(&self) -> PathBuf {
+    pub fn command_root(&self) -> PathBuf {
         self.swawkit_home.join("_lib").join("proj")
+    }
+
+    pub fn system_root(&self) -> PathBuf {
+        self.command_root().join("system")
+    }
+
+    pub fn swaw_module_root(&self) -> PathBuf {
+        self.command_root().join("modules")
     }
 
     pub fn sibling_product_executable(&self, name: &str) -> PathBuf {
@@ -49,7 +83,7 @@ impl EntryContext {
         executable: &Path,
         executable_name: &str,
     ) -> Result<Self, ContextError> {
-        let (swawkit_home, release_id) = derive_swawkit_home(executable, executable_name)?;
+        let layout = derive_running_layout(executable, executable_name)?;
 
         let entry_file = absolute_path(&request.entry_file, "project entry file")?;
         if !entry_file.is_file() {
@@ -58,7 +92,24 @@ impl EntryContext {
                 entry_file.display()
             )));
         }
-        let entry_name = entry_file
+        if entry_file.parent() != Some(layout.swawkit_home.as_path()) {
+            return Err(ContextError::new(format!(
+                "the project entry file does not belong to the derived SWAWKIT_HOME '{}': {}",
+                layout.swawkit_home.display(),
+                entry_file.display()
+            )));
+        }
+        if !entry_file
+            .extension()
+            .and_then(OsStr::to_str)
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        {
+            return Err(ContextError::new(format!(
+                "the project entry file must have an .exe suffix: {}",
+                entry_file.display()
+            )));
+        }
+        let entry_basename = entry_file
             .file_stem()
             .and_then(OsStr::to_str)
             .filter(|name| !name.trim().is_empty())
@@ -69,6 +120,19 @@ impl EntryContext {
                 ))
             })?
             .to_owned();
+        let basename_matches = if layout.entry_name == "swawkit" {
+            entry_basename.eq_ignore_ascii_case("swawkit")
+        } else {
+            entry_basename == layout.entry_name
+        };
+        if !basename_matches {
+            return Err(ContextError::new(format!(
+                "the project entry basename '{}' does not match its Runtime DataRoot '{}': {}",
+                entry_basename,
+                layout.data_root.display(),
+                entry_file.display()
+            )));
+        }
 
         let invocation_directory = absolute_path(&request.invocation_dir, "invocation directory")?;
         if !invocation_directory.is_dir() {
@@ -79,20 +143,31 @@ impl EntryContext {
         }
 
         Ok(Self {
-            swawkit_home,
+            swawkit_home: layout.swawkit_home,
+            data_root: layout.data_root,
+            runtime_root: layout.runtime_root,
             entry_file,
-            entry_name,
+            entry_name: layout.entry_name,
             invocation_directory,
-            product_executable: executable.to_path_buf(),
-            release_id,
+            product_executable: layout.product_executable,
+            release_id: layout.release_id,
         })
     }
 }
 
-fn derive_swawkit_home(
+struct RunningLayout {
+    swawkit_home: PathBuf,
+    data_root: PathBuf,
+    runtime_root: PathBuf,
+    product_executable: PathBuf,
+    entry_name: String,
+    release_id: String,
+}
+
+fn derive_running_layout(
     executable: &Path,
     executable_name: &str,
-) -> Result<(PathBuf, String), ContextError> {
+) -> Result<RunningLayout, ContextError> {
     let executable = absolute_path(executable, "shared Proj executable")?;
     if executable.file_name() != Some(OsStr::new(executable_name)) {
         return Err(invalid_layout(&executable, executable_name));
@@ -107,10 +182,20 @@ fn derive_swawkit_home(
         .ok_or_else(|| invalid_layout(&executable, executable_name))?;
     debug_assert_eq!(release_id.len(), 64);
     let releases_directory = expected_parent(release_directory, "releases", executable_name)?;
-    let runtime_directory = expected_parent(releases_directory, "_bin", executable_name)?;
-    let kernel_root = expected_parent(runtime_directory, "proj", executable_name)?;
-    let library_root = expected_parent(kernel_root, "_lib", executable_name)?;
-    let swawkit_home = library_root
+    let runtime_directory = expected_parent(releases_directory, "runtime", executable_name)?;
+    let data_root = runtime_directory
+        .parent()
+        .ok_or_else(|| invalid_layout(&executable, executable_name))?;
+    let data_root_name = data_root
+        .file_name()
+        .and_then(OsStr::to_str)
+        .ok_or_else(|| invalid_layout(&executable, executable_name))?;
+    let entry_name = data_root_name
+        .strip_prefix("proj.")
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| invalid_layout(&executable, executable_name))?;
+    let data_directory = expected_parent(data_root, "data", executable_name)?;
+    let swawkit_home = data_directory
         .parent()
         .ok_or_else(|| invalid_layout(&executable, executable_name))?;
     if !swawkit_home.is_dir() {
@@ -119,7 +204,24 @@ fn derive_swawkit_home(
             swawkit_home.display()
         )));
     }
-    Ok((swawkit_home.to_path_buf(), release_id.to_owned()))
+    for (path, label) in [
+        (swawkit_home, "SWAWKIT_HOME"),
+        (data_directory, "Proj data directory"),
+        (data_root, "Entry DataRoot"),
+        (runtime_directory, "Entry Runtime directory"),
+        (releases_directory, "Runtime releases directory"),
+        (release_directory, "Runtime Release directory"),
+    ] {
+        validate_regular_directory(path, label)?;
+    }
+    Ok(RunningLayout {
+        swawkit_home: swawkit_home.to_path_buf(),
+        data_root: data_root.to_path_buf(),
+        runtime_root: runtime_directory.to_path_buf(),
+        product_executable: executable.clone(),
+        entry_name: entry_name.to_owned(),
+        release_id: release_id.to_owned(),
+    })
 }
 
 fn expected_parent<'a>(
@@ -138,9 +240,25 @@ fn expected_parent<'a>(
 
 fn invalid_layout(path: &Path, executable_name: &str) -> ContextError {
     ContextError::new(format!(
-        "shared Proj executable must belong to '_lib\\proj\\_bin\\releases\\<release-id>\\{executable_name}': {}",
+        "shared Proj executable must belong to 'data\\proj.<entry>\\runtime\\releases\\<release-id>\\{executable_name}': {}",
         path.display()
     ))
+}
+
+fn validate_regular_directory(path: &Path, label: &str) -> Result<(), ContextError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        ContextError::new(format!(
+            "cannot inspect {label} '{}': {error}",
+            path.display()
+        ))
+    })?;
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(ContextError::new(format!(
+            "{label} must be a regular non-reparse directory: {}",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 fn is_release_id(value: &str) -> bool {
@@ -151,9 +269,15 @@ fn is_release_id(value: &str) -> bool {
 }
 
 fn absolute_path(path: &Path, label: &str) -> Result<PathBuf, ContextError> {
-    std::path::absolute(path).map_err(|error| {
+    let absolute = std::path::absolute(path).map_err(|error| {
         ContextError::new(format!(
             "invalid {label} path '{}': {error}",
+            path.display()
+        ))
+    })?;
+    crate::windows_path::dos_absolute(&absolute).map_err(|reason| {
+        ContextError::new(format!(
+            "invalid {label} path '{}': {reason}",
             path.display()
         ))
     })
@@ -182,13 +306,15 @@ impl Error for ContextError {}
 mod tests {
     use super::*;
     use crate::launch::LaunchMode;
+    use std::ffi::OsString;
     use std::fs;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
-
     struct Fixture {
         root: PathBuf,
+        data_root: PathBuf,
         executable: PathBuf,
         entry_file: PathBuf,
         invocation_dir: PathBuf,
@@ -196,14 +322,19 @@ mod tests {
 
     impl Fixture {
         fn new() -> Self {
+            Self::new_named("project-one.exe", "proj.project-one")
+        }
+
+        fn new_named(entry_file_name: &str, data_root_name: &str) -> Self {
             let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
             let root =
                 env::temp_dir().join(format!("swawkit-context-{}-{sequence}", std::process::id()));
-            let executable = root.join(format!(
-                "_lib/proj/_bin/releases/{}/swawkit-proj.exe",
-                "a".repeat(64)
-            ));
-            let entry_file = root.join("project-one.exe");
+            let data_root = root.join("data").join(data_root_name);
+            let executable = data_root
+                .join("runtime/releases")
+                .join("a".repeat(64))
+                .join("swawkit-proj.exe");
+            let entry_file = root.join(entry_file_name);
             let invocation_dir = root.join("work");
             for directory in [
                 executable.parent().expect("executable parent"),
@@ -214,9 +345,9 @@ mod tests {
             }
             fs::write(&executable, "fixture").expect("write executable");
             fs::write(&entry_file, "fixture").expect("write entry file");
-
             Self {
                 root,
+                data_root,
                 executable,
                 entry_file,
                 invocation_dir,
@@ -249,6 +380,8 @@ mod tests {
         let context = fixture.context().expect("entry context");
 
         assert_eq!(context.swawkit_home, fixture.root);
+        assert_eq!(context.data_root, fixture.data_root);
+        assert_eq!(context.runtime_root, fixture.data_root.join("runtime"));
         assert_eq!(context.entry_name, "project-one");
         assert_eq!(context.entry_file, fixture.entry_file);
         assert_eq!(context.invocation_directory, fixture.invocation_dir);
@@ -256,13 +389,90 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_executable_outside_the_shared_runtime_layout() {
+    fn normalizes_verbatim_process_paths_before_building_domain_context() {
         let fixture = Fixture::new();
-        let misplaced = fixture.root.join("swawkit-proj.exe");
-        let error = EntryContext::from_sources(&fixture.request(), &misplaced, "swawkit-proj.exe")
-            .unwrap_err();
+        let mut request = fixture.request();
+        request.entry_file = verbatim_disk(&fixture.entry_file);
+        request.invocation_dir = verbatim_disk(&fixture.invocation_dir);
+        let executable = verbatim_disk(&fixture.executable);
 
-        assert!(error.to_string().contains("_lib\\proj\\_bin"));
+        let context = EntryContext::from_sources(&request, &executable, "swawkit-proj.exe")
+            .expect("normalize verbatim launch paths");
+
+        assert_eq!(context.swawkit_home, fixture.root);
+        assert_eq!(context.entry_file, fixture.entry_file);
+        assert_eq!(context.data_root, fixture.data_root);
+        assert_eq!(context.runtime_root, fixture.data_root.join("runtime"));
+        assert_eq!(context.product_executable, fixture.executable);
+        assert_eq!(context.invocation_directory, fixture.invocation_dir);
+    }
+
+    #[test]
+    fn canonicalizes_the_ascii_case_insensitive_manager_basename() {
+        let fixture = Fixture::new_named("SwAwKiT.exe", "proj.swawkit");
+        let context = fixture.context().expect("manager Entry context");
+
+        assert_eq!(context.entry_name, "swawkit");
+        assert_eq!(context.data_root, fixture.root.join("data/proj.swawkit"));
+    }
+
+    #[test]
+    fn explicitly_rejects_the_legacy_shared_bin_layout() {
+        let fixture = Fixture::new();
+        let legacy = fixture.root.join(format!(
+            "_lib/proj/_bin/releases/{}/swawkit-proj.exe",
+            "a".repeat(64)
+        ));
+        fs::create_dir_all(legacy.parent().unwrap()).expect("create legacy layout");
+        fs::write(&legacy, "legacy").expect("write legacy executable");
+        let error = EntryContext::from_sources(&fixture.request(), &legacy, "swawkit-proj.exe")
+            .expect_err("legacy shared Runtime layout must fail closed");
+
+        assert!(error.to_string().contains("data\\proj.<entry>\\runtime"));
+    }
+
+    #[test]
+    fn rejects_an_entry_basename_that_does_not_own_the_runtime() {
+        let fixture = Fixture::new();
+        let other_entry = fixture.root.join("other.exe");
+        fs::write(&other_entry, "fixture").expect("write other Entry");
+        let mut request = fixture.request();
+        request.entry_file = other_entry;
+
+        let error = EntryContext::from_sources(&request, &fixture.executable, "swawkit-proj.exe")
+            .expect_err("mismatched Entry basename must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("does not match its Runtime DataRoot")
+        );
+    }
+
+    #[test]
+    fn rejects_a_runtime_reparse_ancestor() {
+        let fixture = Fixture::new();
+        let runtime = fixture.data_root.join("runtime");
+        let external = fixture.root.join("external-runtime");
+        fs::rename(&runtime, &external).expect("move Runtime fixture");
+        if let Err(error) = std::os::windows::fs::symlink_dir(&external, &runtime) {
+            eprintln!("skipping Runtime reparse test: {error}");
+            fs::rename(&external, &runtime).expect("restore Runtime fixture");
+            return;
+        }
+
+        let error = fixture
+            .context()
+            .expect_err("a Runtime reparse ancestor must fail closed");
+        assert!(error.to_string().contains("regular non-reparse directory"));
+        fs::remove_dir(runtime).expect("remove Runtime reparse point");
+    }
+
+    fn verbatim_disk(path: &Path) -> PathBuf {
+        let units = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        assert!(units.len() >= 3 && units[1] == b':' as u16 && units[2] == b'\\' as u16);
+        let mut verbatim = vec![b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16];
+        verbatim.extend_from_slice(&units);
+        PathBuf::from(OsString::from_wide(&verbatim))
     }
 
     #[test]

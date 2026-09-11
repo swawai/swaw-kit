@@ -17,7 +17,6 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use crate::context::EntryContext;
-use crate::entry::EntryIdentity;
 use crate::launch::{
     ENTRY_FILE_ENV, LAUNCH_MODE_ENV, LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION, LaunchMode,
 };
@@ -72,8 +71,6 @@ impl HostRestartRequest {
     }
 
     pub fn complete(self, context: &EntryContext) -> Result<(), String> {
-        let entry_identity = EntryIdentity::read(&context.entry_file)
-            .map_err(|error| format!("cannot pin the Entry before Host restart: {error}"))?;
         let parent = owned_handle(
             unsafe { OpenProcess(PROCESS_SYNCHRONIZE, 0, self.parent_pid) },
             "open the retiring Host process",
@@ -91,12 +88,6 @@ impl HostRestartRequest {
         if unsafe { WaitForSingleObject(raw_handle(&parent), u32::MAX) } != WAIT_OBJECT_0 {
             return Err(last_error("wait for the retiring Host"));
         }
-        let current_identity = EntryIdentity::read(&context.entry_file)
-            .map_err(|error| format!("cannot revalidate the Entry after Host shutdown: {error}"))?;
-        if current_identity != entry_identity {
-            return Err("the Entry Launcher changed while the Host was restarting".to_owned());
-        }
-
         let mut launcher = Command::new(&context.entry_file)
             .current_dir(&context.invocation_directory)
             .stdin(Stdio::null())
@@ -124,6 +115,7 @@ impl HostRestartRequest {
 }
 
 pub fn prepare(context: &EntryContext) -> Result<(), String> {
+    validate_restart_coordinator(context)?;
     let event_name = unique_event_name();
     let wide_event_name = null_terminated(OsStr::new(&event_name));
     unsafe { SetLastError(0) };
@@ -176,6 +168,15 @@ pub fn prepare(context: &EntryContext) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_restart_coordinator(context: &EntryContext) -> Result<(), String> {
+    crate::runtime_release::validate_product(&context.product_executable).map_err(|error| {
+        format!(
+            "the Host restart coordinator failed Runtime Release validation at '{}': {error}",
+            context.product_executable.display()
+        )
+    })
+}
+
 fn unique_event_name() -> String {
     let sequence = NEXT_EVENT.fetch_add(1, Ordering::Relaxed);
     let timestamp = SystemTime::now()
@@ -211,6 +212,10 @@ fn last_error(action: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    use crate::runtime_release::tests::write_release;
 
     #[test]
     fn generated_event_names_fit_the_private_protocol() {
@@ -222,5 +227,42 @@ mod tests {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit() || byte == b'.')
         );
+    }
+
+    #[test]
+    fn rejects_an_equal_length_tampered_restart_coordinator_before_launch() {
+        let root = unique_fixture_root();
+        let artifacts = [
+            ("swawkit-proj.exe", b"core".as_slice()),
+            ("swawkit-proj-host.exe", b"host".as_slice()),
+            ("swawkit-proj-module.exe", b"module".as_slice()),
+            ("swawkit-proj-dev.exe", b"dev".as_slice()),
+        ];
+        let release_id = write_release(&root, &root, &artifacts);
+        let host = root.join(&release_id).join("swawkit-proj-host.exe");
+        fs::write(&host, b"h0st").expect("tamper Host without changing its length");
+        let context = EntryContext {
+            swawkit_home: root.clone(),
+            data_root: root.clone(),
+            runtime_root: root.clone(),
+            entry_file: root.join("swawkit.exe"),
+            entry_name: "swawkit".to_owned(),
+            invocation_directory: root.clone(),
+            product_executable: host,
+            release_id,
+        };
+
+        let error = validate_restart_coordinator(&context)
+            .expect_err("tampered coordinator must not reach process launch");
+        assert!(error.contains("SHA-256"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn unique_fixture_root() -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "swawkit-host-restart-{}-{}",
+            std::process::id(),
+            NEXT_EVENT.fetch_add(1, Ordering::Relaxed)
+        ))
     }
 }

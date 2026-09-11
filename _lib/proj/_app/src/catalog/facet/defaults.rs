@@ -1,25 +1,24 @@
 use crate::{
+    command_check::COMMAND_CHECK_PROTOCOL,
+    entry_config::EntryLanguage,
     facet::{Facet, FacetKind, FacetRenderer, FacetResolver},
-    module_check::MODULE_CHECK_PROTOCOL,
-    profile::EntryLanguage,
-    subject::SUBJECT_COLLECTION_PROTOCOL,
-    subject_kind::SubjectKindRef,
 };
 
-use super::{CHECK_ADDRESS, CommandNode, CommandSource, HELP_ADDRESS, RUNS_ADDRESS};
+use super::{CHECK_ADDRESS, CommandNode, HELP_ADDRESS};
 
-pub(super) fn children_facet(language: EntryLanguage) -> Facet {
+pub(super) fn subcommands_facet(language: EntryLanguage) -> Facet {
     Facet {
-        id: "children".to_owned(),
+        id: "subcommands".to_owned(),
         kind: FacetKind::Collection,
         renderer: FacetRenderer::Collection,
         icon: "□".to_owned(),
         label: text(language, "子命令", "Subcommands").to_owned(),
         summary: text(language, "浏览静态子命令", "Browse static subcommands").to_owned(),
-        subject_kind: None,
+        resource_kind: None,
         resolver: Some(FacetResolver::Catalog {
-            relation: "children".to_owned(),
+            relation: "subcommands".to_owned(),
         }),
+        view: None,
     }
 }
 
@@ -28,11 +27,9 @@ pub(super) fn default_facets(
     language: EntryLanguage,
     help_available: bool,
     check_available: bool,
-    runs_available: bool,
-    run_subject_kind: Option<&SubjectKindRef>,
 ) -> Vec<Facet> {
     let mut facets = Vec::new();
-    if command.handler.as_deref() == Some("entry.profile.set") {
+    if command.handler.as_deref() == Some("entry.config.set") {
         facets.push(operation_facet(
             "edit",
             FacetRenderer::Edit,
@@ -68,10 +65,10 @@ pub(super) fn default_facets(
         ));
     }
     if check_available
-        && command.source != CommandSource::Control
+        && !command.is_control()
         && !command.address.is_empty()
         && command.alias_of.is_none()
-        && (command.entry.is_some() || command.module.is_some() || command.diagnostic.is_some())
+        && (command.authored_resource || command.entry.is_some() || command.diagnostic.is_some())
     {
         facets.push(Facet {
             id: "check".to_owned(),
@@ -81,60 +78,28 @@ pub(super) fn default_facets(
             label: text(language, "检查", "Check").to_owned(),
             summary: text(
                 language,
-                "检查可运行状态、依赖与产物",
-                "Check readiness, dependencies, and publications",
+                "检查命令入口与输入依赖",
+                "Check the command entry and input dependencies",
             )
             .to_owned(),
-            subject_kind: None,
+            resource_kind: None,
             resolver: Some(FacetResolver::Command {
                 address: CHECK_ADDRESS.to_owned(),
                 arguments: vec![command.address.clone(), "--json".to_owned()],
                 accepts_tail: false,
                 confirmation: None,
-                returns: Some(MODULE_CHECK_PROTOCOL.to_owned()),
+                returns: Some(COMMAND_CHECK_PROTOCOL.to_owned()),
             }),
+            view: None,
         });
     }
-    if runs_available
-        && command.source != CommandSource::Control
-        && !command.address.is_empty()
-        && command.runnable
-        && command.alias_of.is_none()
-    {
-        if let Some(subject_kind) = run_subject_kind {
-            facets.push(Facet {
-                id: "runs".to_owned(),
-                kind: FacetKind::Collection,
-                renderer: FacetRenderer::Collection,
-                icon: "=".to_owned(),
-                label: text(language, "运行记录", "Runs").to_owned(),
-                summary: text(
-                    language,
-                    "浏览该命令的持久运行",
-                    "Browse persisted runs for this command",
-                )
-                .to_owned(),
-                subject_kind: Some(subject_kind.clone()),
-                resolver: Some(FacetResolver::Command {
-                    address: RUNS_ADDRESS.to_owned(),
-                    arguments: vec![
-                        "--json".to_owned(),
-                        command_locator(command.source, &command.address),
-                    ],
-                    accepts_tail: false,
-                    confirmation: None,
-                    returns: Some(SUBJECT_COLLECTION_PROTOCOL.to_owned()),
-                }),
-            });
-        }
-    }
-    if command.source != CommandSource::Control
+    if !command.is_control()
         && !command.address.is_empty()
         && command.runnable
         && command.alias_of.is_none()
     {
         facets.push(operation_facet(
-            "run",
+            "execute",
             FacetRenderer::Run,
             ">",
             text(language, "执行", "Run"),
@@ -147,15 +112,6 @@ pub(super) fn default_facets(
         ));
     }
     facets
-}
-
-fn command_locator(source: CommandSource, address: &str) -> String {
-    let source = match source {
-        CommandSource::Control => "control",
-        CommandSource::Kernel => "kernel",
-        CommandSource::Action => "action",
-    };
-    format!("{source}/{address}")
 }
 
 fn operation_facet(
@@ -173,8 +129,9 @@ fn operation_facet(
         icon: icon.to_owned(),
         label: label.to_owned(),
         summary: summary.to_owned(),
-        subject_kind: None,
+        resource_kind: None,
         resolver: Some(resolver),
+        view: None,
     }
 }
 

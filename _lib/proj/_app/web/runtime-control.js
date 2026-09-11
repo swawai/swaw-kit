@@ -1,10 +1,31 @@
 import { t } from "./i18n.js";
+import {
+  RuntimeGenerationError,
+  runtimeGenerationMessage,
+} from "./runtime-generation.js";
 
-const RUNTIME_STATUS_PROTOCOL = "swawkit.runtime-status/v1";
-const HOST_STATUS_PROTOCOL = "swawkit.host-status/v1";
+const RUNTIME_STATUS_PROTOCOL = "swawkit.runtime-status/v3";
+const HOST_STATUS_PROTOCOL = "swawkit.host-status/v3";
 const RUNTIME_CLEANUP_PROTOCOL = "swawkit.runtime-cleanup/v1";
 const SHA256 = /^[a-f0-9]{64}$/;
+const BOOT_ID = /^[A-Za-z0-9-]{1,160}$/;
 const LOOPBACK_URL = /^http:\/\/127\.0\.0\.1:([1-9][0-9]{0,4})\/$/;
+const HOST_STATUS_FIELDS = [
+  "bootId",
+  "instanceKeySha256",
+  "pid",
+  "protocol",
+  "runningReleaseId",
+  "selectedReleaseId",
+  "updateAvailable",
+  "url",
+];
+const RUNTIME_STATUS_FIELDS = [
+  "host",
+  "protocol",
+  "releaseCount",
+  "selectedReleaseId",
+];
 const CLEANUP_STATES = {
   preview: new Set(["selected", "inUse", "removable", "retained"]),
   apply: new Set(["selected", "inUse", "removed", "retained"]),
@@ -29,14 +50,15 @@ function validHostStatus(document) {
   const port = typeof document?.url === "string"
     ? Number(LOOPBACK_URL.exec(document.url)?.[1])
     : 0;
-  return document?.protocol === HOST_STATUS_PROTOCOL
-    && typeof document.entryKeySha256 === "string"
-    && SHA256.test(document.entryKeySha256)
+  return exactFields(document, HOST_STATUS_FIELDS)
+    && document.protocol === HOST_STATUS_PROTOCOL
+    && typeof document.instanceKeySha256 === "string"
+    && SHA256.test(document.instanceKeySha256)
     && Number.isInteger(document.pid)
     && document.pid > 0
+    && document.pid <= 0xffffffff
     && typeof document.bootId === "string"
-    && document.bootId.length > 0
-    && document.bootId.length <= 160
+    && BOOT_ID.test(document.bootId)
     && Number.isInteger(port)
     && port <= 65535
     && typeof document.runningReleaseId === "string"
@@ -46,6 +68,13 @@ function validHostStatus(document) {
     && typeof document.updateAvailable === "boolean"
     && document.updateAvailable
       === (document.runningReleaseId !== document.selectedReleaseId);
+}
+
+function exactFields(document, expected) {
+  return typeof document === "object"
+    && document !== null
+    && !Array.isArray(document)
+    && Object.keys(document).sort().join("\0") === expected.join("\0");
 }
 
 export async function readRuntimeStatus(fetchImpl = fetch) {
@@ -61,11 +90,12 @@ export async function readRuntimeStatus(fetchImpl = fetch) {
   }
   const document = await response.json();
   if (
-    document?.protocol !== RUNTIME_STATUS_PROTOCOL
+    !exactFields(document, RUNTIME_STATUS_FIELDS)
+    || document.protocol !== RUNTIME_STATUS_PROTOCOL
     || typeof document.selectedReleaseId !== "string"
     || !SHA256.test(document.selectedReleaseId)
     || !Number.isInteger(document.releaseCount)
-    || document.releaseCount < 0
+    || document.releaseCount < 1
     || !(document.host === null || validHostStatus(document.host))
     || (document.host !== null
       && document.host?.selectedReleaseId !== document.selectedReleaseId)
@@ -166,6 +196,18 @@ export async function requestRuntimeCleanup(apply, fetchImpl = fetch) {
     },
   });
   if (!response.ok) {
+    try {
+      const document = await response.json();
+      const message = runtimeGenerationMessage(document?.code);
+      if (message) {
+        throw new RuntimeGenerationError(message, response.status, document.code);
+      }
+    } catch (error) {
+      if (error instanceof RuntimeGenerationError) {
+        throw error;
+      }
+      // The status remains authoritative when the response is not JSON.
+    }
     throw new RuntimeControlError(t(
       `Runtime 清理返回 HTTP ${response.status}`,
       `Runtime cleanup returned HTTP ${response.status}`,
@@ -193,19 +235,19 @@ export function runtimeRootPresentation(document) {
 
 function handlerPresentation(handler) {
   return {
-    "runtime.status": ["..runtime", t(
+    "runtime.status": [".runtime", t(
       "查看 Runtime 与 Host 的聚合状态。",
       "Inspect aggregate Runtime and Host state.",
     )],
-    "host.exit": ["..runtime.host.exit", t(
+    "host.exit": [".runtime/host/exit", t(
       "退出当前 Entry 的 Host；正在运行的 Web 命令也会终止。",
       "Exit this Entry's Host; running Web commands will also terminate.",
     )],
-    "host.restart": ["..runtime.host.restart", t(
+    "host.restart": [".runtime/host/restart", t(
       "重启 Host，并切换到已经发布且选中的 Runtime Release。",
       "Restart Host and switch to the published selected Runtime release.",
     )],
-    "runtime.cleanup": ["..runtime.cleanup", t(
+    "runtime.cleanup": [".runtime/cleanup", t(
       "预览或清理未被选中、也未被进程占用的旧 Runtime Release。",
       "Preview or remove old Runtime releases that are neither selected nor in use.",
     )],
@@ -230,6 +272,7 @@ export function createRuntimeControlView(
     confirmRestart = (message) => window.confirm(message),
     confirmCleanup = (message) => window.confirm(message),
     onRuntimeState = () => {},
+    onRuntimeUpdateRequired = () => {},
   } = {},
 ) {
   let selectedHandler = null;
@@ -452,6 +495,9 @@ export function createRuntimeControlView(
         await load();
       }
     } catch (error) {
+      if (error instanceof RuntimeGenerationError) {
+        onRuntimeUpdateRequired(error);
+      }
       elements.runtimeCleanupFeedback.textContent = error instanceof Error
         ? error.message
         : t("Runtime 清理失败", "Runtime cleanup failed");

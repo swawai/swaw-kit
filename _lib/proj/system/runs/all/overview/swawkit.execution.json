@@ -1,0 +1,9 @@
+{
+  "schema": "swawkit.facet-execution/v2",
+  "implementation": {
+    "type": "invoke",
+    "target": "$/system::runs/execute",
+    "arguments": ["--run", { "bind": "resource.selector" }],
+    "returns": "swawkit.command-run-journal/v3"
+  }
+}

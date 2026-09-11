@@ -1,0 +1,14 @@
+只读检查指定命令的入口与输入依赖是否可以立即执行。
+
+用法：
+  {{COMMAND}} .check <command-address>
+  {{COMMAND}} .check <command-address> --json
+
+该命令只读取 Catalog、Resource Export、execute Facet Requirement 与 Provider State；不会运行目标命令，
+也不会安装、编译或修复任何内容。退出码 0 表示命令入口和所有已声明 Provider 发布均
+静态 Ready；退出码 1 表示当前不能执行。
+
+Facet Requirement 只用 Provider Resource 与具名 Export 标识依赖。静态 Ready 不能证明
+领域产物有效，实际 Consumer 必须在使用边界自行编程校验。Provider 若提供普通子命令
+<provider>/check，结果会给出可显式运行的检查命令，但不会自动执行它。
+--json 输出 swawkit.command-check/v3，适合 Agent、脚本和可视化消费。

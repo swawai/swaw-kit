@@ -1,86 +1,125 @@
-use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::{
-    CommandSource,
+    CommandSpace,
     filesystem::{FileCandidate, directory_files},
 };
-use crate::profile::EntryProfileRecord;
+use crate::entry_config::EntryConfigRecord;
 
-const ENTRY_PROTOCOL: [(&str, CommandAdapter); 7] = [
-    ("run.core.json", CommandAdapter::Core),
-    ("run.toolchain.json", CommandAdapter::Toolchain),
+const ENTRY_PROTOCOL: [(&str, CommandAdapter); 5] = [
     ("run.exe", CommandAdapter::Exe),
     ("run.ts", CommandAdapter::Bun),
     ("run.py", CommandAdapter::Python),
     ("run.ps1", CommandAdapter::Pwsh),
     ("run.cmd", CommandAdapter::Cmd),
 ];
-const CORE_HANDLERS: [&str; 20] = [
-    "context.add",
-    "context.delete",
-    "context.list",
-    "context.new",
-    "context.note",
-    "context.prompt",
-    "context.remove",
-    "context.render",
-    "context.show",
-    "entry.claim",
-    "entry.profile",
-    "entry.profile.apply",
-    "entry.profile.set",
-    "host.exit",
-    "host.restart",
-    "meta.check",
-    "meta.help",
-    "meta.runs",
-    "runtime.cleanup",
-    "runtime.status",
-];
-const TOOLCHAIN_HANDLERS: [&str; 2] = ["dev.setup", "dev.status"];
-
 #[derive(Debug)]
 pub(crate) struct ResolvedEntry {
     pub(crate) name: &'static str,
     pub(crate) adapter: CommandAdapter,
-    pub(crate) path: PathBuf,
     pub(crate) handler: Option<String>,
+    pub(crate) product: Option<String>,
 }
 
 impl ResolvedEntry {
-    pub(super) fn has_valid_core_owner(&self, source: CommandSource, address: &str) -> bool {
-        match source {
-            CommandSource::Control => !matches!(
-                self.handler.as_deref(),
-                Some("meta.check" | "meta.help" | "meta.runs")
-            ),
-            CommandSource::Kernel => {
-                matches!(
-                    (address, self.handler.as_deref()),
-                    (".context.add", Some("context.add"))
-                        | (".context.delete", Some("context.delete"))
-                        | (".context.list", Some("context.list"))
-                        | (".context.new", Some("context.new"))
-                        | (".context.note", Some("context.note"))
-                        | (".context.prompt", Some("context.prompt"))
-                        | (".context.remove", Some("context.remove"))
-                        | (".context.render", Some("context.render"))
-                        | (".context.show", Some("context.show"))
-                        | (".check", Some("meta.check"))
-                        | (".help", Some("meta.help"))
-                        | (".runs", Some("meta.runs"))
-                ) || (self.handler.as_deref() == Some("entry.profile.set")
-                    && EntryProfileRecord::is_profile_setting_address(address))
+    pub(super) fn declared(
+        name: &'static str,
+        adapter: CommandAdapter,
+        handler: Option<String>,
+        product: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            adapter,
+            handler,
+            product,
+        }
+    }
+
+    pub(super) fn has_valid_core_owner(&self, space: CommandSpace, address: &str) -> bool {
+        space == CommandSpace::System
+            && (matches!(
+                (address, self.handler.as_deref()),
+                (".entry", Some("entry.config"))
+                    | (".entry/apply", Some("entry.config.apply"))
+                    | (".entry/instances", Some("entry.instances"))
+                    | (".entry/instances/create", Some("entry.instances.create"))
+                    | (".entry/instances/migrate", Some("entry.instances.migrate"))
+                    | (".runtime", Some("runtime.status"))
+                    | (".runtime/cleanup", Some("runtime.cleanup"))
+                    | (".runtime/host/exit", Some("host.exit"))
+                    | (".runtime/host/restart", Some("host.restart"))
+                    | (".check", Some("meta.check"))
+                    | (".check/dir/exists", Some("meta.check.dir.exists"))
+                    | (".help", Some("meta.help"))
+                    | (".runs", Some("meta.runs"))
+                    | (".view/source", Some("meta.view.source"))
+            ) || (self.handler.as_deref() == Some("entry.config.set")
+                && EntryConfigRecord::is_setting_address(address)))
+    }
+
+    pub(super) fn invalid_declared_owner(
+        &self,
+        space: CommandSpace,
+        address: &str,
+    ) -> Option<&'static str> {
+        match self.adapter {
+            CommandAdapter::Core if !self.has_valid_core_owner(space, address) => {
+                Some("core execution is restricted to its exact System command owner")
             }
-            CommandSource::Action => false,
+            CommandAdapter::Runtime if !self.has_valid_runtime_owner(space, address) => Some(
+                "Runtime Component execution is restricted to exact declared System product owners",
+            ),
+            _ => None,
+        }
+    }
+
+    fn has_valid_runtime_owner(&self, space: CommandSpace, address: &str) -> bool {
+        if space != CommandSpace::System || self.handler.is_some() {
+            return false;
+        }
+        match self.product.as_deref() {
+            Some("module") => matches!(address, ".module/instantiate" | ".module/status"),
+            Some("dev") => matches!(
+                address,
+                ".dev/settings"
+                    | ".dev/setup"
+                    | ".dev/setup/check"
+                    | ".dev/status"
+                    | ".dev/bun/mode"
+                    | ".dev/bun/sha256"
+                    | ".dev/bun/version"
+                    | ".dev/pwsh/mode"
+                    | ".dev/pwsh/sha256"
+                    | ".dev/pwsh/version"
+                    | ".dev/msvc/mode"
+                    | ".dev/msvc/channel"
+                    | ".dev/rust/mode"
+                    | ".dev/rust/toolchain"
+            ),
+            _ => false,
         }
     }
 }
 
 pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry>> {
     let files = directory_files(directory)?;
+    if let Some(file) = files.iter().find(|file| {
+        [
+            "run.core.json",
+            "run.toolchain.json",
+            "run.native",
+            "run.delegate",
+        ]
+        .iter()
+        .any(|name| file.name.eq_ignore_ascii_case(name))
+    }) {
+        return invalid_data(format!(
+            "obsolete command entry '{}'; declare an execute Facet in swawkit.facet.json",
+            file.path.display(),
+        ));
+    }
     let mut existing = Vec::new();
 
     for (canonical_name, adapter) in ENTRY_PROTOCOL {
@@ -115,26 +154,11 @@ pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry
                 file.path.display()
             ));
         }
-        let handler = match adapter {
-            CommandAdapter::Core => Some(read_handler_manifest(
-                &file.path,
-                "swawkit.core-command/v1",
-                "Core",
-                &CORE_HANDLERS,
-            )?),
-            CommandAdapter::Toolchain => Some(read_handler_manifest(
-                &file.path,
-                "swawkit.toolchain-command/v1",
-                "Toolchain",
-                &TOOLCHAIN_HANDLERS,
-            )?),
-            _ => None,
-        };
         existing.push(ResolvedEntry {
             name: canonical_name,
             adapter,
-            path: file.path.clone(),
-            handler,
+            handler: None,
+            product: None,
         });
     }
 
@@ -155,7 +179,9 @@ pub(crate) fn resolve_entry(directory: &Path) -> io::Result<Option<ResolvedEntry
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CommandAdapter {
     Core,
-    Toolchain,
+    Runtime,
+    Native,
+    Delegate,
     Exe,
     Bun,
     Python,
@@ -167,7 +193,9 @@ impl CommandAdapter {
     pub(crate) fn from_name(value: &str) -> Option<Self> {
         match value {
             "core" => Some(Self::Core),
-            "toolchain" => Some(Self::Toolchain),
+            "runtime" => Some(Self::Runtime),
+            "native" => Some(Self::Native),
+            "delegate" => Some(Self::Delegate),
             "exe" => Some(Self::Exe),
             "bun" => Some(Self::Bun),
             "python" => Some(Self::Python),
@@ -180,7 +208,9 @@ impl CommandAdapter {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Core => "core",
-            Self::Toolchain => "toolchain",
+            Self::Runtime => "runtime",
+            Self::Native => "native",
+            Self::Delegate => "delegate",
             Self::Exe => "exe",
             Self::Bun => "bun",
             Self::Python => "python",
@@ -188,56 +218,6 @@ impl CommandAdapter {
             Self::Cmd => "cmd",
         }
     }
-
-    pub(crate) fn is_bootstrap_safe(self) -> bool {
-        matches!(self, Self::Exe | Self::Cmd)
-    }
-}
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct HandlerManifest {
-    schema: String,
-    handler: String,
-}
-
-fn read_handler_manifest(
-    path: &Path,
-    expected_schema: &str,
-    owner: &str,
-    allowed_handlers: &[&str],
-) -> io::Result<String> {
-    let content = fs::read_to_string(path)?;
-    let manifest: HandlerManifest = serde_json::from_str(&content).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "invalid {owner} command manifest '{}': {error}",
-                path.display()
-            ),
-        )
-    })?;
-    if manifest.schema != expected_schema {
-        return invalid_data(format!(
-            "unsupported {owner} command schema '{}' in '{}'",
-            manifest.schema,
-            path.display()
-        ));
-    }
-    if manifest.handler.is_empty() || manifest.handler.trim() != manifest.handler {
-        return invalid_data(format!(
-            "{owner} command handler must be a non-empty trimmed string in '{}'",
-            path.display()
-        ));
-    }
-    if !allowed_handlers.contains(&manifest.handler.as_str()) {
-        return invalid_data(format!(
-            "unsupported {owner} command handler '{}' in '{}'",
-            manifest.handler,
-            path.display()
-        ));
-    }
-    Ok(manifest.handler)
 }
 
 fn invalid_data<T>(message: String) -> io::Result<T> {

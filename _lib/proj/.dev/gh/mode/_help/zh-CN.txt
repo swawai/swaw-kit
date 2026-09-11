@@ -1,3 +1,0 @@
-设置 GitHub CLI 模式：system 或 disabled。
-
-用法：{{INVOCATION}} <value>

@@ -7,53 +7,87 @@ import {
   RUNTIME_ARTIFACT_NAMES,
 } from "../_lib/release-set.ts";
 import { acquireExclusiveFileLock } from "../_lib/windows-filesystem.ts";
+import { loadBootstrapBuildEnvironment } from "../_lib/bootstrap-environment.ts";
 
 if (Bun.argv.length !== 2) {
-  throw new Error("proj.build.app does not accept dynamic arguments.");
+  throw new Error("project/proj/build/app does not accept dynamic arguments.");
 }
 
 const commandDataRoot = requiredAbsolute("SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT");
 const swawkitHome = requiredAbsolute("SWAWKIT_HOME");
-const cargoHome = requiredAbsolute("CARGO_HOME");
+const commandRuntimeId = requiredRevision("SWAWKIT_PROJ_CORE_COMMAND_RUNTIME_ID");
+const builder = await loadBootstrapBuildEnvironment(swawkitHome);
 const appRoot = resolve(swawkitHome, "_lib", "proj", "_app");
-const manifest = join(appRoot, "Cargo.toml");
-const cargo = join(cargoHome, "bin", "cargo.exe");
-await regularFile(manifest, "Cargo manifest");
+const moduleRoot = resolve(swawkitHome, "_lib", "proj", "system", "module");
+const devRoot = resolve(swawkitHome, "_lib", "proj", "system", "dev");
+const appManifest = join(appRoot, "Cargo.toml");
+const moduleManifest = join(moduleRoot, "Cargo.toml");
+const devManifest = join(devRoot, "Cargo.toml");
+const cargo = builder.tools.cargo;
+await regularFile(appManifest, "application Cargo manifest");
+await regularFile(moduleManifest, "Module Cargo manifest");
+await regularFile(devManifest, "Dev Cargo manifest");
 await executableFile(cargo, "managed Cargo executable");
 
 const locks = await ensureControlledDirectory(commandDataRoot, ["locks"], "build locks");
-const work = await ensureControlledDirectory(commandDataRoot, ["work", "cargo"], "Cargo work");
+const appWork = await ensureControlledDirectory(
+  commandDataRoot,
+  ["work", "cargo-app"],
+  "application Cargo work",
+);
+const moduleWork = await ensureControlledDirectory(
+  commandDataRoot,
+  ["work", "cargo-module"],
+  "Module Cargo work",
+);
+const devWork = await ensureControlledDirectory(
+  commandDataRoot,
+  ["work", "cargo-dev"],
+  "Dev Cargo work",
+);
 using lock = await acquireExclusiveFileLock(join(locks, "build.lock"), 30 * 60 * 1000);
 
-const build = Bun.spawn([
-  cargo,
-  "build",
-  "--locked",
-  "--release",
-  "--manifest-path",
-  manifest,
-  "--target-dir",
-  work,
-], {
-  cwd: appRoot,
-  stdin: "inherit",
-  stdout: "inherit",
-  stderr: "inherit",
-});
-const exitCode = await build.exited;
-if (exitCode !== 0) {
-  throw new Error(`Cargo failed with exit code ${exitCode}.`);
-}
+await cargoBuild("application", appRoot, appManifest, appWork);
+await cargoBuild("Module", moduleRoot, moduleManifest, moduleWork);
+await cargoBuild("Dev", devRoot, devManifest, devWork);
 
-const release = await ensureControlledDirectory(
-  commandDataRoot,
-  ["work", "cargo", "release"],
-  "Cargo release output",
+const appRelease = await ensureControlledDirectory(
+  appWork,
+  ["release"],
+  "application Cargo release output",
 );
-const candidates = Object.fromEntries(
-  RUNTIME_ARTIFACT_NAMES
-    .map((name) => [name, controlledPath(commandDataRoot, join(release, name), "build candidate")]),
-) as Record<typeof RUNTIME_ARTIFACT_NAMES[number], string>;
+const moduleRelease = await ensureControlledDirectory(
+  moduleWork,
+  ["release"],
+  "Module Cargo release output",
+);
+const devRelease = await ensureControlledDirectory(
+  devWork,
+  ["release"],
+  "Dev Cargo release output",
+);
+const candidates: Record<typeof RUNTIME_ARTIFACT_NAMES[number], string> = {
+  "swawkit-proj.exe": controlledPath(
+    commandDataRoot,
+    join(appRelease, "swawkit-proj.exe"),
+    "Core build candidate",
+  ),
+  "swawkit-proj-host.exe": controlledPath(
+    commandDataRoot,
+    join(appRelease, "swawkit-proj-host.exe"),
+    "Host build candidate",
+  ),
+  "swawkit-proj-module.exe": controlledPath(
+    commandDataRoot,
+    join(moduleRelease, "swawkit-proj-module.exe"),
+    "Module build candidate",
+  ),
+  "swawkit-proj-dev.exe": controlledPath(
+    commandDataRoot,
+    join(devRelease, "swawkit-proj-dev.exe"),
+    "Dev build candidate",
+  ),
+};
 for (const [name, path] of Object.entries(candidates)) {
   const metadata = await lstat(path);
   if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0) {
@@ -61,14 +95,50 @@ for (const [name, path] of Object.entries(candidates)) {
   }
   console.log(`[BUILT] ${path} (${metadata.size} bytes)`);
 }
-const id = await publishBuildReleaseSet(commandDataRoot, candidates);
-console.log(`[READY] proj.build.app release ${id}`);
+const id = await publishBuildReleaseSet(commandDataRoot, candidates, commandRuntimeId);
+console.log(`[READY] project/proj/build/app release ${id}`);
+
+async function cargoBuild(
+  label: string,
+  root: string,
+  manifest: string,
+  target: string,
+): Promise<void> {
+  const build = Bun.spawn([
+    cargo,
+    "build",
+    "--locked",
+    "--release",
+    "--manifest-path",
+    manifest,
+    "--target-dir",
+    target,
+  ], {
+    cwd: root,
+    env: builder.environment,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const exitCode = await build.exited;
+  if (exitCode !== 0) {
+    throw new Error(`${label} Cargo build failed with exit code ${exitCode}.`);
+  }
+}
 
 function requiredAbsolute(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`required environment variable is missing: ${name}`);
   if (!isAbsolute(value)) throw new Error(`${name} must be absolute: ${value}`);
   return resolve(value);
+}
+
+function requiredRevision(name: string): string {
+  const value = process.env[name];
+  if (!value || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error(`required Command Runtime ID is invalid: ${name}`);
+  }
+  return value;
 }
 
 async function regularFile(path: string, label: string): Promise<void> {

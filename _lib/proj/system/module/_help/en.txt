@@ -1,0 +1,1 @@
+Manage the explicit build and publication lifecycle of native commands in the System and Module spaces. Use instantiate to publish a native command Release and status to inspect it. Normal execution only consumes published capabilities; it never compiles or repairs a command.

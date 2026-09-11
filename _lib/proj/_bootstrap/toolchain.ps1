@@ -1,0 +1,381 @@
+Set-StrictMode -Version 2.0
+
+. (Join-Path $PSScriptRoot 'layout.ps1')
+. (Join-Path $PSScriptRoot 'environment.ps1')
+. (Join-Path $PSScriptRoot '..\_runtime\command-runtime.ps1')
+$SharedToolchainRoot = [IO.Path]::GetFullPath(
+    (Join-Path $PSScriptRoot '..\_toolchain')
+)
+. (Join-Path $SharedToolchainRoot '_lib\runtime.ps1')
+foreach ($File in @(
+    'event.ps1',
+    'artifact.ps1',
+    'recovery.ps1',
+    'install.ps1',
+    'environment.ps1'
+)) {
+    . (Join-Path (Join-Path $SharedToolchainRoot '_lib') $File)
+}
+$ModuleRoot = Join-Path $SharedToolchainRoot '_modules'
+foreach ($File in @(
+    'bun\module.ps1',
+    'bun\release.ps1',
+    'bun\selection.ps1',
+    'bun\install.ps1',
+    'pwsh\module.ps1',
+    'pwsh\release.ps1',
+    'pwsh\selection.ps1',
+    'pwsh\install.ps1',
+    'msvc\module.ps1',
+    'msvc\payload.ps1',
+    'msvc\manifest.ps1',
+    'msvc\release.ps1',
+    'msvc\install.ps1',
+    'msvc\environment.ps1',
+    'rust\module.ps1',
+    'rust\metadata.ps1',
+    'rust\state.ps1',
+    'rust\release.ps1',
+    'rust\process.ps1',
+    'rust\install.ps1',
+    'rust\environment.ps1'
+)) {
+    . (Join-Path $ModuleRoot $File)
+}
+
+function New-ProjBootstrapToolchainContext {
+    $Layout = Get-ProjBootstrapLayout
+    $DataRoot = Assert-ProjDevControlledRoot `
+        -Root $Layout.BootstrapDataRoot `
+        -Description 'Bootstrap data root'
+    $CacheRoot = Assert-ProjDevControlledRoot `
+        -Root $Layout.CacheRoot `
+        -Description 'Shared project cache root'
+    $ToolchainRoot = Assert-ProjDevelopmentEnvironmentControlledRoot `
+        -EnvironmentRoot $Layout.ToolchainRoot
+    return [pscustomobject][ordered]@{
+        ProjectRoot = $Layout.ProjHome
+        DataRoot = $DataRoot
+        CacheDataRoot = $CacheRoot
+        EnvironmentRoot = $ToolchainRoot
+        EnvironmentRepairInvocation = $Layout.BootstrapSetupPath
+        EnvCmdPath = Join-Path $ToolchainRoot 'env.cmd'
+        EnvPs1Path = Join-Path $ToolchainRoot 'env.ps1'
+        CacheRoot = Join-Path $CacheRoot 'downloads'
+        LockRoot = $Layout.LockRoot
+        SetupLockPath = Join-Path $Layout.LockRoot 'toolchain-setup.lock'
+        ArtifactLockRoot = Join-Path $CacheRoot '_locks'
+        EntryCommand = 'Swaw Kit Proj Bootstrap'
+        InvocationDirectory = $Layout.AppRoot
+        # Cold Bootstrap necessarily precedes the product Toolchain binary.
+        ToolchainExecutable = $null
+    }
+}
+
+function Write-ProjBootstrapToolchainState {
+    param(
+        [Parameter(Mandatory = $true)][object]$Context,
+        [Parameter(Mandatory = $true)][object]$Contract,
+        [Parameter(Mandatory = $true)][object]$MsvcDefinition,
+        [Parameter(Mandatory = $true)][object]$RustDefinition,
+        [Parameter(Mandatory = $true)][string]$Revision
+    )
+
+    $Msvc = Get-ProjDevMsvcValidMetadata `
+        -Context $Context `
+        -Definition $MsvcDefinition
+    $Rust = Get-ProjDevRustValidMetadata `
+        -Context $Context `
+        -Definition $RustDefinition
+    if ($null -eq $Msvc -or $null -eq $Rust) {
+        throw 'Cannot record an invalid Bootstrap toolchain.'
+    }
+    $State = [ordered]@{
+        schema = 'swawkit.proj-bootstrap-state/v2'
+        contract = [ordered]@{
+            schema = [string]$Contract.Schema
+            rustToolchain = [string]$Contract.RustToolchain
+            msvcChannel = [string]$Contract.MsvcChannel
+            commandRuntime = [ordered]@{
+                bunVersion = [string]$Contract.BunVersion
+                bunSha256 = [string]$Contract.BunSha256
+                pwshVersion = [string]$Contract.PwshVersion
+                pwshSha256 = [string]$Contract.PwshSha256
+            }
+        }
+        environmentRevision = $Revision
+        rust = [ordered]@{
+            rustcVersion = [string]$Rust.rustcVersion
+            cargoVersion = [string]$Rust.cargoVersion
+            rustfmtVersion = [string]$Rust.rustfmtVersion
+            components = [string[]]$Rust.components
+            rustcCommit = [string]$Rust.rustcCommit
+        }
+        msvc = [ordered]@{
+            toolVersion = [string]$Msvc.toolVersion
+            sdkVersion = [string]$Msvc.sdkVersion
+            manifestSha256 = [string]$Msvc.manifestSha256
+        }
+    }
+    $Content = ConvertTo-ProjDevJsonText -Value $State
+    $Layout = Get-ProjBootstrapLayout
+    $Current = if ([IO.File]::Exists($Layout.StatePath)) {
+        [IO.File]::ReadAllText($Layout.StatePath, [Text.Encoding]::UTF8)
+    } else {
+        $null
+    }
+    if ($Current -cne $Content) {
+        Write-ProjDevTextAtomic `
+            -Path $Layout.StatePath `
+            -Content $Content `
+            -ControlledRoot $Context.DataRoot
+    }
+}
+
+function Initialize-ProjBootstrapToolchain {
+    $RevisionVariable =
+        'SWAWKIT_PROJ_TOOLCHAIN_BOOTSTRAP_ENVIRONMENT_REVISION'
+    $Contract = Read-ProjBootstrapContract
+    $Context = New-ProjBootstrapToolchainContext
+    $MsvcDefinition = New-ProjDevMsvcDefinition `
+        -Channel ([string]$Contract.MsvcChannel)
+    $RustDefinition = New-ProjDevRustDefinition `
+        -Toolchain ([string]$Contract.RustToolchain) `
+        -Profile 'minimal' `
+        -HostTriple 'x86_64-pc-windows-msvc'
+    $CommandRuntimeDefinitions = `
+        New-ProjBootstrapCommandRuntimeDefinitions -Contract $Contract
+    Use-ProjBootstrapCachedCommandRuntimeSource `
+        -Context $Context `
+        -Definition $CommandRuntimeDefinitions.Bun
+    Use-ProjBootstrapCachedCommandRuntimeSource `
+        -Context $Context `
+        -Definition $CommandRuntimeDefinitions.Pwsh
+
+    $SetupLock = Enter-ProjDevFileLock `
+        -Path $Context.SetupLockPath `
+        -ControlledRoot $Context.DataRoot `
+        -TimeoutSeconds 1800
+    try {
+        [void](Install-ProjDevMsvc `
+            -Context $Context `
+            -Definition $MsvcDefinition)
+        [void](Install-ProjDevRust `
+            -Context $Context `
+            -Definition $RustDefinition)
+        [void](Install-ProjDevBun `
+            -Context $Context `
+            -Definition $CommandRuntimeDefinitions.Bun)
+        [void](Install-ProjDevPwsh `
+            -Context $Context `
+            -Definition $CommandRuntimeDefinitions.Pwsh)
+        $Plan = New-ProjDevEnvironmentPlan
+        Add-ProjDevMsvcEnvironment `
+            -Context $Context `
+            -Definition $MsvcDefinition `
+            -Plan $Plan
+        Add-ProjDevRustEnvironment `
+            -Context $Context `
+            -Definition $RustDefinition `
+            -Plan $Plan
+        $Scripts = ConvertTo-ProjDevEnvironmentScripts `
+            -Plan $Plan `
+            -RevisionVariable $RevisionVariable
+        [void](Publish-ProjDevEnvironmentScripts `
+            -Context $Context `
+            -Scripts $Scripts)
+    } finally {
+        $SetupLock.Dispose()
+    }
+
+    [Environment]::SetEnvironmentVariable(
+        $RevisionVariable,
+        $null,
+        [EnvironmentVariableTarget]::Process
+    )
+    try {
+        . $Context.EnvPs1Path
+        Assert-ProjDevLoadedEnvironmentRevision `
+            -Revision ([string]$Scripts.Revision) `
+            -VariableName $RevisionVariable
+        Assert-ProjDevMsvcEnvironmentCurrent `
+            -Context $Context `
+            -Definition $MsvcDefinition
+        Assert-ProjDevRustEnvironmentCurrent `
+            -Context $Context `
+            -Definition $RustDefinition
+    } finally {
+        [Environment]::SetEnvironmentVariable(
+            $RevisionVariable,
+            $null,
+            [EnvironmentVariableTarget]::Process
+        )
+    }
+
+    $RustRoot = Get-ProjDevRustInstallRoot `
+        -Context $Context `
+        -Definition $RustDefinition
+    $CargoPath = Resolve-ProjDevChildPath `
+        -Root $RustRoot `
+        -RelativePath (
+            "rustup\toolchains\$($RustDefinition.ToolchainName)\bin\cargo.exe"
+        ) `
+        -Description 'Bootstrap Cargo executable'
+    if (-not [IO.File]::Exists($CargoPath)) {
+        throw "The Bootstrap Cargo executable is missing: $CargoPath"
+    }
+    $MsvcRoot = Get-ProjDevMsvcInstallRoot `
+        -Context $Context `
+        -Definition $MsvcDefinition
+    $CompilerPath = Resolve-ProjBootstrapMsvcExecutable `
+        -Name 'cl.exe' `
+        -ManagedRoot $MsvcRoot
+    $LinkerPath = Resolve-ProjBootstrapMsvcExecutable `
+        -Name 'link.exe' `
+        -ManagedRoot $MsvcRoot
+    Write-ProjBootstrapToolchainState `
+        -Context $Context `
+        -Contract $Contract `
+        -MsvcDefinition $MsvcDefinition `
+        -RustDefinition $RustDefinition `
+        -Revision ([string]$Scripts.Revision)
+    Publish-ProjBootstrapEnvironment `
+        -Context $Context `
+        -Contract $Contract `
+        -Plan $Plan `
+        -Scripts $Scripts `
+        -CargoPath $CargoPath `
+        -CompilerPath $CompilerPath `
+        -LinkerPath $LinkerPath
+    $CommandRuntime = Publish-ProjBootstrapCommandRuntime `
+        -Context $Context `
+        -Definitions $CommandRuntimeDefinitions `
+        -CommandRuntimeRoot (Get-ProjBootstrapLayout).CommandRuntimeRoot
+    return [pscustomobject][ordered]@{
+        Context = $Context
+        Contract = $Contract
+        MsvcDefinition = $MsvcDefinition
+        RustDefinition = $RustDefinition
+        CargoPath = $CargoPath
+        CompilerPath = $CompilerPath
+        LinkerPath = $LinkerPath
+        EnvironmentRevision = [string]$Scripts.Revision
+        CommandRuntimeId = [string]$CommandRuntime.RuntimeId
+    }
+}
+
+function Resolve-ProjBootstrapMsvcExecutable {
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][string]$ManagedRoot
+    )
+
+    $Command = Get-Command $Name `
+        -CommandType Application `
+        -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $Command) {
+        throw "The Bootstrap managed MSVC environment does not expose $Name."
+    }
+    $RootPrefix = [IO.Path]::GetFullPath($ManagedRoot).TrimEnd('\', '/') +
+        [IO.Path]::DirectorySeparatorChar
+    $ExecutablePath = [IO.Path]::GetFullPath([string]$Command.Source)
+    if (-not $ExecutablePath.StartsWith(
+        $RootPrefix,
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "$Name resolved outside Bootstrap managed MSVC: $ExecutablePath"
+    }
+    return $ExecutablePath
+}
+
+function Invoke-ProjBootstrapRustProductBuild {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProductName,
+        [Parameter(Mandatory = $true)][string]$CandidateName,
+        [Parameter(Mandatory = $true)][string]$CargoPath,
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$TargetDirectory
+    )
+
+    foreach ($Path in @($CargoPath, $ManifestPath, $TargetDirectory)) {
+        if (-not [IO.Path]::IsPathRooted($Path)) {
+            throw "The $ProductName build path must be absolute: $Path"
+        }
+    }
+    $CargoPath = [IO.Path]::GetFullPath($CargoPath)
+    $ManifestPath = [IO.Path]::GetFullPath($ManifestPath)
+    $TargetDirectory = [IO.Path]::GetFullPath($TargetDirectory)
+    if (-not [IO.File]::Exists($CargoPath)) {
+        throw "The $ProductName Cargo executable is missing: $CargoPath"
+    }
+    if (-not [IO.File]::Exists($ManifestPath)) {
+        throw "The $ProductName Cargo manifest is missing: $ManifestPath"
+    }
+
+    $Arguments = @(
+        'build',
+        '--locked',
+        '--release',
+        '--manifest-path',
+        $ManifestPath,
+        '--target-dir',
+        $TargetDirectory
+    )
+    Push-Location (Split-Path $ManifestPath -Parent)
+    try {
+        & $CargoPath @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "$ProductName Cargo failed with exit code $LASTEXITCODE."
+        }
+    } finally {
+        Pop-Location
+    }
+
+    $Candidate = Join-Path $TargetDirectory (Join-Path 'release' $CandidateName)
+    $Item = Get-Item -LiteralPath $Candidate -ErrorAction SilentlyContinue
+    if ($null -eq $Item -or
+        -not [IO.File]::Exists($Candidate) -or
+        $Item.Length -le 0 -or
+        ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Cargo reported success but the $ProductName executable is invalid: $Candidate"
+    }
+    Write-Host "[BUILT] $Candidate ($($Item.Length) bytes)" -ForegroundColor Green
+    Write-Output $Candidate
+}
+
+function Invoke-ProjBootstrapToolchain {
+    param([Parameter(Mandatory = $true)][scriptblock]$Action)
+
+    $Snapshot = [Collections.Generic.Dictionary[string, string]]::new(
+        [StringComparer]::Ordinal
+    )
+    $Before = [Environment]::GetEnvironmentVariables('Process')
+    foreach ($Name in [string[]]@($Before.Keys)) {
+        $Snapshot[$Name] = [string]$Before[$Name]
+    }
+    try {
+        $Toolchain = Initialize-ProjBootstrapToolchain
+        & $Action $Toolchain (Get-ProjBootstrapLayout)
+    } finally {
+        $After = [Environment]::GetEnvironmentVariables('Process')
+        foreach ($Name in [string[]]@($After.Keys)) {
+            if (-not $Snapshot.ContainsKey($Name)) {
+                [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
+            }
+        }
+        foreach ($Pair in $Snapshot.GetEnumerator()) {
+            $Current = [Environment]::GetEnvironmentVariable(
+                [string]$Pair.Key,
+                'Process'
+            )
+            if ([string]$Current -cne [string]$Pair.Value) {
+                [Environment]::SetEnvironmentVariable(
+                    [string]$Pair.Key,
+                    [string]$Pair.Value,
+                    'Process'
+                )
+            }
+        }
+    }
+}

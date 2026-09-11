@@ -1,329 +1,228 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ToolchainPath
+    [Parameter(Mandatory = $true)][string]$DevPath
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\setup.ps1')
 . (Join-Path $PSScriptRoot '_lib\bun-fixture.ps1')
 
-$EnvironmentNames = @(
-    'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
-    'SWAWKIT_HOME',
-    'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_ACTION_ROOT',
-    'SWAWKIT_PROJ_DATA_ROOT',
-    'SWAWKIT_PROJ_ENTRY_COMMAND',
-    'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
-    'SWAWKIT_PROJ_CORE_COMMAND_PHASE',
-    'SWAWKIT_PROJ_CORE_COMMAND_ADDRESS',
-    'SWAWKIT_PROJ_CORE_COMMAND_DIR',
-    'SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT',
-    'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
-    'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
-    'SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE',
-    'SWAWKIT_PROJ_BUN_MODE',
-    'SWAWKIT_PROJ_BUN_VERSION',
-    'SWAWKIT_PROJ_BUN_SHA256',
-    'SWAWKIT_PROJ_PWSH_MODE',
-    'SWAWKIT_PROJ_PWSH_VERSION',
-    'SWAWKIT_PROJ_PWSH_SHA256',
-    'SWAWKIT_PROJ_TEST_BUN_CAPTURE'
-)
-$EnvironmentSnapshot = Enter-ProjBunIsolatedEnvironment `
-    -ProjectVariableNames $EnvironmentNames
-$UserPathBefore = [Environment]::GetEnvironmentVariable('PATH', 'User')
-$MachinePathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
-$TestTemporaryBase = [IO.Path]::GetFullPath(
-    (Join-Path $ProjRoot '..\..\data\_test')
-)
-[void][IO.Directory]::CreateDirectory($TestTemporaryBase)
-$TemporaryRoot = Join-Path $TestTemporaryBase (
-    "swawkit-proj-bun-command-$([Guid]::NewGuid().ToString('N'))"
-)
-$ControlHome = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..'))
-$EntryName = "test-bun-command-$([Guid]::NewGuid().ToString('N'))"
-$ConsumerDataRoot = Join-Path $ControlHome "data\proj.$EntryName"
-$SystemPowerShell = Join-Path $env:SystemRoot (
-    'System32\WindowsPowerShell\v1.0\powershell.exe'
-)
-$ResolvedToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
-if (-not [IO.File]::Exists($ResolvedToolchainPath)) {
-    throw "Toolchain test candidate is missing: $ResolvedToolchainPath"
+if (-not [IO.File]::Exists([IO.Path]::GetFullPath($DevPath))) {
+    throw "Proj Dev test candidate is missing: $DevPath"
 }
 
+$TestBase = [IO.Path]::GetFullPath((Join-Path $ProjRoot '..\..\data\_test'))
+[void][IO.Directory]::CreateDirectory($TestBase)
+$TemporaryRoot = Join-Path $TestBase (
+    "swawkit-proj-bun-command-$([Guid]::NewGuid().ToString('N'))"
+)
+$BinRoot = Join-Path $TemporaryRoot 'bin'
+$InvocationRoot = Join-Path $TemporaryRoot 'invocation'
+$DataRoot = Join-Path $TemporaryRoot 'data-root'
+$BunExecutable = Join-Path $BinRoot 'bun.exe'
+$CapturePath = Join-Path $TemporaryRoot 'capture.txt'
+$EntryPath = Join-Path $ProjRoot 'system\dev\bun\run.ps1'
+$EnvironmentExportPath = Join-Path $ProjRoot (
+    '..\..\data\proj.swawkit\modules\system\dev\setup\export\environment.json'
+)
+$EnvironmentExport = Get-Content `
+    -LiteralPath $EnvironmentExportPath `
+    -Raw `
+    -Encoding utf8 |
+    ConvertFrom-Json
+$PowerShell = [IO.Path]::GetFullPath(
+    [string]$EnvironmentExport.pwshExecutable
+)
+if (-not [IO.File]::Exists($PowerShell)) {
+    throw "Managed PowerShell test executable is missing: $PowerShell"
+}
+$PreviousPath = [string]$env:PATH
+$PreviousEntryCommand = [string]$env:SWAWKIT_PROJ_ENTRY_COMMAND
+$PreviousAddress = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS
+$PreviousDirectory = [string]$env:SWAWKIT_PROJ_CORE_COMMAND_DIR
+$PreviousCapture = [string]$env:SWAWKIT_PROJ_TEST_BUN_CAPTURE
+$PreviousDataRoot = [string]$env:SWAWKIT_PROJ_DATA_ROOT
+
 try {
-    $ProjectRoot = Join-Path $TemporaryRoot 'project'
-    $InvocationRoot = Join-Path $ProjectRoot 'work area'
-    $ActionRoot = Join-Path $ProjectRoot '.swaw'
-    foreach ($Directory in @($ProjectRoot, $InvocationRoot, $ActionRoot)) {
-        [void][IO.Directory]::CreateDirectory($Directory)
-    }
-    [void][IO.Directory]::CreateDirectory($ConsumerDataRoot)
-    $InputRevision = 'sha256-' + ('a' * 64)
-    $ProfilePath = Join-Path $ConsumerDataRoot '_profile.json'
-    [IO.File]::WriteAllText($ProfilePath, '{}')
-    $ProfileRevision = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $ProfilePath
-    )
-    $ConsumerContext = New-ProjDevContext `
-        -ProjectRoot $ProjectRoot `
-        -DataRoot $ConsumerDataRoot `
-        -CacheDataRoot (Join-Path $TemporaryRoot 'shared cache') `
-        -EntryCommand 'swawkit' `
-        -InvocationDirectory $InvocationRoot `
-        -EnvironmentInputRevision $InputRevision `
-        -CommandProfileRevision $ProfileRevision
-    Set-ProjBunProcessEnvironment -Values @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-        SWAWKIT_HOME = $ControlHome
-        SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ConsumerContext.ProjectRoot
-        SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
-        SWAWKIT_PROJ_DATA_ROOT = $ConsumerContext.DataRoot
-        SWAWKIT_PROJ_ENTRY_COMMAND = $ConsumerContext.EntryCommand
-        SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $ConsumerContext.InvocationDirectory
-        SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.bun'
-        SWAWKIT_PROJ_CORE_COMMAND_DIR = (Join-Path $ProjRoot '.dev\bun')
-        SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT = (Join-Path $ConsumerDataRoot 'modules\kernel\.dev\bun')
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = $InputRevision
-        SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $ProfileRevision
-        SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE = $ResolvedToolchainPath
-        SWAWKIT_PROJ_BUN_MODE = 'managed'
-        SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
-    }
-    $BunEntry = Join-Path $ProjRoot '.dev\bun\run.ps1'
-    $MissingResult = Invoke-ProjBunEntryFixture `
-        -PowerShell $SystemPowerShell `
-        -EntryPath $BunEntry `
-        -Arguments @('--version')
-    Assert-ProjBunTest `
-        -Condition ($MissingResult.ExitCode -eq 1 -and
-            -not [IO.Directory]::Exists(
-                (Join-Path $ConsumerDataRoot 'modules\kernel\.dev\setup\export')
-            )) `
-        -Message '.dev.bun implicitly created development state before setup'
+    [void][IO.Directory]::CreateDirectory($BinRoot)
+    [void][IO.Directory]::CreateDirectory($InvocationRoot)
+    New-ProjBunFixtureExecutable -Path $BunExecutable -Version '1.2.15'
 
-    $env:SWAWKIT_PROJ_BUN_MODE = 'disabled'
-    $DisabledResult = Invoke-ProjBunEntryFixture `
-        -PowerShell $SystemPowerShell `
-        -EntryPath $BunEntry `
-        -Arguments @('--version')
-    Assert-ProjBunTest `
-        -Condition ($DisabledResult.ExitCode -eq 1 -and
-            -not [IO.Directory]::Exists(
-                (Join-Path $ConsumerDataRoot 'modules\kernel\.dev\setup\export')
-            )) `
-        -Message 'disabled .dev.bun wrote development state'
-    $env:SWAWKIT_PROJ_BUN_MODE = 'managed'
-
-    $Definition = Get-ProjDevBunDefinition
-    $Definition.Sha256 = 'f' * 64
-    $Definition.Verification = 'unverified'
-    $InstallRoot = Get-ProjDevInstallRoot `
-        -Context $ConsumerContext `
-        -Definition $Definition
-    [void][IO.Directory]::CreateDirectory($InstallRoot)
-    New-ProjBunFixtureExecutable `
-        -Path (Join-Path $InstallRoot 'bun.exe') `
-        -Version '1.2.15'
-    $ExpectedBunx = "@echo off`r`n`"%~dp0bun.exe`" x %*`r`n"
+    $InputRevision = 'sha256-' + ('1' * 64)
+    $PublicationToken = '2' * 32
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
+    $ExportRoot = Join-Path $SetupRoot 'export'
+    [void][IO.Directory]::CreateDirectory($ExportRoot)
     [IO.File]::WriteAllText(
-        (Join-Path $InstallRoot 'bunx.cmd'),
-        $ExpectedBunx,
+        (Join-Path $SetupRoot '_state.json'),
+        ([ordered]@{
+            schema = 'swawkit.command-provider-state/v3'
+            status = 'ready'
+            inputRevision = $InputRevision
+            token = $PublicationToken
+        } | ConvertTo-Json -Depth 8),
         [Text.UTF8Encoding]::new($false)
     )
-    Write-ProjDevInstallMetadata `
-        -Definition $Definition `
-        -InstallRoot $InstallRoot
+    [IO.File]::WriteAllText(
+        (Join-Path $ExportRoot 'environment.json'),
+        ([ordered]@{
+            schema = 'swawkit.proj-dev-environment/v1'
+            inputRevision = $InputRevision
+            publicationToken = $PublicationToken
+            variables = @()
+            paths = @($BinRoot)
+            bunExecutable = $BunExecutable
+            pwshExecutable = $PowerShell
+        } | ConvertTo-Json -Depth 8),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        (Join-Path $ExportRoot 'env.ps1'),
+        (
+            "`$env:SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_PUBLICATION_TOKEN = " +
+            "'$PublicationToken'`r`n" +
+            "`$env:PATH = '$($BinRoot.Replace("'", "''"))' + " +
+            "[IO.Path]::PathSeparator + `$env:PATH`r`n"
+        ),
+        [Text.UTF8Encoding]::new($false)
+    )
 
-    $MissingEnvironmentResult = Invoke-ProjBunEntryFixture `
-        -PowerShell $SystemPowerShell `
-        -EntryPath $BunEntry `
-        -Arguments @('--version')
-    Assert-ProjBunTest `
-        -Condition ($MissingEnvironmentResult.ExitCode -eq 1 -and
-            $MissingEnvironmentResult.Output -like "*'.dev.setup'*" -and
-            -not [IO.File]::Exists($ConsumerContext.EnvCmdPath) -and
-            -not [IO.File]::Exists($ConsumerContext.EnvPs1Path)) `
-        -Message '.dev.bun did not require the generated project environment'
-
-    $Plan = New-ProjDevEnvironmentPlan
-    Add-ProjDevBunEnvironment `
-        -Context $ConsumerContext `
-        -Definition $Definition `
-        -Plan $Plan
-    Assert-ProjBunTest `
-        -Condition ($Plan.Variables.Count -eq 0) `
-        -Message 'Bun added duplicate module metadata to the export Plan'
-    $Attempt = Start-ProjDevSetupProviderPublication `
-        -Context $ConsumerContext
-    Set-ProjDevEnvironmentVariable `
-        -Plan $Plan `
-        -Name (Get-ProjDevSetupPublicationTokenVariable) `
-        -Value ([string]$Attempt.Token)
-    $Scripts = ConvertTo-ProjDevEnvironmentScripts -Plan $Plan
-    [void](Publish-ProjDevEnvironmentScripts `
-        -Context $ConsumerContext `
-        -Scripts $Scripts)
-    Complete-ProjDevSetupProviderPublication `
-        -Context $ConsumerContext `
-        -Attempt $Attempt
-
-    $env:SWAWKIT_PROJ_PWSH_MODE = 'managed'
-    $env:SWAWKIT_PROJ_PWSH_VERSION = '7.6.4'
-    $env:SWAWKIT_PROJ_PWSH_SHA256 = ''
-    $UnrelatedDeclaration = Invoke-ProjBunEntryFixture `
-        -PowerShell $SystemPowerShell `
-        -EntryPath $BunEntry `
-        -Arguments @('unrelated-declaration-probe')
-    Assert-ProjBunTest `
-        -Condition ($UnrelatedDeclaration.ExitCode -eq 0) `
-        -Message (
-            'an unrelated PowerShell declaration change blocked Bun: ' +
-            $UnrelatedDeclaration.Output
-        )
-
-    $MetadataIsolation = Invoke-ProjBunEntryFixture `
-        -PowerShell $SystemPowerShell `
-        -EntryPath $BunEntry `
-        -Arguments @('assert-no-export-metadata')
-    Assert-ProjBunTest `
-        -Condition ($MetadataIsolation.ExitCode -eq 0) `
-        -Message '.dev.setup export metadata leaked into the Bun process'
-
-    $CapturePath = Join-Path $TemporaryRoot 'bun-capture.txt'
+    $env:PATH = $PreviousPath
+    $env:SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/bun'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_DIR = Split-Path $EntryPath -Parent
     $env:SWAWKIT_PROJ_TEST_BUN_CAPTURE = $CapturePath
+    $env:SWAWKIT_PROJ_DATA_ROOT = $DataRoot
+
+    [string[]]$Arguments = @(
+        'hello world',
+        'quote"value',
+        'a&b',
+        'a|b',
+        '%PATH%'
+    )
     Push-Location $InvocationRoot
     try {
-        $BunHelp = Invoke-ProjBunEntryFixture `
-            -PowerShell $SystemPowerShell `
-            -EntryPath $BunEntry `
-            -Arguments @('--help')
-        $BunHelpCapture = [IO.File]::ReadAllLines($CapturePath)
-        Assert-ProjBunTest `
-            -Condition ($BunHelp.ExitCode -eq 0 -and
-                $BunHelpCapture.Count -eq 5 -and
-                $BunHelpCapture[4] -ceq '--help' -and
-                $BunHelpCapture[2] -ceq '.dev.bun' -and
-                (Get-ProjDevCanonicalPath -Path $BunHelpCapture[3]) -ceq
-                (Get-ProjDevCanonicalPath -Path (
-                    Join-Path $ProjRoot '.dev\bun'
-                ))) `
-            -Message '.dev.bun --help was intercepted instead of reaching Bun'
-
-        [string[]]$ExpectedArguments = @(
-            'hello world',
-            '',
-            'quote"value',
-            'a&b',
-            'a|b',
-            '%PATH%',
-            'exit:23'
-        )
-        $Invocation = Invoke-ProjBunEntryFixture `
-            -PowerShell $SystemPowerShell `
-            -EntryPath $BunEntry `
-            -Arguments $ExpectedArguments
-        $Captured = [IO.File]::ReadAllLines($CapturePath)
-        Assert-ProjBunTest `
-            -Condition ($Invocation.ExitCode -eq 23 -and
-                [string]::Join(
-                    "`n",
-                    $Captured[4..($Captured.Count - 1)]
-                ) -ceq [string]::Join("`n", $ExpectedArguments)) `
-            -Message '.dev.bun did not preserve public dynamic argv and exit code'
-        Assert-ProjBunTest `
-            -Condition (
-                (Get-ProjDevCanonicalPath -Path $Captured[1]) -ceq
-                (Get-ProjDevCanonicalPath -Path $InvocationRoot)
-            ) `
-            -Message '.dev.bun lost the public invocation directory'
-
-        $Separator = Invoke-ProjBunEntryFixture `
-            -PowerShell $SystemPowerShell `
-            -EntryPath $BunEntry `
-            -Arguments @('--', '--help')
-        $SeparatorCapture = [IO.File]::ReadAllLines($CapturePath)
-        Assert-ProjBunTest `
-            -Condition ($Separator.ExitCode -eq 0 -and
-                $SeparatorCapture[4] -ceq '--' -and
-                $SeparatorCapture[5] -ceq '--help') `
-            -Message '.dev.bun changed the explicit option separator'
-
-        $BunExecutable = Join-Path $InstallRoot 'bun.exe'
-        $MissingBunBackup = Join-Path $InstallRoot 'bun.exe.missing'
-        [IO.File]::Move($BunExecutable, $MissingBunBackup)
-        try {
-            $MissingBun = Invoke-ProjBunEntryFixture `
-                -PowerShell $SystemPowerShell `
-                -EntryPath $BunEntry `
-                -Arguments @('--version')
-        } finally {
-            [IO.File]::Move($MissingBunBackup, $BunExecutable)
-        }
-        Assert-ProjBunTest `
-            -Condition (
-                $MissingBun.ExitCode -eq 1 -and
-                $MissingBun.Output -like "*Run '*.dev.setup'*"
-            ) `
-            -Message 'a missing Bun executable did not request .dev.setup'
+        $Result = Invoke-ProjBunEntryFixture `
+            -PowerShell $PowerShell `
+            -EntryPath $EntryPath `
+            -Arguments $Arguments
     } finally {
         Pop-Location
     }
-
-    [IO.File]::Copy(
-        $env:ComSpec,
-        (Join-Path $InstallRoot 'bun.exe'),
-        $true
-    )
-    Write-ProjDevInstallMetadata `
-        -Definition $Definition `
-        -InstallRoot $InstallRoot
-    $WorkingDirectoryResult = Invoke-ProjBunEntryFixture `
-        -PowerShell $SystemPowerShell `
-        -EntryPath (Join-Path $ProjRoot '.dev\bun\run.ps1') `
-        -Arguments @('/d', '/c', 'cd')
-    Assert-ProjBunTest `
-        -Condition ($WorkingDirectoryResult.ExitCode -eq 0 -and
-            (Get-ProjDevCanonicalPath -Path (
-                $WorkingDirectoryResult.Output.Trim()
-            )) -ceq
-            (Get-ProjDevCanonicalPath -Path $InvocationRoot)) `
-        -Message '.dev.bun native process did not use the caller directory'
-
+    $Capture = [IO.File]::ReadAllLines($CapturePath)
     Assert-ProjBunTest `
         -Condition (
-            [Environment]::GetEnvironmentVariable('PATH', 'User') -ceq
-                $UserPathBefore -and
-            [Environment]::GetEnvironmentVariable('PATH', 'Machine') -ceq
-                $MachinePathBefore
+            $Result.ExitCode -eq 0 -and
+            $Capture.Count -eq ($Arguments.Count + 4) -and
+            [string]::Join("`n", $Capture[4..($Capture.Count - 1)]) -ceq
+                [string]::Join("`n", $Arguments)
         ) `
-        -Message 'Bun commands changed persistent User or Machine PATH'
+        -Message (
+            'the thin Bun wrapper changed argv: expected=' +
+            [string]::Join('|', $Arguments) + '; actual=' +
+            [string]::Join('|', $Capture) + '; output=' +
+            $Result.Output
+        )
 
-    Write-Host '[PASS] Proj Bun command protocol test' -ForegroundColor Green
+    $ExitResult = Invoke-ProjBunEntryFixture `
+        -PowerShell $PowerShell `
+        -EntryPath $EntryPath `
+        -Arguments @('exit:37')
+    Assert-ProjBunTest `
+        -Condition ($ExitResult.ExitCode -eq 37) `
+        -Message 'the thin Bun wrapper changed the executable exit code'
+
+    $StatePath = Join-Path $SetupRoot '_state.json'
+    [byte[]]$ReadyStateBytes = [IO.File]::ReadAllBytes($StatePath)
+    [IO.File]::WriteAllText(
+        $StatePath,
+        ([ordered]@{
+            schema = 'swawkit.command-provider-state/v3'
+            status = 'ready'
+            inputRevision = $InputRevision
+            token = $PublicationToken
+            exports = @()
+        } | ConvertTo-Json -Depth 8),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $DescribedState = Invoke-ProjBunEntryFixture `
+        -PowerShell $PowerShell `
+        -EntryPath $EntryPath `
+        -Arguments @('--version')
+    Assert-ProjBunTest `
+        -Condition ($DescribedState.ExitCode -ne 0 -and
+            $DescribedState.Output.Contains(
+                'development environment is outdated'
+            )) `
+        -Message 'the thin Bun wrapper accepted a Provider State export description'
+    [IO.File]::WriteAllBytes($StatePath, $ReadyStateBytes)
+
+    [IO.File]::Delete($BunExecutable)
+    $Missing = Invoke-ProjBunEntryFixture `
+        -PowerShell $PowerShell `
+        -EntryPath $EntryPath `
+        -Arguments @('--version')
+    Assert-ProjBunTest `
+        -Condition (
+            $Missing.ExitCode -ne 0 -and
+            $Missing.Output.Contains("Run 'swawkit .dev/setup'")
+        ) `
+        -Message 'the thin Bun wrapper accepted a missing published executable'
+
+    New-ProjBunFixtureExecutable -Path $BunExecutable -Version '1.2.15'
+    $ReplacementStatePath = Join-Path $SetupRoot '.race-state.json'
+    [IO.File]::WriteAllText(
+        $ReplacementStatePath,
+        ([ordered]@{
+            schema = 'swawkit.command-provider-state/v3'
+            status = 'unavailable'
+            inputRevision = ('sha256-' + ('4' * 64))
+            token = ('5' * 32)
+        } | ConvertTo-Json -Depth 8),
+        [Text.UTF8Encoding]::new($false)
+    )
+    [IO.File]::WriteAllText(
+        (Join-Path $ExportRoot 'env.ps1'),
+        (
+            "`$env:SWAWKIT_PROJ_MODULE_SYSTEM_DEV_SETUP_PUBLICATION_TOKEN = " +
+            "'$PublicationToken'`r`n" +
+            "[IO.File]::Move(" +
+            "'$($ReplacementStatePath.Replace("'", "''"))', " +
+            "'$((Join-Path $SetupRoot '_state.json').Replace("'", "''"))', " +
+            "`$true)`r`n"
+        ),
+        [Text.UTF8Encoding]::new($false)
+    )
+    $ChangedWhileLoading = Invoke-ProjBunEntryFixture `
+        -PowerShell $PowerShell `
+        -EntryPath $EntryPath `
+        -Arguments @('--version')
+    Assert-ProjBunTest `
+        -Condition (
+            $ChangedWhileLoading.ExitCode -ne 0 -and
+            $ChangedWhileLoading.Output.Contains(
+                'development environment changed while it was loading'
+            )
+        ) `
+        -Message (
+            'the thin Bun wrapper accepted a provider invalidation while ' +
+            "loading its Export: $($ChangedWhileLoading.Output)"
+        )
+
+    Write-Host '[PASS] Proj thin Bun command wrapper' -ForegroundColor Green
 } finally {
-    Exit-ProjBunIsolatedEnvironment -Snapshot $EnvironmentSnapshot
-    if ([IO.Directory]::Exists($ConsumerDataRoot) -and
-        [IO.Path]::GetFileName($ConsumerDataRoot) -ceq "proj.$EntryName") {
-        Remove-Item -LiteralPath $ConsumerDataRoot -Recurse -Force
-    }
-    $ResolvedTemporaryRoot = [IO.Path]::GetFullPath($TemporaryRoot)
-    $SystemTemporaryRoot = [IO.Path]::GetFullPath(
-        $TestTemporaryBase
-    ).TrimEnd('\') + '\'
-    if ($ResolvedTemporaryRoot.StartsWith(
-        $SystemTemporaryRoot,
-        [StringComparison]::OrdinalIgnoreCase
-    ) -and
-        [IO.Path]::GetFileName($ResolvedTemporaryRoot).StartsWith(
-            'swawkit-proj-bun-command-',
-            [StringComparison]::Ordinal
-        ) -and
-        [IO.Directory]::Exists($ResolvedTemporaryRoot)) {
-        Remove-Item -LiteralPath $ResolvedTemporaryRoot -Recurse -Force
+    $env:PATH = $PreviousPath
+    $env:SWAWKIT_PROJ_ENTRY_COMMAND = $PreviousEntryCommand
+    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = $PreviousAddress
+    $env:SWAWKIT_PROJ_CORE_COMMAND_DIR = $PreviousDirectory
+    $env:SWAWKIT_PROJ_TEST_BUN_CAPTURE = $PreviousCapture
+    $env:SWAWKIT_PROJ_DATA_ROOT = $PreviousDataRoot
+    if ([IO.Directory]::Exists($TemporaryRoot)) {
+        Remove-Item -LiteralPath $TemporaryRoot -Recurse -Force
     }
 }
+
+$global:LASTEXITCODE = 0

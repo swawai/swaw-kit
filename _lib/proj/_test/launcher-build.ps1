@@ -80,14 +80,12 @@ function Test-ProjLauncherBuildFileUnchanged {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-. (Join-Path $RepoRoot '_lib\proj\_toolchain\bootstrap-layout.ps1')
+. (Join-Path $RepoRoot '_lib\proj\_bootstrap\layout.ps1')
 $Layout = Get-ProjBootstrapLayout
 $BuildPath = Join-Path $RepoRoot '_lib\proj\build.ps1'
 $CandidatePath = $Layout.LauncherCandidatePath
-$TemplatePath = $Layout.LauncherTemplatePath
 $RootEntryPath = Join-Path $RepoRoot 'swawkit.exe'
 $RuntimePath = $Layout.RuntimeCurrentPath
-$TemplateBefore = Get-ProjLauncherBuildFileState -Path $TemplatePath
 $RootBefore = Get-ProjLauncherBuildFileState -Path $RootEntryPath
 $RuntimeBefore = Get-ProjLauncherBuildFileState -Path $RuntimePath
 $EnvironmentBefore = Get-ProjLauncherBuildTestEnvironment
@@ -112,11 +110,6 @@ Assert-ProjLauncherBuildTest `
     -Message 'the standalone Launcher build did not produce a thin candidate'
 
 foreach ($Protected in @(
-    [pscustomobject]@{
-        Name = 'published Launcher template'
-        Path = $TemplatePath
-        Before = $TemplateBefore
-    }
     [pscustomobject]@{
         Name = 'root control-plane Entry'
         Path = $RootEntryPath

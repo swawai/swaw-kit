@@ -11,17 +11,15 @@ use windows_sys::Win32::UI::{
 };
 
 use crate::{
-    catalog::{CatalogSnapshot, CommandSource},
+    catalog::CatalogSnapshot,
     command::catalog_command_data_root,
-    context::EntryContext,
-    profile::EntryProfileState,
     run_journal::{read_run, read_run_directory, read_run_history},
 };
 
 pub use crate::run_journal::{RunJournalDocument, RunJournalHistoryDocument};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunSubjectRecord {
+pub struct RunRecord {
     pub id: String,
     pub source: &'static str,
     pub state: &'static str,
@@ -31,45 +29,18 @@ pub struct RunSubjectRecord {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandLocator {
-    source: CommandSource,
     address: String,
 }
 
 impl CommandLocator {
     pub fn parse(value: impl Into<String>) -> Result<Self, CommandJournalAccessError> {
-        let value = value.into();
-        let (source, address) = value.split_once('/').ok_or_else(|| {
-            CommandJournalAccessError::InvalidLocator(
-                "the command locator must use the '<source>/<address>' form".to_owned(),
-            )
-        })?;
-        if address.is_empty() || address.contains('/') {
+        let address = value.into();
+        if address.is_empty() || address.contains('\0') {
             return Err(CommandJournalAccessError::InvalidLocator(
-                "the command locator must contain one non-empty address".to_owned(),
+                "the command locator must contain one canonical command address".to_owned(),
             ));
         }
-        let source = match source {
-            "kernel" => CommandSource::Kernel,
-            "action" => CommandSource::Action,
-            _ => {
-                return Err(CommandJournalAccessError::InvalidLocator(
-                    "the command locator source must be either 'kernel' or 'action'".to_owned(),
-                ));
-            }
-        };
-        if source_for_cli_address(address) != Some(source) {
-            return Err(CommandJournalAccessError::InvalidLocator(
-                "the command locator source does not match the address namespace".to_owned(),
-            ));
-        }
-        Ok(Self {
-            source,
-            address: address.to_owned(),
-        })
-    }
-
-    pub fn source(&self) -> CommandSource {
-        self.source
+        Ok(Self { address })
     }
 
     pub fn address(&self) -> &str {
@@ -80,48 +51,26 @@ impl CommandLocator {
         catalog: &CatalogSnapshot,
         target: &str,
     ) -> Result<Self, CommandJournalAccessError> {
-        if target.contains('/') {
-            return Self::parse(target);
-        }
-        let source =
-            source_for_cli_address(target).ok_or(CommandJournalAccessError::CommandNotFound)?;
         let command = catalog
             .commands
             .iter()
-            .find(|command| command.source == source && command.address == target)
+            .find(|command| command.address == target)
             .ok_or(CommandJournalAccessError::CommandNotFound)?;
         Ok(Self {
-            source: command.source,
             address: command.address.clone(),
         })
     }
 }
 
-fn source_for_cli_address(address: &str) -> Option<CommandSource> {
-    if address.starts_with("..") {
-        None
-    } else if address.starts_with('.') || address.starts_with('-') {
-        Some(CommandSource::Kernel)
-    } else {
-        Some(CommandSource::Action)
-    }
-}
-
 impl fmt::Display for CommandLocator {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let source = match self.source {
-            CommandSource::Kernel => "kernel",
-            CommandSource::Action => "action",
-            CommandSource::Control => "control",
-        };
-        write!(formatter, "{source}/{}", self.address)
+        formatter.write_str(&self.address)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandJournalAccessError {
     InvalidLocator(String),
-    ProfileRequired,
     CommandNotFound,
     CatalogInvariant(String),
 }
@@ -132,8 +81,6 @@ impl fmt::Display for CommandJournalAccessError {
             Self::InvalidLocator(message) | Self::CatalogInvariant(message) => {
                 formatter.write_str(message)
             }
-            Self::ProfileRequired => formatter
-                .write_str("a ready Entry Profile is required to locate Action command journals"),
             Self::CommandNotFound => formatter.write_str("command not found"),
         }
     }
@@ -149,22 +96,16 @@ pub struct CommandJournalAccess {
 
 impl CommandJournalAccess {
     pub fn resolve(
-        context: &EntryContext,
         data_root: &Path,
-        profile_state: &EntryProfileState,
         catalog: &CatalogSnapshot,
         locator: CommandLocator,
     ) -> Result<Self, CommandJournalAccessError> {
-        let binding = profile_state.ready().map(|profile| profile.binding());
-        if locator.source == CommandSource::Action && binding.is_none() {
-            return Err(CommandJournalAccessError::ProfileRequired);
-        }
         let command = catalog
             .commands
             .iter()
-            .find(|command| command.source == locator.source && command.address == locator.address)
+            .find(|command| command.address == locator.address)
             .ok_or(CommandJournalAccessError::CommandNotFound)?;
-        let module_data_root = catalog_command_data_root(context, data_root, binding, command)
+        let module_data_root = catalog_command_data_root(data_root, command)
             .map_err(|error| CommandJournalAccessError::CatalogInvariant(error.to_string()))?;
         Ok(Self {
             address: locator.address,
@@ -176,12 +117,12 @@ impl CommandJournalAccess {
         read_run_history(&self.module_data_root, &self.address)
     }
 
-    pub fn subject_runs(&self) -> io::Result<Vec<RunSubjectRecord>> {
+    pub fn runs(&self) -> io::Result<Vec<RunRecord>> {
         self.history().map(|history| {
             history
                 .into_runs()
                 .into_iter()
-                .map(|run| RunSubjectRecord {
+                .map(|run| RunRecord {
                     id: run.id,
                     source: match run.source {
                         crate::run_journal::RunJournalSource::Cli => "CLI",
@@ -272,55 +213,60 @@ fn open_directory(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::catalog::CommandSpace;
 
     #[test]
-    fn locator_uses_one_unambiguous_source_separator() {
+    fn locator_is_the_canonical_cli_address() {
         assert_eq!(
-            CommandLocator::parse("kernel/.dev.status").unwrap(),
+            CommandLocator::parse(".dev/status").unwrap(),
             CommandLocator {
-                source: CommandSource::Kernel,
-                address: ".dev.status".to_owned(),
+                address: ".dev/status".to_owned(),
             }
         );
         assert_eq!(
-            CommandLocator::parse("action/proj.build")
-                .unwrap()
-                .to_string(),
-            "action/proj.build"
+            CommandLocator::parse("project/build").unwrap().to_string(),
+            "project/build"
         );
-        for invalid in [
-            "kernel..dev.status",
-            "kernel/.dev/status",
-            "control/..entry",
-            "kernel/",
-            "action/.dev.status",
-            "kernel/proj.build",
-            "kernel/..runtime",
-        ] {
+        for invalid in ["", "bad\0address"] {
             assert!(CommandLocator::parse(invalid).is_err(), "{invalid}");
         }
     }
 
     #[test]
-    fn cli_targets_infer_the_lexically_disjoint_command_namespace() {
-        fn command(address: &str, source: CommandSource) -> crate::catalog::CommandNode {
+    fn cli_targets_require_an_exact_catalog_address() {
+        fn command(
+            address: &str,
+            space: CommandSpace,
+            namespace: Option<&str>,
+            path: &[&str],
+        ) -> crate::catalog::CommandNode {
             crate::catalog::CommandNode {
                 address: address.to_owned(),
-                source,
+                space,
+                namespace: namespace.map(str::to_owned),
+                path: path.iter().map(|value| (*value).to_owned()).collect(),
                 parent: None,
                 alias_of: None,
                 runnable: true,
                 entry: Some("run.exe".to_owned()),
                 adapter: Some("exe".to_owned()),
                 handler: None,
-                module: None,
+                product: None,
+                requirements: Vec::new(),
+                provisions: Vec::new(),
+                delegate_owner: None,
+                declares_native: false,
+                declared_facets: Vec::new(),
+                declared_resource_kinds: Vec::new(),
                 help: None,
-                subject_kinds: Vec::new(),
+                resource_kinds: Vec::new(),
                 facets: Vec::new(),
-                view: None,
                 diagnostic: None,
+                authored_resource: true,
                 help_diagnostic: None,
                 directory: PathBuf::new(),
+                executor_directory: PathBuf::new(),
+                native_owner: None,
             }
         }
 
@@ -329,33 +275,36 @@ mod tests {
             entry_name: "swawkit".to_owned(),
             language: "en",
             commands: vec![
-                command(".dev.status", CommandSource::Kernel),
-                command("-literal", CommandSource::Kernel),
-                command("proj.build", CommandSource::Action),
+                command(
+                    ".dev/status",
+                    CommandSpace::System,
+                    None,
+                    &["dev", "status"],
+                ),
+                command(
+                    "project/build",
+                    CommandSpace::Module,
+                    Some("project"),
+                    &["build"],
+                ),
             ],
         };
         assert_eq!(
-            CommandLocator::from_cli_target(&catalog, ".dev.status")
+            CommandLocator::from_cli_target(&catalog, ".dev/status")
                 .unwrap()
                 .to_string(),
-            "kernel/.dev.status"
+            ".dev/status"
         );
         assert_eq!(
-            CommandLocator::from_cli_target(&catalog, "-literal")
+            CommandLocator::from_cli_target(&catalog, "project/build")
                 .unwrap()
                 .to_string(),
-            "kernel/-literal"
+            "project/build"
         );
         assert_eq!(
-            CommandLocator::from_cli_target(&catalog, "proj.build")
-                .unwrap()
-                .to_string(),
-            "action/proj.build"
-        );
-        assert_eq!(
-            CommandLocator::from_cli_target(&catalog, "dev.status"),
+            CommandLocator::from_cli_target(&catalog, "module/project/build"),
             Err(CommandJournalAccessError::CommandNotFound),
-            "omitting the Kernel dot must not redirect to a Kernel command"
+            "the internal Module space must not become a CLI prefix"
         );
     }
 }

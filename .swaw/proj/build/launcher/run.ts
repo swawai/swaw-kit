@@ -5,40 +5,50 @@ import { isAbsolute, join, resolve } from "node:path";
 import { ensureControlledDirectory } from "../_lib/release-set.ts";
 import { acquireExclusiveFileLock, moveFileReplace } from "../_lib/windows-filesystem.ts";
 import { publishBuildArtifact } from "./_lib/artifact.ts";
+import { loadBootstrapBuildEnvironment } from "../_lib/bootstrap-environment.ts";
 
-if (Bun.argv.length !== 2) throw new Error("proj.build.launcher does not accept dynamic arguments.");
+if (Bun.argv.length !== 2) throw new Error("project/proj/build/launcher does not accept dynamic arguments.");
 
 const commandRoot = requiredAbsolute("SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT");
 const projHome = requiredAbsolute("SWAWKIT_HOME");
+const builder = await loadBootstrapBuildEnvironment(projHome);
 const launcherRoot = join(projHome, "_lib", "proj", "_launcher");
-const source = await regularFile(join(launcherRoot, "launcher.c"), "Launcher source");
 const contract = await readContract(join(launcherRoot, "build.json"));
-const tools = join(requiredAbsolute("VCToolsInstallDir"), "bin", "Hostx64", "x64");
-const compiler = await regularFile(join(tools, "cl.exe"), "managed C compiler");
-const linker = await regularFile(join(tools, "link.exe"), "managed linker");
+const sources = await Promise.all(contract.sources.map((name) =>
+  regularFile(join(launcherRoot, name), "Launcher source")
+));
+await Promise.all(contract.headers.map((name) =>
+  regularFile(join(launcherRoot, name), "Launcher header")
+));
+const compiler = builder.tools.compiler;
+const linker = builder.tools.linker;
 const locks = await ensureControlledDirectory(commandRoot, ["locks"], "Launcher build locks");
 const work = await ensureControlledDirectory(commandRoot, ["work", "launcher"], "Launcher build work");
 const release = await ensureControlledDirectory(work, ["release"], "Launcher build release");
 using lock = await acquireExclusiveFileLock(join(locks, "build.lock"), 30 * 60 * 1000);
 
-const object = join(work, "launcher.obj");
-const staged = join(work, "template.proj1.exe");
-await requireReplaceableFile(object, "Launcher object target");
+const objects = contract.sources.map((name) => join(work, name.replace(/\.c$/, ".obj")));
+const staged = join(work, "swawkit.exe");
+for (const object of objects) {
+  await requireReplaceableFile(object, "Launcher object target");
+}
 await requireReplaceableFile(staged, "Launcher staged executable target");
-await run(compiler, [...contract.compileArguments, `/Fo${object}`, source]);
+for (let index = 0; index < sources.length; index += 1) {
+  await run(compiler, [...contract.compileArguments, `/Fo${objects[index]}`, sources[index]]);
+}
 await run(linker, [
   ...contract.linkArguments,
   `/OUT:${staged}`,
-  object,
+  ...objects,
   ...contract.libraries,
 ]);
-const candidate = join(release, "template.proj1.exe");
+const candidate = join(release, "swawkit.exe");
 await requireReplaceableFile(candidate, "Launcher candidate target");
 const metadata = await lstat(staged);
 if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size <= 0 || metadata.size > contract.maximumBytes) {
   throw new Error(`unexpected Launcher size ${metadata.size}; expected 1-${contract.maximumBytes} bytes`);
 }
-const candidateStage = join(release, `.template.proj1.${randomUUID().replaceAll("-", "")}.tmp`);
+const candidateStage = join(release, `.swawkit.${randomUUID().replaceAll("-", "")}.tmp`);
 await copyFile(staged, candidateStage, constants.COPYFILE_EXCL);
 if (!await sameFile(staged, candidateStage)) {
   await rm(candidateStage, { force: true });
@@ -52,7 +62,7 @@ try {
 await rm(candidateStage, { force: true });
 const published = await publishBuildArtifact(commandRoot);
 console.log(`[BUILT] ${candidate} (${published.length} bytes)`);
-console.log(`[READY] proj.build.launcher (sha256-${published.sha256})`);
+console.log(`[READY] project/proj/build/launcher (sha256-${published.sha256})`);
 
 async function run(executable: string, arguments_: string[]): Promise<void> {
   const child = Bun.spawn([executable, ...arguments_], {
@@ -60,6 +70,7 @@ async function run(executable: string, arguments_: string[]): Promise<void> {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
+    env: builder.environment,
     windowsHide: true,
   });
   const code = await child.exited;
@@ -71,13 +82,16 @@ async function readContract(path: string) {
   if (
     !value || typeof value !== "object" || Array.isArray(value)
     || Object.keys(value).sort().join("\n")
-      !== ["compileArguments", "libraries", "linkArguments", "maximumBytes", "schema"].sort().join("\n")
-    || value.schema !== "swawkit.proj-launcher-build/v1"
+      !== ["compileArguments", "headers", "libraries", "linkArguments", "maximumBytes", "schema", "sources"].sort().join("\n")
+    || value.schema !== "swawkit.proj-launcher-build/v2"
+    || JSON.stringify(value.sources) !== JSON.stringify(["launcher.c", "layout.c", "path.c"])
+    || JSON.stringify(value.headers) !== JSON.stringify(["layout.h", "path.h"])
     || !stringArray(value.compileArguments) || !stringArray(value.linkArguments)
     || !stringArray(value.libraries)
     || !Number.isSafeInteger(value.maximumBytes) || value.maximumBytes <= 0
   ) throw new Error(`Launcher build contract is invalid: ${path}`);
   return value as {
+    sources: string[]; headers: string[];
     compileArguments: string[]; linkArguments: string[]; libraries: string[]; maximumBytes: number;
   };
 }

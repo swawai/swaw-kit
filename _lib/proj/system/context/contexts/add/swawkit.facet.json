@@ -1,0 +1,12 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "operation",
+  "presentation": {
+    "icon": "+",
+    "label": { "zh-CN": "添加命令", "en": "Add commands" },
+    "summary": {
+      "zh-CN": "向 Context 添加命令引用",
+      "en": "Add command references to this Context"
+    }
+  }
+}

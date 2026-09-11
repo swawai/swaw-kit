@@ -3,27 +3,23 @@
 #define _UNICODE
 #include <windows.h>
 
-#define TEXT_CAPACITY 32768u
-#define INVALID_INDEX 0xffffffffu
-#define LAUNCH_PROTOCOL_VALUE L"3"
-#define WORKER_PROTOCOL_VALUE L"2"
+#include "layout.h"
+#include "path.h"
+
+#define TEXT_CAPACITY PROJ_PATH_CAPACITY
+#define LAUNCH_PROTOCOL_VALUE L"6"
 
 static const WCHAR launch_protocol_name[] =
     L"SWAWKIT_PROJ_CORE_LAUNCH_PROTOCOL";
-static const WCHAR worker_protocol_name[] =
-    L"SWAWKIT_PROJ_CORE_LAUNCH_WORKER_PROTOCOL";
 
+static WCHAR raw_entry_path[TEXT_CAPACITY];
 static WCHAR entry_path[TEXT_CAPACITY];
-static WCHAR core_path[TEXT_CAPACITY];
-static WCHAR selector_path[TEXT_CAPACITY];
-static WCHAR bootstrap_path[TEXT_CAPACITY];
+static WCHAR entry_protocol_path[TEXT_CAPACITY];
 static WCHAR powershell_path[TEXT_CAPACITY];
+static WCHAR bootstrap_argument_path[TEXT_CAPACITY];
 static WCHAR child_command_line[TEXT_CAPACITY];
-static WCHAR worker_protocol[16u];
-static CHAR release_selector[66u];
 static STARTUPINFOW startup_info;
 static PROCESS_INFORMATION process_info;
-static DWORD layout_home_length;
 
 __declspec(noreturn) void __cdecl __report_rangecheckfailure(void)
 {
@@ -32,7 +28,7 @@ __declspec(noreturn) void __cdecl __report_rangecheckfailure(void)
 
 static DWORD wide_length(const WCHAR *value)
 {
-    DWORD length = 0;
+    DWORD length = 0u;
     while (value[length] != L'\0') {
         ++length;
     }
@@ -41,7 +37,7 @@ static DWORD wide_length(const WCHAR *value)
 
 static DWORD narrow_length(const CHAR *value)
 {
-    DWORD length = 0;
+    DWORD length = 0u;
     while (value[length] != '\0') {
         ++length;
     }
@@ -51,7 +47,7 @@ static DWORD narrow_length(const CHAR *value)
 static void fail(BOOL host_mode, const WCHAR *dialog_text, const CHAR *console_text)
 {
     HANDLE error_handle = GetStdHandle(STD_ERROR_HANDLE);
-    DWORD written = 0;
+    DWORD written = 0u;
     BOOL reported = FALSE;
 
     if (!host_mode && error_handle != NULL && error_handle != INVALID_HANDLE_VALUE) {
@@ -84,28 +80,6 @@ static BOOL environment_variable_exists(const WCHAR *name)
     return length > 0u || GetLastError() != ERROR_ENVVAR_NOT_FOUND;
 }
 
-static BOOL read_environment_variable(
-    const WCHAR *name,
-    WCHAR *value,
-    DWORD capacity
-)
-{
-    DWORD length = GetEnvironmentVariableW(name, value, capacity);
-    return length > 0u && length < capacity;
-}
-
-static BOOL wide_equal(const WCHAR *left, const WCHAR *right)
-{
-    DWORD index = 0u;
-    while (left[index] != L'\0' && right[index] != L'\0') {
-        if (left[index] != right[index]) {
-            return FALSE;
-        }
-        ++index;
-    }
-    return left[index] == right[index];
-}
-
 static BOOL prepare_startup_info(BOOL inherit_handles)
 {
     startup_info.cb = sizeof(startup_info);
@@ -116,7 +90,6 @@ static BOOL prepare_startup_info(BOOL inherit_handles)
     if (!inherit_handles) {
         return TRUE;
     }
-
     startup_info.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
     startup_info.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
     startup_info.hStdError = GetStdHandle(STD_ERROR_HANDLE);
@@ -130,39 +103,6 @@ static BOOL prepare_startup_info(BOOL inherit_handles)
     }
     startup_info.dwFlags = STARTF_USESTDHANDLES;
     return TRUE;
-}
-
-static BOOL consume_worker_mode(BOOL host_mode, BOOL *worker_mode)
-{
-    BOOL has_protocol = environment_variable_exists(worker_protocol_name);
-
-    *worker_mode = FALSE;
-    if (!has_protocol) {
-        return TRUE;
-    }
-    if (host_mode
-        || !read_environment_variable(
-            worker_protocol_name,
-            worker_protocol,
-            16u
-        )
-        || !wide_equal(worker_protocol, WORKER_PROTOCOL_VALUE)
-        || !SetEnvironmentVariableW(worker_protocol_name, NULL)) {
-        return FALSE;
-    }
-    *worker_mode = TRUE;
-    return TRUE;
-}
-
-static DWORD last_separator_before(const WCHAR *value, DWORD before)
-{
-    while (before > 0u) {
-        --before;
-        if (value[before] == L'\\' || value[before] == L'/') {
-            return before;
-        }
-    }
-    return INVALID_INDEX;
 }
 
 static BOOL copy_path_with_suffix(
@@ -194,109 +134,6 @@ static BOOL is_file(const WCHAR *path)
         && (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) == 0u;
 }
 
-static BOOL resolve_current_core(void)
-{
-    static const WCHAR release_prefix[] =
-        L"\\_lib\\proj\\_bin\\releases\\";
-    static const WCHAR core_suffix[] = L"\\swawkit-proj.exe";
-    DWORD attributes = GetFileAttributesW(selector_path);
-    HANDLE file;
-    DWORD bytes_read = 0u;
-    DWORD index;
-    DWORD destination = 0u;
-
-    core_path[0] = L'\0';
-    if (attributes == INVALID_FILE_ATTRIBUTES
-        || (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0u) {
-        return FALSE;
-    }
-    file = CreateFileW(
-        selector_path,
-        GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        NULL,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
-        NULL
-    );
-    if (file == INVALID_HANDLE_VALUE
-        || !ReadFile(
-            file,
-            release_selector,
-            sizeof(release_selector),
-            &bytes_read,
-            NULL
-        )) {
-        if (file != INVALID_HANDLE_VALUE) {
-            CloseHandle(file);
-        }
-        return FALSE;
-    }
-    CloseHandle(file);
-    if (bytes_read != 65u || release_selector[64u] != '\n') {
-        return FALSE;
-    }
-    for (index = 0u; index < 64u; ++index) {
-        CHAR value = release_selector[index];
-        if (!((value >= '0' && value <= '9')
-            || (value >= 'a' && value <= 'f'))) {
-            return FALSE;
-        }
-    }
-    if (layout_home_length
-            + wide_length(release_prefix)
-            + 64u
-            + wide_length(core_suffix)
-            + 1u
-        > TEXT_CAPACITY) {
-        return FALSE;
-    }
-    for (index = 0u; index < layout_home_length; ++index) {
-        core_path[destination++] = entry_path[index];
-    }
-    for (index = 0u; release_prefix[index] != L'\0'; ++index) {
-        core_path[destination++] = release_prefix[index];
-    }
-    for (index = 0u; index < 64u; ++index) {
-        core_path[destination++] = (WCHAR)release_selector[index];
-    }
-    for (index = 0u; core_suffix[index] != L'\0'; ++index) {
-        core_path[destination++] = core_suffix[index];
-    }
-    core_path[destination] = L'\0';
-    return is_file(core_path);
-}
-
-static BOOL try_layout(DWORD home_length)
-{
-    static const WCHAR selector_suffix[] = L"\\_lib\\proj\\_bin\\current";
-    static const WCHAR bootstrap_suffix[] = L"\\_lib\\proj\\bootstrap.ps1";
-
-    layout_home_length = home_length;
-    return copy_path_with_suffix(
-            entry_path,
-            home_length,
-            selector_suffix,
-            selector_path
-        )
-        && copy_path_with_suffix(
-            entry_path,
-            home_length,
-            bootstrap_suffix,
-            bootstrap_path
-        )
-        && (resolve_current_core() || is_file(bootstrap_path));
-}
-
-static BOOL locate_layout(void)
-{
-    DWORD entry_length = wide_length(entry_path);
-    DWORD launcher_directory = last_separator_before(entry_path, entry_length);
-
-    return launcher_directory != INVALID_INDEX
-        && try_layout(launcher_directory);
-}
-
 static BOOL locate_windows_powershell(void)
 {
     static const WCHAR suffix[] =
@@ -305,12 +142,7 @@ static BOOL locate_windows_powershell(void)
 
     return length > 0u
         && length < TEXT_CAPACITY
-        && copy_path_with_suffix(
-            powershell_path,
-            length,
-            suffix,
-            powershell_path
-        )
+        && copy_path_with_suffix(powershell_path, length, suffix, powershell_path)
         && is_file(powershell_path);
 }
 
@@ -319,6 +151,7 @@ static BOOL build_bootstrap_command_line(void)
     static const WCHAR options[] =
         L"\" -NoLogo -NoProfile -NonInteractive "
         L"-ExecutionPolicy Bypass -File \"";
+    const WCHAR *bootstrap_path = bootstrap_argument_path;
     DWORD powershell_length = wide_length(powershell_path);
     DWORD options_length = wide_length(options);
     DWORD bootstrap_length = wide_length(bootstrap_path);
@@ -344,19 +177,23 @@ static BOOL build_bootstrap_command_line(void)
     return TRUE;
 }
 
-static BOOL run_bootstrap(BOOL host_mode, BOOL worker_mode)
+static BOOL run_bootstrap(BOOL host_mode)
 {
-    DWORD creation_flags = host_mode || worker_mode ? CREATE_NO_WINDOW : 0u;
+    const WCHAR *bootstrap_path = layout_bootstrap_path();
+    DWORD creation_flags = host_mode ? CREATE_NO_WINDOW : 0u;
     BOOL inherit_handles = host_mode ? FALSE : TRUE;
     DWORD wait_result;
     DWORD exit_code;
 
     if (!is_file(bootstrap_path)
+        || !copy_dos_absolute_path(
+            bootstrap_path,
+            bootstrap_argument_path,
+            TEXT_CAPACITY
+        )
         || !locate_windows_powershell()
-        || !build_bootstrap_command_line()) {
-        return FALSE;
-    }
-    if (!prepare_startup_info(inherit_handles)
+        || !build_bootstrap_command_line()
+        || !prepare_startup_info(inherit_handles)
         || !CreateProcessW(
             powershell_path,
             child_command_line,
@@ -379,7 +216,7 @@ static BOOL run_bootstrap(BOOL host_mode, BOOL worker_mode)
         return FALSE;
     }
     CloseHandle(process_info.hProcess);
-    return exit_code == 0u && resolve_current_core();
+    return exit_code == 0u;
 }
 
 static const WCHAR *raw_argument_tail(void)
@@ -391,7 +228,7 @@ static const WCHAR *raw_argument_tail(void)
         ++cursor;
     }
     while (*cursor != L'\0') {
-        if (*cursor == L'"') {
+        if (*cursor == L'\"') {
             quoted = !quoted;
         } else if (!quoted && (*cursor == L' ' || *cursor == L'\t')) {
             break;
@@ -406,6 +243,7 @@ static const WCHAR *raw_argument_tail(void)
 
 static BOOL build_child_command_line(const WCHAR *argument_tail)
 {
+    const WCHAR *core_path = layout_core_path();
     DWORD core_length = wide_length(core_path);
     DWORD tail_length = wide_length(argument_tail);
     DWORD index = 0u;
@@ -414,11 +252,11 @@ static BOOL build_child_command_line(const WCHAR *argument_tail)
     if (core_length + tail_length + 4u > TEXT_CAPACITY) {
         return FALSE;
     }
-    child_command_line[index++] = L'"';
+    child_command_line[index++] = L'\"';
     for (source = 0u; source < core_length; ++source) {
         child_command_line[index++] = core_path[source];
     }
-    child_command_line[index++] = L'"';
+    child_command_line[index++] = L'\"';
     if (tail_length > 0u) {
         child_command_line[index++] = L' ';
         for (source = 0u; source < tail_length; ++source) {
@@ -429,52 +267,37 @@ static BOOL build_child_command_line(const WCHAR *argument_tail)
     return TRUE;
 }
 
-static BOOL prepare_environment(BOOL host_mode, BOOL worker_mode)
+static BOOL prepare_environment(BOOL host_mode)
 {
-    return SetEnvironmentVariableW(
-            launch_protocol_name,
-            LAUNCH_PROTOCOL_VALUE
-        )
+    return SetEnvironmentVariableW(launch_protocol_name, LAUNCH_PROTOCOL_VALUE)
         && SetEnvironmentVariableW(
             L"SWAWKIT_PROJ_CORE_LAUNCH_ENTRY_FILE",
-            entry_path
+            entry_protocol_path
         )
         && SetEnvironmentVariableW(
             L"SWAWKIT_PROJ_CORE_LAUNCH_MODE",
-            host_mode
-                ? L"internal-host"
-                : (worker_mode ? L"worker" : L"cli")
+            host_mode ? L"internal-host" : L"cli"
         );
 }
 
 void WINAPI launcher_entry(void)
 {
     const WCHAR *argument_tail = raw_argument_tail();
+    const WCHAR *core_path;
     BOOL host_mode = *argument_tail == L'\0';
-    BOOL worker_mode = FALSE;
-    DWORD entry_length = GetModuleFileNameW(NULL, entry_path, TEXT_CAPACITY);
+    DWORD entry_length = GetModuleFileNameW(NULL, raw_entry_path, TEXT_CAPACITY);
     DWORD creation_flags;
     BOOL inherit_handles;
     DWORD wait_result;
     DWORD exit_code;
 
-    if (environment_variable_exists(
-            L"SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL"
-        )) {
+    if (environment_variable_exists(L"SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL")) {
         fail(
             FALSE,
             L"Cannot start a Swaw Kit Entry from inside another Entry command.",
             "[ERROR] Cannot start a Swaw Kit Entry from inside another Entry command.\r\n"
         );
     }
-    if (!consume_worker_mode(host_mode, &worker_mode)) {
-        fail(
-            host_mode,
-            L"Cannot consume the Web worker launch declaration.",
-            "[ERROR] Cannot consume the Web worker launch declaration.\r\n"
-        );
-    }
-
     if (entry_length == 0u || entry_length >= TEXT_CAPACITY - 1u) {
         fail(
             host_mode,
@@ -482,41 +305,64 @@ void WINAPI launcher_entry(void)
             "[ERROR] Cannot read the Launcher executable path.\r\n"
         );
     }
-    if (!locate_layout()) {
+    if (!copy_extended_absolute_path(
+            raw_entry_path,
+            entry_path,
+            TEXT_CAPACITY
+        )
+        || !copy_dos_absolute_path(
+            raw_entry_path,
+            entry_protocol_path,
+            TEXT_CAPACITY
+        )) {
         fail(
             host_mode,
-            L"Cannot locate the shared Core or Bootstrap entry. "
+            L"Cannot normalize the Launcher executable path.",
+            "[ERROR] Cannot normalize the Launcher executable path.\r\n"
+        );
+    }
+    if (!locate_entry_layout(entry_path)) {
+        fail(
+            host_mode,
+            L"Cannot resolve the Entry Runtime layout. "
             L"Keep the Launcher directly in SWAWKIT_HOME.",
-            "[ERROR] Cannot locate the shared Core or Bootstrap entry. "
+            "[ERROR] Cannot resolve the Entry Runtime layout. "
             "Keep the Launcher directly in SWAWKIT_HOME.\r\n"
         );
     }
-    if (!is_file(core_path) && !run_bootstrap(host_mode, worker_mode)) {
-        fail(
-            host_mode,
-            L"Bootstrap could not build the shared Swaw Kit Proj executable.",
-            "[ERROR] Bootstrap could not build the shared Swaw Kit Proj executable.\r\n"
-        );
+
+    if (!resolve_layout_current_core()) {
+        if (!layout_is_manager_entry()) {
+            fail(
+                host_mode,
+                L"The Entry Runtime is missing or invalid. "
+                L"Open swawkit.exe to create or repair this Entry.",
+                "[ERROR] The Entry Runtime is missing or invalid. "
+                "Open swawkit.exe to create or repair this Entry.\r\n"
+            );
+        }
+        if (!run_bootstrap(host_mode) || !resolve_layout_current_core()) {
+            fail(
+                host_mode,
+                L"Bootstrap could not prepare the manager Entry Runtime.",
+                "[ERROR] Bootstrap could not prepare the manager Entry Runtime.\r\n"
+            );
+        }
     }
-    if (!build_child_command_line(argument_tail)) {
+    if (!build_child_command_line(argument_tail)
+        || !prepare_environment(host_mode)) {
         fail(
             host_mode,
-            L"The Launcher command line is too long.",
-            "[ERROR] The Launcher command line is too long.\r\n"
-        );
-    }
-    if (!prepare_environment(host_mode, worker_mode)) {
-        fail(
-            host_mode,
-            L"Cannot prepare the shared Proj process environment.",
-            "[ERROR] Cannot prepare the shared Proj process environment.\r\n"
+            L"Cannot prepare the Entry Runtime Core launch.",
+            "[ERROR] Cannot prepare the Entry Runtime Core launch.\r\n"
         );
     }
 
     if (host_mode) {
         FreeConsole();
     }
-    creation_flags = host_mode || worker_mode ? CREATE_NO_WINDOW : 0u;
+    core_path = layout_core_path();
+    creation_flags = host_mode ? CREATE_NO_WINDOW : 0u;
     inherit_handles = host_mode ? FALSE : TRUE;
     if (!prepare_startup_info(inherit_handles)
         || !CreateProcessW(
@@ -533,8 +379,8 @@ void WINAPI launcher_entry(void)
         )) {
         fail(
             host_mode,
-            L"Cannot start the shared Swaw Kit Proj executable.",
-            "[ERROR] Cannot start the shared Swaw Kit Proj executable.\r\n"
+            L"Cannot start the selected Entry Runtime Core.",
+            "[ERROR] Cannot start the selected Entry Runtime Core.\r\n"
         );
     }
 
@@ -543,15 +389,14 @@ void WINAPI launcher_entry(void)
         CloseHandle(process_info.hProcess);
         ExitProcess(0u);
     }
-
     wait_result = WaitForSingleObject(process_info.hProcess, INFINITE);
     if (wait_result != WAIT_OBJECT_0
         || !GetExitCodeProcess(process_info.hProcess, &exit_code)) {
         CloseHandle(process_info.hProcess);
         fail(
             FALSE,
-            L"Cannot read the shared Proj process result.",
-            "[ERROR] Cannot read the shared Proj process result.\r\n"
+            L"Cannot read the Entry Runtime Core result.",
+            "[ERROR] Cannot read the Entry Runtime Core result.\r\n"
         );
     }
     CloseHandle(process_info.hProcess);

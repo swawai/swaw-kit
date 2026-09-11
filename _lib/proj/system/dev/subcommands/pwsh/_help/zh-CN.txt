@@ -1,0 +1,7 @@
+使用 Dev Settings 选择、并由 .dev/setup 验证的 PowerShell 7 执行脚本或命令。
+
+用法：
+  {{INVOCATION}} -File <path.ps1> [arguments...]
+  {{INVOCATION}} -Command <script...>
+
+managed 模式使用 .dev/setup 管理的 PowerShell；system 模式要求已探测确认的 PowerShell 7+；disabled 模式拒绝本命令及所有 run.ps1 入口。适配器不会回退到 Windows PowerShell 5.1，不会加载用户 Profile，也不接受交互式输入。相对脚本路径从命令工作目录解析。

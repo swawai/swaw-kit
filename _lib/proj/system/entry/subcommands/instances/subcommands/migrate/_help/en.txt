@@ -1,0 +1,12 @@
+Explicitly migrate a same-name legacy Entry DataRoot.
+
+Usage: .entry/instances/migrate <entry-name> [--json]
+
+Migration requires an exact swawkit.proj-entry.v0 identity record. The command never guesses a source, moves another DataRoot, or overwrites conflicting state.
+
+Only the swawkit manager can run this command. Migration prepares the Runtime,
+replaces the Launcher, and finally publishes its launcher.json digest receipt.
+It does not implicitly migrate,
+rename, delete, or repair instances. If the manager Host is behind the selected
+Runtime, migration requires a Host restart instead of mixing generations. Cold
+Bootstrap of the manager itself remains the physical bootstrap.ps1 responsibility.

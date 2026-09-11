@@ -148,9 +148,9 @@ export function scheduler() {
 
 export function snapshot(overrides = {}) {
   return {
-    protocol: "swawkit.command-run/v1",
+    protocol: "swawkit.command-run/v2",
     id: "run-1",
-    address: ".dev.pwsh",
+    address: ".dev/pwsh",
     state: "running",
     exitCode: null,
     error: null,

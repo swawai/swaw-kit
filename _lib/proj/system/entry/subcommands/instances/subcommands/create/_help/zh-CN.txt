@@ -1,0 +1,12 @@
+创建一个新的 Entry 实例。
+
+用法：.entry/instances/create <entry-name> [--json]
+
+名称必须是 1..48 字节的 lower-kebab ASCII，以小写字母开头，以小写字母或数字结尾，
+且不能包含连续连字符，例如 proj1 或 proj-one；swawkit 与 Windows DOS 设备名是保留名称。
+该命令只能由 swawkit manager 执行，会创建根 Launcher、独立 DataRoot 和当前 Runtime 副本。
+
+创建先原子提交完整 DataRoot，再发布根 Launcher。DataRoot 中的 launcher.json 记录
+目标名称、Launcher 长度和 SHA-256；若发布中断，重复相同命令会按该回执补齐 Launcher。
+若 manager 已选择新 Runtime 但 Host 仍运行旧版本，命令会要求先重启 Host，避免混合两代制品。
+该命令不会自动迁移旧 DataRoot，也不创建桌面快捷方式。

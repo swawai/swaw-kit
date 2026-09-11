@@ -1,9 +1,24 @@
 import { normalizeCommandEvents } from "./command-event-client.js";
 
-export const RUN_JOURNAL_PROTOCOL = "swawkit.command-run-journal/v1";
+export const RUN_JOURNAL_PROTOCOL = "swawkit.command-run-journal/v3";
 
 const SOURCES = new Set(["cli", "web"]);
 const STATES = new Set(["running", "exited", "canceled", "failed"]);
+const DOCUMENT_FIELDS = [
+  "protocol",
+  "id",
+  "address",
+  "source",
+  "state",
+  "startedAtUnixMs",
+  "finishedAtUnixMs",
+  "exitCode",
+  "error",
+  "argumentCount",
+  "nextCursor",
+  "events",
+  "truncated",
+];
 
 function invalid(message) {
   return new Error(`运行投影协议无效：${message}`);
@@ -64,6 +79,14 @@ function outcome(document_) {
 
 export function createRunProjection(value, expectedId) {
   const document_ = object(value, "run");
+  const fields = Object.keys(document_).sort();
+  const expectedFields = [...DOCUMENT_FIELDS].sort();
+  if (
+    fields.length !== expectedFields.length
+    || fields.some((field, index) => field !== expectedFields[index])
+  ) {
+    throw invalid("run 包含意外字段。");
+  }
   if (document_.protocol !== RUN_JOURNAL_PROTOCOL) {
     throw invalid(`protocol 必须是 ${RUN_JOURNAL_PROTOCOL}。`);
   }
@@ -88,7 +111,6 @@ export function createRunProjection(value, expectedId) {
     events,
     id,
     nextCursor,
-    profileRevision: string(document_.profileRevision, "profileRevision"),
     protocol: RUN_JOURNAL_PROTOCOL,
     source: document_.source,
     startedAtUnixMs: integer(document_.startedAtUnixMs, "startedAtUnixMs"),

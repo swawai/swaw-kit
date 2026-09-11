@@ -1,0 +1,9 @@
+{
+  "schema": "swawkit.facet-execution/v2",
+  "implementation": {
+    "type": "invoke",
+    "target": "$/system::context/subcommands::add/execute",
+    "arguments": [{ "bind": "resource.selector" }],
+    "acceptsTail": true
+  }
+}

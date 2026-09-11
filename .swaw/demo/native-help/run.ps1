@@ -12,7 +12,7 @@ if (
     exit 0
 }
 
-[Console]::WriteLine('SWAW Action demo.native-help')
+[Console]::WriteLine('SWAW Module project/demo/native-help')
 [Console]::WriteLine("argumentCount=$($args.Count)")
 for ($Index = 0; $Index -lt $args.Count; $Index++) {
     [Console]::WriteLine(('arg[{0}]="{1}"' -f $Index, $args[$Index]))

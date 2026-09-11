@@ -6,7 +6,6 @@ mod cli;
 use std::error::Error;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::os::windows::fs::MetadataExt;
 use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use swawkit_proj::{
@@ -16,8 +15,8 @@ use swawkit_proj::{
         ENTRY_FILE_ENV, LAUNCH_MODE_ENV, LAUNCH_PROTOCOL_ENV, LAUNCH_PROTOCOL_VERSION, LaunchMode,
         LaunchRequest, clear_inherited_swawkit_environment,
     },
+    runtime_release,
 };
-use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
 use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_OK, MessageBoxW};
 
@@ -53,6 +52,7 @@ fn run(request: LaunchRequest) -> Result<i32, Box<dyn Error>> {
     // has been spawned yet. All launch facts needed below are owned by request.
     unsafe { clear_inherited_swawkit_environment() };
     let context = EntryContext::from_launch(&request)?;
+    runtime_release::validate_running_release(&context)?;
 
     match request.mode {
         LaunchMode::Cli => {
@@ -65,9 +65,6 @@ fn run(request: LaunchRequest) -> Result<i32, Box<dyn Error>> {
             )
             .map_err(Into::into)
         }
-        LaunchMode::Worker => {
-            cli::run(&context, &request.argv, CommandProcessMode::NoWindow).map_err(Into::into)
-        }
         LaunchMode::InternalHost => launch_host(&request, &context),
     }
 }
@@ -78,19 +75,8 @@ fn launch_host(request: &LaunchRequest, context: &EntryContext) -> Result<i32, B
     }
     let core = std::env::current_exe()?;
     let host = core.with_file_name("swawkit-proj-host.exe");
-    let metadata = std::fs::symlink_metadata(&host).map_err(|error| {
-        format!(
-            "the Host executable is missing from the current release '{}': {error}",
-            host.display()
-        )
-    })?;
-    if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-        return Err(format!(
-            "the Host executable is not a regular release file: {}",
-            host.display()
-        )
-        .into());
-    }
+    runtime_release::validate_product(&host)
+        .map_err(|error| format!("the Runtime Host product is invalid: {error}"))?;
 
     Command::new(&host)
         .current_dir(&context.invocation_directory)

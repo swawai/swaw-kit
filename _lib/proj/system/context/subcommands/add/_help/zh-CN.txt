@@ -1,0 +1,5 @@
+把一个或多个命令引用加入 Context。
+
+用法：{{INVOCATION}} <context-id> <command-address>...
+
+命令来源由地址命名空间确定；引用写入时可以暂时不可用，重复添加不会产生重复项。

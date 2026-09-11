@@ -1,0 +1,17 @@
+Query persistent command runs or open the log directory for one run.
+
+Usage:
+  {{INVOCATION}}
+  {{INVOCATION}} --json [<command-address>]
+  {{INVOCATION}} --run <run-id> [--after <cursor>]
+  {{INVOCATION}} --open <run-id>
+  {{INVOCATION}} <command-address>
+  {{INVOCATION}} <command-address> --latest <n|n..m>
+  {{INVOCATION}} <command-address> --run <run-id> [--after <cursor>]
+  {{INVOCATION}} <command-address> --open <run-id>
+
+The command address must be its unique canonical CLI address, such as the System command `.dev/status` or the Module command `project/proj/build/app`. Source-prefixed locators such as `kernel/...` and `action/...` are no longer accepted; structured Command Identity already provides disambiguation.
+
+Without arguments, the command lists recent persisted runs across all commands. `--json` without an address resolves the global `.runs` `all` Subject collection; with an address it resolves that command's Runs Facet. Both forms return the same `::run/<run-id>` identities.
+
+`latest: 1` means the most recent run. `--latest 1..3` returns the three most recent runs in one query for convenient human inspection. Agents should retain stable run IDs and read them incrementally with `--run` and `--after`.

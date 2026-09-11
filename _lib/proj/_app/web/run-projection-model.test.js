@@ -6,7 +6,7 @@ function run(overrides = {}) {
   return {
     protocol: RUN_JOURNAL_PROTOCOL,
     id: "000001a009035cb9-00002aac-0000000000000001",
-    address: ".dev.status",
+    address: ".dev/status",
     source: "cli",
     state: "exited",
     startedAtUnixMs: 1,
@@ -14,7 +14,6 @@ function run(overrides = {}) {
     exitCode: 0,
     error: null,
     argumentCount: 0,
-    profileRevision: "sha256-fixture",
     nextCursor: 1,
     events: [{
       sequence: 1,
@@ -30,10 +29,22 @@ function run(overrides = {}) {
 }
 
 describe("Run projection model", () => {
+  test("rejects the pre-hard-cut Journal document protocol", () => {
+    expect(() => createRunProjection(run({
+      protocol: "swawkit.command-run-journal/v2",
+    }), run().id)).toThrow(RUN_JOURNAL_PROTOCOL);
+  });
+
+  test("rejects the retired profile revision field", () => {
+    expect(() => createRunProjection(run({
+      profileRevision: "sha256-retired",
+    }), run().id)).toThrow("意外字段");
+  });
+
   test("validates a Journal against the selected Run", () => {
     const value = run();
     expect(createRunProjection(value, value.id)).toEqual(expect.objectContaining({
-      address: ".dev.status",
+      address: ".dev/status",
       id: value.id,
       state: "exited",
     }));

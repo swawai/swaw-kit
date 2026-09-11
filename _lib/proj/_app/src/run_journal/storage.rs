@@ -1,14 +1,18 @@
-use std::fs;
-use std::io;
-use std::os::windows::fs::MetadataExt;
+use std::fs::{self, Metadata, OpenOptions};
+use std::io::{self, Read};
+use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+use windows_sys::Win32::Storage::FileSystem::{
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT,
+};
 
 use crate::atomic_file;
 
 use super::{JOURNAL_STATE_SCHEMA, RunJournalEvent, RunJournalSource, RunJournalStatus};
+
+pub(super) const MAX_STATE_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -23,7 +27,6 @@ pub(super) struct StoredRunState {
     pub exit_code: Option<i32>,
     pub error: Option<String>,
     pub argument_count: usize,
-    pub profile_revision: String,
     pub event_count: u64,
     pub truncated: bool,
 }
@@ -55,7 +58,62 @@ pub(super) fn assert_plain_directory(path: &Path) -> io::Result<()> {
 }
 
 pub(super) fn assert_plain_file(path: &Path) -> io::Result<()> {
+    plain_file_metadata(path).map(|_| ())
+}
+
+pub(super) fn read_stored_state(path: &Path) -> io::Result<Vec<u8>> {
+    read_stored_state_inner(path, |_| Ok(()))
+}
+
+#[cfg(test)]
+pub(super) fn read_stored_state_with_before_read(
+    path: &Path,
+    before_read: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<Vec<u8>> {
+    read_stored_state_inner(path, before_read)
+}
+
+fn read_stored_state_inner(
+    path: &Path,
+    before_read: impl FnOnce(&Path) -> io::Result<()>,
+) -> io::Result<Vec<u8>> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    assert_plain_file_metadata(path, &metadata)?;
+    if metadata.len() > MAX_STATE_BYTES {
+        return Err(state_too_large());
+    }
+
+    let initial_length = metadata.len();
+    before_read(path)?;
+    let mut content = Vec::with_capacity(initial_length as usize);
+    file.by_ref()
+        .take(MAX_STATE_BYTES + 1)
+        .read_to_end(&mut content)?;
+    if content.len() as u64 > MAX_STATE_BYTES {
+        return Err(state_too_large());
+    }
+    let final_metadata = file.metadata()?;
+    assert_plain_file_metadata(path, &final_metadata)?;
+    if final_metadata.len() > MAX_STATE_BYTES {
+        return Err(state_too_large());
+    }
+    if final_metadata.len() != initial_length || content.len() as u64 != initial_length {
+        return Err(state_changed());
+    }
+    Ok(content)
+}
+
+fn plain_file_metadata(path: &Path) -> io::Result<Metadata> {
     let metadata = fs::symlink_metadata(path)?;
+    assert_plain_file_metadata(path, &metadata)?;
+    Ok(metadata)
+}
+
+fn assert_plain_file_metadata(path: &Path, metadata: &Metadata) -> io::Result<()> {
     if !metadata.is_file() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(io::Error::other(format!(
             "run journal file must be a normal file: {}",
@@ -63,6 +121,20 @@ pub(super) fn assert_plain_file(path: &Path) -> io::Result<()> {
         )));
     }
     Ok(())
+}
+
+fn state_too_large() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "run journal state file exceeds its storage contract",
+    )
+}
+
+fn state_changed() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "run journal state file changed while being read",
+    )
 }
 
 pub(super) fn ensure_plain_directory(path: &Path) -> io::Result<()> {
@@ -76,7 +148,6 @@ pub(super) fn new_running_state(
     source: RunJournalSource,
     started_at_unix_ms: u64,
     argument_count: usize,
-    profile_revision: String,
 ) -> StoredRunState {
     StoredRunState {
         schema: JOURNAL_STATE_SCHEMA.to_owned(),
@@ -89,7 +160,6 @@ pub(super) fn new_running_state(
         exit_code: None,
         error: None,
         argument_count,
-        profile_revision,
         event_count: 0,
         truncated: false,
     }

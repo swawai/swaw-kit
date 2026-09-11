@@ -14,23 +14,27 @@ use tower::ServiceExt;
 use super::*;
 use crate::{
     context::EntryContext,
-    data_root::{DataRootClaim, DataRootSession, ResolveDataRootRequest, resolve_data_root},
-    profile::EntryProfileStore,
+    data_root::{DataRootSession, ResolveDataRootRequest, resolve_data_root},
+    entry_config::EntryConfigStore,
 };
 
-mod claim;
+mod catalog;
 mod command_run;
 mod command_run_native;
+mod entry_config;
+mod entry_manager;
 mod facet_resolution;
-mod profile;
 mod runtime;
 
 const AUTHORITY: &str = "127.0.0.1:43127";
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
-fn test_host_runtime() -> HostRuntimeDocument {
+fn test_host_runtime(context: &EntryContext) -> HostRuntimeDocument {
+    let runtime =
+        crate::host_runtime::HostRuntimeLocator::new(context).expect("locate test Host runtime");
     HostRuntimeDocument::new(
-        "0".repeat(64),
+        runtime.instance_key().as_str(),
+        &context.release_id,
         "test-host",
         std::process::id(),
         format!("http://{AUTHORITY}/"),
@@ -38,8 +42,34 @@ fn test_host_runtime() -> HostRuntimeDocument {
     .expect("test Host runtime")
 }
 
+fn system_execute_route(address: &str) -> String {
+    let mut segments = address
+        .strip_prefix('.')
+        .expect("test System command address")
+        .split('/');
+    let root = segments.next().expect("test System command root");
+    let mut route = format!("$/system::{root}");
+    for child in segments {
+        route.push_str(&format!("/subcommands::{child}"));
+    }
+    route.push_str("/execute");
+    route
+}
+
+fn module_execute_route(address: &str) -> String {
+    let mut segments = address.split('/');
+    let namespace = segments.next().expect("test Module namespace");
+    let mut route = format!("$/modules::{namespace}");
+    for child in segments {
+        route.push_str(&format!("/subcommands::{child}"));
+    }
+    route.push_str("/execute");
+    route
+}
+
 struct Fixture {
     root: PathBuf,
+    release_id: String,
 }
 
 impl Fixture {
@@ -47,25 +77,31 @@ impl Fixture {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         let root =
             std::env::temp_dir().join(format!("swawkit-server-{}-{sequence}", std::process::id()));
-        let runtime_root = root.join("home/_lib/proj/_bin");
+        let data_root = root.join("home/data/proj.swawkit");
+        let runtime_root = data_root.join("runtime");
         fs::create_dir_all(runtime_root.join("releases")).expect("create fixture root");
-        fs::write(
-            runtime_root.join("current"),
-            format!("{}\n", "1".repeat(64)),
-        )
-        .expect("write Runtime selector");
-        fs::write(root.join("swawkit.exe"), b"fixture").expect("create fixture entry");
-        let fixture = Self { root };
+        fs::create_dir_all(root.join("home/_lib/proj/system")).expect("create System root");
+        fs::create_dir_all(root.join("home/_lib/proj/modules")).expect("create swaw Module root");
+        let release_id = crate::runtime_release::tests::write_release(
+            &root.join("home"),
+            &runtime_root.join("releases"),
+            &[
+                ("swawkit-proj.exe", b"core"),
+                ("swawkit-proj-host.exe", b"host"),
+                ("swawkit-proj-module.exe", b"module"),
+                ("swawkit-proj-dev.exe", b"dev"),
+            ],
+        );
+        fs::write(runtime_root.join("current"), format!("{release_id}\n"))
+            .expect("write Runtime selector");
+        fs::write(root.join("home/swawkit.exe"), b"fixture").expect("create fixture entry");
+        let fixture = Self { root, release_id };
         let context = fixture.context();
-        let mut approve = |_claim: &DataRootClaim| Ok(true);
-        resolve_data_root(
-            ResolveDataRootRequest {
-                swawkit_home: &context.swawkit_home,
-                entry_file: &context.entry_file,
-            },
-            &mut approve,
-        )
-        .expect("bind fixture DataRoot");
+        resolve_data_root(ResolveDataRootRequest {
+            swawkit_home: &context.swawkit_home,
+            entry_file: &context.entry_file,
+        })
+        .expect("open fixture DataRoot");
         fixture
     }
 
@@ -82,19 +118,47 @@ impl Fixture {
         fs::write(path, text).expect("write fixture file");
     }
 
+    fn resource(&self, relative: &str) -> PathBuf {
+        let directory = self.directory(relative);
+        self.file(
+            &format!("{relative}/swawkit.resource.json"),
+            r#"{"schema":"swawkit.resource/v1","kind":"command"}"#,
+        );
+        directory
+    }
+
+    fn executable_resource(&self, relative: &str, entry: &str, text: &str) -> PathBuf {
+        let directory = self.resource(relative);
+        self.file(
+            &format!("{relative}/execute/swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+        );
+        self.file(&format!("{relative}/execute/{entry}"), text);
+        directory
+    }
+
+    fn subcommands(&self, relative: &str) {
+        self.file(
+            &format!("{relative}/subcommands/swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"collection"}"#,
+        );
+    }
+
     fn context(&self) -> EntryContext {
-        let release_id = "1".repeat(64);
+        let data_root = self.root.join("home/data/proj.swawkit");
         EntryContext {
             swawkit_home: self.root.join("home"),
-            entry_file: self.root.join("swawkit.exe"),
+            data_root,
+            runtime_root: self.root.join("home/data/proj.swawkit/runtime"),
+            entry_file: self.root.join("home/swawkit.exe"),
             entry_name: "swawkit".to_owned(),
             invocation_directory: self.root.clone(),
             product_executable: self
                 .root
-                .join("home/_lib/proj/_bin/releases")
-                .join(&release_id)
+                .join("home/data/proj.swawkit/runtime/releases")
+                .join(&self.release_id)
                 .join("swawkit-proj-host.exe"),
-            release_id,
+            release_id: self.release_id.clone(),
         }
     }
 
@@ -107,16 +171,27 @@ impl Fixture {
         .expect("pin fixture Entry for DataRoot session")
     }
 
-    fn replace_entry(&self, content: &[u8]) {
-        let path = self.context().entry_file;
-        fs::remove_file(&path).expect("remove fixture entry");
-        fs::write(path, content).expect("replace fixture entry");
-    }
-
-    fn profile_store(&self) -> EntryProfileStore {
+    fn config_store(&self) -> EntryConfigStore {
         let data_root = self.root.join("home/data/proj.swawkit");
         fs::create_dir_all(&data_root).expect("create fixture DataRoot");
-        EntryProfileStore::new(self.root.join("home"), data_root)
+        EntryConfigStore::new(self.root.join("home"), data_root)
+    }
+
+    fn select_update(&self) -> String {
+        let runtime_root = self.root.join("home/data/proj.swawkit/runtime");
+        let release_id = crate::runtime_release::tests::write_release(
+            &self.root.join("home"),
+            &runtime_root.join("releases"),
+            &[
+                ("swawkit-proj.exe", b"updated-core"),
+                ("swawkit-proj-host.exe", b"updated-host"),
+                ("swawkit-proj-module.exe", b"updated-module"),
+                ("swawkit-proj-dev.exe", b"updated-dev"),
+            ],
+        );
+        fs::write(runtime_root.join("current"), format!("{release_id}\n"))
+            .expect("select updated Runtime release");
+        release_id
     }
 
     fn app(&self) -> Router {
@@ -170,9 +245,33 @@ async fn exposes_status_and_requires_explicit_authority_for_shutdown() {
         crate::runtime_control::HOST_STATUS_PROTOCOL
     );
     assert_eq!(document["pid"], std::process::id());
-    assert_eq!(document["runningReleaseId"], "1".repeat(64));
-    assert_eq!(document["selectedReleaseId"], "1".repeat(64));
+    assert!(
+        document["instanceKeySha256"]
+            .as_str()
+            .is_some_and(|value| value.len() == 64)
+    );
+    assert_eq!(document["runningReleaseId"], fixture.release_id);
+    assert_eq!(document["selectedReleaseId"], fixture.release_id);
     assert_eq!(document["updateAvailable"], false);
+    let fields = document
+        .as_object()
+        .expect("Host status object")
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        fields,
+        std::collections::BTreeSet::from([
+            "bootId",
+            "instanceKeySha256",
+            "pid",
+            "protocol",
+            "runningReleaseId",
+            "selectedReleaseId",
+            "updateAvailable",
+            "url",
+        ])
+    );
 
     let unauthorized = send(
         app.clone(),
@@ -258,14 +357,16 @@ async fn serves_only_the_declared_local_surface() {
     assert!(index_html.contains("id=\"command-run-confirmation\""));
     assert!(index_html.contains("class=\"command-run-output\" id=\"command-run-output\""));
     assert!(index_html.contains("class=\"run-projection-output\" id=\"run-projection-output\""));
-    assert!(index_html.contains("id=\"module-check-pane\""));
+    assert!(index_html.contains("id=\"command-check-pane\""));
+    assert!(index_html.contains("id=\"entry-manager-panel\""));
+    assert!(index_html.contains("id=\"entry-config-detail\""));
 
     for path in [
         "/commands",
-        "/commands/action/proj/build/launcher",
-        "/commands/kernel/dev/setup",
-        "/commands/control/entry/language",
-        "/commands/kernel/dev/rust/mode",
+        "/commands/module/project/proj/build/launcher",
+        "/commands/system/dev/setup",
+        "/commands/system/entry/language",
+        "/commands/system/dev/rust/mode",
     ] {
         let response = send(app.clone(), Method::GET, path, Some(AUTHORITY)).await;
         assert_eq!(response.status(), StatusCode::OK, "{path}");
@@ -282,16 +383,13 @@ async fn serves_only_the_declared_local_surface() {
         ("/assets/styles/base.css", "text/css; charset=utf-8"),
         ("/assets/styles/shell.css", "text/css; charset=utf-8"),
         ("/assets/styles/explorer.css", "text/css; charset=utf-8"),
+        ("/assets/styles/command-menu.css", "text/css; charset=utf-8"),
         ("/assets/styles/detail.css", "text/css; charset=utf-8"),
-        (
-            "/assets/styles/entry-profile.css",
-            "text/css; charset=utf-8",
-        ),
+        ("/assets/styles/entry-config.css", "text/css; charset=utf-8"),
         (
             "/assets/styles/runtime-control.css",
             "text/css; charset=utf-8",
         ),
-        ("/assets/styles/claim.css", "text/css; charset=utf-8"),
         ("/assets/styles/command-run.css", "text/css; charset=utf-8"),
         (
             "/assets/styles/run-projection.css",
@@ -302,11 +400,19 @@ async fn serves_only_the_declared_local_surface() {
             "text/css; charset=utf-8",
         ),
         (
-            "/assets/styles/module-check-projection.css",
+            "/assets/styles/command-check-projection.css",
+            "text/css; charset=utf-8",
+        ),
+        (
+            "/assets/styles/entry-manager.css",
             "text/css; charset=utf-8",
         ),
         ("/assets/app.js", "text/javascript; charset=utf-8"),
         ("/assets/i18n.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/command-identity.js",
+            "text/javascript; charset=utf-8",
+        ),
         ("/assets/catalog-model.js", "text/javascript; charset=utf-8"),
         ("/assets/facet-model.js", "text/javascript; charset=utf-8"),
         (
@@ -323,17 +429,25 @@ async fn serves_only_the_declared_local_surface() {
             "/assets/explorer-model.js",
             "text/javascript; charset=utf-8",
         ),
+        ("/assets/command-menu.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/command-menu-position.js",
+            "text/javascript; charset=utf-8",
+        ),
         ("/assets/detail.js", "text/javascript; charset=utf-8"),
         (
             "/assets/document-projection.js",
             "text/javascript; charset=utf-8",
         ),
-        ("/assets/entry-profile.js", "text/javascript; charset=utf-8"),
+        ("/assets/entry-config.js", "text/javascript; charset=utf-8"),
         (
             "/assets/runtime-control.js",
             "text/javascript; charset=utf-8",
         ),
-        ("/assets/claim.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/runtime-generation.js",
+            "text/javascript; charset=utf-8",
+        ),
         (
             "/assets/command-run-client.js",
             "text/javascript; charset=utf-8",
@@ -368,22 +482,54 @@ async fn serves_only_the_declared_local_surface() {
             "text/javascript; charset=utf-8",
         ),
         (
-            "/assets/module-check-projection-model.js",
+            "/assets/context-tray-model.js",
+            "text/javascript; charset=utf-8",
+        ),
+        ("/assets/context-tray.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/command-check-projection-model.js",
             "text/javascript; charset=utf-8",
         ),
         (
-            "/assets/module-check-projection.js",
+            "/assets/command-check-projection.js",
             "text/javascript; charset=utf-8",
         ),
         (
-            "/assets/subject-collection-model.js",
+            "/assets/resource-list-model.js",
             "text/javascript; charset=utf-8",
         ),
         (
-            "/assets/subject-explorer.js",
+            "/assets/view-bundle-model.js",
             "text/javascript; charset=utf-8",
         ),
-        ("/assets/subject-facet.js", "text/javascript; charset=utf-8"),
+        (
+            "/assets/resource-explorer.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/resource-facet.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/resource-kind-model.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/resource-route.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/entry-manager-model.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/entry-manager-client.js",
+            "text/javascript; charset=utf-8",
+        ),
+        (
+            "/assets/entry-manager-view.js",
+            "text/javascript; charset=utf-8",
+        ),
     ] {
         let response = send(app.clone(), Method::GET, path, Some(AUTHORITY)).await;
         assert_eq!(response.status(), StatusCode::OK, "{path}");
@@ -409,7 +555,8 @@ async fn serves_only_the_declared_local_surface() {
     assert_eq!(document["protocol"], crate::catalog::CATALOG_PROTOCOL);
     assert_eq!(document["entryName"], "swawkit");
     assert_eq!(document["language"], "zh-CN");
-    assert_eq!(document["commands"].as_array().map(Vec::len), Some(1));
+    assert_eq!(document["commands"].as_array().map(Vec::len), Some(2));
+    assert!(command(&document, "swaw").is_some());
     assert_eq!(
         send(app.clone(), Method::GET, "/healthz", Some(AUTHORITY))
             .await
@@ -434,195 +581,24 @@ async fn serves_only_the_declared_local_surface() {
             .status(),
         StatusCode::NOT_FOUND
     );
+    for retired in [
+        "/api/v2/profile",
+        "/assets/entry-profile.js",
+        "/assets/styles/entry-profile.css",
+    ] {
+        assert_eq!(
+            send(app.clone(), Method::GET, retired, Some(AUTHORITY))
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "{retired}"
+        );
+    }
     assert_eq!(
         send(app, Method::GET, "/_lib/proj/run.ps1", Some(AUTHORITY))
             .await
             .status(),
         StatusCode::NOT_FOUND
-    );
-}
-
-#[tokio::test]
-async fn rescans_the_catalog_on_each_request() {
-    let fixture = Fixture::new();
-    fixture.directory("home/_lib/proj");
-    fixture
-        .profile_store()
-        .save(crate::profile::EntryProfileRecord::default())
-        .expect("ready profile");
-    let app = fixture.app();
-
-    let before = catalog_document(app.clone()).await;
-    assert!(command(&before, ".dynamic").is_none());
-
-    fixture.file("home/_lib/proj/.dynamic/run.ps1", "");
-    let after = catalog_document(app).await;
-    assert_eq!(
-        command(&after, ".dynamic").and_then(|node| node["runnable"].as_bool()),
-        Some(true)
-    );
-}
-
-#[tokio::test]
-async fn returns_a_safe_error_when_catalog_discovery_fails() {
-    let fixture = Fixture::new();
-    fs::remove_dir_all(fixture.context().kernel_root()).expect("remove fixture command root");
-    let response = send(
-        fixture.app(),
-        Method::GET,
-        "/api/v2/catalog",
-        Some(AUTHORITY),
-    )
-    .await;
-
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    let body = to_bytes(response.into_body(), usize::MAX)
-        .await
-        .expect("error body");
-    let document: Value = serde_json::from_slice(&body).expect("error JSON");
-    assert_eq!(document["error"], "catalog discovery failed");
-}
-
-#[tokio::test]
-async fn serializes_the_complete_catalog_node_contract() {
-    let fixture = Fixture::new();
-    fixture.directory("home/_lib/proj");
-    fixture.file("home/_lib/proj/.dev/status/run.cmd", "");
-    fixture.file(
-        "home/_lib/proj/.dev/status/_module.json",
-        r#"{"schema":"swawkit.command-module/v4","requires":[{"provider":".dev.setup","contract":"swawkit.dev/v1"}],"provides":[{"contract":"swawkit.status/v1"}]}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.dev/_view/web.json",
-        r#"{"schema":"swawkit.command-view/web/v4","childrenColumn":{"width":"wide"}}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.dev/status/_view/web.json",
-        r#"{"schema":"swawkit.command-view/web/v4","run":{"operations":[{"id":"preview","label":"Preview","arguments":[]},{"id":"apply","label":"Apply","arguments":["--apply"],"confirmation":"Confirm cleanup."}]}}"#,
-    );
-    fixture.file(
-        "home/_lib/proj/.dev/status/_help/zh-CN.txt",
-        "Show {{ADDRESS}}\nUse {{INVOCATION}}",
-    );
-    fixture.file("home/_lib/proj/.help/run.ps1", "");
-    fixture.file("home/_lib/proj/.h/run.ps1", "");
-    fixture.file("home/_lib/proj/.broken/run.ps1", "");
-    fixture.file("home/_lib/proj/.broken/run.cmd", "");
-
-    let document = catalog_document(fixture.app()).await;
-    assert_eq!(
-        command(&document, ".dev").expect("group node"),
-        &json!({
-            "address": ".dev",
-            "source": "kernel",
-            "parent": "",
-            "aliasOf": null,
-            "runnable": false,
-            "entry": null,
-            "adapter": null,
-            "handler": null,
-            "module": null,
-            "help": null,
-            "subjectKinds": [],
-            "facets": [
-                {
-                    "id": "children",
-                    "kind": "collection",
-                    "renderer": "collection",
-                    "icon": "□",
-                    "label": "子命令",
-                    "summary": "浏览静态子命令",
-                    "resolver": {
-                        "type": "catalog",
-                        "relation": "children"
-                    }
-                }
-            ],
-            "view": {
-                "childrenColumn": {
-                    "width": "wide"
-                }
-            },
-            "diagnostic": null
-        })
-    );
-    assert_eq!(
-        command(&document, ".dev.status").expect("runnable node"),
-        &json!({
-            "address": ".dev.status",
-            "source": "kernel",
-            "parent": ".dev",
-            "aliasOf": null,
-            "runnable": true,
-            "entry": "run.cmd",
-            "adapter": "cmd",
-            "handler": null,
-            "module": {
-                "schema": "swawkit.command-module/v4",
-                "requires": [{
-                    "provider": ".dev.setup",
-                    "contract": "swawkit.dev/v1"
-                }],
-                "provides": [{
-                    "contract": "swawkit.status/v1"
-                }]
-            },
-            "help": {
-                "summary": "Show .dev.status",
-                "text": "Show .dev.status\nUse swawkit .dev.status"
-            },
-            "subjectKinds": [],
-            "facets": [
-                {
-                    "id": "run",
-                    "kind": "operation",
-                    "renderer": "run",
-                    "icon": ">",
-                    "label": "执行",
-                    "summary": "设置参数并启动命令",
-                    "resolver": {
-                        "type": "command",
-                        "address": ".dev.status",
-                        "arguments": [],
-                        "acceptsTail": true
-                    }
-                }
-            ],
-            "view": {
-                "run": {
-                    "operations": [
-                        {
-                            "id": "preview",
-                            "label": "Preview",
-                            "arguments": []
-                        },
-                        {
-                            "id": "apply",
-                            "label": "Apply",
-                            "arguments": ["--apply"],
-                            "confirmation": "Confirm cleanup."
-                        }
-                    ]
-                }
-            },
-            "diagnostic": null
-        })
-    );
-    assert_eq!(
-        command(&document, ".h").and_then(|node| node["aliasOf"].as_str()),
-        Some(".help")
-    );
-    assert!(
-        command(&document, ".broken")
-            .and_then(|node| node["diagnostic"].as_str())
-            .is_some_and(|message| message.contains("multiple run entries"))
-    );
-    assert!(
-        document["commands"]
-            .as_array()
-            .expect("commands array")
-            .iter()
-            .all(|node| node.get("directory").is_none())
     );
 }
 

@@ -3,7 +3,8 @@ param(
     [string]$LauncherPath = '',
     [string]$CorePath = '',
     [string]$HostPath = '',
-    [string]$ToolchainPath = ''
+    [string]$ModulePath = '',
+    [string]$DevPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -88,12 +89,16 @@ function Invoke-ProjShellTest {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
+$InvocationWorkingDirectory = [IO.Path]::GetFullPath(
+    (Get-Location).ProviderPath
+)
 . (Join-Path $PSScriptRoot '_lib\runtime-fixture.ps1')
 $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -LauncherPath $LauncherPath `
     -CorePath $CorePath `
     -HostPath $HostPath `
-    -ToolchainPath $ToolchainPath
+    -ModulePath $ModulePath `
+    -DevPath $DevPath
 $EntryName = "test-shell-$([Guid]::NewGuid().ToString('N'))"
 $TestRoot = Join-Path $RepoRoot 'data\_test'
 $TemporaryRoot = Join-Path $TestRoot (
@@ -103,7 +108,7 @@ $UserPathBefore = [Environment]::GetEnvironmentVariable('PATH', 'User')
 $MachinePathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
 $ProcessPathBefore = [Environment]::GetEnvironmentVariable('PATH', 'Process')
 $ManagedPwshSource = Join-Path $RepoRoot (
-    'data\proj.swawkit\modules\kernel\.dev\setup\export\pwsh\installs\7.6.4'
+    'data\proj.swawkit\modules\system\dev\setup\export\pwsh\installs\7.6.4'
 )
 Assert-ProjShellTest `
     -Condition ([IO.File]::Exists((Join-Path $ManagedPwshSource 'pwsh.exe'))) `
@@ -120,12 +125,12 @@ try {
         -LauncherPath $Artifacts.LauncherPath `
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
-        -ToolchainPath $Artifacts.ToolchainPath
+        -ModulePath $Artifacts.ModulePath `
+        -DevPath $Artifacts.DevPath
     $script:ProjShellEntry = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
-    $RuntimeBin = $Runtime.RuntimeBin
-    $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
+    $DataRoot = [string]$Runtime.DataRoot
 
     foreach ($Name in $PoisonedAdapterEnvironment.Keys) {
         $SavedAdapterEnvironment[$Name] = [Environment]::GetEnvironmentVariable(
@@ -141,54 +146,57 @@ try {
 
     $SetupOutput = @(
         & $script:ProjShellEntry `
-            '..entry.project.root' `
+            '.entry/project/root' `
             '${SWAWKIT_HOME}' `
             2>&1
     )
     Assert-ProjShellTest `
         -Condition ($LASTEXITCODE -eq 0) `
-        -Message "Entry Profile setup failed: $SetupOutput"
+        -Message "Entry project binding failed: $SetupOutput"
     foreach ($Group in @('bun', 'msvc', 'rust')) {
         $ModeOutput = @(
             & $script:ProjShellEntry `
-                ".dev.$Group.mode" `
+                ".dev/$Group/mode" `
                 'disabled' `
                 2>&1
         )
         Assert-ProjShellTest `
             -Condition ($LASTEXITCODE -eq 0) `
-            -Message "Entry Profile setup failed for $Group mode: $ModeOutput"
+            -Message "Dev Settings update failed for $Group mode: $ModeOutput"
     }
     $PwshVersionOutput = @(
         & $script:ProjShellEntry `
-            '.dev.pwsh.version' `
+            '.dev/pwsh/version' `
             '7.6.4' `
             2>&1
     )
     Assert-ProjShellTest `
         -Condition ($LASTEXITCODE -eq 0) `
-        -Message "Entry Profile setup failed for managed PowerShell: $PwshVersionOutput"
-    $IdentityOutput = @(
-        & $script:ProjShellEntry `
-            '..entry.git.name' `
-            'Shell Fixture' `
-            2>&1
-    )
-    Assert-ProjShellTest `
-        -Condition ($LASTEXITCODE -eq 0) `
-        -Message "Entry identity setup failed: $IdentityOutput"
+        -Message "Dev Settings update failed for PowerShell: $PwshVersionOutput"
     $ManagedPwshRoot = Join-Path $DataRoot (
-        'modules\kernel\.dev\setup\export\pwsh\installs\7.6.4'
+        'modules\system\dev\setup\export\pwsh\installs\7.6.4'
     )
     Copy-ProjFixtureHardLinkTree `
         -Source $ManagedPwshSource `
         -Destination $ManagedPwshRoot
     $DevelopmentSetup = Invoke-ProjShellTest `
-        -Address '.dev.setup' `
+        -Address '.dev/setup' `
         -Arguments ([string[]]@())
     Assert-ProjShellTest `
         -Condition ($DevelopmentSetup.ExitCode -eq 0) `
         -Message "Native development setup failed: $($DevelopmentSetup.Text)"
+
+    $DisabledBun = Invoke-ProjShellTest `
+        -Address '.dev/bun' `
+        -Arguments @('--version')
+    Assert-ProjShellTest `
+        -Condition (
+            $DisabledBun.ExitCode -eq 1 -and
+            $DisabledBun.Text.Contains(
+                'Bun is unavailable in the current Entry development environment'
+            )
+        ) `
+        -Message "disabled Bun fell back to the host PATH: $($DisabledBun.Text)"
 
     $CmdCommand = [string]::Join(' & ', @(
         'echo SHELL_KIND=cmd'
@@ -196,7 +204,6 @@ try {
         'echo COMMAND_PROTOCOL=%SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL%'
         'echo COMMAND_ADDRESS=%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%'
         'echo COMMAND_DATA_ROOT=%SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT%'
-        'echo GIT_ID_NAME=%SWAWKIT_PROJ_GIT_ID_NAME%'
         'echo PROJ_HOME=%SWAWKIT_HOME%'
         'echo DATA_ROOT=%SWAWKIT_PROJ_DATA_ROOT%'
         'echo PATH_VALUE=%PATH%'
@@ -206,23 +213,22 @@ try {
         'exit /b 31'
     ))
     $Cmd = Invoke-ProjShellTest `
-        -Address '.dev.cmd' `
+        -Address '.dev/cmd' `
         -Arguments @('echo', 'JOINED_COMMAND=ok', '&', $CmdCommand)
     Assert-ProjShellTest `
         -Condition ($Cmd.ExitCode -eq 31) `
-        -Message ".dev.cmd did not return the child exit code: $($Cmd.Text)"
+        -Message ".dev/cmd did not return the child exit code: $($Cmd.Text)"
     foreach ($Expected in @(
         'SHELL_KIND=cmd',
         'JOINED_COMMAND=ok',
         "ENTRY_NAME=$EntryName",
-        'COMMAND_PROTOCOL=1',
-        'COMMAND_ADDRESS=.dev.cmd',
-        "COMMAND_DATA_ROOT=$DataRoot\modules\kernel\.dev\cmd",
-        'GIT_ID_NAME=Shell Fixture',
+        'COMMAND_PROTOCOL=3',
+        'COMMAND_ADDRESS=.dev/cmd',
+        "COMMAND_DATA_ROOT=$DataRoot\modules\system\dev\cmd",
         "PROJ_HOME=$($Runtime.Home)",
         "DATA_ROOT=$DataRoot",
-        "PATH_VALUE=$RuntimeBin;",
-        "WORKING_DIR=$($Runtime.Home)",
+        "PATH_VALUE=$ManagedPwshRoot;",
+        "WORKING_DIR=$InvocationWorkingDirectory",
         'CMD_SPECIAL=left&right',
         'DELAYED=!SWAWKIT_PROJ_ENTRY_COMMAND!'
     )) {
@@ -231,7 +237,7 @@ try {
                 $Expected,
                 [StringComparison]::OrdinalIgnoreCase
             ) -ge 0) `
-            -Message ".dev.cmd did not preserve '$Expected': $($Cmd.Text)"
+            -Message ".dev/cmd did not preserve '$Expected': $($Cmd.Text)"
     }
 
     $PowerShellCommand = [string]::Join('; ', @(
@@ -243,7 +249,6 @@ try {
         'Write-Output "COMMAND_PROTOCOL=$env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL"'
         'Write-Output "COMMAND_ADDRESS=$env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS"'
         'Write-Output "COMMAND_DATA_ROOT=$env:SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT"'
-        'Write-Output "GIT_ID_NAME=$env:SWAWKIT_PROJ_GIT_ID_NAME"'
         'Write-Output "PROJ_HOME=$env:SWAWKIT_HOME"'
         'Write-Output "DATA_ROOT=$env:SWAWKIT_PROJ_DATA_ROOT"'
         'Write-Output "PATH_VALUE=$env:PATH"'
@@ -252,24 +257,23 @@ try {
         'exit 32'
     ))
     $PowerShell = Invoke-ProjShellTest `
-        -Address '.dev.pwsh' `
+        -Address '.dev/pwsh' `
         -Arguments @('-Command', $PowerShellCommand)
     Assert-ProjShellTest `
         -Condition ($PowerShell.ExitCode -eq 32) `
-        -Message ".dev.pwsh -Command lost its exit code: $($PowerShell.Text)"
+        -Message ".dev/pwsh -Command lost its exit code: $($PowerShell.Text)"
     foreach ($Expected in @(
         'SHELL_KIND=ps-command',
         'PS_MAJOR=7',
         "PS_HOME=$ManagedPwshRoot",
         'POLICY=Bypass',
         "ENTRY_NAME=$EntryName",
-        'COMMAND_PROTOCOL=1',
-        'COMMAND_ADDRESS=.dev.pwsh',
-        "COMMAND_DATA_ROOT=$DataRoot\modules\kernel\.dev\pwsh",
-        'GIT_ID_NAME=Shell Fixture',
+        'COMMAND_PROTOCOL=3',
+        'COMMAND_ADDRESS=.dev/pwsh',
+        "COMMAND_DATA_ROOT=$DataRoot\modules\system\dev\pwsh",
         "PROJ_HOME=$($Runtime.Home)",
         "DATA_ROOT=$DataRoot",
-        "WORKING_DIR=$($Runtime.Home)",
+        "WORKING_DIR=$InvocationWorkingDirectory",
         'COMMAND_TEXT=ampersand&pipe|percent%'
     )) {
         Assert-ProjShellTest `
@@ -277,7 +281,7 @@ try {
                 $Expected,
                 [StringComparison]::OrdinalIgnoreCase
             ) -ge 0) `
-            -Message ".dev.pwsh -Command did not preserve '$Expected': $($PowerShell.Text)"
+            -Message ".dev/pwsh -Command did not preserve '$Expected': $($PowerShell.Text)"
     }
 
     $ScriptPath = Join-Path $Runtime.Home 'fixture\script with spaces.ps1'
@@ -326,11 +330,11 @@ exit 33
         $ScriptSource,
         [Text.UTF8Encoding]::new($false)
     )
-    $RelativeScriptPath = $ScriptPath.Substring(
-        $Runtime.Home.TrimEnd('\').Length + 1
+    $RelativeScriptPath = [string](
+        Resolve-Path -LiteralPath $ScriptPath -Relative
     )
     $PowerShellFile = Invoke-ProjShellTest `
-        -Address '.dev.pwsh' `
+        -Address '.dev/pwsh' `
         -Arguments @(
             '-File',
             $RelativeScriptPath,
@@ -340,13 +344,13 @@ exit 33
         )
     Assert-ProjShellTest `
         -Condition ($PowerShellFile.ExitCode -eq 33) `
-        -Message ".dev.pwsh -File lost its exit code: $($PowerShellFile.Text)"
+        -Message ".dev/pwsh -File lost its exit code: $($PowerShellFile.Text)"
     foreach ($Expected in @(
         'SHELL_KIND=ps-file',
         'FILE_ARGS=hello world|ampersand&value|pipe|percent%',
         'PS_MAJOR=7',
         'POLICY=Bypass',
-        "WORKING_DIR=$($Runtime.Home)",
+        "WORKING_DIR=$InvocationWorkingDirectory",
         'CORE_COMMAND_ADAPTER_INTERNAL_COUNT=0',
         'MODULE_INTERNAL_COUNT=0',
         'UNDEFINED='
@@ -356,22 +360,22 @@ exit 33
                 $Expected,
                 [StringComparison]::OrdinalIgnoreCase
             ) -ge 0) `
-            -Message ".dev.pwsh -File did not preserve '$Expected': $($PowerShellFile.Text)"
+            -Message ".dev/pwsh -File did not preserve '$Expected': $($PowerShellFile.Text)"
     }
 
     $NestedCmd = Invoke-ProjShellTest `
-        -Address '.dev.cmd' `
+        -Address '.dev/cmd' `
         -Arguments @("`"$script:ProjShellEntry`"", '--help')
     Assert-ProjShellTest `
         -Condition (
             $NestedCmd.ExitCode -eq 1 -and
             $NestedCmd.Text.Contains('inside another Entry command')
         ) `
-        -Message ".dev.cmd allowed a nested Entry: $($NestedCmd.Text)"
+        -Message ".dev/cmd allowed a nested Entry: $($NestedCmd.Text)"
 
     $NestedEntryLiteral = $script:ProjShellEntry.Replace("'", "''")
     $NestedPowerShell = Invoke-ProjShellTest `
-        -Address '.dev.pwsh' `
+        -Address '.dev/pwsh' `
         -Arguments @(
             '-Command',
             "& '$NestedEntryLiteral' --help; exit `$LASTEXITCODE"
@@ -381,27 +385,27 @@ exit 33
             $NestedPowerShell.ExitCode -eq 1 -and
             $NestedPowerShell.Text.Contains('inside another Entry command')
         ) `
-        -Message ".dev.pwsh allowed a nested Entry: $($NestedPowerShell.Text)"
+        -Message ".dev/pwsh allowed a nested Entry: $($NestedPowerShell.Text)"
 
     $InvalidInvocations = @(
-        @{ Address = '.dev.cmd'; Arguments = [string[]]@(); Name = 'no command' },
-        @{ Address = '.dev.cmd'; Arguments = @(' '); Name = 'blank command' },
-        @{ Address = '.dev.pwsh'; Arguments = [string[]]@(); Name = 'no mode' },
-        @{ Address = '.dev.pwsh'; Arguments = @('-Command'); Name = 'missing command' },
-        @{ Address = '.dev.pwsh'; Arguments = @('-Command', ' '); Name = 'blank command' },
-        @{ Address = '.dev.pwsh'; Arguments = @('-File'); Name = 'missing file' },
+        @{ Address = '.dev/cmd'; Arguments = [string[]]@(); Name = 'no command' },
+        @{ Address = '.dev/cmd'; Arguments = @(' '); Name = 'blank command' },
+        @{ Address = '.dev/pwsh'; Arguments = [string[]]@(); Name = 'no mode' },
+        @{ Address = '.dev/pwsh'; Arguments = @('-Command'); Name = 'missing command' },
+        @{ Address = '.dev/pwsh'; Arguments = @('-Command', ' '); Name = 'blank command' },
+        @{ Address = '.dev/pwsh'; Arguments = @('-File'); Name = 'missing file' },
         @{
-            Address = '.dev.pwsh'
+            Address = '.dev/pwsh'
             Arguments = @('-File', 'missing.ps1')
             Name = 'absent file'
         },
         @{
-            Address = '.dev.pwsh'
+            Address = '.dev/pwsh'
             Arguments = @('-File', 'not-a-script.txt')
             Name = 'non-ps1 file'
         },
         @{
-            Address = '.dev.pwsh'
+            Address = '.dev/pwsh'
             Arguments = @('-Unknown', 'value')
             Name = 'unknown mode'
         }
@@ -423,7 +427,7 @@ exit 33
         -Value ($SystemPwshRoot + ';' + $ProcessPathBefore)
     $SystemMode = @(
         & $script:ProjShellEntry `
-            '.dev.pwsh.mode' `
+            '.dev/pwsh/mode' `
             'system' `
             2>&1
     )
@@ -431,7 +435,7 @@ exit 33
         -Condition ($LASTEXITCODE -eq 0) `
         -Message "failed to select system PowerShell: $SystemMode"
     $SystemSetup = Invoke-ProjShellTest `
-        -Address '.dev.setup' `
+        -Address '.dev/setup' `
         -Arguments ([string[]]@())
     Assert-ProjShellTest `
         -Condition (
@@ -440,21 +444,24 @@ exit 33
         ) `
         -Message "system PowerShell setup failed: $($SystemSetup.Text)"
     $SystemPowerShell = Invoke-ProjShellTest `
-        -Address '.dev.pwsh' `
+        -Address '.dev/pwsh' `
         -Arguments @(
             '-Command',
             'Write-Output (''SYSTEM_PS_HOME='' + $PSHOME); exit 34'
         )
+    $SystemPwshHome = "SYSTEM_PS_HOME=$SystemPwshRoot"
+    $SystemPwshExtendedHome = "SYSTEM_PS_HOME=\\?\$SystemPwshRoot"
     Assert-ProjShellTest `
         -Condition (
             $SystemPowerShell.ExitCode -eq 34 -and
-            $SystemPowerShell.Text.Contains("SYSTEM_PS_HOME=$SystemPwshRoot")
+            ($SystemPowerShell.Text.Contains($SystemPwshHome) -or
+                $SystemPowerShell.Text.Contains($SystemPwshExtendedHome))
         ) `
         -Message "system PowerShell execution failed: $($SystemPowerShell.Text)"
 
     $DisabledMode = @(
         & $script:ProjShellEntry `
-            '.dev.pwsh.mode' `
+            '.dev/pwsh/mode' `
             'disabled' `
             2>&1
     )
@@ -462,18 +469,20 @@ exit 33
         -Condition ($LASTEXITCODE -eq 0) `
         -Message "failed to disable PowerShell: $DisabledMode"
     $DisabledSetup = Invoke-ProjShellTest `
-        -Address '.dev.setup' `
+        -Address '.dev/setup' `
         -Arguments ([string[]]@())
     Assert-ProjShellTest `
         -Condition ($DisabledSetup.ExitCode -eq 0) `
         -Message "disabled PowerShell setup failed: $($DisabledSetup.Text)"
     $DisabledPowerShell = Invoke-ProjShellTest `
-        -Address '.dev.pwsh' `
+        -Address '.dev/pwsh' `
         -Arguments @('-Command', 'exit 0')
     Assert-ProjShellTest `
         -Condition (
             $DisabledPowerShell.ExitCode -eq 1 -and
-            $DisabledPowerShell.Text.Contains('run.ps1 is disabled')
+            $DisabledPowerShell.Text.Contains(
+                'PowerShell 7 is unavailable in the current Entry development environment'
+            )
         ) `
         -Message "disabled PowerShell remained runnable: $($DisabledPowerShell.Text)"
 

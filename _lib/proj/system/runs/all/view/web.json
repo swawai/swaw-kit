@@ -1,0 +1,7 @@
+{
+  "schema": "swawkit.view-source/web/v1",
+  "column": {
+    "width": "wide",
+    "body": { "component": "resource-list", "source": "facet-result" }
+  }
+}

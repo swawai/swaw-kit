@@ -1,0 +1,5 @@
+只读检查一个 System 或 Module 原生 owner 或委派命令，不构建、不发布、不修复，也不切换当前 Release。
+
+用法：{{INVOCATION}} <原生命令或逻辑端口地址> [--json]
+
+委派端口会解析到它显式声明的 native owner。文本与 JSON 报告同一份发布状态；检查不依赖受管开发环境。outdated 只表示源码构建输入晚于当前 Release，不会让契约仍兼容的已发布 EXE 停止运行。

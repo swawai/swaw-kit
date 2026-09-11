@@ -1,0 +1,12 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "projection",
+  "presentation": {
+    "icon": "i",
+    "label": { "zh-CN": "概览", "en": "Overview" },
+    "summary": {
+      "zh-CN": "查看运行状态和事件",
+      "en": "Inspect run state and events"
+    }
+  }
+}

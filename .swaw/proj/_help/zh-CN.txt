@@ -1,4 +1,4 @@
-管理当前项目自身的构建与维护 Action。
+管理当前项目自身的构建与维护 Module 命令。
 
 用法:
   {{INVOCATION}} .help

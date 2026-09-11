@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { publishBuildArtifact, readReadyBuildArtifact } from "./artifact.ts";
 
 const roots: string[] = [];
@@ -21,15 +21,32 @@ test("publishes and reads one coherent Launcher Provider snapshot", async () => 
   expect(await readFile(resolved.path, "utf8")).toBe("launcher-fixture");
   const state = JSON.parse(await readFile(join(fixture.commandRoot, "_state.json"), "utf8"));
   expect(state).toMatchObject({
-    schema: "swawkit.command-provider-state/v1",
+    schema: "swawkit.command-provider-state/v3",
     status: "ready",
     inputRevision: `sha256-${published.sha256}`,
-    producerContract: "swawkit.proj-build-launcher/v1",
   });
+  expect(Object.keys(state).sort()).toEqual(["inputRevision", "schema", "status", "token"]);
+  const manifest = JSON.parse(await readFile(
+    join(fixture.commandRoot, "export", "manifest.json"),
+    "utf8",
+  ));
+  expect(manifest.schema).toBe("swawkit.proj-build-artifact/v3");
+  expect(Object.keys(manifest).sort()).toEqual(["artifact", "inputRevision", "schema", "token"]);
+
+  const statePath = join(fixture.commandRoot, "_state.json");
+  const readyState = await readFile(statePath, "utf8");
+  await writeFile(statePath, JSON.stringify({
+    ...JSON.parse(readyState),
+    exports: [],
+  }));
+  await expect(readReadyBuildArtifact(fixture.dataRoot, "fixture")).rejects.toThrow(
+    "Provider State is not Ready",
+  );
+  await writeFile(statePath, readyState);
 
   await writeFile(resolved.path, "tampered-fixture");
   await expect(readReadyBuildArtifact(fixture.dataRoot, "fixture")).rejects.toThrow(
-    "run 'fixture proj.build.launcher'",
+    "run 'fixture project/proj/build/launcher'",
   );
 });
 
@@ -58,17 +75,32 @@ test("a failed publication revokes Ready without replacing the previous export",
   );
   const failed = JSON.parse(await readFile(join(fixture.commandRoot, "_state.json"), "utf8"));
   expect(failed.status).toBe("unavailable");
+  expect(failed.schema).toBe("swawkit.command-provider-state/v3");
+  expect(Object.keys(failed).sort()).toEqual(["inputRevision", "schema", "status", "token"]);
+});
+
+test("the native build contract owns the complete Launcher input set", async () => {
+  const contractPath = resolve(
+    import.meta.dir,
+    "../../../../../_lib/proj/_launcher/build.json",
+  );
+  const contract = JSON.parse(await readFile(contractPath, "utf8"));
+  expect(contract).toMatchObject({
+    schema: "swawkit.proj-launcher-build/v2",
+    sources: ["launcher.c", "layout.c", "path.c"],
+    headers: ["layout.h", "path.h"],
+  });
 });
 
 async function makeFixture() {
   const root = await mkdtemp(join(tmpdir(), "swawkit-launcher-artifact-"));
   roots.push(root);
   const dataRoot = join(root, "data");
-  const commandRoot = join(dataRoot, "modules", "action", "proj", "build", "launcher");
+  const commandRoot = join(dataRoot, "modules", "project", "proj", "build", "launcher");
   await mkdir(commandRoot, { recursive: true });
   return {
     dataRoot,
     commandRoot,
-    candidate: join(commandRoot, "work", "launcher", "release", "template.proj1.exe"),
+    candidate: join(commandRoot, "work", "launcher", "release", "swawkit.exe"),
   };
 }

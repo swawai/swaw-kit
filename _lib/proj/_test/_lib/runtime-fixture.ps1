@@ -4,7 +4,13 @@ $script:ProjRuntimeFixtureRepoRoot = [IO.Path]::GetFullPath(
     (Join-Path $PSScriptRoot '..\..\..\..')
 )
 . (Join-Path $script:ProjRuntimeFixtureRepoRoot (
-    '_lib\proj\_toolchain\bootstrap-layout.ps1'
+    '_lib\proj\_bootstrap\layout.ps1'
+))
+. (Join-Path $script:ProjRuntimeFixtureRepoRoot (
+    '_lib\proj\_toolchain\_lib\runtime.ps1'
+))
+. (Join-Path $script:ProjRuntimeFixtureRepoRoot (
+    '_lib\proj\_runtime\release.ps1'
 ))
 
 function Assert-ProjCandidateRuntimeFixtureRoot {
@@ -46,18 +52,78 @@ function Copy-ProjFixtureHardLinkTree {
     }
 }
 
+function Copy-ProjFixtureCommandRuntime {
+    param([Parameter(Mandatory = $true)][string]$RuntimeHome)
+
+    $SourceBootstrap = Join-Path `
+        $script:ProjRuntimeFixtureRepoRoot `
+        'data\proj_cache\bootstrap'
+    $Selector = Join-Path $SourceBootstrap 'command-runtimes\current'
+    $RuntimeId = [IO.File]::ReadAllText(
+        $Selector,
+        [Text.Encoding]::UTF8
+    ).Trim()
+    $Runtime = Read-ProjCommandRuntime `
+        -BootstrapDataRoot $SourceBootstrap `
+        -RuntimeId $RuntimeId
+    $TargetBootstrap = Join-Path $RuntimeHome 'data\proj_cache\bootstrap'
+    foreach ($Tool in @($Runtime.Tools)) {
+        $RelativePath = ([string]$Tool.path).Replace('/', '\')
+        $SourceTool = Join-Path $SourceBootstrap $RelativePath
+        $RelativeRoot = Split-Path $RelativePath -Parent
+        $SourceRoot = Split-Path $SourceTool -Parent
+        $TargetRoot = Join-Path $TargetBootstrap $RelativeRoot
+        if (-not [IO.Directory]::Exists($TargetRoot)) {
+            Copy-ProjFixtureHardLinkTree `
+                -Source $SourceRoot `
+                -Destination $TargetRoot
+        }
+    }
+    $TargetRelease = Join-Path `
+        $TargetBootstrap `
+        "command-runtimes\releases\$RuntimeId"
+    [void][IO.Directory]::CreateDirectory($TargetRelease)
+    [IO.File]::Copy(
+        (Join-Path $Runtime.Root 'manifest.json'),
+        (Join-Path $TargetRelease 'manifest.json'),
+        $false
+    )
+    return $RuntimeId
+}
+
+function Add-ProjFixtureCommandResource {
+    param([Parameter(Mandatory = $true)][string]$CommandRoot)
+
+    [void][IO.Directory]::CreateDirectory($CommandRoot)
+    [IO.File]::WriteAllText(
+        (Join-Path $CommandRoot 'swawkit.resource.json'),
+        "{`"schema`":`"swawkit.resource/v1`",`"kind`":`"command`"}`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    $ExecuteRoot = Join-Path $CommandRoot 'execute'
+    [void][IO.Directory]::CreateDirectory($ExecuteRoot)
+    [IO.File]::WriteAllText(
+        (Join-Path $ExecuteRoot 'swawkit.facet.json'),
+        "{`"schema`":`"swawkit.facet/v1`",`"kind`":`"operation`"}`n",
+        [Text.UTF8Encoding]::new($false)
+    )
+    return $ExecuteRoot
+}
+
 function Resolve-ProjCandidateRuntimeArtifacts {
     param(
         [string]$LauncherPath = '',
         [string]$CorePath = '',
         [string]$HostPath = '',
-        [string]$ToolchainPath = ''
+        [string]$ModulePath = '',
+        [string]$DevPath = ''
     )
 
     $BuildDefaults = [string]::IsNullOrWhiteSpace($LauncherPath) -or
         [string]::IsNullOrWhiteSpace($CorePath) -or
         [string]::IsNullOrWhiteSpace($HostPath) -or
-        [string]::IsNullOrWhiteSpace($ToolchainPath)
+        [string]::IsNullOrWhiteSpace($ModulePath) -or
+        [string]::IsNullOrWhiteSpace($DevPath)
     $Layout = Get-ProjBootstrapLayout
     if ([string]::IsNullOrWhiteSpace($LauncherPath)) {
         $LauncherPath = $Layout.LauncherCandidatePath
@@ -68,10 +134,11 @@ function Resolve-ProjCandidateRuntimeArtifacts {
     if ([string]::IsNullOrWhiteSpace($HostPath)) {
         $HostPath = Join-Path $Layout.BuildRoot 'release\swawkit-proj-host.exe'
     }
-    if ([string]::IsNullOrWhiteSpace($ToolchainPath)) {
-        $ToolchainPath = Join-Path $Layout.BuildRoot (
-            'release\swawkit-proj-toolchain.exe'
-        )
+    if ([string]::IsNullOrWhiteSpace($DevPath)) {
+        $DevPath = $Layout.DevCandidatePath
+    }
+    if ([string]::IsNullOrWhiteSpace($ModulePath)) {
+        $ModulePath = $Layout.ModuleCandidatePath
     }
     if ($BuildDefaults) {
         & (Join-Path $script:ProjRuntimeFixtureRepoRoot (
@@ -82,12 +149,14 @@ function Resolve-ProjCandidateRuntimeArtifacts {
     $LauncherPath = [IO.Path]::GetFullPath($LauncherPath)
     $CorePath = [IO.Path]::GetFullPath($CorePath)
     $HostPath = [IO.Path]::GetFullPath($HostPath)
-    $ToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
+    $ModulePath = [IO.Path]::GetFullPath($ModulePath)
+    $DevPath = [IO.Path]::GetFullPath($DevPath)
     foreach ($RequiredFile in @(
         $LauncherPath,
         $CorePath,
         $HostPath,
-        $ToolchainPath
+        $ModulePath,
+        $DevPath
     )) {
         if (-not [IO.File]::Exists($RequiredFile)) {
             throw "Required built executable does not exist: $RequiredFile"
@@ -98,7 +167,8 @@ function Resolve-ProjCandidateRuntimeArtifacts {
         LauncherPath = $LauncherPath
         CorePath = $CorePath
         HostPath = $HostPath
-        ToolchainPath = $ToolchainPath
+        ModulePath = $ModulePath
+        DevPath = $DevPath
     }
 }
 
@@ -108,7 +178,8 @@ function New-ProjCandidateRuntimeFixture {
         [Parameter(Mandatory = $true)][string]$LauncherPath,
         [Parameter(Mandatory = $true)][string]$CorePath,
         [Parameter(Mandatory = $true)][string]$HostPath,
-        [Parameter(Mandatory = $true)][string]$ToolchainPath
+        [Parameter(Mandatory = $true)][string]$ModulePath,
+        [Parameter(Mandatory = $true)][string]$DevPath
     )
 
     $RuntimeHome = [IO.Path]::GetFullPath($RuntimeHome)
@@ -118,42 +189,19 @@ function New-ProjCandidateRuntimeFixture {
     [void](Assert-ProjCandidateRuntimeFixtureRoot `
         -Path (Split-Path -Path $RuntimeHome -Parent))
     $KernelRoot = Join-Path $RuntimeHome '_lib\proj'
-    $RuntimeBin = Join-Path $KernelRoot '_bin'
-    $ReleaseId = 'a' * 64
-    $RuntimeRelease = Join-Path (
-        Join-Path $RuntimeBin 'releases'
-    ) $ReleaseId
-    [void][IO.Directory]::CreateDirectory($RuntimeRelease)
-    [IO.File]::Copy(
-        $CorePath,
-        (Join-Path $RuntimeRelease 'swawkit-proj.exe'),
-        $false
-    )
-    [IO.File]::Copy(
-        $HostPath,
-        (Join-Path $RuntimeRelease 'swawkit-proj-host.exe'),
-        $false
-    )
-    [IO.File]::Copy(
-        $ToolchainPath,
-        (Join-Path $RuntimeRelease 'swawkit-proj-toolchain.exe'),
-        $false
-    )
-    [IO.File]::WriteAllText(
-        (Join-Path $RuntimeBin 'current'),
-        ($ReleaseId + "`n"),
-        [Text.UTF8Encoding]::new($false)
-    )
+    [void][IO.Directory]::CreateDirectory($KernelRoot)
+    $CommandRuntimeId = Copy-ProjFixtureCommandRuntime -RuntimeHome $RuntimeHome
+    $ReleaseSet = New-ProjRuntimeReleaseSetFromFiles `
+        -Artifacts ([ordered]@{
+            'swawkit-proj.exe' = $CorePath
+            'swawkit-proj-host.exe' = $HostPath
+            'swawkit-proj-module.exe' = $ModulePath
+            'swawkit-proj-dev.exe' = $DevPath
+        }) `
+        -CommandRuntimeId $CommandRuntimeId
 
     foreach ($RelativeDirectory in @(
-        '..entry',
-        '..runtime',
-        '.check',
-        '.dev',
-        '.help',
-        '.runs',
-        '_help',
-        '_shell',
+        'system',
         '_toolchain'
     )) {
         Copy-Item `
@@ -164,12 +212,18 @@ function New-ProjCandidateRuntimeFixture {
             -Recurse `
             -Force
     }
+    [void][IO.Directory]::CreateDirectory((Join-Path $RuntimeHome '.swaw'))
 
     return [pscustomobject][ordered]@{
         Home = $RuntimeHome
         KernelRoot = $KernelRoot
-        RuntimeBin = $RuntimeBin
-        RuntimeRelease = $RuntimeRelease
+        DataRoot = ''
+        RuntimeRoot = ''
+        RuntimeRelease = ''
+        ReleaseId = ''
+        EntryPath = ''
+        CommandRuntimeId = $CommandRuntimeId
+        ReleaseSet = $ReleaseSet
         LauncherPath = [IO.Path]::GetFullPath($LauncherPath)
     }
 }
@@ -188,8 +242,46 @@ function Add-ProjCandidateRuntimeEntry {
     )) {
         throw "Entry path escaped the candidate runtime: $EntryPath"
     }
+    if (-not [string]::IsNullOrEmpty([string]$Runtime.EntryPath)) {
+        throw "Candidate runtime already belongs to an Entry: $($Runtime.EntryPath)"
+    }
+    if (-not [IO.Path]::GetExtension($EntryPath).Equals(
+        '.exe',
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "Candidate runtime Entry must have an .exe suffix: $EntryPath"
+    }
+    $EntryName = [IO.Path]::GetFileNameWithoutExtension($EntryPath)
+    if ([string]::IsNullOrWhiteSpace($EntryName)) {
+        throw "Candidate runtime Entry has no usable file name: $EntryPath"
+    }
+    $DataRootName = if ($EntryName.Equals(
+        'swawkit',
+        [StringComparison]::OrdinalIgnoreCase
+    )) {
+        'swawkit'
+    } else {
+        $EntryName
+    }
+    $DataRoot = Join-Path $Runtime.Home "data\proj.$DataRootName"
+    if ([IO.Directory]::Exists($DataRoot) -or [IO.File]::Exists($DataRoot)) {
+        throw "Candidate Runtime DataRoot already exists: $DataRoot"
+    }
+    [void][IO.Directory]::CreateDirectory($DataRoot)
+    $RuntimeRoot = Join-Path $DataRoot 'runtime'
+    $Published = Publish-ProjRuntimeReleaseSet `
+        -ReleaseSet $Runtime.ReleaseSet `
+        -RuntimeRoot $RuntimeRoot `
+        -ProjHome $Runtime.Home `
+        -CacheDataRoot (Join-Path $Runtime.Home 'data\proj_cache')
+
     [void][IO.Directory]::CreateDirectory((Split-Path -Path $EntryPath -Parent))
     [IO.File]::Copy($Runtime.LauncherPath, $EntryPath, $false)
+    $Runtime.DataRoot = $DataRoot
+    $Runtime.RuntimeRoot = $RuntimeRoot
+    $Runtime.RuntimeRelease = [string]$Published.Root
+    $Runtime.ReleaseId = [string]$Published.ReleaseId
+    $Runtime.EntryPath = $EntryPath
     return $EntryPath
 }
 

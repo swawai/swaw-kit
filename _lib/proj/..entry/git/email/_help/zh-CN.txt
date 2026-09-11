@@ -1,3 +1,0 @@
-设置 Git 身份邮箱。
-
-用法：{{INVOCATION}} <value>

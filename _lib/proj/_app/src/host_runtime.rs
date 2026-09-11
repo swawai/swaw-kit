@@ -7,23 +7,30 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use crate::atomic_file;
 use crate::context::EntryContext;
-use crate::entry::EntryIdentity;
 
-pub const HOST_RUNTIME_PROTOCOL: &str = "swawkit.host-runtime/v1";
+mod storage;
+pub use storage::InstanceKey;
+#[cfg(test)]
+use storage::hash_instance_key;
+use storage::{is_reparse, is_sha256, read_regular_file, regular_directory};
+
+pub const HOST_RUNTIME_PROTOCOL: &str = "swawkit.host-runtime/v3";
 pub const HOST_BOOT_HEADER: &str = "x-swawkit-host-boot";
-pub const HOST_ENTRY_HEADER: &str = "x-swawkit-host-entry";
+pub const HOST_INSTANCE_HEADER: &str = "x-swawkit-host-instance";
+pub const HOST_RELEASE_HEADER: &str = "x-swawkit-host-release";
 
+const MAX_RUNTIME_BYTES: u64 = 16 * 1024;
 static NEXT_BOOT: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostRuntimeDocument {
     pub protocol: String,
-    pub entry_key_sha256: String,
+    pub instance_key_sha256: String,
+    pub release_id: String,
     pub boot_id: String,
     pub pid: u32,
     pub url: String,
@@ -31,19 +38,21 @@ pub struct HostRuntimeDocument {
 
 impl HostRuntimeDocument {
     pub fn new(
-        entry_key_sha256: impl Into<String>,
+        instance_key_sha256: impl Into<String>,
+        release_id: impl Into<String>,
         boot_id: impl Into<String>,
         pid: u32,
         url: impl Into<String>,
     ) -> io::Result<Self> {
         let document = Self {
             protocol: HOST_RUNTIME_PROTOCOL.to_owned(),
-            entry_key_sha256: entry_key_sha256.into(),
+            instance_key_sha256: instance_key_sha256.into(),
+            release_id: release_id.into(),
             boot_id: boot_id.into(),
             pid,
             url: url.into(),
         };
-        document.validate(&document.entry_key_sha256)?;
+        document.validate(&document.instance_key_sha256, &document.release_id)?;
         Ok(document)
     }
 
@@ -53,20 +62,24 @@ impl HostRuntimeDocument {
 
     pub fn identity(&self) -> HostRuntimeIdentity {
         HostRuntimeIdentity {
-            entry_key_sha256: self.entry_key_sha256.clone(),
+            instance_key_sha256: self.instance_key_sha256.clone(),
+            release_id: self.release_id.clone(),
             boot_id: self.boot_id.clone(),
             pid: self.pid,
         }
     }
 
-    fn validate(&self, expected_entry: &str) -> io::Result<()> {
+    fn validate(&self, instance_key: &str, release_id: &str) -> io::Result<()> {
         if self.protocol != HOST_RUNTIME_PROTOCOL {
             return Err(invalid_data("Host runtime protocol is unsupported"));
         }
-        if self.entry_key_sha256 != expected_entry || !is_sha256(expected_entry) {
-            return Err(invalid_data("Host runtime Entry identity does not match"));
+        if self.instance_key_sha256 != instance_key || !is_sha256(instance_key) {
+            return Err(invalid_data("Host runtime Instance key does not match"));
         }
-        if self.boot_id.is_empty() || self.boot_id.len() > 160 {
+        if self.release_id != release_id || !is_sha256(release_id) {
+            return Err(invalid_data("Host runtime Release ID does not match"));
+        }
+        if !valid_boot_id(&self.boot_id) {
             return Err(invalid_data("Host runtime boot ID is invalid"));
         }
         if self.pid == 0 {
@@ -79,31 +92,44 @@ impl HostRuntimeDocument {
 
 #[derive(Debug, Clone)]
 pub struct HostRuntimeLocator {
+    data_root: PathBuf,
+    runtime_root: PathBuf,
+    hosts_root: PathBuf,
     path: PathBuf,
-    entry_key_sha256: String,
+    instance_key: InstanceKey,
+    release_id: String,
 }
 
 impl HostRuntimeLocator {
-    pub fn new(context: &EntryContext, identity: &EntryIdentity) -> Self {
-        let entry_key_sha256 = entry_key_sha256(identity);
-        let path = context
-            .swawkit_home
-            .join("data")
-            .join("proj.swawkit")
-            .join("runtime")
-            .join("hosts")
-            .join(format!("{entry_key_sha256}.json"));
-        Self {
-            path,
-            entry_key_sha256,
+    pub fn new(context: &EntryContext) -> io::Result<Self> {
+        if !is_sha256(&context.release_id) {
+            return Err(invalid_data("Host Runtime Release ID is invalid"));
         }
+        let runtime_root = context.data_root.join("runtime");
+        if context.runtime_root != runtime_root {
+            return Err(invalid_data(
+                "Host Runtime root does not belong to its Entry DataRoot",
+            ));
+        }
+        let hosts_root = runtime_root.join("hosts");
+        let instance_key = InstanceKey::derive(&context.data_root)?;
+        let path = hosts_root.join(format!("{}.json", context.release_id));
+        Ok(Self {
+            data_root: context.data_root.clone(),
+            runtime_root,
+            hosts_root,
+            path,
+            instance_key,
+            release_id: context.release_id.clone(),
+        })
     }
 
     pub fn acquire_owner(&self) -> HostRuntimeOwner {
         HostRuntimeOwner {
             locator: self.clone(),
             identity: HostRuntimeIdentity {
-                entry_key_sha256: self.entry_key_sha256.clone(),
+                instance_key_sha256: self.instance_key.as_str().to_owned(),
+                release_id: self.release_id.clone(),
                 boot_id: unique_boot_id(),
                 pid: std::process::id(),
             },
@@ -111,13 +137,11 @@ impl HostRuntimeLocator {
     }
 
     pub fn read(&self) -> io::Result<HostRuntimeDocument> {
-        let metadata = fs::metadata(&self.path)?;
-        if metadata.len() > 16 * 1024 {
-            return Err(invalid_data("Host runtime document is too large"));
-        }
-        let document: HostRuntimeDocument = serde_json::from_slice(&fs::read(&self.path)?)
+        self.validate_storage()?;
+        let bytes = read_regular_file(&self.path, MAX_RUNTIME_BYTES)?;
+        let document: HostRuntimeDocument = serde_json::from_slice(&bytes)
             .map_err(|error| invalid_data(format!("Host runtime document is invalid: {error}")))?;
-        document.validate(&self.entry_key_sha256)?;
+        self.validate_document(&document)?;
         Ok(document)
     }
 
@@ -135,8 +159,7 @@ impl HostRuntimeLocator {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
                     format!(
-                        "the existing Entry Host did not publish a healthy control endpoint: {}",
-                        error
+                        "the existing Entry Host did not publish a healthy control endpoint: {error}"
                     ),
                 ));
             }
@@ -144,8 +167,42 @@ impl HostRuntimeLocator {
         }
     }
 
+    pub fn instance_key(&self) -> &InstanceKey {
+        &self.instance_key
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn validate_document(&self, document: &HostRuntimeDocument) -> io::Result<()> {
+        document.validate(self.instance_key.as_str(), &self.release_id)
+    }
+
+    fn validate_storage(&self) -> io::Result<()> {
+        regular_directory(&self.data_root, "Entry DataRoot")?;
+        regular_directory(&self.runtime_root, "Entry Runtime directory")?;
+        regular_directory(&self.hosts_root, "Host runtime directory")
+    }
+
+    fn prepare_storage(&self) -> io::Result<()> {
+        regular_directory(&self.data_root, "Entry DataRoot")?;
+        regular_directory(&self.runtime_root, "Entry Runtime directory")?;
+        match fs::create_dir(&self.hosts_root) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        regular_directory(&self.hosts_root, "Host runtime directory")?;
+        match fs::symlink_metadata(&self.path) {
+            Ok(metadata) if metadata.is_file() && !is_reparse(&metadata) => Ok(()),
+            Ok(_) => Err(invalid_data(format!(
+                "Host runtime state must be a regular non-reparse file: {}",
+                self.path.display()
+            ))),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -156,7 +213,8 @@ pub struct HostRuntimeOwner {
 
 #[derive(Debug, Clone)]
 pub struct HostRuntimeIdentity {
-    entry_key_sha256: String,
+    instance_key_sha256: String,
+    release_id: String,
     boot_id: String,
     pid: u32,
 }
@@ -164,7 +222,8 @@ pub struct HostRuntimeIdentity {
 impl HostRuntimeIdentity {
     pub fn document(&self, url: impl Into<String>) -> io::Result<HostRuntimeDocument> {
         HostRuntimeDocument::new(
-            self.entry_key_sha256.clone(),
+            self.instance_key_sha256.clone(),
+            self.release_id.clone(),
             self.boot_id.clone(),
             self.pid,
             url,
@@ -182,22 +241,18 @@ impl HostRuntimeOwner {
     }
 
     pub fn publish(&self, document: &HostRuntimeDocument) -> io::Result<()> {
-        if document.entry_key_sha256 != self.locator.entry_key_sha256
+        if document.instance_key_sha256 != self.identity.instance_key_sha256
+            || document.release_id != self.identity.release_id
             || document.boot_id != self.identity.boot_id
             || document.pid != self.identity.pid
         {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
-                "cannot publish a Host runtime document owned by another process",
+                "cannot publish a Host runtime document owned by another generation",
             ));
         }
-        document.validate(&self.locator.entry_key_sha256)?;
-        let directory = self
-            .locator
-            .path
-            .parent()
-            .expect("Host runtime path always has a parent");
-        fs::create_dir_all(directory)?;
+        self.locator.validate_document(document)?;
+        self.locator.prepare_storage()?;
         let content = serde_json::to_vec_pretty(document)
             .map_err(|error| invalid_data(format!("cannot encode Host runtime: {error}")))?;
         atomic_file::publish(&self.locator.path, &content)
@@ -217,11 +272,6 @@ impl Drop for HostRuntimeOwner {
             let _ = fs::remove_file(&self.locator.path);
         }
     }
-}
-
-pub fn entry_key_sha256(identity: &EntryIdentity) -> String {
-    let digest = Sha256::digest(identity.key().as_bytes());
-    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn probe(document: &HostRuntimeDocument) -> io::Result<()> {
@@ -249,9 +299,11 @@ fn probe(document: &HostRuntimeDocument) -> io::Result<()> {
         return Err(invalid_data("Host health response is not HTTP 200"));
     }
     let boot_id = response_header(lines.clone(), HOST_BOOT_HEADER);
-    let entry_key = response_header(lines, HOST_ENTRY_HEADER);
+    let instance_key = response_header(lines.clone(), HOST_INSTANCE_HEADER);
+    let release_id = response_header(lines, HOST_RELEASE_HEADER);
     if boot_id.as_deref() != Some(document.boot_id.as_str())
-        || entry_key.as_deref() != Some(document.entry_key_sha256.as_str())
+        || instance_key.as_deref() != Some(document.instance_key_sha256.as_str())
+        || release_id.as_deref() != Some(document.release_id.as_str())
     {
         return Err(invalid_data(
             "Host health identity does not match runtime state",
@@ -285,8 +337,12 @@ fn parse_loopback_url(url: &str) -> io::Result<SocketAddr> {
     Ok(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
 }
 
-fn is_sha256(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+fn valid_boot_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 160
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
 }
 
 fn unique_boot_id() -> String {

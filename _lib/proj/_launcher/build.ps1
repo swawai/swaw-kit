@@ -102,10 +102,6 @@ $CandidatePath = Assert-ProjLauncherBuildPathInsideRoot `
     -Path (Split-Path -Path $CandidatePath -Parent) `
     -Description 'The Launcher candidate directory')
 
-$SourcePath = Join-Path $PSScriptRoot 'launcher.c'
-if (-not [IO.File]::Exists($SourcePath)) {
-    throw "The Launcher source is missing: $SourcePath"
-}
 $ContractPath = Join-Path $PSScriptRoot 'build.json'
 try {
     $Contract = [IO.File]::ReadAllText(
@@ -118,19 +114,27 @@ try {
 [string[]]$ContractFields = @(
     $Contract.PSObject.Properties | ForEach-Object { [string]$_.Name }
 )
-if ($ContractFields.Count -ne 5 -or
+if ($ContractFields.Count -ne 7 -or
     $ContractFields -cnotcontains 'schema' -or
+    $ContractFields -cnotcontains 'sources' -or
+    $ContractFields -cnotcontains 'headers' -or
     $ContractFields -cnotcontains 'compileArguments' -or
     $ContractFields -cnotcontains 'linkArguments' -or
     $ContractFields -cnotcontains 'libraries' -or
     $ContractFields -cnotcontains 'maximumBytes' -or
-    [string]$Contract.schema -cne 'swawkit.proj-launcher-build/v1' -or
+    [string]$Contract.schema -cne 'swawkit.proj-launcher-build/v2' -or
+    $Contract.sources -isnot [array] -or
+    $Contract.headers -isnot [array] -or
     $Contract.compileArguments -isnot [array] -or
     $Contract.linkArguments -isnot [array] -or
     $Contract.libraries -isnot [array] -or
     @($Contract.compileArguments).Count -eq 0 -or
     @($Contract.linkArguments).Count -eq 0 -or
     @($Contract.libraries).Count -eq 0 -or
+    [string]::Join("`n", [string[]]$Contract.sources) -cne
+        "launcher.c`nlayout.c`npath.c" -or
+    [string]::Join("`n", [string[]]$Contract.headers) -cne
+        "layout.h`npath.h" -or
     @($Contract.compileArguments | Where-Object {
         $_ -isnot [string] -or [string]::IsNullOrEmpty([string]$_)
     }).Count -ne 0 -or
@@ -145,28 +149,49 @@ if ($ContractFields.Count -ne 5 -or
     [long]$Contract.maximumBytes -le 0) {
     throw "The Launcher build contract is invalid: $ContractPath"
 }
-$ObjectPath = Join-Path $BuildRoot 'launcher.obj'
-$StagedPath = Join-Path $BuildRoot 'template.proj1.exe'
-Assert-ProjLauncherBuildReplaceableFile `
-    -Path $ObjectPath `
-    -Description 'The Launcher object target'
+$SourcePaths = [string[]]@(
+    $Contract.sources | ForEach-Object { Join-Path $PSScriptRoot $_ }
+)
+$HeaderPaths = [string[]]@(
+    $Contract.headers | ForEach-Object { Join-Path $PSScriptRoot $_ }
+)
+foreach ($SourcePath in @($SourcePaths + $HeaderPaths)) {
+    if (-not [IO.File]::Exists($SourcePath)) {
+        throw "The Launcher source is missing: $SourcePath"
+    }
+}
+$ObjectPaths = [string[]]@(
+    $Contract.sources | ForEach-Object {
+        Join-Path $BuildRoot (
+            [IO.Path]::GetFileNameWithoutExtension([string]$_) + '.obj'
+        )
+    }
+)
+$StagedPath = Join-Path $BuildRoot 'swawkit.exe'
+foreach ($ObjectPath in $ObjectPaths) {
+    Assert-ProjLauncherBuildReplaceableFile `
+        -Path $ObjectPath `
+        -Description 'A Launcher object target'
+}
 Assert-ProjLauncherBuildReplaceableFile `
     -Path $StagedPath `
     -Description 'The Launcher staged executable target'
-[string[]]$CompileArguments = @(
-    [string[]]@($Contract.compileArguments)
-    "/Fo$ObjectPath"
-    $SourcePath
-)
-& $CompilerPath @CompileArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "cl.exe failed with exit code $LASTEXITCODE."
+for ($Index = 0; $Index -lt $SourcePaths.Count; $Index++) {
+    [string[]]$CompileArguments = @(
+        [string[]]@($Contract.compileArguments)
+        "/Fo$($ObjectPaths[$Index])"
+        $SourcePaths[$Index]
+    )
+    & $CompilerPath @CompileArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "cl.exe failed with exit code $LASTEXITCODE."
+    }
 }
 
 [string[]]$LinkArguments = @(
     [string[]]@($Contract.linkArguments)
     "/OUT:$StagedPath"
-    $ObjectPath
+    $ObjectPaths
     [string[]]@($Contract.libraries)
 )
 & $LinkerPath @LinkArguments

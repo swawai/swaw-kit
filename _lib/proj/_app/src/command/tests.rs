@@ -1,25 +1,62 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::{
+    catalog::{CatalogSnapshot, CommandAdapter},
+    command_runtime::{COMMAND_RUNTIME_SCHEMA, CommandRuntime},
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::{
-    catalog::{CatalogSnapshot, CommandAdapter},
-    launch::{ENTRY_FILE_ENV, LAUNCH_MODE_ENV},
-    profile::EntryProfileRecord,
-};
-
 use super::{
-    CommandExecutionContext, CommandExecutor, CommandProcessMode, ExecutionPhase, GuardPlan,
-    GuardScope, Invocation, ProcessEnvironment, ResolvedCommand,
+    CommandExecutionContext, CommandExecutor, CommandProcessMode, Invocation, ProcessEnvironment,
+    ResolvedCommand,
     process::{AdapterLaunch, run_process},
+    validate_dev_executable, validate_module_executable,
 };
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+
+const EXPECTED_RETIRED_COMMAND_ENVIRONMENT: [&str; 30] = [
+    "SWAWKIT_PROJ_BUN_MODE",
+    "SWAWKIT_PROJ_BUN_SHA256",
+    "SWAWKIT_PROJ_BUN_VERSION",
+    "SWAWKIT_PROJ_CURSOR_MODE",
+    "SWAWKIT_PROJ_GH_MODE",
+    "SWAWKIT_PROJ_GIT_ID_ACCESS",
+    "SWAWKIT_PROJ_GIT_ID_EMAIL",
+    "SWAWKIT_PROJ_GIT_ID_NAME",
+    "SWAWKIT_PROJ_GO_MODE",
+    "SWAWKIT_PROJ_GO_SHA256",
+    "SWAWKIT_PROJ_GO_VERSION",
+    "SWAWKIT_PROJ_MSVC_CHANNEL",
+    "SWAWKIT_PROJ_MSVC_MODE",
+    "SWAWKIT_PROJ_PWSH_MODE",
+    "SWAWKIT_PROJ_PWSH_SHA256",
+    "SWAWKIT_PROJ_PWSH_VERSION",
+    "SWAWKIT_PROJ_PYTHON_MODE",
+    "SWAWKIT_PROJ_PYTHON_SHA256",
+    "SWAWKIT_PROJ_PYTHON_VERSION",
+    "SWAWKIT_PROJ_RUST_HOST",
+    "SWAWKIT_PROJ_RUST_MODE",
+    "SWAWKIT_PROJ_RUST_PROFILE",
+    "SWAWKIT_PROJ_RUST_TOOLCHAIN",
+    "SWAWKIT_PROJ_TARGET_PROJECT_ROOT",
+    "SWAWKIT_PROJ_UV_MODE",
+    "SWAWKIT_PROJ_UV_SHA256",
+    "SWAWKIT_PROJ_UV_VERSION",
+    "SWAWKIT_PROJ_VSCODE_MODE",
+    "SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION",
+    "SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION",
+];
+const EXPECTED_CONDITIONAL_PROJECT_ENVIRONMENT: [&str; 2] = [
+    "SWAWKIT_PROJ_PROJECT_ROOT",
+    "SWAWKIT_PROJ_PROJECT_MODULE_ROOT",
+];
 
 fn write_json(path: &Path, value: &serde_json::Value) {
     fs::create_dir_all(path.parent().expect("JSON parent")).expect("create JSON parent");
@@ -44,11 +81,66 @@ fn link_directory(source: &Path, target: &Path) {
     }
 }
 
+fn command_runtime_fixture(root: &Path, pwsh_source: &Path) -> String {
+    let bootstrap = root.join("data/proj_cache/bootstrap");
+    let tools_root = bootstrap.join("fixture-tools");
+    let pwsh_root = tools_root.join("pwsh");
+    link_directory(
+        pwsh_source.parent().expect("PowerShell fixture root"),
+        &pwsh_root,
+    );
+    fs::create_dir_all(&tools_root).expect("create Command Runtime fixture root");
+    fs::write(tools_root.join("bun.exe"), b"bun").expect("write Bun fixture");
+    let definitions = [
+        ("bun", "1.2.15", "fixture-tools/bun.exe"),
+        ("pwsh", "7.6.4", "fixture-tools/pwsh/pwsh.exe"),
+    ];
+    let records = definitions
+        .iter()
+        .map(|(name, version, relative)| {
+            let bytes = fs::read(bootstrap.join(relative)).expect("read Command Runtime tool");
+            serde_json::json!({
+                "name": name,
+                "version": version,
+                "path": relative,
+                "length": bytes.len(),
+                "sha256": format!("{:x}", Sha256::digest(&bytes)),
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut identity = vec![COMMAND_RUNTIME_SCHEMA.to_owned()];
+    for record in &records {
+        identity.extend([
+            record["name"].as_str().unwrap().to_owned(),
+            record["version"].as_str().unwrap().to_owned(),
+            record["path"].as_str().unwrap().to_owned(),
+            record["length"].as_u64().unwrap().to_string(),
+            record["sha256"].as_str().unwrap().to_owned(),
+        ]);
+    }
+    let runtime_id = format!("{:x}", Sha256::digest(identity.join("\n").as_bytes()));
+    let release = bootstrap
+        .join("command-runtimes/releases")
+        .join(&runtime_id);
+    fs::create_dir_all(&release).expect("create Command Runtime release");
+    write_json(
+        &release.join("manifest.json"),
+        &serde_json::json!({
+            "schema": COMMAND_RUNTIME_SCHEMA,
+            "runtimeId": runtime_id,
+            "tools": records,
+        }),
+    );
+    runtime_id
+}
+
 struct Fixture {
     root: PathBuf,
-    kernel_root: PathBuf,
-    target_project_root: PathBuf,
-    action_root: PathBuf,
+    command_root: PathBuf,
+    system_root: PathBuf,
+    swaw_module_root: PathBuf,
+    project_root: PathBuf,
+    project_module_root: PathBuf,
     data_root: PathBuf,
 }
 
@@ -62,105 +154,84 @@ impl Fixture {
         let root = workspace_root
             .join("data/proj_cache/tests/command %PATH% & fixtures")
             .join(format!("swawkit-command-{}-{sequence}", std::process::id()));
-        let kernel_root = root.join("_lib/proj");
-        let target_project_root = root.join("project");
-        let action_root = target_project_root.join(".swaw");
+        let command_root = root.join("_lib/proj");
+        let system_root = command_root.join("system");
+        let swaw_module_root = command_root.join("modules");
+        let project_root = root.join("project");
+        let project_module_root = project_root.join(".swaw");
         let data_root = root.join("data");
-        for directory in [&kernel_root, &target_project_root, &action_root, &data_root] {
+        for directory in [
+            &command_root,
+            &system_root,
+            &swaw_module_root,
+            &project_root,
+            &project_module_root,
+            &data_root,
+        ] {
             fs::create_dir_all(directory).expect("create fixture directory");
         }
-        fs::write(root.join("swawkit-proj-toolchain.exe"), "fixture")
-            .expect("write Toolchain fixture");
+        fs::write(root.join("swawkit-proj-dev.exe"), "fixture").expect("write Dev fixture");
+        fs::write(root.join("swawkit-proj-module.exe"), "fixture")
+            .expect("write module Runtime Component fixture");
         Self {
             root,
-            kernel_root,
-            target_project_root,
-            action_root,
+            command_root,
+            system_root,
+            swaw_module_root,
+            project_root,
+            project_module_root,
             data_root,
         }
     }
 
     fn command(&self, address: &str, script: &str) -> PathBuf {
-        let directory = command_directory(&self.kernel_root, address);
-        fs::create_dir_all(&directory).expect("create command directory");
-        fs::write(directory.join("run.ps1"), script).expect("write command entry");
+        let directory = command_directory(&self.system_root, address);
+        let execute = directory.join("execute");
+        fs::create_dir_all(&execute).expect("create execute Facet directory");
+        fs::write(
+            execute.join("swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+        )
+        .expect("write execute Facet");
+        fs::write(execute.join("run.ps1"), script).expect("write command entry");
         directory
     }
 
-    fn guard(&self, root: &Path, name: &str, script: &str) {
-        let directory = root.join(name);
-        fs::create_dir_all(&directory).expect("create guard directory");
-        fs::write(directory.join("run.cmd"), script).expect("write guard entry");
-    }
-
     fn catalog(&self) -> CatalogSnapshot {
-        CatalogSnapshot::discover_roots(&self.kernel_root, &self.action_root, "fixture")
-            .expect("discover catalog")
+        CatalogSnapshot::discover_roots(
+            &self.system_root,
+            &self.swaw_module_root,
+            &self.project_module_root,
+            "fixture",
+        )
+        .expect("discover catalog")
     }
 
     fn context(&self) -> CommandExecutionContext {
-        let mut profile = EntryProfileRecord::default();
-        profile.development.bun.mode = "disabled".to_owned();
-        profile.development.pwsh.mode = "managed".to_owned();
-        profile.development.pwsh.version = "7.6.4".to_owned();
-        profile.development.msvc.mode = "disabled".to_owned();
-        profile.development.rust.mode = "disabled".to_owned();
-        let environment_input_revision = profile.environment_input_revision();
         let source = Path::new(env!("CARGO_MANIFEST_DIR"))
             .ancestors()
             .nth(3)
             .expect("workspace root")
-            .join(
-                "data/proj.swawkit/modules/kernel/.dev/setup/export/pwsh/installs/7.6.4/pwsh.exe",
-            );
-        let install = self
-            .data_root
-            .join("modules/kernel/.dev/setup/export/pwsh/installs/7.6.4");
-        link_directory(source.parent().expect("PowerShell fixture root"), &install);
-        let executable = install.join("pwsh.exe");
-        let content = fs::read(&executable).expect("read managed PowerShell fixture");
-        let digest = format!("{:x}", Sha256::digest(&content));
-        write_json(
-            &install.join(".swawkit-dev-install.json"),
-            &serde_json::json!({
-                "schema": "swawkit.proj-dev.install.v0",
-                "name": "pwsh",
-                "version": "7.6.4",
-                "sourceUrl": "https://example.invalid/pwsh.zip",
-                "sourceSha256": "a".repeat(64),
-                "sourceVerification": "unverified",
-                "recipeVersion": crate::development::PWSH.recipe_version,
-                "definitionSignature": crate::development::PWSH.definition_signature("7.6.4", ""),
-                "files": [{
-                    "path": "pwsh.exe",
-                    "length": content.len(),
-                    "sha256": digest
-                }]
-            }),
-        );
-        write_json(
-            &self.data_root.join("modules/kernel/.dev/setup/_state.json"),
-            &serde_json::json!({
-                "schema": "swawkit.command-provider-state/v1",
-                "status": "ready",
-                "inputRevision": environment_input_revision,
-                "token": "d".repeat(32),
-                "producerContract": "swawkit.proj.dev-setup/v2"
-            }),
-        );
+            .join("data/proj.swawkit/modules/system/dev/setup/export/pwsh/installs/7.6.4/pwsh.exe");
+        let command_runtime_id = command_runtime_fixture(&self.root, &source);
         CommandExecutionContext {
             swawkit_home: self.root.clone(),
-            kernel_root: self.kernel_root.clone(),
-            target_project_root: self.target_project_root.clone(),
-            action_root: self.action_root.clone(),
+            command_root: self.command_root.clone(),
+            system_root: self.system_root.clone(),
+            project_root: Some(self.project_root.clone()),
+            module_roots: BTreeMap::from([
+                ("swaw".to_owned(), self.swaw_module_root.clone()),
+                ("project".to_owned(), self.project_module_root.clone()),
+            ]),
             data_root: self.data_root.clone(),
             entry_name: "fixture".to_owned(),
+            language: "zh-CN",
             entry_file: self.root.join("fixture.exe"),
-            invocation_directory: self.target_project_root.clone(),
-            toolchain_executable: self.root.join("swawkit-proj-toolchain.exe"),
-            profile,
-            environment_input_revision,
-            profile_revision: format!("sha256-{}", "0".repeat(64)),
+            invocation_directory: self.project_root.clone(),
+            working_directory: self.project_root.clone(),
+            dev_executable: self.root.join("swawkit-proj-dev.exe"),
+            module_executable: self.root.join("swawkit-proj-module.exe"),
+            command_runtime_id,
             process_mode: CommandProcessMode::InheritConsole,
         }
     }
@@ -191,161 +262,81 @@ fn invocation_preserves_help_markers_for_the_cli_protocol_boundary() {
 }
 
 #[test]
-fn guard_plan_is_global_then_command_and_rejects_unsafe_entries() {
+fn runtime_dev_validation_rejects_a_missing_product() {
     let fixture = Fixture::new();
-    let command_directory = fixture.command(".tool", "exit 0");
-    fixture.guard(&fixture.kernel_root, "_global", "@exit /b 0\r\n");
-    fixture.guard(&command_directory, "_guard", "@exit /b 0\r\n");
-    let command = ResolvedCommand::from_catalog(&fixture.catalog(), ".tool").unwrap();
+    fixture.command(".tool", "exit 0");
+    let context = fixture.context();
+    fs::remove_file(&context.dev_executable).expect("remove Dev fixture");
 
-    let plan = GuardPlan::discover(&fixture.kernel_root, &command).unwrap();
-    assert_eq!(
-        plan.guards
-            .iter()
-            .map(|guard| guard.scope)
-            .collect::<Vec<_>>(),
-        vec![GuardScope::Global, GuardScope::Command]
-    );
+    let error = validate_dev_executable(&context.dev_executable)
+        .expect_err("missing Dev product must reject command execution");
 
-    fs::remove_file(command_directory.join("_guard/run.cmd")).unwrap();
-    fs::write(command_directory.join("_guard/run.ps1"), "").unwrap();
     assert!(
-        GuardPlan::discover(&fixture.kernel_root, &command)
-            .unwrap_err()
+        error
             .to_string()
-            .contains("not bootstrap-safe")
+            .contains("Runtime Component product 'dev' is unavailable")
     );
 }
 
 #[test]
-fn process_environment_is_declarative_and_phase_specific() {
+fn runtime_component_rejects_a_missing_module_product() {
     let fixture = Fixture::new();
-    fixture.command(".tool", "exit 0");
-    let command = ResolvedCommand::from_catalog(&fixture.catalog(), ".tool").unwrap();
     let context = fixture.context();
+    fs::remove_file(&context.module_executable).expect("remove module product fixture");
 
-    let run = ProcessEnvironment::for_command(&context, &command, ExecutionPhase::Run)
-        .expect("build run environment");
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL"),
-        Some(Some(OsStr::new("1")))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_EVENT_PROTOCOL"),
-        Some(Some(OsStr::new("swawkit.command-event-frame/v1")))
-    );
-    assert_eq!(run.value(ENTRY_FILE_ENV), Some(None));
-    assert_eq!(run.value(LAUNCH_MODE_ENV), Some(None));
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_ENTRY_FILE"),
-        Some(Some(context.entry_file.as_os_str()))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE"),
-        Some(Some(context.toolchain_executable.as_os_str()))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION"),
-        Some(Some(OsStr::new(&context.environment_input_revision)))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION"),
-        Some(Some(OsStr::new(&context.profile_revision)))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_PHASE"),
-        Some(Some(OsStr::new("run")))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE"),
-        Some(None)
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_ADDRESS"),
-        Some(Some(OsStr::new(".tool")))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT"),
-        Some(Some(
-            fixture
-                .data_root
-                .join("modules")
-                .join("kernel")
-                .join(".tool")
-                .as_os_str()
-        ))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_TARGET_PROJECT_ROOT"),
-        Some(Some(fixture.target_project_root.as_os_str()))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_HOME"),
-        Some(Some(fixture.root.as_os_str()))
-    );
-    assert_eq!(
-        run.value("SWAWKIT_PROJ_BUN_VERSION"),
-        Some(Some(OsStr::new("1.2.15")))
-    );
-    assert_eq!(run.value("SWAWKIT_PROJ_GIT_ID_EMAIL"), Some(None));
-    let guard = ProcessEnvironment::for_command(
-        &context,
-        &command,
-        ExecutionPhase::Guard(GuardScope::Global),
-    )
-    .expect("build guard environment");
-    assert_eq!(
-        guard.value("SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE"),
-        Some(Some(OsStr::new("global")))
+    let error = validate_module_executable(&context.module_executable)
+        .expect_err("missing module product must reject Runtime execution");
+
+    assert!(
+        error
+            .to_string()
+            .contains("Runtime Component product 'module' is unavailable")
     );
 }
 
 #[test]
-fn process_environment_rejects_a_missing_runtime_toolchain() {
+fn command_data_roots_are_isolated_by_structured_identity() {
     let fixture = Fixture::new();
     fixture.command(".tool", "exit 0");
-    let command = ResolvedCommand::from_catalog(&fixture.catalog(), ".tool").unwrap();
-    let context = fixture.context();
-    fs::remove_file(&context.toolchain_executable).expect("remove Toolchain fixture");
-
-    let error = ProcessEnvironment::for_command(&context, &command, ExecutionPhase::Run)
-        .expect_err("missing Toolchain must reject command execution");
-
-    assert!(error.to_string().contains("Toolchain is unavailable"));
-}
-
-#[test]
-fn command_data_roots_are_isolated_by_catalog_source() {
-    let fixture = Fixture::new();
-    fixture.command(".tool", "exit 0");
-    let control = fixture.kernel_root.join("..entry");
-    fs::create_dir_all(&control).unwrap();
+    let control = command_directory(&fixture.system_root, ".entry");
+    let execute = control.join("execute");
+    fs::create_dir_all(&execute).unwrap();
     fs::write(
-        control.join("run.core.json"),
-        r#"{"schema":"swawkit.core-command/v1","handler":"entry.profile"}"#,
+        execute.join("swawkit.facet.json"),
+        r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
     )
     .unwrap();
-    let action = fixture.action_root.join("build");
-    fs::create_dir_all(&action).unwrap();
-    fs::write(action.join("run.ps1"), "exit 0").unwrap();
+    fs::write(
+        execute.join("swawkit.execution.json"),
+        r#"{"schema":"swawkit.facet-execution/v2","implementation":{"type":"core","handler":"entry.config"}}"#,
+    )
+    .unwrap();
+    let action = module_directory(&fixture.project_module_root, "build");
+    let execute = action.join("execute");
+    fs::create_dir_all(&execute).unwrap();
+    fs::write(
+        execute.join("swawkit.facet.json"),
+        r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+    )
+    .unwrap();
+    fs::write(execute.join("run.ps1"), "exit 0").unwrap();
     let catalog = fixture.catalog();
     let context = fixture.context();
 
-    for (address, source, relative) in [
-        (".tool", "kernel", ".tool"),
-        ("..entry", "control", "..entry"),
-        ("build", "action", "build"),
+    for (address, space, relative) in [
+        (".tool", "system", "tool"),
+        (".entry", "system", "entry"),
+        ("project/build", "project", "build"),
     ] {
         let command = ResolvedCommand::from_catalog(&catalog, address).unwrap();
-        let environment =
-            ProcessEnvironment::for_command(&context, &command, ExecutionPhase::Run).unwrap();
+        let environment = ProcessEnvironment::for_command(&context, &command).unwrap();
         assert_eq!(
             environment.value("SWAWKIT_PROJ_CORE_COMMAND_DATA_ROOT"),
             Some(Some(
                 fixture
                     .data_root
                     .join("modules")
-                    .join(source)
+                    .join(space)
                     .join(relative)
                     .as_os_str()
             ))
@@ -354,7 +345,7 @@ fn command_data_roots_are_isolated_by_catalog_source() {
 }
 
 #[test]
-fn pwsh_pipeline_preserves_arguments_environment_order_and_exit_code() {
+fn framework_pwsh_pipeline_ignores_target_dev_selection_and_preserves_invocation() {
     let fixture = Fixture::new();
     let target = r#"
 $adapterNames = @([Environment]::GetEnvironmentVariables().Keys |
@@ -372,52 +363,50 @@ if ($adapterNames.Count -ne 0) {
 $encoded = @($args | ForEach-Object {
     [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$_))
 }) -join ','
-$line = 'target|' + $env:SWAWKIT_PROJ_CORE_COMMAND_PHASE + '|' +
-    $env:SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE + '|' +
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS + '|' + $encoded
+$line = 'target|' + $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS + '|' + $encoded
 $tracePath = Join-Path $env:SWAWKIT_PROJ_DATA_ROOT 'trace.txt'
 [IO.File]::AppendAllText($tracePath, $line + [Environment]::NewLine)
 exit 23
 "#;
-    let command_directory = fixture.command(".tool", target);
-    fixture.guard(
-        &fixture.kernel_root,
-        "_global",
-        "@echo global^|%SWAWKIT_PROJ_CORE_COMMAND_PHASE%^|%SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE%^|%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%^|>>\"%SWAWKIT_PROJ_DATA_ROOT%\\trace.txt\"\r\n@exit /b 0\r\n",
-    );
-    fixture.guard(
-        &command_directory,
-        "_guard",
-        "@echo command^|%SWAWKIT_PROJ_CORE_COMMAND_PHASE%^|%SWAWKIT_PROJ_CORE_COMMAND_GUARD_SCOPE%^|%SWAWKIT_PROJ_CORE_COMMAND_ADDRESS%^|>>\"%SWAWKIT_PROJ_DATA_ROOT%\\trace.txt\"\r\n@exit /b 0\r\n",
-    );
+    fixture.command(".tool", target);
     let catalog = fixture.catalog();
     let context = fixture.context();
-    let before = env::var_os("SWAWKIT_PROJ_CORE_COMMAND_PHASE");
-
     let exit_code = CommandExecutor::new(&context, &catalog)
         .execute(&argv(&[".tool", "", "a b", "quote\"x"]))
         .unwrap();
 
     assert_eq!(exit_code, 23);
-    assert_eq!(env::var_os("SWAWKIT_PROJ_CORE_COMMAND_PHASE"), before);
     let lines = fs::read_to_string(fixture.data_root.join("trace.txt")).unwrap();
     let lines: Vec<&str> = lines.lines().collect();
-    assert_eq!(lines[0], "global|guard|global|.tool|");
-    assert_eq!(lines[1], "command|guard|command|.tool|");
-    assert_eq!(lines[2], "target|run||.tool|,YSBi,cXVvdGUieA==");
+    assert_eq!(lines, ["target|.tool|,YSBi,cXVvdGUieA=="]);
 }
 
 #[test]
-fn journaled_execution_persists_guard_and_target_output_in_the_module_data_root() {
+fn command_runtime_rejects_a_tampered_tool_when_that_adapter_is_selected() {
+    let fixture = Fixture::new();
+    let context = fixture.context();
+    let runtime = CommandRuntime::open(&context.swawkit_home, &context.command_runtime_id)
+        .expect("open Command Runtime before tool selection");
+    fs::write(
+        fixture
+            .root
+            .join("data/proj_cache/bootstrap/fixture-tools/bun.exe"),
+        b"bad",
+    )
+    .expect("tamper Bun fixture without changing its length");
+
+    let error = runtime
+        .tool(&context.swawkit_home, "bun")
+        .expect_err("a selected Command Runtime tool must be hashed before launch");
+    assert!(error.to_string().contains("SHA-256"));
+}
+
+#[test]
+fn journaled_execution_persists_target_output_in_the_module_data_root() {
     let fixture = Fixture::new();
     fixture.command(
         ".journal",
         r#"[Console]::Out.WriteLine('target out'); [Console]::Error.WriteLine(([char]0x1e) + 'swawkit-event-v1 {"schema":"swawkit.command-event/v1","kind":"progress","id":"download:fixture.zip","state":"completed","current":42,"total":42,"unit":"bytes","message":"Downloaded fixture.zip"}'); [Console]::Error.WriteLine('target err'); exit 4"#,
-    );
-    fixture.guard(
-        &fixture.kernel_root,
-        "_global",
-        "@echo guard out\r\n@exit /b 0\r\n",
     );
     let catalog = fixture.catalog();
 
@@ -426,7 +415,7 @@ fn journaled_execution_persists_guard_and_target_output_in_the_module_data_root(
         .unwrap();
 
     assert_eq!(exit_code, 4);
-    let runs_root = fixture.data_root.join("modules/kernel/.journal/_runs");
+    let runs_root = fixture.data_root.join("modules/system/journal/_runs");
     let run_root = fs::read_dir(runs_root)
         .unwrap()
         .next()
@@ -441,41 +430,27 @@ fn journaled_execution_persists_guard_and_target_output_in_the_module_data_root(
     assert_eq!(state["exitCode"], 4);
     assert_eq!(state["argumentCount"], 1);
     let events = fs::read_to_string(run_root.join("events.jsonl")).unwrap();
-    assert!(events.contains("\"phase\":\"guard-global\""));
     assert!(events.contains("\"phase\":\"run\""));
     assert!(events.contains("\"kind\":\"progress\""));
     assert!(events.contains("\"id\":\"download:fixture.zip\""));
-    assert!(events.contains("guard out"));
     assert!(events.contains("target err"));
     assert!(!events.contains("swawkit-event-v1"));
     assert!(!events.contains("argument-not-persisted"));
 }
 
 #[test]
-fn a_failing_guard_stops_the_pipeline() {
-    let fixture = Fixture::new();
-    fixture.command(
-        ".tool",
-        "Set-Content (Join-Path $env:SWAWKIT_PROJ_DATA_ROOT 'target.txt') 'ran'; exit 0",
-    );
-    fixture.guard(&fixture.kernel_root, "_global", "@exit /b 17\r\n");
-    let catalog = fixture.catalog();
-
-    let exit_code = CommandExecutor::new(&fixture.context(), &catalog)
-        .execute(&argv(&[".tool"]))
-        .unwrap();
-
-    assert_eq!(exit_code, 17);
-    assert!(!fixture.data_root.join("target.txt").exists());
-}
-
-#[test]
 fn cmd_adapter_allows_only_one_standalone_help_selector() {
     let fixture = Fixture::new();
-    let directory = command_directory(&fixture.kernel_root, ".batch");
-    fs::create_dir_all(&directory).unwrap();
+    let directory = command_directory(&fixture.system_root, ".batch");
+    let execute = directory.join("execute");
+    fs::create_dir_all(&execute).unwrap();
     fs::write(
-        directory.join("run.cmd"),
+        execute.join("swawkit.facet.json"),
+        r#"{"schema":"swawkit.facet/v1","kind":"operation"}"#,
+    )
+    .unwrap();
+    fs::write(
+        execute.join("run.cmd"),
         "@echo off\r\n\
          if defined SWAWKIT_PROJ_CORE_COMMAND_ADAPTER_CMD_ENTRY_PATH exit /b 91\r\n\
          > \"%SWAWKIT_PROJ_DATA_ROOT%\\cmd.txt\" \
@@ -524,7 +499,7 @@ fn exe_adapter_returns_the_exact_child_exit_code() {
         CommandAdapter::Exe,
         Path::new(&comspec),
         &arguments,
-        &fixture.target_project_root,
+        &fixture.project_root,
         &AdapterLaunch::Direct,
         &environment,
         CommandProcessMode::InheritConsole,
@@ -538,14 +513,55 @@ fn argv(values: &[&str]) -> Vec<OsString> {
     values.iter().map(OsString::from).collect()
 }
 
-fn command_directory(kernel_root: &Path, address: &str) -> PathBuf {
+fn command_directory(command_root: &Path, address: &str) -> PathBuf {
     if address.is_empty() {
-        return kernel_root.to_owned();
+        return command_root.to_owned();
     }
-    let mut segments = address.trim_start_matches('.').split('.');
-    let mut directory = kernel_root.join(format!(".{}", segments.next().unwrap()));
+    let mut segments = address.trim_start_matches('.').split('/');
+    let mut directory = command_root.join(segments.next().unwrap());
+    write_command_resource(&directory);
     for segment in segments {
-        directory.push(segment);
+        let collection = directory.join("subcommands");
+        fs::create_dir_all(&collection).expect("create subcommands Facet");
+        fs::write(
+            collection.join("swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"collection"}"#,
+        )
+        .expect("write subcommands Facet");
+        directory = collection.join(segment);
+        write_command_resource(&directory);
     }
     directory
 }
+
+fn module_directory(module_root: &Path, path: &str) -> PathBuf {
+    let mut segments = path.split('/');
+    let mut directory = module_root.join(segments.next().expect("module command segment"));
+    write_command_resource(&directory);
+    for segment in segments {
+        let collection = directory.join("subcommands");
+        fs::create_dir_all(&collection).expect("create subcommands Facet");
+        fs::write(
+            collection.join("swawkit.facet.json"),
+            r#"{"schema":"swawkit.facet/v1","kind":"collection"}"#,
+        )
+        .expect("write subcommands Facet");
+        directory = collection.join(segment);
+        write_command_resource(&directory);
+    }
+    directory
+}
+
+fn write_command_resource(directory: &Path) {
+    fs::create_dir_all(directory).expect("create command Resource");
+    fs::write(
+        directory.join("swawkit.resource.json"),
+        r#"{"schema":"swawkit.resource/v1","kind":"command"}"#,
+    )
+    .expect("write command Resource");
+}
+
+mod dependency;
+mod environment_tests;
+mod native;
+mod prepared;

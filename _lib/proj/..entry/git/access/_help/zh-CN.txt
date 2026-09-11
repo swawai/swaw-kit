@@ -1,3 +1,0 @@
-设置 Git 访问声明。
-
-用法：{{INVOCATION}} <value>

@@ -1,0 +1,5 @@
+Resolve one FacetRoute to a validated swawkit.view-bundle/web/v1 document.
+
+Usage: {{INVOCATION}} <FacetRoute>
+
+The target must be a Collection Facet with a Web View Source. Resolution validates the canonical route, collection membership, Subject kind capabilities, resolver return protocol, and Resource List before writing JSON. The command is read-only and does not render HTML.

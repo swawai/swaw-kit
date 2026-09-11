@@ -1,43 +1,85 @@
 use std::fs;
 
-use swawkit_proj::data_root::{ClaimApprovalError, DataRootClaim};
-
 use super::super::*;
-use super::{Fixture, argv};
+use super::{Fixture, argv, run};
 
 #[test]
-fn module_check_uses_declared_provider_state_and_returns_a_machine_exit_code() {
+fn command_check_requires_an_explicitly_initialized_entry() {
+    let fixture = Fixture::new();
+    fixture.core_command(".check", "meta.check");
+    fixture.command(".target", "run.exe", "fixture");
+
+    let error = run(
+        &fixture.context,
+        &argv(&[".check", ".target", "--json"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap_err();
+
+    assert!(error.to_string().contains("is not initialized"));
+    assert!(!fixture.data_root().exists());
+}
+
+#[test]
+fn command_check_ignores_a_legacy_record_in_the_running_data_root() {
+    let fixture = Fixture::new();
+    fixture.core_command(".check", "meta.check");
+    fixture.command(".target", "run.exe", "fixture");
+    fs::create_dir_all(fixture.data_root()).unwrap();
+    fs::write(fixture.data_root().join("_entry.json"), b"legacy").unwrap();
+
+    let exit_code = run(
+        &fixture.context,
+        &argv(&[".check", ".target", "--json"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .expect("legacy evidence is not a runtime identity gate");
+    assert!(matches!(exit_code, 0 | 1));
+    assert!(!fixture.data_root().join("entry.id").exists());
+}
+
+#[test]
+fn command_check_uses_declared_provider_state_and_returns_a_machine_exit_code() {
     let fixture = Fixture::new();
     fixture.core_command(".check", "meta.check");
     let provider = fixture.command(".provider", "run.exe", "fixture");
     fs::write(
-        provider.join("_module.json"),
-        r#"{"schema":"swawkit.command-module/v4","provides":[{"contract":"swawkit.fixture/v1"}]}"#,
+        provider.join("swawkit.exports.json"),
+        r#"{"schema":"swawkit.resource-exports/v1","exports":[{"id":"fixture"}]}"#,
     )
     .unwrap();
     let consumer = fixture.command(".consumer", "run.exe", "fixture");
     fs::write(
-        consumer.join("_module.json"),
-        r#"{"schema":"swawkit.command-module/v4","requires":[{"provider":".provider","contract":"swawkit.fixture/v1"}]}"#,
+        consumer.join("execute/swawkit.requirements.json"),
+        r#"{"schema":"swawkit.facet-requirements/v1","requirements":[{"provider":"$/system::provider","export":"fixture"}]}"#,
     )
     .unwrap();
     fixture.bind();
-    let provider_data = fixture.data_root().join("modules/kernel/.provider");
+
+    assert_eq!(
+        run(
+            &fixture.context,
+            &argv(&[".check", ".provider", "--json"]),
+            CommandProcessMode::InheritConsole,
+        )
+        .unwrap(),
+        0
+    );
+
+    let provider_data = fixture.data_root().join("modules/system/provider");
     fs::create_dir_all(provider_data.join("export")).unwrap();
     fs::write(provider_data.join("export/sentinel.txt"), "ready").unwrap();
     fs::write(
         provider_data.join("_state.json"),
-        r#"{"schema":"swawkit.command-provider-state/v1","status":"ready","inputRevision":"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","producerContract":"swawkit.fixture/v1"}"#,
+        r#"{"schema":"swawkit.command-provider-state/v3","status":"ready","inputRevision":"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","token":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#,
     )
     .unwrap();
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
 
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".check", ".consumer", "--json"]),
-            &mut unexpected,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         0
@@ -45,10 +87,10 @@ fn module_check_uses_declared_provider_state_and_returns_a_machine_exit_code() {
 
     fs::remove_file(provider_data.join("_state.json")).unwrap();
     assert_eq!(
-        run_with_approver(
+        run(
             &fixture.context,
             &argv(&[".check", ".consumer"]),
-            &mut unexpected,
+            CommandProcessMode::InheritConsole,
         )
         .unwrap(),
         1
@@ -56,20 +98,53 @@ fn module_check_uses_declared_provider_state_and_returns_a_machine_exit_code() {
 }
 
 #[test]
-fn module_check_rejects_ambiguous_arguments() {
+fn command_check_rejects_ambiguous_arguments() {
     let fixture = Fixture::new();
     fixture.core_command(".check", "meta.check");
     fixture.bind();
-    let mut unexpected =
-        |_claim: &DataRootClaim| Err(ClaimApprovalError::new("claim was not expected"));
-    let error = run_with_approver(
+    let error = run(
         &fixture.context,
         &argv(&[".check", ".consumer", "--json", "extra"]),
-        &mut unexpected,
+        CommandProcessMode::InheritConsole,
     )
     .unwrap_err();
     assert_eq!(
         error.to_string(),
         "usage: .check <command-address> [--json]"
+    );
+}
+
+#[test]
+fn directory_check_is_read_only_and_does_not_require_entry_config() {
+    let fixture = Fixture::new();
+    fixture.core_command(".check/dir/exists", "meta.check.dir.exists");
+    let provider = fixture.command(".provider", "run.exe", "fixture");
+    fs::write(
+        provider.join("swawkit.exports.json"),
+        r#"{"schema":"swawkit.resource-exports/v1","exports":[{"id":"fixture"}]}"#,
+    )
+    .unwrap();
+    fixture.initialize();
+    fs::create_dir_all(
+        fixture
+            .data_root()
+            .join("modules/system/provider/export/tool"),
+    )
+    .unwrap();
+
+    let exit_code = run(
+        &fixture.context,
+        &argv(&[".check/dir/exists", ".provider::export/tool", "--json"]),
+        CommandProcessMode::InheritConsole,
+    )
+    .unwrap();
+
+    assert_eq!(exit_code, 0);
+    assert!(!fixture.data_root().join("_profile.json").exists());
+    assert!(
+        !fixture
+            .data_root()
+            .join("modules/system/check/dir/exists/_runs")
+            .exists()
     );
 }

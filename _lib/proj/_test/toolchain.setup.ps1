@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([Parameter(Mandatory = $true)][string]$ToolchainPath)
+param([Parameter(Mandatory = $true)][string]$DevPath)
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
@@ -22,7 +22,7 @@ function Invoke-ProjNativeSetup {
     )
     $Info = [Diagnostics.ProcessStartInfo]::new()
     $Info.FileName = $Executable
-    $Info.Arguments = [string]::Join(' ', @('command-v1', 'dev.setup') + $Arguments)
+    $Info.Arguments = [string]::Join(' ', @('command-v1', '.dev/setup') + $Arguments)
     $Info.UseShellExecute = $false
     $Info.CreateNoWindow = $true
     $Info.RedirectStandardOutput = $true
@@ -53,43 +53,43 @@ function Invoke-ProjNativeSetup {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-$Executable = [IO.Path]::GetFullPath($ToolchainPath)
+$Executable = [IO.Path]::GetFullPath($DevPath)
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-native-setup-$([Guid]::NewGuid().ToString('N'))"
 )
 try {
     $DataRoot = Join-Path $TemporaryRoot 'data root'
-    $Profile = Join-Path $DataRoot '_profile.json'
     [void][IO.Directory]::CreateDirectory($DataRoot)
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
+    [void][IO.Directory]::CreateDirectory($SetupRoot)
     [IO.File]::WriteAllText(
-        $Profile,
-        "{}`r`n",
+        (Join-Path $SetupRoot '_settings.json'),
+        (@{
+            schema = 'swawkit.proj-dev-settings/v1'
+            bun = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            pwsh = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            msvc = @{ mode = 'disabled'; channel = '' }
+            rust = @{
+                mode = 'disabled'
+                toolchain = ''
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+        } | ConvertTo-Json -Depth 4),
         [Text.UTF8Encoding]::new($false)
     )
-    $Revision = 'sha256-' + (
-        Get-FileHash -LiteralPath $Profile -Algorithm SHA256
-    ).Hash.ToLowerInvariant()
     $Environment = @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-        SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.setup'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $RepoRoot
+        SWAWKIT_PROJ_MODULE_ROOTS = (@{
+            project = Join-Path $RepoRoot '.swaw'
+        } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_ENTRY_COMMAND = 'fixture'
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = (
-            'sha256-' + ('b' * 64)
-        )
-        SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $Revision
-        SWAWKIT_PROJ_BUN_MODE = 'disabled'
-        SWAWKIT_PROJ_PWSH_MODE = 'disabled'
-        SWAWKIT_PROJ_MSVC_MODE = 'disabled'
-        SWAWKIT_PROJ_RUST_MODE = 'disabled'
-        SWAWKIT_PROJ_GO_MODE = 'disabled'
-        SWAWKIT_PROJ_PYTHON_MODE = 'disabled'
-        SWAWKIT_PROJ_UV_MODE = 'disabled'
     }
     $Legacy = Join-Path $DataRoot (
-        'modules\kernel\.dev\setup\export\_state.json'
+        'modules\system\dev\setup\export\_state.json'
     )
     [void][IO.Directory]::CreateDirectory((Split-Path $Legacy -Parent))
     [IO.File]::WriteAllText($Legacy, '{"legacy":true}')
@@ -97,16 +97,28 @@ try {
     $Ready = Invoke-ProjNativeSetup `
         -Executable $Executable `
         -Environment $Environment
-    $SetupRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
-    $State = Get-Content -LiteralPath (Join-Path $SetupRoot '_state.json') `
+    $StatePath = Join-Path $SetupRoot '_state.json'
+    Assert-ProjNativeSetup `
+        -Condition ($Ready.ExitCode -eq 0 -and [IO.File]::Exists($StatePath)) `
+        -Message "the native handler published no provider state: $($Ready.Output)"
+    $State = Get-Content -LiteralPath $StatePath `
+        -Raw | ConvertFrom-Json
+    $EnvironmentExport = Get-Content `
+        -LiteralPath (Join-Path $SetupRoot 'export\environment.json') `
         -Raw | ConvertFrom-Json
     Assert-ProjNativeSetup `
         -Condition ($Ready.ExitCode -eq 0 -and
             $Ready.Output.Contains(
                 '[OK] The base development environment is ready.'
             ) -and
+            $State.schema -ceq 'swawkit.command-provider-state/v3' -and
             $State.status -ceq 'ready' -and
-            $State.producerContract -ceq 'swawkit.proj.dev-setup/v2' -and
+            @($State.PSObject.Properties).Count -eq 4 -and
+            $null -eq $State.PSObject.Properties['exports'] -and
+            $EnvironmentExport.schema -ceq
+                'swawkit.proj-dev-environment/v1' -and
+            $EnvironmentExport.inputRevision -ceq $State.inputRevision -and
+            $EnvironmentExport.publicationToken -ceq $State.token -and
             [IO.File]::Exists((Join-Path $SetupRoot 'export\env.cmd')) -and
             [IO.File]::Exists((Join-Path $SetupRoot 'export\env.ps1')) -and
             -not [IO.File]::Exists($Legacy)) `
@@ -127,7 +139,7 @@ try {
     Assert-ProjNativeSetup `
         -Condition ($Rejected.ExitCode -ne 0 -and
             $Rejected.Output.Contains(
-                '.dev.setup does not accept dynamic arguments'
+                '.dev/setup does not accept dynamic arguments'
             ) -and $Before -ceq $After) `
         -Message 'argument rejection changed the published environment'
 } finally {
@@ -136,5 +148,5 @@ try {
     }
 }
 
-Write-Host '[PASS] Proj native .dev.setup handler' -ForegroundColor Green
+Write-Host '[PASS] Proj native .dev/setup handler' -ForegroundColor Green
 $global:LASTEXITCODE = 0

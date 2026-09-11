@@ -1,0 +1,126 @@
+.command-check-pane {
+  padding: 27px 26px;
+}
+
+.command-check-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 8px;
+}
+
+.command-check-heading h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: clamp(22px, 2.3vw, 28px);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.command-check-heading p {
+  margin: 12px 0 0;
+  color: var(--ui-text-muted);
+  font-size: 12px;
+}
+
+.command-check-state {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border-radius: var(--radius-pill);
+  color: var(--ui-status-ok);
+  background: var(--ui-surface-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.command-check-state[data-state="blocked"] {
+  color: var(--ui-status-error);
+  background: var(--ui-status-error-surface);
+}
+
+.command-check-diagnostic {
+  margin: 16px 0 0;
+  padding: 12px;
+  border-radius: var(--radius-control);
+  color: var(--ui-status-error);
+  background: var(--ui-status-error-surface);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.command-check-list,
+.command-check-tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.command-check-item,
+.command-check-list > li {
+  padding: 9px 10px;
+  border-top: 1px solid var(--ui-border);
+  color: var(--ui-text);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.command-check-list > li:last-child {
+  border-bottom: 1px solid var(--ui-border);
+}
+
+.command-check-item-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.command-check-marker {
+  width: 16px;
+  flex: 0 0 16px;
+  color: var(--ui-status-ok);
+  font-weight: 800;
+  text-align: center;
+}
+
+.command-check-item[data-state="blocked"] > .command-check-item-heading .command-check-marker {
+  color: var(--ui-status-error);
+}
+
+.command-check-item-detail {
+  display: block;
+  margin: 4px 0 0 24px;
+  color: var(--ui-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.command-check-item-action {
+  display: block;
+  margin: 4px 0 0 24px;
+  color: var(--ui-text-muted);
+}
+
+.command-check-item-action a {
+  color: var(--ui-text);
+  overflow-wrap: anywhere;
+}
+
+.command-check-tree .command-check-tree {
+  margin: 8px 0 0 24px;
+}
+
+.command-check-empty {
+  color: var(--ui-text-muted) !important;
+}
+
+@media (max-width: 560px) {
+  .command-check-pane {
+    padding: 23px 18px;
+  }
+
+  .command-check-heading {
+    gap: 10px;
+  }
+}

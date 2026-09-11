@@ -36,11 +36,11 @@ describe("document projection view", () => {
   test("resolves a static Command projection and renders unknown protocols as JSON", async () => {
     const nodes = elements();
     const calls = [];
-    const command = { address: ".report", source: "kernel" };
+    const command = { address: ".report", space: "system" };
     const facet = projection();
     const view = createDocumentProjectionView(nodes, {
-      async resolveDocument(subject, selectedFacet) {
-        calls.push([subject, selectedFacet]);
+      async resolveDocument(resource, selectedFacet) {
+        calls.push([resource, selectedFacet]);
         return { protocol: "fixture.report/v1", value: 17 };
       },
     });
@@ -62,9 +62,8 @@ describe("document projection view", () => {
     const nodes = elements();
     const rendered = [];
     const hidden = [];
-    const subject = {
-      canonicalRef: "::context/test",
-      ref: { id: "test", kind: "context", type: "instance" },
+    const resource = {
+      route: "$/system::context/contexts::test",
     };
     const document = { id: "test", schema: CONTEXT_PROTOCOL };
     const view = createDocumentProjectionView(nodes, {
@@ -76,11 +75,11 @@ describe("document projection view", () => {
       async resolveDocument() { return document; },
     });
 
-    view.select(subject, projection(CONTEXT_PROTOCOL));
+    view.select(resource, projection(CONTEXT_PROTOCOL));
     await flush();
 
     expect(hidden.length).toBeGreaterThan(0);
-    expect(rendered).toEqual([[subject, document]]);
+    expect(rendered).toEqual([[resource, document]]);
     expect(nodes.documentProjectionPane.hidden).toBeTrue();
   });
 
@@ -88,21 +87,21 @@ describe("document projection view", () => {
     const nodes = elements();
     const pending = new Map();
     const view = createDocumentProjectionView(nodes, {
-      resolveDocument(subject) {
-        return new Promise((resolve) => pending.set(subject.address, resolve));
+      resolveDocument(resource) {
+        return new Promise((resolve) => pending.set(resource.address, resolve));
       },
     });
     const facet = projection();
 
-    view.select({ address: ".first", source: "kernel" }, facet);
-    view.select({ address: ".second", source: "kernel" }, facet);
+    view.select({ address: ".first", space: "system" }, facet);
+    view.select({ address: ".second", space: "system" }, facet);
     pending.get(".second")({ value: "new" });
     await flush();
     pending.get(".first")({ value: "old" });
     await flush();
 
     expect(JSON.parse(nodes.documentProjectionJson.textContent)).toEqual({ value: "new" });
-    expect(nodes.documentProjectionRef.textContent).toBe("kernel:.second");
+    expect(nodes.documentProjectionRef.textContent).toBe("system:.second");
   });
 
   test("shows registered renderer failures in the generic error pane", async () => {
@@ -116,7 +115,7 @@ describe("document projection view", () => {
       async resolveDocument() { return {}; },
     });
 
-    view.select({ address: ".report", source: "kernel" }, projection(CONTEXT_PROTOCOL));
+    view.select({ address: ".report", space: "system" }, projection(CONTEXT_PROTOCOL));
     await flush();
 
     expect(nodes.documentProjectionPane.hidden).toBeFalse();
@@ -131,7 +130,7 @@ describe("document projection view", () => {
       resolveDocument() { called = true; },
     });
 
-    expect(view.select({ address: ".report", source: "kernel" }, null)).toBeFalse();
+    expect(view.select({ address: ".report", space: "system" }, null)).toBeFalse();
     expect(called).toBeFalse();
     expect(nodes.documentProjectionPane.hidden).toBeTrue();
   });

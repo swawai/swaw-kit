@@ -1,39 +1,41 @@
 [CmdletBinding()]
-param([string]$ToolchainPath = '')
+param([string]$DevPath = '')
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 
-function Assert-ProjToolchainTest {
+function Assert-ProjShellToolchainTest {
     param(
         [Parameter(Mandatory = $true)][bool]$Condition,
         [Parameter(Mandatory = $true)][string]$Message
     )
     if (-not $Condition) {
-        throw "Proj Toolchain test failed: $Message"
+        throw "Proj shell toolchain test failed: $Message"
     }
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-if ([string]::IsNullOrWhiteSpace($ToolchainPath)) {
+. (Join-Path $RepoRoot '_lib\proj\_bootstrap\layout.ps1')
+$Layout = Get-ProjBootstrapLayout
+if ([string]::IsNullOrWhiteSpace($DevPath)) {
     $Current = [IO.File]::ReadAllText(
-        (Join-Path $RepoRoot '_lib\proj\_bin\current'),
+        $Layout.RuntimeCurrentPath,
         [Text.Encoding]::UTF8
     ).TrimEnd("`r", "`n")
-    $ToolchainPath = Join-Path $RepoRoot (
-        "_lib\proj\_bin\releases\$Current\swawkit-proj-toolchain.exe"
+    $DevPath = Join-Path $Layout.RuntimeRoot (
+        "releases\$Current\swawkit-proj-dev.exe"
     )
 }
-$ToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
-if (-not [IO.File]::Exists($ToolchainPath)) {
-    throw "Proj Toolchain candidate is missing: $ToolchainPath"
+$DevPath = [IO.Path]::GetFullPath($DevPath)
+if (-not [IO.File]::Exists($DevPath)) {
+    throw "Proj Dev candidate is missing: $DevPath"
 }
-. (Join-Path $RepoRoot '_lib\proj\_toolchain\runtime.ps1')
+. (Join-Path $RepoRoot '_lib\proj\_toolchain\_lib\runtime.ps1')
 . (Join-Path $RepoRoot '_lib\proj\_toolchain\_lib\event.ps1')
 . (Join-Path $RepoRoot '_lib\proj\_toolchain\_lib\artifact.ps1')
 
 $TemporaryRoot = Join-Path $RepoRoot (
-    "data\_test\swawkit-toolchain-$([Guid]::NewGuid().ToString('N'))"
+    "data\_test\swawkit-shell-toolchain-$([Guid]::NewGuid().ToString('N'))"
 )
 $SourceRoot = Join-Path $TemporaryRoot 'source'
 $ControlledRoot = Join-Path $TemporaryRoot 'controlled'
@@ -49,7 +51,7 @@ try {
     [void][IO.Directory]::CreateDirectory($ExtractRoot)
     [IO.File]::WriteAllText(
         (Join-Path $SourceRoot 'fixture.txt'),
-        'native-toolchain',
+        'shell-toolchain',
         [Text.UTF8Encoding]::new($false)
     )
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -63,50 +65,42 @@ try {
     Invoke-ProjDevDownload `
         -Source $SourceArchive `
         -Destination $DownloadedArchive `
-        -ControlledRoot $ControlledRoot `
-        -ToolchainExecutable $ToolchainPath
-    Assert-ProjToolchainTest `
-        -Condition (Test-ProjDevZipArchive `
-            -Path $DownloadedArchive `
-            -ToolchainExecutable $ToolchainPath) `
-        -Message 'the native ZIP validator rejected a valid archive'
+        -ControlledRoot $ControlledRoot
+    Assert-ProjShellToolchainTest `
+        -Condition (Test-ProjDevZipArchive -Path $DownloadedArchive) `
+        -Message 'the native shell ZIP validator rejected a valid archive'
     Expand-ProjDevZipSafely `
         -ArchivePath $DownloadedArchive `
         -Destination $ExtractRoot `
-        -ControlledRoot $ControlledRoot `
-        -ToolchainExecutable $ToolchainPath
-    Assert-ProjToolchainTest `
+        -ControlledRoot $ControlledRoot
+    Assert-ProjShellToolchainTest `
         -Condition ([IO.File]::ReadAllText(
             (Join-Path $ExtractRoot 'fixture.txt'),
             [Text.Encoding]::UTF8
-        ) -ceq 'native-toolchain') `
-        -Message 'native download/extraction did not preserve the payload'
+        ) -ceq 'shell-toolchain') `
+        -Message 'the native shell path did not preserve the payload'
 
     $PreviousPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = 'Continue'
-        $EscapedOutput = @(& $ToolchainPath `
-            'zip-extract-v1' `
-            $ControlledRoot `
-            $DownloadedArchive `
-            (Join-Path $TemporaryRoot 'escaped') 2>&1)
-        $EscapedExitCode = $LASTEXITCODE
+        $LegacyOutput = @(& $DevPath 'download-v1' 2>&1)
+        $LegacyExitCode = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $PreviousPreference
     }
-    Assert-ProjToolchainTest `
+    Assert-ProjShellToolchainTest `
         -Condition (
-            $EscapedExitCode -ne 0 -and
-            [string]::Join("`n", [string[]]$EscapedOutput).Contains(
-                'escapes the controlled root'
+            $LegacyExitCode -ne 0 -and
+            [string]::Join("`n", [string[]]$LegacyOutput).Contains(
+                'expected: swawkit-proj-dev.exe command-v1'
             )
         ) `
-        -Message 'the native Toolchain accepted an escaped destination'
+        -Message 'the Dev runtime accepted the removed generic Toolchain transport'
 } finally {
     if ([IO.Directory]::Exists($TemporaryRoot)) {
         [IO.Directory]::Delete($TemporaryRoot, $true)
     }
 }
 
-Write-Host '[PASS] Proj native Toolchain protocol' -ForegroundColor Green
+Write-Host '[PASS] Proj Stage-0 shell toolchain boundary' -ForegroundColor Green
 $global:LASTEXITCODE = 0

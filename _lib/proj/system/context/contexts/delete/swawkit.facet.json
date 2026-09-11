@@ -1,0 +1,9 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "operation",
+  "presentation": {
+    "icon": "×",
+    "label": { "zh-CN": "删除", "en": "Delete" },
+    "summary": { "zh-CN": "删除这个 Context", "en": "Delete this Context" }
+  }
+}

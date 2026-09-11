@@ -2,10 +2,11 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
-[Console]::WriteLine('SWAW Action demo.echo')
+[Console]::WriteLine('SWAW Module project/demo/echo')
 [Console]::WriteLine("commandAddress=$env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS")
 [Console]::WriteLine("entryName=$env:SWAWKIT_PROJ_ENTRY_COMMAND")
-[Console]::WriteLine("targetProjectRoot=$env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT")
+[Console]::WriteLine("projectRoot=$env:SWAWKIT_PROJ_PROJECT_ROOT")
+[Console]::WriteLine("projectModuleRoot=$env:SWAWKIT_PROJ_PROJECT_MODULE_ROOT")
 [Console]::WriteLine("currentDirectory=$((Get-Location).ProviderPath)")
 [Console]::WriteLine(
     "invocationDirectory=$env:SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR"

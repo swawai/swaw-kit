@@ -1,3 +1,0 @@
-设置 Git 身份名称。
-
-用法：{{INVOCATION}} <value>

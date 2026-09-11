@@ -1,0 +1,8 @@
+{
+  "schema": "swawkit.facet-execution/v2",
+  "implementation": {
+    "type": "invoke",
+    "target": "$/system::runs/execute",
+    "arguments": ["--open", { "bind": "resource.selector" }]
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "schema": "swawkit.resource-exports/v1",
+  "exports": [{ "id": "environment" }]
+}

@@ -1,14 +1,12 @@
 [CmdletBinding()]
-param(
-    [Parameter(Mandatory = $true)][string]$ToolchainPath
-)
+param()
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 Add-Type -AssemblyName System.IO.Compression
 
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\setup.ps1')
+. (Join-Path $PSScriptRoot '_lib\stage0-toolchain.ps1')
 
 function Assert-ProjMsvcTest {
     param(
@@ -117,37 +115,7 @@ $PreviousChannel = [Environment]::GetEnvironmentVariable(
     'SWAWKIT_PROJ_MSVC_CHANNEL',
     'Process'
 )
-$RuntimeEnvironmentNames = @(
-    'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
-    'SWAWKIT_HOME',
-    'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_DATA_ROOT',
-    'SWAWKIT_PROJ_ENTRY_COMMAND',
-    'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
-    'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
-    'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
-    'SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE',
-    'SWAWKIT_PROJ_BUN_MODE',
-    'SWAWKIT_PROJ_BUN_VERSION',
-    'SWAWKIT_PROJ_BUN_SHA256'
-)
-$PreviousRuntimeEnvironment = @{}
-foreach ($Name in $RuntimeEnvironmentNames) {
-    $PreviousRuntimeEnvironment[$Name] =
-        [Environment]::GetEnvironmentVariable($Name, 'Process')
-}
 $PreviousPath = [string]$env:PATH
-$PreviousDevelopmentEnvironment = @{}
-$ProcessEnvironment = [Environment]::GetEnvironmentVariables('Process')
-foreach ($Name in [string[]]@($ProcessEnvironment.Keys)) {
-    if ($Name.StartsWith(
-        'SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_',
-        [StringComparison]::OrdinalIgnoreCase
-    )) {
-        $PreviousDevelopmentEnvironment[$Name] =
-            [string]$ProcessEnvironment[$Name]
-    }
-}
 $TestTemporaryBase = [IO.Path]::GetFullPath(
     (Join-Path $ProjRoot '..\..\data\_test')
 )
@@ -155,11 +123,6 @@ $TestTemporaryBase = [IO.Path]::GetFullPath(
 $TemporaryRoot = Join-Path $TestTemporaryBase (
     "swawkit-proj-msvc-$([Guid]::NewGuid().ToString('N'))"
 )
-$ResolvedToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
-if (-not [IO.File]::Exists($ResolvedToolchainPath)) {
-    throw "Toolchain test candidate is missing: $ResolvedToolchainPath"
-}
-
 try {
     $env:SWAWKIT_PROJ_MSVC_MODE = 'managed'
     $env:SWAWKIT_PROJ_MSVC_CHANNEL = '17'
@@ -322,18 +285,11 @@ try {
     $DataRoot = Join-Path $TemporaryRoot 'data'
     [void][IO.Directory]::CreateDirectory($ProjectRoot)
     [void][IO.Directory]::CreateDirectory($DataRoot)
-    $InputRevision = 'sha256-' + ('a' * 64)
-    $ProfilePath = Join-Path $DataRoot '_profile.json'
-    [IO.File]::WriteAllText($ProfilePath, '{}')
-    $ProfileRevision = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $ProfilePath
-    )
-    $Context = New-ProjDevContext `
+    $Context = New-ProjStage0TestContext `
         -ProjectRoot $ProjectRoot `
         -DataRoot $DataRoot `
         -CacheDataRoot (Join-Path $TemporaryRoot 'shared cache') `
-        -EnvironmentInputRevision $InputRevision `
-        -CommandProfileRevision $ProfileRevision
+        -EntryCommand 'fixture'
     $TargetRoot = Get-ProjDevMsvcInstallRoot `
         -Context $Context `
         -Definition $Definition
@@ -387,11 +343,6 @@ try {
         -Context $Context `
         -Definition $Definition `
         -Plan $Plan
-    $Attempt = Start-ProjDevSetupProviderPublication -Context $Context
-    Set-ProjDevEnvironmentVariable `
-        -Plan $Plan `
-        -Name (Get-ProjDevSetupPublicationTokenVariable) `
-        -Value ([string]$Attempt.Token)
     $Scripts = ConvertTo-ProjDevEnvironmentScripts -Plan $Plan
     $DuplicateMsvcVariables = @($Plan.Variables.Keys | Where-Object {
         ([string]$_).StartsWith(
@@ -411,38 +362,10 @@ try {
         ) `
         -Message 'generated MSVC environment lost the baseline contract'
 
-    $env:SWAWKIT_PROJ_BUN_MODE = 'managed'
-    $env:SWAWKIT_PROJ_BUN_VERSION = '1.0.0'
-    $env:SWAWKIT_PROJ_BUN_SHA256 = ''
     [void](Publish-ProjDevEnvironmentScripts `
         -Context $Context `
         -Scripts $Scripts)
-    Complete-ProjDevSetupProviderPublication `
-        -Context $Context `
-        -Attempt $Attempt
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-    $env:SWAWKIT_HOME = [IO.Path]::GetFullPath(
-        (Join-Path $ProjRoot '..\..')
-    )
-    $env:SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
-    $env:SWAWKIT_PROJ_DATA_ROOT = $DataRoot
-    $env:SWAWKIT_PROJ_ENTRY_COMMAND = 'fixture'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $ProjectRoot
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = $InputRevision
-    $env:SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $ProfileRevision
-    $env:SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE = $ResolvedToolchainPath
-    foreach ($Name in [string[]]@(
-        [Environment]::GetEnvironmentVariables('Process').Keys
-    )) {
-        if ($Name.StartsWith(
-            'SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_',
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-            [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
-        }
-    }
-    $env:SWAWKIT_PROJ_BUN_VERSION = '2.0.0'
-    . (Join-Path $ProjRoot '_toolchain\_modules\msvc\runtime.ps1')
+    . $Context.EnvPs1Path
     $OriginalMsvcMetadataValidator = (
         Get-Command Get-ProjDevMsvcValidMetadata -CommandType Function
     ).ScriptBlock
@@ -454,42 +377,31 @@ try {
         throw 'Current must not inspect MSVC installation metadata.'
     }
     try {
-        $RuntimeRequirement = Import-ProjDevMsvcCommandEnvironment
+        Assert-ProjDevMsvcEnvironmentCurrent `
+            -Context $Context `
+            -Definition $Definition
     } finally {
         Set-Item `
             -LiteralPath Function:\Get-ProjDevMsvcValidMetadata `
             -Value $OriginalMsvcMetadataValidator
     }
-    $LeakedMetadata = @(
-        [Environment]::GetEnvironmentVariables('Process').Keys |
-            Where-Object {
-                ([string]$_).StartsWith(
-                    'SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_',
-                    [StringComparison]::OrdinalIgnoreCase
-                )
-            }
-    )
     Assert-ProjMsvcTest `
         -Condition (
-            [string]$RuntimeRequirement.Definition.Channel -ceq '17' -and
             $script:ProjMsvcCurrentMetadataValidationCount -eq 0 -and
-            $LeakedMetadata.Count -eq 0 -and
             [string]$env:VCToolsVersion -ceq '14.44.35228' -and
             [string]$env:WindowsSDKVersion -ceq '10.0.26100.0\'
         ) `
-        -Message (
-            'an unrelated declaration blocked MSVC or export metadata leaked'
-        )
+        -Message 'the generated MSVC environment was not current'
     $ExpectedWindowsSdkVersion = [string]$env:WindowsSDKVersion
     $env:WindowsSDKVersion = '10.0.26100.0'
     $InvalidVersionRejected = $false
     try {
         Assert-ProjDevMsvcEnvironmentCurrent `
-            -Context $RuntimeRequirement.Context `
-            -Definition $RuntimeRequirement.Definition
+            -Context $Context `
+            -Definition $Definition
     } catch {
         $InvalidVersionRejected = $_.Exception.Message -like (
-            "*invalid version variables*Run 'fixture .dev.setup'*"
+            "*invalid version variables*Run 'fixture .dev/setup'*"
         )
     } finally {
         $env:WindowsSDKVersion = $ExpectedWindowsSdkVersion
@@ -513,29 +425,6 @@ try {
     Write-Host '[PASS] Proj MSVC module test' -ForegroundColor Green
 } finally {
     $env:PATH = $PreviousPath
-    $CurrentEnvironment = [Environment]::GetEnvironmentVariables('Process')
-    foreach ($Name in [string[]]@($CurrentEnvironment.Keys)) {
-        if ($Name.StartsWith(
-            'SWAWKIT_PROJ_MODULE_KERNEL_DEV_SETUP_',
-            [StringComparison]::OrdinalIgnoreCase
-        )) {
-            [Environment]::SetEnvironmentVariable($Name, $null, 'Process')
-        }
-    }
-    foreach ($Name in $PreviousDevelopmentEnvironment.Keys) {
-        [Environment]::SetEnvironmentVariable(
-            $Name,
-            [string]$PreviousDevelopmentEnvironment[$Name],
-            'Process'
-        )
-    }
-    foreach ($Name in $RuntimeEnvironmentNames) {
-        [Environment]::SetEnvironmentVariable(
-            $Name,
-            $PreviousRuntimeEnvironment[$Name],
-            'Process'
-        )
-    }
     [Environment]::SetEnvironmentVariable(
         'SWAWKIT_PROJ_MSVC_MODE',
         $PreviousMode,

@@ -3,71 +3,241 @@ import { describe, expect, test } from "bun:test";
 import {
   availableCommand,
   captureColumnScrollOffsets,
-  childrenColumnWidth,
   choiceColumnModels,
   commandHasChoices,
-  commandDisabledDuringSetup,
   commandMenuExpanded,
+  createExplorerView,
   restoreColumnScrollOffsets,
+  viewColumnWidth,
 } from "./explorer.js";
 
-describe("Explorer control-plane behavior", () => {
-  test("keeps Control commands available during first setup", () => {
-    expect(commandDisabledDuringSetup(true, { source: "control" })).toBe(false);
-    expect(commandDisabledDuringSetup(true, { source: "kernel" })).toBe(true);
-    expect(commandDisabledDuringSetup(true, {
-      source: "kernel",
-      setupAvailable: true,
-    })).toBe(false);
-    expect(commandDisabledDuringSetup(true, { source: "action" })).toBe(true);
-    expect(commandDisabledDuringSetup(false, { source: "action" })).toBe(false);
-  });
+function domNode(tagName = "") {
+  return {
+    attributes: new Map(),
+    children: [],
+    className: "",
+    dataset: {},
+    disabled: false,
+    scrollTop: 0,
+    tagName,
+    addEventListener() {},
+    append(...children) { this.children.push(...children); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    querySelectorAll(selector) {
+      const className = selector.startsWith(".") ? selector.slice(1) : null;
+      const matches = [];
+      const visit = (node) => {
+        if (className && node.className?.split(/\s+/).includes(className)) {
+          matches.push(node);
+        }
+        node.children?.forEach(visit);
+      };
+      this.children.forEach(visit);
+      return matches;
+    },
+    replaceChildren(...children) { this.children = children; },
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+  };
+}
 
-  test("falls back instead of selecting a disabled routed command", () => {
-    const control = { address: "..entry", source: "control" };
-    const action = { address: "proj", source: "action" };
+function findByClass(root, className) {
+  if (root.className?.split(/\s+/).includes(className)) {
+    return root;
+  }
+  return root.children?.map((child) => findByClass(child, className)).find(Boolean) ?? null;
+}
+
+describe("Explorer command-space behavior", () => {
+  test("resolves every Catalog command without a global setup gate", () => {
+    const system = { address: ".entry", space: "system" };
+    const module = { address: "project", namespace: "project", space: "module" };
     const catalog = {
       commandByAddress: new Map([
-        [control.address, control],
-        [action.address, action],
+        [system.address, system],
+        [module.address, module],
       ]),
     };
 
-    expect(availableCommand(catalog, true, action.address)).toBeNull();
-    expect(availableCommand(catalog, true, control.address)).toBe(control);
-    expect(availableCommand(catalog, false, action.address)).toBe(action);
-    expect(availableCommand(catalog, false, "missing")).toBeNull();
+    expect(availableCommand(catalog, module.address)).toBe(module);
+    expect(availableCommand(catalog, system.address)).toBe(system);
+    expect(availableCommand(catalog, "missing")).toBeNull();
   });
 
-  test("expands a local view menu only for the terminal selection", () => {
-    const path = [".dev", ".dev.rust", ".dev.rust.cargo"];
-    expect(commandMenuExpanded(path, ".dev", 0)).toBe(false);
-    expect(commandMenuExpanded(path, ".dev.rust", 1)).toBe(false);
-    expect(commandMenuExpanded(path, ".dev.rust.cargo", 2)).toBe(true);
-    expect(commandMenuExpanded(path, ".dev.bun", 2)).toBe(false);
-  });
-
-  test("uses the parent command's declared child column width", () => {
-    expect(childrenColumnWidth({ childrenColumnWidth: "wide" })).toBe("wide");
-    expect(childrenColumnWidth({})).toBe("normal");
+  test("keeps menu expansion independent from the selected command path", () => {
+    expect(commandMenuExpanded(".dev/rust", ".dev")).toBe(false);
+    expect(commandMenuExpanded(".dev/rust", ".dev/rust")).toBe(true);
+    expect(commandMenuExpanded(null, ".dev/rust")).toBe(false);
   });
 
   test("reveals choices only through declared Facets", () => {
     const parent = { address: "proj" };
-    const leaf = { address: "proj.build" };
+    const leaf = { address: "project/build" };
     const catalog = {
       childrenByParent: new Map([[parent.address, [leaf]]]),
     };
 
-    expect(commandHasChoices(catalog, parent, [{ name: "children" }])).toBe(true);
+    expect(commandHasChoices(catalog, parent, [{ name: "subcommands" }])).toBe(true);
     expect(commandHasChoices(catalog, leaf, [{ name: "overview" }])).toBe(true);
     expect(commandHasChoices(catalog, leaf, [])).toBe(false);
   });
 
+  test("takes column width from the resolved View Bundle", () => {
+    expect(viewColumnWidth({ view: { width: "wide" } })).toBe("wide");
+    expect(viewColumnWidth(null)).toBe("normal");
+  });
+
+  test("loads one selected Collection View Bundle and applies its column width", async () => {
+    const previous = {
+      document: globalThis.document,
+      requestAnimationFrame: globalThis.requestAnimationFrame,
+      window: globalThis.window,
+    };
+    const present = {
+      document: "document" in globalThis,
+      requestAnimationFrame: "requestAnimationFrame" in globalThis,
+      window: "window" in globalThis,
+    };
+    const columns = domNode("main");
+    const command = {
+      address: ".dev",
+      parent: "",
+      runnable: false,
+      space: "system",
+      summary: "Development tools",
+    };
+    const facet = {
+      icon: ">",
+      kind: "collection",
+      label: "Subcommands",
+      name: "subcommands",
+      resolver: { relation: "subcommands", type: "catalog" },
+      selected: true,
+      summary: "Browse tools",
+    };
+    const resolutions = [];
+
+    globalThis.document = {
+      addEventListener() {},
+      createElement: (tagName) => domNode(tagName),
+    };
+    globalThis.window = { addEventListener() {} };
+    globalThis.requestAnimationFrame = () => 0;
+    try {
+      const view = createExplorerView({
+        columns,
+        detailPanel: domNode("aside"),
+        getCommandFacets: () => [facet],
+        onResolveCollection(owner, selectedFacet) {
+          resolutions.push([owner, selectedFacet]);
+        },
+        onSelectCommand() {},
+      });
+      const catalog = {
+        childrenByParent: new Map(),
+        collator: new Intl.Collator("en"),
+        commandByAddress: new Map([[command.address, command]]),
+        roots: [command],
+      };
+
+      view.setCatalog(catalog);
+      await Promise.resolve();
+      expect(resolutions).toEqual([[command.address, facet.name]]);
+
+      view.setCollectionView({
+        resourceList: {
+          facet: facet.name,
+          label: facet.label,
+          owner: command.address,
+          resourceByRoute: new Map(),
+          resourceBySelector: new Map(),
+          resources: [],
+        },
+        view: { width: "wide" },
+      });
+      const rendered = columns.querySelectorAll(".finder-column");
+      expect(rendered).toHaveLength(2);
+      expect(rendered[1].dataset.width).toBe("wide");
+      await Promise.resolve();
+      expect(resolutions).toHaveLength(1);
+    } finally {
+      for (const name of Object.keys(previous)) {
+        if (present[name]) {
+          globalThis[name] = previous[name];
+        } else {
+          delete globalThis[name];
+        }
+      }
+    }
+  });
+
+  test("renders an enabled menu toggle for a command with Facets", () => {
+    const previous = {
+      document: globalThis.document,
+      requestAnimationFrame: globalThis.requestAnimationFrame,
+      window: globalThis.window,
+    };
+    const present = {
+      document: "document" in globalThis,
+      requestAnimationFrame: "requestAnimationFrame" in globalThis,
+      window: "window" in globalThis,
+    };
+    const columns = domNode("main");
+    const command = {
+      address: ".help",
+      parent: "",
+      runnable: true,
+      space: "system",
+      summary: "Help",
+    };
+    const facet = {
+      icon: "?",
+      kind: "projection",
+      label: "Overview",
+      name: "overview",
+      selected: true,
+      summary: "Show help",
+    };
+
+    globalThis.document = {
+      addEventListener() {},
+      createElement: (tagName) => domNode(tagName),
+    };
+    globalThis.window = { addEventListener() {} };
+    globalThis.requestAnimationFrame = () => 0;
+    try {
+      const view = createExplorerView({
+        columns,
+        detailPanel: domNode("aside"),
+        getCommandFacets: () => [facet],
+        onSelectCommand() {},
+      });
+      const catalog = {
+        childrenByParent: new Map(),
+        collator: new Intl.Collator("en"),
+        commandByAddress: new Map([[command.address, command]]),
+        roots: [command],
+      };
+
+      expect(() => view.setCatalog(catalog)).not.toThrow();
+      const toggle = findByClass(columns, "command-menu-toggle");
+      expect(toggle).not.toBeNull();
+      expect(toggle.disabled).toBe(false);
+      expect(toggle.getAttribute("disabled")).toBeNull();
+    } finally {
+      for (const name of Object.keys(previous)) {
+        if (present[name]) {
+          globalThis[name] = previous[name];
+        } else {
+          delete globalThis[name];
+        }
+      }
+    }
+  });
+
   test("keeps ancestor child columns but obeys the terminal command view", () => {
     const entry = { address: ".dev" };
-    const env = { address: ".dev.rust" };
-    const bun = { address: ".dev.rust.cargo" };
+    const env = { address: ".dev/rust" };
+    const bun = { address: ".dev/rust/cargo" };
     const catalog = {
       commandByAddress: new Map([
         [entry.address, entry],
@@ -86,8 +256,8 @@ describe("Explorer control-plane behavior", () => {
         ? [{ name: "overview", selected: true }]
         : [{
           kind: "collection",
-          name: "children",
-          resolver: { relation: "children", type: "catalog" },
+          name: "subcommands",
+          resolver: { relation: "subcommands", type: "catalog" },
           selected: false,
         }],
     );
@@ -97,20 +267,20 @@ describe("Explorer control-plane behavior", () => {
       env.address,
     ]);
     expect(overviewModels.map(({ mode }) => mode)).toEqual([
-      "children",
-      "children",
+      "subcommands",
+      "subcommands",
     ]);
 
     catalog.childrenByParent.set(bun.address, [{
-      address: `${bun.address}.mode`,
+      address: `${bun.address}/mode`,
     }]);
     const childrenModels = choiceColumnModels(
       catalog,
       [entry.address, env.address, bun.address],
       (command) => [{
         kind: "collection",
-        name: "children",
-        resolver: { relation: "children", type: "catalog" },
+        name: "subcommands",
+        resolver: { relation: "subcommands", type: "catalog" },
         selected: command.address === bun.address,
       }],
     );
@@ -121,7 +291,7 @@ describe("Explorer control-plane behavior", () => {
     ]);
   });
 
-  test("keeps the collection column visible for a selected Subject", () => {
+  test("keeps the collection column visible for a selected Resource", () => {
     const context = { address: ".context" };
     const catalog = {
       commandByAddress: new Map([[context.address, context]]),
@@ -137,9 +307,9 @@ describe("Explorer control-plane behavior", () => {
     expect(models.map(({ mode }) => mode)).toEqual(["contexts"]);
   });
 
-  test("treats structural, Subject, and projection Facets as mutually exclusive", () => {
+  test("treats structural, Resource, and projection Facets as mutually exclusive", () => {
     const context = { address: ".context" };
-    const list = { address: ".context.list" };
+    const list = { address: ".context/list" };
     const catalog = {
       commandByAddress: new Map([[context.address, context]]),
       childrenByParent: new Map([[context.address, [list]]]),
@@ -150,16 +320,16 @@ describe("Explorer control-plane behavior", () => {
       () => [
         {
           kind: "collection",
-          name: "children",
-          resolver: { relation: "children", type: "catalog" },
-          selected: selected === "children",
+          name: "subcommands",
+          resolver: { relation: "subcommands", type: "catalog" },
+          selected: selected === "subcommands",
         },
         { kind: "collection", name: "contexts", selected: selected === "contexts" },
         { name: "unsupported", selected: selected === "unsupported" },
       ],
     );
 
-    expect(modelsFor("children").map(({ mode }) => mode)).toEqual(["children"]);
+    expect(modelsFor("subcommands").map(({ mode }) => mode)).toEqual(["subcommands"]);
     expect(modelsFor("contexts").map(({ mode }) => mode)).toEqual(["contexts"]);
     expect(modelsFor("unsupported")).toEqual([]);
   });
@@ -167,7 +337,7 @@ describe("Explorer control-plane behavior", () => {
   test("restores vertical offsets only for columns representing the same parent", () => {
     let rendered = [
       { dataset: { scrollKey: "root" }, scrollTop: 17 },
-      { dataset: { scrollKey: "children:.dev.rust" }, scrollTop: 559 },
+      { dataset: { scrollKey: "subcommands:.dev/rust" }, scrollTop: 559 },
     ];
     const columns = {
       querySelectorAll() {
@@ -178,8 +348,8 @@ describe("Explorer control-plane behavior", () => {
 
     rendered = [
       { dataset: { scrollKey: "root" }, scrollTop: 0 },
-      { dataset: { scrollKey: "children:.dev.rust" }, scrollTop: 0 },
-      { dataset: { scrollKey: "children:proj" }, scrollTop: 0 },
+      { dataset: { scrollKey: "subcommands:.dev/rust" }, scrollTop: 0 },
+      { dataset: { scrollKey: "subcommands:proj" }, scrollTop: 0 },
     ];
     restoreColumnScrollOffsets(columns, offsets);
 

@@ -3,7 +3,8 @@ param(
     [string]$LauncherPath = '',
     [string]$CorePath = '',
     [string]$HostPath = '',
-    [string]$ToolchainPath = ''
+    [string]$ModulePath = '',
+    [string]$DevPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,7 +46,8 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -LauncherPath $LauncherPath `
     -CorePath $CorePath `
     -HostPath $HostPath `
-    -ToolchainPath $ToolchainPath
+    -ModulePath $ModulePath `
+    -DevPath $DevPath
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-host-release-$([Guid]::NewGuid().ToString('N'))"
 )
@@ -59,7 +61,8 @@ try {
         -LauncherPath $Artifacts.LauncherPath `
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
-        -ToolchainPath $Artifacts.ToolchainPath
+        -ModulePath $Artifacts.ModulePath `
+        -DevPath $Artifacts.DevPath
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath 'host-release.exe'
@@ -73,7 +76,7 @@ try {
     Assert-ProjHostReleaseTest `
         -Condition ($PrimaryTree.ExitCode -eq 0) `
         -Message 'the first Launcher reported a failed Core handoff'
-    $RuntimeDirectory = Join-Path $Runtime.Home 'data\proj.swawkit\runtime\hosts'
+    $RuntimeDirectory = Join-Path $Runtime.RuntimeRoot 'hosts'
     $Deadline = [DateTime]::UtcNow.AddSeconds(10)
     $Document = $null
     while ([DateTime]::UtcNow -lt $Deadline) {
@@ -154,19 +157,35 @@ try {
     $SecondTree.Dispose()
     [void]$OwnedTrees.Remove($SecondTree)
 
-    $RunningReleaseId = 'a' * 64
-    $SelectedReleaseId = 'c' * 64
-    $SelectedRelease = Join-Path (
-        Join-Path $Runtime.RuntimeBin 'releases'
-    ) $SelectedReleaseId
-    Copy-ProjFixtureHardLinkTree `
-        -Source $Runtime.RuntimeRelease `
-        -Destination $SelectedRelease
-    [IO.File]::WriteAllText(
-        (Join-Path $Runtime.RuntimeBin 'current'),
-        ($SelectedReleaseId + "`n"),
-        [Text.UTF8Encoding]::new($false)
+    $RunningReleaseId = [string]$Runtime.ReleaseId
+    $SelectedToolchain = Join-Path $TemporaryRoot 'selected-toolchain.exe'
+    [IO.File]::Copy($Artifacts.DevPath, $SelectedToolchain, $false)
+    $SelectedStream = [IO.File]::Open(
+        $SelectedToolchain,
+        [IO.FileMode]::Append,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None
     )
+    try {
+        $SelectedStream.WriteByte(0)
+    } finally {
+        $SelectedStream.Dispose()
+    }
+    $SelectedSet = New-ProjRuntimeReleaseSetFromFiles `
+        -Artifacts ([ordered]@{
+            'swawkit-proj.exe' = $Artifacts.CorePath
+            'swawkit-proj-host.exe' = $Artifacts.HostPath
+            'swawkit-proj-module.exe' = $Artifacts.ModulePath
+            'swawkit-proj-dev.exe' = $SelectedToolchain
+        }) `
+        -CommandRuntimeId ([string]$Runtime.CommandRuntimeId)
+    $SelectedPublication = Publish-ProjRuntimeReleaseSet `
+        -ReleaseSet $SelectedSet `
+        -RuntimeRoot $Runtime.RuntimeRoot `
+        -ProjHome $Runtime.Home `
+        -CacheDataRoot (Join-Path $Runtime.Home 'data\proj_cache')
+    $SelectedReleaseId = [string]$SelectedPublication.ReleaseId
+    $SelectedRelease = [string]$SelectedPublication.Root
     $HostStatus = Invoke-WebRequest `
         -UseBasicParsing `
         -Uri ([string]$Document.url + 'api/v2/host') `
@@ -175,12 +194,46 @@ try {
         ConvertFrom-Json
     Assert-ProjHostReleaseTest `
         -Condition (
-            [string]$HostStatus.protocol -ceq 'swawkit.host-status/v1' -and
+            [string]$HostStatus.protocol -ceq 'swawkit.host-status/v3' -and
             [string]$HostStatus.runningReleaseId -ceq $RunningReleaseId -and
             [string]$HostStatus.selectedReleaseId -ceq $SelectedReleaseId -and
             [bool]$HostStatus.updateAvailable
         ) `
         -Message 'the Host did not report the pending Runtime Release update'
+
+    Add-Type -AssemblyName System.Net.Http
+    $GenerationClient = [Net.Http.HttpClient]::new()
+    try {
+        $GenerationContent = [Net.Http.StringContent]::new(
+            '{"address":".check","arguments":[]}',
+            [Text.Encoding]::UTF8,
+            'application/json'
+        )
+        try {
+            $GenerationGateResponse = $GenerationClient.PostAsync(
+                ([string]$Document.url + 'api/v2/command-runs'),
+                $GenerationContent
+            ).GetAwaiter().GetResult()
+            try {
+                $GenerationGateStatus = [int]$GenerationGateResponse.StatusCode
+                $GenerationGate = $GenerationGateResponse.Content.
+                    ReadAsStringAsync().GetAwaiter().GetResult() |
+                    ConvertFrom-Json
+            } finally {
+                $GenerationGateResponse.Dispose()
+            }
+        } finally {
+            $GenerationContent.Dispose()
+        }
+    } finally {
+        $GenerationClient.Dispose()
+    }
+    Assert-ProjHostReleaseTest `
+        -Condition (
+            $GenerationGateStatus -eq 409 -and
+            [string]$GenerationGate.code -ceq 'runtimeUpdateRequired'
+        ) `
+        -Message 'the old Host accepted new work after the Runtime selector changed'
 
     Invoke-WebRequest `
         -UseBasicParsing `
@@ -195,11 +248,14 @@ try {
     $HostProcess = $null
 
     $RestartDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    $RestartedDocumentPath = Join-Path (
+        $Runtime.RuntimeRoot
+    ) "hosts\$SelectedReleaseId.json"
     $RestartedDocument = $null
     while ([DateTime]::UtcNow -lt $RestartDeadline) {
         try {
             $CandidateDocument = [IO.File]::ReadAllText(
-                $DocumentPath,
+                $RestartedDocumentPath,
                 [Text.Encoding]::UTF8
             ) | ConvertFrom-Json
             if ([int]$CandidateDocument.pid -ne [int]$Document.pid -and

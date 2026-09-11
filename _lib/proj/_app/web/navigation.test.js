@@ -9,61 +9,66 @@ import {
   restoreCommandSelection,
   updateCommandPath,
 } from "./navigation.js";
-import { createSubjectFacetView } from "./subject-facet.js";
+import { createResourceFacetView } from "./resource-facet.js";
 
 describe("command URL contract", () => {
-  test("maps every command source to a namespaced path", () => {
-    expect(commandPath({ source: "action", address: "proj.build.launcher" }))
-      .toBe("/commands/action/proj/build/launcher");
-    expect(commandPath({ source: "kernel", address: ".dev.setup" }))
-      .toBe("/commands/kernel/dev/setup");
-    expect(commandPath({ source: "kernel", address: "" }))
-      .toBe("/commands/kernel");
-    expect(commandPath({ source: "kernel", address: ".dev.rust" }))
-      .toBe("/commands/kernel/dev/rust");
+  test("maps System and Module identities to explicit paths", () => {
     expect(commandPath({
-      source: "kernel",
-      address: ".dev.rust.mode",
+      space: "module",
+      namespace: "project",
+      path: ["build", "launcher"],
+      address: "project/build/launcher",
+    })).toBe("/commands/module/project/build/launcher");
+    expect(commandPath({ space: "system", address: ".dev/setup" }))
+      .toBe("/commands/system/dev/setup");
+    expect(commandPath({ space: "system", address: "" }))
+      .toBe("/commands/system");
+    expect(commandPath({ space: "system", address: ".dev/rust" }))
+      .toBe("/commands/system/dev/rust");
+    expect(commandPath({
+      space: "system",
+      address: ".dev/rust/mode",
     })).toBe(
-      "/commands/kernel/dev/rust/mode",
+      "/commands/system/dev/rust/mode",
     );
   });
 
   test("parses canonical paths without relying on dot segments", () => {
-    expect(parseCommandPath("/commands/action/proj/build/app"))
-      .toEqual({ source: "action", address: "proj.build.app" });
-    expect(parseCommandPath("/commands/kernel/dev/setup"))
-      .toEqual({ source: "kernel", address: ".dev.setup" });
-    expect(parseCommandPath("/commands/control/entry"))
-      .toEqual({ source: "control", address: "..entry" });
+    expect(parseCommandPath("/commands/module/project/build/app"))
+      .toEqual({ space: "module", namespace: "project", address: "project/build/app" });
+    expect(parseCommandPath("/commands/system/dev/setup"))
+      .toEqual({ space: "system", namespace: null, address: ".dev/setup" });
+    expect(parseCommandPath("/commands/system/entry"))
+      .toEqual({ space: "system", namespace: null, address: ".entry" });
     expect(parseCommandPath(
-      "/commands/kernel/dev/rust/mode",
+      "/commands/system/dev/rust/mode",
     )).toEqual({
-      source: "kernel",
-      address: ".dev.rust.mode",
+      space: "system",
+      namespace: null,
+      address: ".dev/rust/mode",
     });
-    expect(parseCommandPath("/commands/kernel"))
-      .toEqual({ source: "kernel", address: "" });
+    expect(parseCommandPath("/commands/system"))
+      .toEqual({ space: "system", namespace: null, address: "" });
     expect(parseCommandPath("/")).toBeNull();
   });
 
   test("rejects invalid or missing commands", () => {
-    expect(() => parseCommandPath("/other/action/demo")).toThrow("不是有效");
-    expect(() => parseCommandPath("/commands/action")).toThrow("缺少");
-    expect(() => parseCommandPath("/commands/action/Bad")).toThrow("无效");
+    expect(() => parseCommandPath("/other/module/demo")).toThrow("不是有效");
+    expect(() => parseCommandPath("/commands/module")).toThrow("缺少");
+    expect(() => parseCommandPath("/commands/module/Bad")).toThrow("无效");
     expect(() => parseCommandPath(
-      "/commands/control/entry/env/SWAWKIT_PROJ_BUN_MODE",
+      "/commands/system/entry/env/SWAWKIT_PROJ_BUN_MODE",
     )).toThrow("无效");
     const catalog = {
       commandByAddress: new Map([
-        ["demo", { source: "action", address: "demo" }],
+        ["demo", { space: "module", namespace: "demo", address: "demo" }],
       ]),
     };
-    expect(() => commandAtPath(catalog, "/commands/action/missing"))
+    expect(() => commandAtPath(catalog, "/commands/module/missing"))
       .toThrow("不存在");
     expect(commandAtPath(
       catalog,
-      "/commands/action/missing",
+      "/commands/module/missing",
       { allowMissing: true },
     )).toBeNull();
   });
@@ -75,16 +80,16 @@ describe("command URL contract", () => {
       replaceState(_state, _title, path) { calls.push(["replace", path]); },
     };
     const location = { pathname: "/", search: "" };
-    const command = { source: "action", address: "demo" };
+    const command = { space: "module", namespace: "demo", path: [], address: "demo" };
 
     updateCommandPath(history, location, command, { mode: "replace" });
     updateCommandPath(history, location, command, { mode: "push" });
-    location.pathname = "/commands/action/demo";
+    location.pathname = "/commands/module/demo";
     updateCommandPath(history, location, command, { mode: "push" });
 
     expect(calls).toEqual([
-      ["replace", "/commands/action/demo"],
-      ["push", "/commands/action/demo"],
+      ["replace", "/commands/module/demo"],
+      ["push", "/commands/module/demo"],
     ]);
   });
 
@@ -105,52 +110,55 @@ describe("command URL contract", () => {
       replaceState() {},
     };
     const location = {
-      pathname: "/commands/action/proj/build",
+      pathname: "/commands/module/project/build",
       search: "",
     };
-    const command = { source: "action", address: "proj.build" };
+    const command = {
+      space: "module",
+      namespace: "project",
+      path: ["build"],
+      address: "project/build",
+    };
 
     updateCommandPath(history, location, command, {
-      defaultFacet: "children",
+      defaultFacet: "subcommands",
       facet: "help",
     });
     updateCommandPath(history, location, command, {
-      defaultFacet: "children",
-      facet: "children",
+      defaultFacet: "subcommands",
+      facet: "subcommands",
     });
     updateCommandPath(history, location, command, {
-      defaultFacet: "children",
+      defaultFacet: "subcommands",
       facet: "runs",
     });
 
     expect(calls).toEqual([
-      "/commands/action/proj/build?facet=help",
-      "/commands/action/proj/build?facet=runs",
+      "/commands/module/project/build?facet=help",
+      "/commands/module/project/build?facet=runs",
     ]);
   });
 
-  test("keeps typed Subject identity and both Facets in query state", () => {
-    expect(parseCommandSelection("?facet=runs&subject=%3A%3Arun%2F20260816-001&subject-facet=cancel"))
+  test("keeps the route-local Resource selector and both Facets in query state", () => {
+    expect(parseCommandSelection("?facet=runs&resource=20260816-001&resource-facet=cancel"))
       .toEqual({
         facet: "runs",
-        subject: "::run/20260816-001",
-        subjectFacet: "cancel",
+        resource: "20260816-001",
+        resourceFacet: "cancel",
       });
-    expect(() => parseCommandSelection("?subject=%3A%3Arun%2Frun-01"))
+    expect(() => parseCommandSelection("?resource=run-01"))
       .toThrow("Facet");
-    expect(() => parseCommandSelection("?facet=runs&subject=run-01"))
-      .toThrow("无效");
-    for (const invalid of ["::run/Bad", "::run/has/slash", "::run/has space"]) {
-      expect(() => parseCommandSelection(`?facet=runs&subject=${encodeURIComponent(invalid)}`))
+    for (const invalid of ["Bad", "has/slash", "has space"]) {
+      expect(() => parseCommandSelection(`?facet=runs&resource=${encodeURIComponent(invalid)}`))
         .toThrow("无效");
     }
-    expect(() => parseCommandSelection("?facet=runs&subject=%3A%3Arun%2Fone&subject=%3A%3Arun%2Ftwo"))
+    expect(() => parseCommandSelection("?facet=runs&resource=one&resource=two"))
       .toThrow("只能");
 
     expect(parseCommandSelection("?facet=runs")).toEqual({
       facet: "runs",
-      subject: null,
-      subjectFacet: null,
+      resource: null,
+      resourceFacet: null,
     });
 
     const calls = [];
@@ -160,33 +168,38 @@ describe("command URL contract", () => {
     };
     updateCommandPath(
       history,
-      { pathname: "/commands/kernel/context", search: "" },
-      { source: "kernel", address: ".context" },
+      { pathname: "/commands/system/context", search: "" },
       {
-        defaultSubjectFacet: "overview",
+        space: "system",
+        namespace: null,
+        path: ["context"],
+        address: ".context",
+      },
+      {
+        defaultResourceFacet: "overview",
         facet: "runs",
-        subject: "::run/run-01",
-        subjectFacet: "cancel",
+        resource: "run-01",
+        resourceFacet: "cancel",
       },
     );
     expect(calls).toEqual([
-      "/commands/kernel/context?facet=runs&subject=%3A%3Arun%2Frun-01&subject-facet=cancel",
+      "/commands/system/context?facet=runs&resource=run-01&resource-facet=cancel",
     ]);
   });
 
-  test("restores the owner before an asynchronous collection and its Subject", async () => {
+  test("restores the owner before an asynchronous Resource List and selection", async () => {
     const events = [];
-    const facetView = createSubjectFacetView();
-    let finishCollection;
-    let loadedCollection = null;
+    const facetView = createResourceFacetView();
+    let finishList;
+    let loadedList = null;
     const restored = restoreCommandSelection({
       collectionFacet: "contexts",
-      loadCollection(owner, facet) {
+      loadResourceList(owner, facet) {
         events.push(["load", owner, facet]);
         return new Promise((resolve) => {
-          finishCollection = (collection) => {
-            loadedCollection = collection;
-            resolve(collection);
+          finishList = (list) => {
+            loadedList = list;
+            resolve(list);
           };
         });
       },
@@ -195,25 +208,26 @@ describe("command URL contract", () => {
         events.push(["owner", ".context", "contexts"]);
         return true;
       },
-      selectSubject(owner, facet, subject, options) {
-        const selected = loadedCollection.subjects.find(
-          (candidate) => candidate.canonicalRef === subject,
+      selectResource(owner, facet, selector, options) {
+        const selected = loadedList.resources.find(
+          (candidate) => candidate.selector === selector,
         );
         const selectedFacet = facetView.select(selected, options).selectedFacet;
-        events.push(["subject", owner, facet, subject, selectedFacet]);
+        events.push(["resource", owner, facet, selector, selectedFacet]);
         return Boolean(selected);
       },
-      subjectFacet: null,
-      subjectRef: "::context/test",
+      resourceFacet: null,
+      resourceSelector: "test",
     });
 
     expect(events).toEqual([
       ["owner", ".context", "contexts"],
       ["load", ".context", "contexts"],
     ]);
-    finishCollection({
-      subjects: [{
-        canonicalRef: "::context/test",
+    finishList({
+      resources: [{
+        route: "$/system::context/contexts::test",
+        selector: "test",
         facets: [{
           icon: "i",
           id: "overview",
@@ -222,10 +236,10 @@ describe("command URL contract", () => {
           renderer: "overview",
           resolver: {
             acceptsTail: false,
-            address: ".context.show",
+            address: ".context/show",
             arguments: ["test"],
             confirmation: null,
-            returns: "swawkit.context/v1",
+            returns: "swawkit.context/v2",
             type: "command",
           },
           summary: "Inspect Context",
@@ -234,10 +248,10 @@ describe("command URL contract", () => {
     });
     expect(await restored).toBeTrue();
     expect(events[2]).toEqual([
-      "subject",
+      "resource",
       ".context",
       "contexts",
-      "::context/test",
+      "test",
       "overview",
     ]);
   });

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ToolchainPath,
+    [Parameter(Mandatory = $true)][string]$DevPath,
     [switch]$PublicNetwork
 )
 
@@ -46,7 +46,7 @@ function Invoke-ProjNetworkSetup {
     )
     $Info = [Diagnostics.ProcessStartInfo]::new()
     $Info.FileName = $Executable
-    $Info.Arguments = 'command-v1 dev.setup'
+    $Info.Arguments = 'command-v1 .dev/setup'
     $Info.UseShellExecute = $false
     $Info.CreateNoWindow = $true
     $Info.RedirectStandardOutput = $true
@@ -73,7 +73,7 @@ function Invoke-ProjNetworkSetup {
         if (-not $Process.WaitForExit($TimeoutSeconds * 1000)) {
             $Process.Kill()
             [void]$Process.WaitForExit(5000)
-            throw ".dev.setup exceeded its $TimeoutSeconds second test boundary"
+            throw ".dev/setup exceeded its $TimeoutSeconds second test boundary"
         }
         return [pscustomobject][ordered]@{
             ExitCode = [int]$Process.ExitCode
@@ -90,7 +90,7 @@ function Invoke-ProjNetworkSetup {
 }
 
 $RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..'))
-$Executable = [IO.Path]::GetFullPath($ToolchainPath)
+$Executable = [IO.Path]::GetFullPath($DevPath)
 $TemporaryRoot = Assert-ProjSetupNetworkTemporaryRoot `
     -RepositoryRoot $RepoRoot `
     -Path (Join-Path $RepoRoot (
@@ -104,37 +104,38 @@ try {
     [void][IO.Directory]::CreateDirectory(
         (Join-Path $FixtureHome 'data\proj_cache')
     )
-    $ProfilePath = Join-Path $DataRoot '_profile.json'
+    $SwawModuleRoot = Join-Path $FixtureHome '_lib\proj\modules'
+    $ProjectModuleRoot = Join-Path $FixtureHome '.swaw'
+    [void][IO.Directory]::CreateDirectory($SwawModuleRoot)
+    [void][IO.Directory]::CreateDirectory($ProjectModuleRoot)
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
+    [void][IO.Directory]::CreateDirectory($SetupRoot)
     [IO.File]::WriteAllText(
-        $ProfilePath,
-        "{}`r`n",
+        (Join-Path $SetupRoot '_settings.json'),
+        (@{
+            schema = 'swawkit.proj-dev-settings/v1'
+            bun = @{ mode = 'managed'; version = 'latest'; sha256 = '' }
+            pwsh = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            msvc = @{ mode = 'disabled'; channel = '' }
+            rust = @{
+                mode = 'disabled'
+                toolchain = ''
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+        } | ConvertTo-Json -Depth 4),
         [Text.UTF8Encoding]::new($false)
     )
-    $ProfileRevision = 'sha256-' + (
-        Get-FileHash -LiteralPath $ProfilePath -Algorithm SHA256
-    ).Hash.ToLowerInvariant()
     $Environment = @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-        SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.setup'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_HOME = $FixtureHome
+        SWAWKIT_PROJ_MODULE_ROOTS = (@{
+            swaw = $SwawModuleRoot
+            project = $ProjectModuleRoot
+        } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_ENTRY_COMMAND = 'network-fixture'
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = (
-            'sha256-' + ('b' * 64)
-        )
-        SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $ProfileRevision
-        SWAWKIT_PROJ_BUN_MODE = 'managed'
-        SWAWKIT_PROJ_BUN_VERSION = 'latest'
-        SWAWKIT_PROJ_BUN_SHA256 = ''
-        SWAWKIT_PROJ_PWSH_MODE = 'disabled'
-        SWAWKIT_PROJ_PWSH_VERSION = ''
-        SWAWKIT_PROJ_PWSH_SHA256 = ''
-        SWAWKIT_PROJ_MSVC_MODE = 'disabled'
-        SWAWKIT_PROJ_RUST_MODE = 'disabled'
-        SWAWKIT_PROJ_GO_MODE = 'disabled'
-        SWAWKIT_PROJ_PYTHON_MODE = 'disabled'
-        SWAWKIT_PROJ_UV_MODE = 'disabled'
         HTTP_PROXY = 'http://127.0.0.1:1'
         HTTPS_PROXY = 'http://127.0.0.1:1'
         ALL_PROXY = 'http://127.0.0.1:1'
@@ -145,11 +146,14 @@ try {
         -Environment $Environment `
         -TimeoutSeconds 45
     Write-Verbose $Failed.Output
-    $SetupRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
     $SelectionPath = Join-Path $SetupRoot (
         'export\bun\.swawkit-dev-selection.json'
     )
-    $Provider = Get-Content -LiteralPath (Join-Path $SetupRoot '_state.json') `
+    $ProviderStatePath = Join-Path $SetupRoot '_state.json'
+    Assert-ProjSetupNetwork `
+        -Condition ([IO.File]::Exists($ProviderStatePath)) `
+        -Message "setup published no provider state: $($Failed.Output)"
+    $Provider = Get-Content -LiteralPath $ProviderStatePath `
         -Raw | ConvertFrom-Json
     Assert-ProjSetupNetwork `
         -Condition (
@@ -167,7 +171,7 @@ try {
         )
 
     if (-not $PublicNetwork) {
-        Write-Host '[PASS] Proj .dev.setup deterministic network failure' `
+        Write-Host '[PASS] Proj .dev/setup deterministic network failure' `
             -ForegroundColor Green
         $global:LASTEXITCODE = 0
         return
@@ -241,7 +245,7 @@ try {
         )
 
     Write-Host (
-        '[PASS] Proj .dev.setup public cold download and offline cache reuse ' +
+        '[PASS] Proj .dev/setup public cold download and offline cache reuse ' +
         "(Bun $($Selection.version))"
     ) -ForegroundColor Green
 } finally {

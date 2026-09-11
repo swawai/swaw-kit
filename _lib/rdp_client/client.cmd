@@ -10,9 +10,10 @@ set "RDP_DESKTOP_DISPLAY="
 set "RDP_DESKTOP_TIMEOUT=60s"
 set "RDP_DESKTOP_TIMEOUT_SET="
 set "RDP_DESKTOP_OUTPUT_PATH="
-set "RDP_DESKTOP_SCRIPT_PATH="
 set "RDP_DESKTOP_X="
 set "RDP_DESKTOP_Y="
+set "RDP_EXEC_PROJECT="
+set "RDP_EXEC_ARG_COUNT=0"
 
 if "%~1"=="" goto :Connect
 if /i "%~1"==".help" goto :ShowHelp
@@ -20,6 +21,7 @@ if /i "%~1"==".h" goto :ShowHelp
 if "%~1"=="-h" goto :ShowHelp
 if /i "%~1"=="--help" goto :ShowHelp
 if /i "%~1"==".rdp" goto :GenerateRdp
+if /i "%~1"==".project" goto :Project
 if /i "%~1"==".list" goto :SessionList
 if /i "%~1"==".shadow" goto :Shadow
 if /i "%~1"==".peer" goto :Peer
@@ -53,7 +55,7 @@ if /i "%~2"=="connect" goto :SessionConnect
 if /i "%~2"=="screenshot" goto :SessionScreenshot
 if /i "%~2"=="pixel" goto :SessionPixel
 if /i "%~2"=="click" goto :SessionClick
-if /i "%~2"=="script" goto :SessionScript
+if /i "%~2"=="exec" goto :SessionExec
 goto :InvalidSessionCommand
 
 :SessionConnect
@@ -83,11 +85,55 @@ shift /3
 shift /3
 goto :ParseNextDesktopOption
 
-:SessionScript
+:SessionExec
 if "%~3"=="" goto :InvalidSessionCommand
-set "RDP_DESKTOP_ACTION=script"
-set "RDP_DESKTOP_SCRIPT_PATH=%~3"
+set "RDP_EXEC_PROJECT=%~3"
 shift /3
+goto :ParseNextExecOption
+
+:ParseNextExecOption
+if "%~3"=="" goto :RunExec
+if /i "%~3"=="--display" goto :ParseExecDisplay
+if /i "%~3"=="--timeout" goto :ParseExecTimeout
+if "%~3"=="--" goto :CollectExecArgumentsStart
+goto :InvalidSessionCommand
+
+:ParseExecDisplay
+if defined RDP_DESKTOP_DISPLAY goto :InvalidSessionCommand
+set "RDP_DESKTOP_DISPLAY=-Display"
+shift /3
+goto :ParseNextExecOption
+
+:ParseExecTimeout
+if defined RDP_DESKTOP_TIMEOUT_SET goto :InvalidSessionCommand
+if "%~4"=="" goto :InvalidSessionCommand
+set "RDP_DESKTOP_TIMEOUT=%~4"
+set "RDP_DESKTOP_TIMEOUT_SET=1"
+shift /3
+shift /3
+goto :ParseNextExecOption
+
+:CollectExecArgumentsStart
+shift /3
+
+:CollectExecArguments
+if "%~3"=="" goto :RunExec
+set /a RDP_EXEC_ARG_COUNT+=1 >nul
+set "RDP_EXEC_ARG_%RDP_EXEC_ARG_COUNT%=%~3"
+shift /3
+goto :CollectExecArguments
+
+:RunExec
+if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
+set "RDP_EXEC_SCRIPT=%~dp0exec.ps1"
+if not exist "%RDP_EXEC_SCRIPT%" (
+    echo [ERROR] RDP execution script not found:
+    echo   "%RDP_EXEC_SCRIPT%"
+    exit /b 1
+)
+
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_EXEC_SCRIPT%" -EntryFile "%RDP_ENTRY_FILE%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -SessionId "%RDP_CLIENT_SESSION_ID%" -CommandName "%RDP_ENTRY_COMMAND%" -Project "%RDP_EXEC_PROJECT%" -Timeout "%RDP_DESKTOP_TIMEOUT%" -ArgumentCount %RDP_EXEC_ARG_COUNT% %RDP_DESKTOP_DISPLAY%
+exit /b %ERRORLEVEL%
 
 :ParseNextDesktopOption
 if "%~3"=="" goto :RunDesktop
@@ -129,7 +175,7 @@ if not exist "%RDP_DESKTOP_SCRIPT%" (
     exit /b 1
 )
 
-PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_DESKTOP_SCRIPT%" -Action "%RDP_DESKTOP_ACTION%" -EntryFile "%RDP_ENTRY_FILE%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -SessionId "%RDP_CLIENT_SESSION_ID%" -CommandName "%RDP_ENTRY_COMMAND%" -X "%RDP_DESKTOP_X%" -Y "%RDP_DESKTOP_Y%" -Timeout "%RDP_DESKTOP_TIMEOUT%" -OutputPath "%RDP_DESKTOP_OUTPUT_PATH%" -ScriptPath "%RDP_DESKTOP_SCRIPT_PATH%" %RDP_DESKTOP_DISPLAY%
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_DESKTOP_SCRIPT%" -Action "%RDP_DESKTOP_ACTION%" -EntryFile "%RDP_ENTRY_FILE%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -SessionId "%RDP_CLIENT_SESSION_ID%" -CommandName "%RDP_ENTRY_COMMAND%" -X "%RDP_DESKTOP_X%" -Y "%RDP_DESKTOP_Y%" -Timeout "%RDP_DESKTOP_TIMEOUT%" -OutputPath "%RDP_DESKTOP_OUTPUT_PATH%" %RDP_DESKTOP_DISPLAY%
 exit /b %ERRORLEVEL%
 
 :SessionList
@@ -143,6 +189,44 @@ if not exist "%RDP_SESSION_LIST_SCRIPT%" (
 )
 
 PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_SESSION_LIST_SCRIPT%" -SshEntryFile "%RDP_PEER_SSH_ENTRY%" -RdpEntryFile "%RDP_ENTRY_FILE%" -CommandName "%RDP_ENTRY_COMMAND%"
+exit /b %ERRORLEVEL%
+
+:Project
+set "RDP_PROJECT_ACTION="
+set "RDP_PROJECT_VALUE="
+if /i "%~2"=="create" goto :ProjectCreate
+if /i "%~2"=="info" goto :ProjectOptional
+if /i "%~2"=="prompt" goto :ProjectOptional
+if /i "%~2"=="--help" goto :ProjectHelp
+goto :InvalidProjectCommand
+
+:ProjectCreate
+if "%~3"=="" goto :InvalidProjectCommand
+if not "%~4"=="" goto :InvalidProjectCommand
+set "RDP_PROJECT_ACTION=create"
+set "RDP_PROJECT_VALUE=%~3"
+goto :RunProject
+
+:ProjectOptional
+if not "%~4"=="" goto :InvalidProjectCommand
+set "RDP_PROJECT_ACTION=%~2"
+set "RDP_PROJECT_VALUE=%~3"
+goto :RunProject
+
+:ProjectHelp
+if not "%~3"=="" goto :InvalidProjectCommand
+set "RDP_PROJECT_ACTION=help"
+
+:RunProject
+if not defined RDP_ENTRY_FILE goto :InvalidEntryFile
+set "RDP_PROJECT_SCRIPT=%~dp0project.ps1"
+if not exist "%RDP_PROJECT_SCRIPT%" (
+    echo [ERROR] RDP project script not found:
+    echo   "%RDP_PROJECT_SCRIPT%"
+    exit /b 1
+)
+
+PowerShell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%RDP_PROJECT_SCRIPT%" -Action "%RDP_PROJECT_ACTION%" -EntryFile "%RDP_ENTRY_FILE%" -Project "%RDP_PROJECT_VALUE%" -CommandName "%RDP_ENTRY_COMMAND%"
 exit /b %ERRORLEVEL%
 
 :Shadow
@@ -468,7 +552,15 @@ echo   "%RDP_ENTRY_COMMAND% .<session-id> [connect]"
 echo   "%RDP_ENTRY_COMMAND% .<session-id> screenshot [--display] [--timeout <seconds>] [--output <absolute.png>]"
 echo   "%RDP_ENTRY_COMMAND% .<session-id> pixel <x> <y> [--display] [--timeout <seconds>]"
 echo   "%RDP_ENTRY_COMMAND% .<session-id> click <x> <y> [--display] [--timeout <seconds>]"
-echo   "%RDP_ENTRY_COMMAND% .<session-id> script <workflow.ps1> [--display] [--timeout <seconds>]"
+echo   "%RDP_ENTRY_COMMAND% .<session-id> exec ^<name^|absolute-path^> [--display] [--timeout ^<seconds^>] [-- ^<script-args...^>]"
+exit /b 1
+
+:InvalidProjectCommand
+echo [ERROR] Project usage:
+echo   "%RDP_ENTRY_COMMAND% .project create ^<name^|absolute-path^>"
+echo   "%RDP_ENTRY_COMMAND% .project info [name^|absolute-path]"
+echo   "%RDP_ENTRY_COMMAND% .project prompt [name^|absolute-path]"
+echo   "%RDP_ENTRY_COMMAND% .project --help"
 exit /b 1
 
 :InvalidPeerCommand

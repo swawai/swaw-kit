@@ -5,7 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use super::ServerState;
+use super::{ServerState, command_run::runtime_service_error};
 
 const CLEANUP_PREVIEW: &str = "runtime-cleanup-preview";
 const CLEANUP_APPLY: &str = "runtime-cleanup-apply";
@@ -29,6 +29,9 @@ pub(super) async fn post_cleanup(State(state): State<ServerState>, headers: Head
     } else {
         return StatusCode::FORBIDDEN.into_response();
     };
+    if let Err(error) = state.runtime_service.require_current_generation() {
+        return runtime_service_error(error).into_response();
+    }
     match tokio::task::spawn_blocking(move || {
         crate::runtime_cleanup::execute_json(&state.context, apply)
     })

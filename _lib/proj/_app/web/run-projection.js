@@ -53,11 +53,11 @@ export function createRunProjectionRenderer(elements, options = {}) {
     }
   }
 
-  function render(subject, payload) {
-    const run = createRunProjection(payload, subject.ref.id);
+  function render(resource, payload) {
+    const run = createRunProjection(payload, resource.identity.id);
     const status = commandRunStatus(run);
-    elements.runProjectionTitle.textContent = subject.label;
-    elements.runProjectionRef.textContent = subject.canonicalRef;
+    elements.runProjectionTitle.textContent = resource.label;
+    elements.runProjectionRef.textContent = resource.route;
     elements.runProjectionMeta.textContent = `${run.address} · ${sourceLabels[run.source]} · ${formatTime(run.startedAtUnixMs)}`;
     elements.runProjectionState.textContent = status.label;
     elements.runProjectionState.dataset.state = status.tone;

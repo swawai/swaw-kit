@@ -6,19 +6,18 @@ use serde::{Deserialize, Serialize};
 use ureq::Agent;
 
 use crate::context::EntryContext;
-use crate::entry::EntryIdentity;
 use crate::host_runtime::{HostRuntimeDocument, HostRuntimeLocator};
 use crate::runtime_release::RuntimeReleaseStore;
 
-pub const HOST_STATUS_PROTOCOL: &str = "swawkit.host-status/v1";
-pub const RUNTIME_STATUS_PROTOCOL: &str = "swawkit.runtime-status/v1";
+pub const HOST_STATUS_PROTOCOL: &str = "swawkit.host-status/v3";
+pub const RUNTIME_STATUS_PROTOCOL: &str = "swawkit.runtime-status/v3";
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HostStatusDocument {
     pub protocol: String,
-    pub entry_key_sha256: String,
+    pub instance_key_sha256: String,
     pub boot_id: String,
     pub pid: u32,
     pub url: String,
@@ -30,17 +29,16 @@ pub struct HostStatusDocument {
 impl HostStatusDocument {
     pub fn new(
         runtime: &HostRuntimeDocument,
-        running_release_id: impl Into<String>,
         selected_release_id: impl Into<String>,
     ) -> Result<Self, String> {
         let selected_release_id = selected_release_id.into();
         let document = Self {
             protocol: HOST_STATUS_PROTOCOL.to_owned(),
-            entry_key_sha256: runtime.entry_key_sha256.clone(),
+            instance_key_sha256: runtime.instance_key_sha256.clone(),
             boot_id: runtime.boot_id.clone(),
             pid: runtime.pid,
             url: runtime.url.clone(),
-            running_release_id: running_release_id.into(),
+            running_release_id: runtime.release_id.clone(),
             update_available: false,
             selected_release_id,
         };
@@ -52,10 +50,11 @@ impl HostStatusDocument {
 
     pub fn validate(&self, runtime: &HostRuntimeDocument) -> Result<(), String> {
         if self.protocol != HOST_STATUS_PROTOCOL
-            || self.entry_key_sha256 != runtime.entry_key_sha256
+            || self.instance_key_sha256 != runtime.instance_key_sha256
             || self.boot_id != runtime.boot_id
             || self.pid != runtime.pid
             || self.url != runtime.url
+            || self.running_release_id != runtime.release_id
             || !is_sha256(&self.running_release_id)
             || !is_sha256(&self.selected_release_id)
             || self.update_available != (self.running_release_id != self.selected_release_id)
@@ -119,12 +118,11 @@ pub fn inspect_running(
     context: &EntryContext,
     runtime: &HostRuntimeDocument,
 ) -> Result<RuntimeStatusDocument, String> {
+    HostRuntimeLocator::new(context)
+        .and_then(|locator| locator.validate_document(runtime))
+        .map_err(|error| format!("running Host identity does not match its generation: {error}"))?;
     let (selected_release_id, release_count) = inspect_storage(context)?;
-    let host = HostStatusDocument::new(
-        runtime,
-        context.release_id.clone(),
-        selected_release_id.clone(),
-    )?;
+    let host = HostStatusDocument::new(runtime, selected_release_id.clone())?;
     Ok(RuntimeStatusDocument {
         protocol: RUNTIME_STATUS_PROTOCOL.to_owned(),
         selected_release_id,
@@ -134,7 +132,7 @@ pub fn inspect_running(
 }
 
 fn inspect_storage(context: &EntryContext) -> Result<(String, usize), String> {
-    let store = RuntimeReleaseStore::open(&context.swawkit_home)
+    let store = RuntimeReleaseStore::open(&context.runtime_root, &context.swawkit_home)
         .map_err(|error| format!("cannot open Runtime Release storage: {error}"))?;
     let selected_release_id = store
         .selected_release_id()
@@ -181,9 +179,8 @@ pub fn request_host_action(context: &EntryContext, action: HostAction) -> Result
 fn read_live_host(
     context: &EntryContext,
 ) -> Result<Option<(HostRuntimeDocument, HostStatusDocument)>, String> {
-    let identity = EntryIdentity::read(&context.entry_file)
-        .map_err(|error| format!("cannot read Entry identity: {error}"))?;
-    let locator = HostRuntimeLocator::new(context, &identity);
+    let locator = HostRuntimeLocator::new(context)
+        .map_err(|error| format!("cannot locate Host runtime state: {error}"))?;
     let runtime = match locator.read() {
         Ok(runtime) => runtime,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
@@ -224,9 +221,36 @@ fn host_agent() -> Agent {
 mod tests {
     use super::*;
 
+    const INSTANCE_KEY: &str = "1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const RELEASE_ID: &str = "2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const SELECTED_ID: &str = "3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     #[test]
     fn private_host_control_never_inherits_a_proxy() {
         assert!(host_agent().config().proxy().is_none());
+    }
+
+    #[test]
+    fn host_status_is_bound_to_the_runtime_generation() {
+        let runtime = HostRuntimeDocument::new(
+            INSTANCE_KEY,
+            RELEASE_ID,
+            "boot-1",
+            42,
+            "http://127.0.0.1:43127/",
+        )
+        .unwrap();
+        let status = HostStatusDocument::new(&runtime, SELECTED_ID).unwrap();
+
+        assert_eq!(status.protocol, HOST_STATUS_PROTOCOL);
+        assert_eq!(status.instance_key_sha256, INSTANCE_KEY);
+        assert_eq!(status.running_release_id, RELEASE_ID);
+        assert_eq!(status.selected_release_id, SELECTED_ID);
+        assert!(status.update_available);
+
+        let mut mismatched = status.clone();
+        mismatched.instance_key_sha256 = "4".repeat(64);
+        assert!(mismatched.validate(&runtime).is_err());
     }
 }
 

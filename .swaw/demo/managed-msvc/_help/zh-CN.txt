@@ -1,11 +1,11 @@
-演示 Action 直接消费 Core 已验证并注入的受管 MSVC 环境。
+演示 Module 命令显式消费 `.dev/setup` 发布的受管 MSVC 环境。
 
 用法：
   {{INVOCATION}}
 
-该 Action 要求 SWAWKIT_PROJ_MSVC_MODE=managed，并使用 .dev.setup 发布的
-VCToolsInstallDir、WindowsSdkDir 和 PATH。run.ps1 不再自行读取 Provider Export、
-重复解析安装元数据或回退到系统 cl.exe；环境所有权只由 Core 负责。
+Core 只验证 Manifest 中的依赖身份与 Provider State 的静态 Ready，不读取或注入业务工具环境。
+该 Consumer 通过 Dev Runtime 提供的薄消费库读取并复验 `environment.json`、
+脚本、PATH 与可执行物，再把同一份 Export 导入当前进程；不会回退到系统 cl.exe。
 
-这也演示了 run.ps1 的新边界：脚本由 Entry Profile 选择的 PowerShell 7 执行，
-而具体开发工具仍由各自的受管领域契约提供。
+这也演示了两条所有权边界：run.ps1 由当前 Runtime 固定的 Framework Pwsh 执行，
+具体 MSVC/Windows SDK 由 `.dev/setup` 发布，并由实际 Consumer 在使用边界校验。

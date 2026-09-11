@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
 
-. (Join-Path $PSScriptRoot '_toolchain\bootstrap.ps1')
+. (Join-Path $PSScriptRoot '_bootstrap\toolchain.ps1')
 
 Invoke-ProjBootstrapToolchain -Action {
     param($Toolchain, $Layout)
@@ -24,6 +24,44 @@ Invoke-ProjBootstrapToolchain -Action {
             -TargetDirectory $AppTarget | Out-Host
     } finally {
         $AppLock.Dispose()
+    }
+
+    $ModuleTarget = Assert-ProjDevPathInsideDataRoot `
+        -Path $Layout.ModuleBuildRoot `
+        -DataRoot $Toolchain.Context.DataRoot `
+        -Activity 'building the Bootstrap Module executable'
+    $ModuleLock = Enter-ProjDevFileLock `
+        -Path (Join-Path $Layout.LockRoot 'module-build.lock') `
+        -ControlledRoot $Toolchain.Context.DataRoot `
+        -TimeoutSeconds 1800
+    try {
+        Invoke-ProjBootstrapRustProductBuild `
+            -ProductName 'Module' `
+            -CandidateName 'swawkit-proj-module.exe' `
+            -CargoPath ([string]$Toolchain.CargoPath) `
+            -ManifestPath $Layout.ModuleManifestPath `
+            -TargetDirectory $ModuleTarget | Out-Host
+    } finally {
+        $ModuleLock.Dispose()
+    }
+
+    $DevTarget = Assert-ProjDevPathInsideDataRoot `
+        -Path $Layout.DevBuildRoot `
+        -DataRoot $Toolchain.Context.DataRoot `
+        -Activity 'building the Bootstrap Dev runtime'
+    $DevLock = Enter-ProjDevFileLock `
+        -Path (Join-Path $Layout.LockRoot 'dev-build.lock') `
+        -ControlledRoot $Toolchain.Context.DataRoot `
+        -TimeoutSeconds 1800
+    try {
+        Invoke-ProjBootstrapRustProductBuild `
+            -ProductName 'Dev' `
+            -CandidateName 'swawkit-proj-dev.exe' `
+            -CargoPath ([string]$Toolchain.CargoPath) `
+            -ManifestPath $Layout.DevManifestPath `
+            -TargetDirectory $DevTarget | Out-Host
+    } finally {
+        $DevLock.Dispose()
     }
 
     $LauncherRoot = Assert-ProjDevPathInsideDataRoot `

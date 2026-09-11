@@ -12,13 +12,13 @@ use super::{
     owner::{OwnerLeaseState, RunOwnerLease},
     storage::{
         StoredRunEvent, StoredRunState, assert_plain_directory, assert_plain_file,
-        publish_stored_state,
+        publish_stored_state, read_stored_state,
     },
     unix_time_ms, valid_run_id,
 };
 
 const HISTORY_PROTOCOL: &str = "swawkit.command-run-history/v1";
-const DOCUMENT_PROTOCOL: &str = "swawkit.command-run-journal/v1";
+const DOCUMENT_PROTOCOL: &str = "swawkit.command-run-journal/v3";
 const MAX_HISTORY_RUNS: usize = 32;
 const MAX_RESPONSE_EVENTS: usize = 4096;
 const MAX_RESPONSE_TEXT_BYTES: usize = 1024 * 1024;
@@ -70,7 +70,6 @@ pub struct RunJournalDocument {
     exit_code: Option<i32>,
     error: Option<String>,
     argument_count: usize,
-    profile_revision: String,
     next_cursor: u64,
     events: Vec<RunJournalEvent>,
     truncated: bool,
@@ -165,7 +164,6 @@ pub(crate) fn read_run(
         exit_code: state.exit_code,
         error: state.error,
         argument_count: state.argument_count,
-        profile_revision: state.profile_revision,
         next_cursor: event_read.next_cursor,
         events: event_read.events,
         truncated: state.truncated || event_read.response_truncated,
@@ -205,7 +203,7 @@ fn read_reconciled_state(
         return Ok(state);
     }
     let owner = match RunOwnerLease::try_acquire(run_root)? {
-        OwnerLeaseState::Active | OwnerLeaseState::Legacy => return Ok(state),
+        OwnerLeaseState::Active => return Ok(state),
         OwnerLeaseState::Acquired(owner) => owner,
     };
 
@@ -233,8 +231,15 @@ fn read_reconciled_state(
 
 fn read_state(run_root: &Path, expected_id: &str, address: &str) -> io::Result<StoredRunState> {
     let path = run_root.join(JOURNAL_STATE_FILE_NAME);
-    assert_plain_file(&path)?;
-    let content = fs::read(path)?;
+    let content = read_stored_state(&path)?;
+    #[derive(serde::Deserialize)]
+    struct SchemaProbe {
+        schema: String,
+    }
+    let schema: SchemaProbe = serde_json::from_slice(&content).map_err(invalid)?;
+    if schema.schema != JOURNAL_STATE_SCHEMA {
+        return Err(invalid("unsupported run journal state schema"));
+    }
     let state: StoredRunState = serde_json::from_slice(&content).map_err(invalid)?;
     if state.schema != JOURNAL_STATE_SCHEMA || state.id != expected_id || state.address != address {
         return Err(invalid("run journal identity does not match its directory"));
@@ -266,7 +271,7 @@ fn validate_state(state: &StoredRunState) -> io::Result<()> {
                 && state.error.as_ref().is_some_and(|error| !error.is_empty())
         }
     };
-    if !valid || state.profile_revision.is_empty() {
+    if !valid {
         return Err(invalid("run journal state fields are inconsistent"));
     }
     Ok(())
@@ -359,21 +364,7 @@ fn sync_complete_event_stream(run_root: &Path, event_read: &EventRead) -> io::Re
 }
 
 fn parse_stored_event(line: &[u8]) -> io::Result<StoredRunEvent> {
-    let mut value: serde_json::Value = serde_json::from_slice(line).map_err(invalid)?;
-    let Some(object) = value.as_object_mut() else {
-        return Err(invalid("run journal event must be an object"));
-    };
-    // v1 journals written before event kinds were introduced are still valid
-    // output events. Keep this compatibility at the storage boundary instead
-    // of spreading a second event shape through the runtime and Web clients.
-    if !object.contains_key("kind") && object.contains_key("stream") && object.contains_key("text")
-    {
-        object.insert(
-            "kind".to_owned(),
-            serde_json::Value::String("output".to_owned()),
-        );
-    }
-    serde_json::from_value(value).map_err(invalid)
+    serde_json::from_slice(line).map_err(invalid)
 }
 
 impl From<StoredRunState> for RunJournalSummary {

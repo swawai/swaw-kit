@@ -15,7 +15,6 @@ pub(super) struct RunOwnerLease {
 
 pub(super) enum OwnerLeaseState {
     Active,
-    Legacy,
     Acquired(RunOwnerLease),
 }
 
@@ -58,7 +57,16 @@ impl RunOwnerLease {
         {
             Ok(file) => file,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                return Ok(OwnerLeaseState::Legacy);
+                return match Self::create(journals_root, id) {
+                    Ok(owner) => Ok(OwnerLeaseState::Acquired(owner)),
+                    Err(error)
+                        if error.kind() == io::ErrorKind::AlreadyExists
+                            || is_owned(error.raw_os_error()) =>
+                    {
+                        Ok(OwnerLeaseState::Active)
+                    }
+                    Err(error) => Err(error),
+                };
             }
             Err(error) if is_owned(error.raw_os_error()) => {
                 return Ok(OwnerLeaseState::Active);

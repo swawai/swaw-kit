@@ -3,7 +3,8 @@ param(
     [string]$LauncherPath = '',
     [string]$CorePath = '',
     [string]$HostPath = '',
-    [string]$ToolchainPath = ''
+    [string]$ModulePath = '',
+    [string]$DevPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -89,7 +90,8 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -LauncherPath $LauncherPath `
     -CorePath $CorePath `
     -HostPath $HostPath `
-    -ToolchainPath $ToolchainPath
+    -ModulePath $ModulePath `
+    -DevPath $DevPath
 $TemporaryRoot = Join-Path $RepoRoot (
     "data\_test\swawkit-proj-interrupt-$([Guid]::NewGuid().ToString('N'))"
 )
@@ -102,33 +104,37 @@ try {
         -LauncherPath $Artifacts.LauncherPath `
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
-        -ToolchainPath $Artifacts.ToolchainPath
+        -ModulePath $Artifacts.ModulePath `
+        -DevPath $Artifacts.DevPath
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
-    $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
-    $CancellationAction = Join-Path $Runtime.Home '.swaw\cancel-tree\run.exe'
+    $DataRoot = [string]$Runtime.DataRoot
+    $CancellationRoot = Join-Path $Runtime.Home '.swaw\cancel-tree'
+    $CancellationExecute = Add-ProjFixtureCommandResource `
+        -CommandRoot $CancellationRoot
+    $CancellationAction = Join-Path $CancellationExecute 'run.exe'
     New-ProjCancellationAction -OutputAssembly $CancellationAction
 
     $Bound = Invoke-ProjSetupEntry `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.project.root',
+            '.entry/project/root',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjSetupInterruption `
         -Condition ($Bound.ExitCode -eq 0) `
-        -Message "cannot create the isolated Entry Profile: $($Bound.Text)"
+        -Message "cannot bind the isolated Entry project: $($Bound.Text)"
     foreach ($Tool in @('bun', 'pwsh', 'msvc', 'rust')) {
         $Disabled = Invoke-ProjSetupEntry `
             -EntryPath $EntryPath `
-            -Arguments @(".dev.$Tool.mode", 'disabled')
+            -Arguments @(".dev/$Tool/mode", 'disabled')
         Assert-ProjSetupInterruption `
             -Condition ($Disabled.ExitCode -eq 0) `
             -Message "cannot disable ${Tool}: $($Disabled.Text)"
     }
 
-    $SetupRoot = Join-Path $DataRoot 'modules\kernel\.dev\setup'
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
     $ProviderStatePath = Join-Path $SetupRoot '_state.json'
     $ProviderStateBefore = if ([IO.File]::Exists($ProviderStatePath)) {
         (Get-FileHash -LiteralPath $ProviderStatePath -Algorithm SHA256).Hash
@@ -209,7 +215,7 @@ try {
 
     $Retry = Invoke-ProjSetupEntry `
         -EntryPath $EntryPath `
-        -Arguments @('.dev.setup')
+        -Arguments @('.dev/setup')
     $Provider = Get-Content -LiteralPath $ProviderStatePath `
         -Raw | ConvertFrom-Json
     Assert-ProjSetupInterruption `
@@ -224,14 +230,14 @@ try {
         -Message "setup did not recover after console cancellation: $($Retry.Text)"
 
     $TreeResultPath = Join-Path $TemporaryRoot 'console-cancel-tree.json'
-    & $DriverPath $EntryPath $Runtime.Home $TreeResultPath 'cancel-tree' '4'
+    & $DriverPath $EntryPath $Runtime.Home $TreeResultPath 'project/cancel-tree' '4'
     $TreeDriverExitCode = $LASTEXITCODE
     Assert-ProjSetupInterruption `
         -Condition ([IO.File]::Exists($TreeResultPath)) `
         -Message "process-tree cancel driver produced no result (exit $TreeDriverExitCode)"
     $TreeResult = Get-Content -LiteralPath $TreeResultPath -Raw |
         ConvertFrom-Json
-    $ActionDataRoot = Join-Path $DataRoot 'modules\action\cancel-tree'
+    $ActionDataRoot = Join-Path $DataRoot 'modules\project\cancel-tree'
     $ActionStates = @(
         Get-ChildItem -LiteralPath (Join-Path $ActionDataRoot '_runs') `
             -Filter '_state.json' -File -Recurse |
@@ -248,7 +254,7 @@ try {
             $null -eq $TreeResult.error
         ) `
         -Message (
-            'Core did not terminate the canceled Action process tree: ' +
+            'Core did not terminate the canceled Module process tree: ' +
             (Get-Content -LiteralPath $TreeResultPath -Raw)
         )
     Assert-ProjSetupInterruption `
@@ -258,7 +264,7 @@ try {
             $ActionStates[0].status -ceq 'canceled' -and
             $null -ne $ActionStates[0].finishedAtUnixMs
         ) `
-        -Message 'the canceled Action process tree left a non-terminal journal'
+        -Message 'the canceled Module process tree left a non-terminal journal'
 } finally {
     if ($null -ne $Lock) {
         $Lock.Dispose()

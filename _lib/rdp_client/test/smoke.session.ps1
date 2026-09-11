@@ -18,6 +18,7 @@ $FakeSshEntry = Join-Path $ScratchRoot 'peer.ssh.cmd'
 $ConnectCapture = Join-Path $ScratchRoot 'connect.txt'
 $ListCapture = Join-Path $ScratchRoot 'list.txt'
 $DesktopCapture = Join-Path $ScratchRoot 'desktop.txt'
+$ExecCapture = Join-Path $ScratchRoot 'exec.txt'
 
 . (Join-Path $RuntimeRoot 'entry.ps1')
 . (Join-Path $RuntimeRoot 'peer-ssh.ps1')
@@ -280,8 +281,7 @@ param(
     [string]$Y,
     [switch]$Display,
     [string]$Timeout,
-    [string]$OutputPath,
-    [string]$ScriptPath
+    [string]$OutputPath
 )
 [IO.File]::WriteAllLines($env:RDP_SESSION_DESKTOP_CAPTURE, @(
     "Action=$Action",
@@ -290,8 +290,7 @@ param(
     "Y=$Y",
     "Display=$($Display.IsPresent)",
     "Timeout=$Timeout",
-    "OutputPath=$OutputPath",
-    "ScriptPath=$ScriptPath"
+    "OutputPath=$OutputPath"
 ))
 exit 0
 '@
@@ -300,10 +299,43 @@ exit 0
         $FakeDesktop,
         (New-Object Text.UTF8Encoding($false))
     )
+    $FakeExec = @'
+param(
+    [string]$EntryFile,
+    [string]$SshEntryFile,
+    [string]$SessionId,
+    [string]$CommandName,
+    [string]$Project,
+    [switch]$Display,
+    [string]$Timeout,
+    [int]$ArgumentCount
+)
+$Lines = @(
+    "SessionId=$SessionId",
+    "Project=$Project",
+    "Display=$($Display.IsPresent)",
+    "Timeout=$Timeout",
+    "ArgumentCount=$ArgumentCount"
+)
+for ($Index = 1; $Index -le $ArgumentCount; $Index++) {
+    $Lines += "Argument${Index}=" + [Environment]::GetEnvironmentVariable(
+        "RDP_EXEC_ARG_$Index",
+        'Process'
+    )
+}
+[IO.File]::WriteAllLines($env:RDP_SESSION_EXEC_CAPTURE, $Lines)
+exit 0
+'@
+    [IO.File]::WriteAllText(
+        (Join-Path $Runtime 'exec.ps1'),
+        $FakeExec,
+        (New-Object Text.UTF8Encoding($false))
+    )
 
     $env:RDP_SESSION_CONNECT_CAPTURE = $ConnectCapture
     $env:RDP_SESSION_LIST_CAPTURE = $ListCapture
     $env:RDP_SESSION_DESKTOP_CAPTURE = $DesktopCapture
+    $env:RDP_SESSION_EXEC_CAPTURE = $ExecCapture
     Invoke-SessionTestEntry -Arguments @('.2') -ExpectedExitCode 0 | Out-Null
     $IdCapture = [IO.File]::ReadAllText($ConnectCapture)
     if (-not $IdCapture.Contains('Launch=True') -or
@@ -373,28 +405,33 @@ exit 0
         throw "Click syntax was not routed correctly.`n$ClickCapture"
     }
 
-    $WorkflowPath = Join-Path $ScratchRoot 'workflow with spaces.ps1'
+    $ProjectPath = 'D:\project with spaces'
     Invoke-SessionTestEntry `
         -Arguments @(
             '.2',
-            'script',
-            $WorkflowPath,
+            'exec',
+            $ProjectPath,
             '--display',
             '--timeout',
-            '60s'
+            '60s',
+            '--',
+            '--size',
+            '800 x 600'
         ) `
         -ExpectedExitCode 0 |
         Out-Null
-    $ScriptCapture = [IO.File]::ReadAllText($DesktopCapture)
+    $ExecResult = [IO.File]::ReadAllText($ExecCapture)
     foreach ($Expected in @(
-        'Action=script',
         'SessionId=2',
         'Display=True',
         'Timeout=60s',
-        "ScriptPath=$WorkflowPath"
+        "Project=$ProjectPath",
+        'ArgumentCount=2',
+        'Argument1=--size',
+        'Argument2=800 x 600'
     )) {
-        if (-not $ScriptCapture.Contains($Expected)) {
-            throw "Script syntax lost '$Expected'.`n$ScriptCapture"
+        if (-not $ExecResult.Contains($Expected)) {
+            throw "Exec syntax lost '$Expected'.`n$ExecResult"
         }
     }
 
@@ -425,8 +462,10 @@ exit 0
         [string[]]@('.2', 'connect', 'unexpected'),
         [string[]]@('.2', 'pixel', '640'),
         [string[]]@('.2', 'click', '640', '360', '--output', 'x.png'),
-        [string[]]@('.2', 'script'),
-        [string[]]@('.2', 'script', 'workflow.ps1', '--output', 'x.png'),
+        [string[]]@('.2', 'exec'),
+        [string[]]@('.2', 'exec', 'project', '--output', 'x.zip'),
+        [string[]]@('.2', 'exec', 'project', '--timeout'),
+        [string[]]@('.2', 'exec', 'project', '--display', '--display'),
         [string[]]@('.2', 'screenshot', '--display', '--display'),
         [string[]]@('.2', 'screenshot', '--timeout'),
         [string[]]@('.2', 'screenshot', '--output'),
@@ -454,6 +493,7 @@ exit 0
     Remove-Item Env:RDP_SESSION_CONNECT_CAPTURE -ErrorAction SilentlyContinue
     Remove-Item Env:RDP_SESSION_LIST_CAPTURE -ErrorAction SilentlyContinue
     Remove-Item Env:RDP_SESSION_DESKTOP_CAPTURE -ErrorAction SilentlyContinue
+    Remove-Item Env:RDP_SESSION_EXEC_CAPTURE -ErrorAction SilentlyContinue
     if ([IO.Directory]::Exists($ScratchRoot)) {
         [IO.Directory]::Delete($ScratchRoot, $true)
     }

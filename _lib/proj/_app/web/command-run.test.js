@@ -16,65 +16,43 @@ import {
   storage,
 } from "./command-run-test-support.js";
 
+function selectOperation(view, address, options = {}) {
+  const [root, ...children] = address.slice(1).split("/");
+  const resource = children.reduce(
+    (route, child) => `${route}/subcommands::${child}`,
+    `$/system::${root}`,
+  );
+  view.select(
+    { address, runnable: true, space: "system" },
+    { route: `${resource}/execute`, ...options },
+  );
+}
+
 describe("command run view", () => {
-  test("renders declared operations and confirms destructive argv before execution", async () => {
+  test("refreshes Runtime status when a stale Host refuses new work", async () => {
     const ui = elements();
-    const bodies = [];
+    let updateNotifications = 0;
     const view = createCommandRunView(ui, {
       document: documentObject(),
       storage: storage(),
-      async fetchRun(_url, options) {
-        bodies.push(JSON.parse(options.body));
-        const id = `run-${bodies.length}`;
-        return response(201, snapshot({
-          id,
-          address: ".cache.prune",
-          state: "exited",
-          exitCode: 0,
-        }), `/api/v2/command-runs/${id}`);
+      onRuntimeUpdateRequired() { updateNotifications += 1; },
+      async fetchRun() {
+        return response(409, {
+          code: "runtimeUpdateRequired",
+          error: "server detail",
+        });
       },
     });
-    view.select({
-      address: ".cache.prune",
-      runnable: true,
-      source: "kernel",
-      runOperations: [
-        { id: "preview", label: "预览", arguments: [], confirmation: null },
-        {
-          id: "apply",
-          label: "清理",
-          arguments: ["--apply"],
-          confirmation: "确认清理？",
-        },
-      ],
-    });
+    selectOperation(view, ".demo");
 
-    const buttons = ui.commandRunOperationList
-      .querySelectorAll(".command-run-operation");
-    expect(buttons.map((button) => button.textContent)).toEqual(["预览", "清理"]);
-    expect(ui.commandRunEditor.hidden).toBe(true);
-    expect(ui.commandRunOperations.hidden).toBe(false);
-    expect(ui.commandRunSubmit.hidden).toBe(true);
-    expect(ui.commandRunActions.hidden).toBe(true);
+    await view.execute();
 
-    buttons[0].dispatch("click");
-    await settle();
-    expect(bodies[0].arguments).toEqual([]);
-
-    buttons[1].dispatch("click");
-    expect(bodies).toHaveLength(1);
-    expect(ui.commandRunConfirmation.hidden).toBe(false);
-    expect(ui.commandRunConfirmationText.textContent).toBe("确认清理？");
-    ui.commandRunConfirmDismiss.dispatch("click");
-    expect(ui.commandRunConfirmation.hidden).toBe(true);
-
-    buttons[1].dispatch("click");
-    ui.commandRunConfirm.dispatch("click");
-    await settle();
-    expect(bodies[1].arguments).toEqual(["--apply"]);
+    expect(updateNotifications).toBe(1);
+    expect(ui.commandRunFeedback.dataset.state).toBe("error");
+    expect(ui.commandRunFeedback.textContent).toContain("Runtime 已更新");
   });
 
-  test("prefills the exact invocation resolved for a custom Facet", async () => {
+  test("shows fixed arguments but submits only the Facet Route and user tail", async () => {
     const ui = elements();
     let body;
     const view = createCommandRunView(ui, {
@@ -86,7 +64,7 @@ describe("command run view", () => {
           address: ".check",
           state: "exited",
           exitCode: 0,
-        }), "/api/v2/command-runs/run-1");
+        }), "/api/v3/command-runs/run-1");
       },
     });
 
@@ -94,16 +72,13 @@ describe("command run view", () => {
       {
         address: ".check",
         runnable: true,
-        source: "kernel",
-        runOperations: [
-          { id: "other", label: "Other", arguments: [], confirmation: null },
-        ],
+        space: "system",
       },
       {
         acceptsTail: false,
-        arguments: [".context.list", "--json"],
-        key: ".context.list#validate",
-        useOperations: false,
+        arguments: [".context/list", "--json"],
+        key: ".context/list#validate",
+        route: "$/system::context/subcommands::list/validate",
       },
     );
     expect(ui.commandRunEditor.hidden).toBe(false);
@@ -111,7 +86,7 @@ describe("command run view", () => {
       ui.commandRunArguments
         .querySelectorAll(".command-run-argument")
         .map((input) => input.value),
-    ).toEqual([".context.list", "--json"]);
+    ).toEqual([".context/list", "--json"]);
     expect(
       ui.commandRunArguments
         .querySelectorAll(".command-run-argument")
@@ -121,12 +96,12 @@ describe("command run view", () => {
 
     await view.execute();
     expect(body).toEqual({
-      address: ".check",
-      arguments: [".context.list", "--json"],
+      route: "$/system::context/subcommands::list/validate",
+      arguments: [],
     });
   });
 
-  test("confirms an exact Subject operation with its fixed instance ID", async () => {
+  test("confirms a Resource operation without resubmitting its bound instance ID", async () => {
     const ui = elements();
     let body;
     const view = createCommandRunView(ui, {
@@ -135,22 +110,27 @@ describe("command run view", () => {
       async fetchRun(_url, options) {
         body = JSON.parse(options.body);
         return response(201, snapshot({
-          address: ".context.delete",
+          address: ".context/delete",
           state: "exited",
           exitCode: 0,
-        }), "/api/v2/command-runs/run-1");
+        }), "/api/v3/command-runs/run-1");
       },
     });
 
     view.select(
-      { address: ".context.delete", runnable: true, source: "kernel" },
+      {
+        address: ".context/delete",
+        namespace: null,
+        runnable: true,
+        space: "system",
+      },
       {
         acceptsTail: false,
         arguments: ["mycontext01"],
         confirmation: "Delete this Context?",
         key: "::context/mycontext01#delete",
         label: "Delete",
-        useOperations: false,
+        route: "$/system::context/contexts::mycontext01/delete",
       },
     );
     const [button] = ui.commandRunOperationList
@@ -160,7 +140,10 @@ describe("command run view", () => {
     expect(ui.commandRunConfirmation.hidden).toBe(false);
     ui.commandRunConfirm.dispatch("click");
     await settle();
-    expect(body.arguments).toEqual(["mycontext01"]);
+    expect(body).toEqual({
+      route: "$/system::context/contexts::mycontext01/delete",
+      arguments: [],
+    });
   });
 
   test("preserves argv rows, polls recursively, and renders both streams", async () => {
@@ -179,7 +162,7 @@ describe("command run view", () => {
           return response(201, snapshot({
             nextCursor: 1,
             events: [outputEvent(1, "stdout", "started\n")],
-          }), "/api/v2/command-runs/run-1");
+          }), "/api/v3/command-runs/run-1");
         }
         return response(200, snapshot({
           state: "exited",
@@ -190,7 +173,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/pwsh");
     ui.commandRunAdd.dispatch("click");
     ui.commandRunAdd.dispatch("click");
     const inputs = ui.commandRunArguments.querySelectorAll(".command-run-argument");
@@ -208,7 +191,7 @@ describe("command run view", () => {
     poll.callback();
     await settle();
 
-    expect(requests[1].url).toBe("/api/v2/command-runs/run-1?after=1");
+    expect(requests[1].url).toBe("/api/v3/command-runs/run-1?after=1");
     expect(ui.commandRunOutput.children.map((child) => child.dataset.stream))
       .toEqual(["stdout", "stderr"]);
     expect(ui.commandRunState.textContent).toBe("执行成功");
@@ -232,10 +215,10 @@ describe("command run view", () => {
         return response(200, snapshot({ id: "run-9" }));
       },
     });
-    view.select({ address: ".dev.status", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/status");
     await view.restore();
 
-    expect(request.url).toBe("/api/v2/command-runs/run-9?after=0");
+    expect(request.url).toBe("/api/v3/command-runs/run-9?after=0");
     expect(saved.getItem(ACTIVE_COMMAND_RUN_KEY)).toBe("run-9");
     expect(timers.take().delay).toBe(400);
   });
@@ -258,7 +241,7 @@ describe("command run view", () => {
     });
 
     const restoring = view.restore();
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/pwsh");
     expect(ui.commandRunSubmit.disabled).toBe(true);
     expect(ui.commandRunAdd.disabled).toBe(true);
     await view.execute();
@@ -295,7 +278,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/pwsh");
     await view.restore();
     await view.execute();
 
@@ -330,7 +313,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/pwsh");
     await view.restore();
     await view.execute();
 
@@ -353,12 +336,12 @@ describe("command run view", () => {
       async fetchRun(_url, options) {
         requests += 1;
         return options.method === "POST"
-          ? response(201, snapshot(), "/api/v2/command-runs/run-1")
+          ? response(201, snapshot(), "/api/v3/command-runs/run-1")
           : response(400, { error: "invalid cursor" });
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/pwsh");
     await view.execute();
     timers.take().callback();
     await settle();
@@ -378,16 +361,16 @@ describe("command run view", () => {
       clearTimer: timers.clearTimer,
       async fetchRun(_url, options) {
         return options.method === "POST"
-          ? response(201, snapshot(), "/api/v2/command-runs/run-1")
+          ? response(201, snapshot(), "/api/v3/command-runs/run-1")
           : response(404, { error: "command run not found" });
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/pwsh");
     ui.commandRunAdd.dispatch("click");
     ui.commandRunArguments.querySelectorAll(".command-run-argument")[0].value = "old";
     await view.execute();
-    view.select({ address: ".dev.status", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/status");
     timers.take().callback();
     await settle();
 
@@ -408,11 +391,11 @@ describe("command run view", () => {
       async fetchRun(_url, options) {
         methods.push(options.method ?? "GET");
         return options.method === "POST"
-          ? response(201, snapshot(), "/api/v2/command-runs/run-1")
+          ? response(201, snapshot(), "/api/v3/command-runs/run-1")
           : response(204);
       },
     });
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/pwsh");
     await view.execute();
     await view.cancel();
 
@@ -435,7 +418,7 @@ describe("command run view", () => {
       clearTimer: timers.clearTimer,
       async fetchRun(_url, options) {
         if (options.method === "POST") {
-          return response(201, snapshot(), "/api/v2/command-runs/run-1");
+          return response(201, snapshot(), "/api/v3/command-runs/run-1");
         }
         if (options.method === "DELETE") {
           return response(204);
@@ -448,7 +431,7 @@ describe("command run view", () => {
       },
     });
 
-    view.select({ address: ".dev.pwsh", runnable: true, source: "kernel" });
+    selectOperation(view, ".dev/pwsh");
     await view.execute();
     timers.take().callback();
     await view.cancel();

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('screenshot', 'pixel', 'click', 'script')]
+    [ValidateSet('screenshot', 'pixel', 'click')]
     [string]$Action,
 
     [Parameter(Mandatory = $true)][string]$EntryFile,
@@ -21,8 +21,6 @@ param(
 
     [AllowNull()][AllowEmptyString()][string]$OutputPath = '',
 
-    [AllowNull()][AllowEmptyString()][string]$ScriptPath = '',
-
     [string]$CommandName = 'rdp'
 )
 
@@ -34,7 +32,6 @@ Set-StrictMode -Version 2.0
 . (Join-Path $PSScriptRoot 'session.ps1')
 . (Join-Path $PSScriptRoot 'session-connect.ps1')
 . (Join-Path $PSScriptRoot 'session-display.ps1')
-. (Join-Path $PSScriptRoot 'desktop-script.ps1')
 
 function Resolve-RdpClientDesktopTimeoutSeconds {
     param([AllowNull()][AllowEmptyString()][string]$Value)
@@ -123,7 +120,6 @@ function Invoke-RdpClientDesktopTask {
         [AllowEmptyString()][string]$ExpectedDomainName,
         [AllowNull()][Nullable[int]]$CoordinateX,
         [AllowNull()][Nullable[int]]$CoordinateY,
-        [AllowNull()][object[]]$WorkflowSteps,
         [Parameter(Mandatory = $true)][pscustomobject]$TimeoutBudget
     )
 
@@ -150,18 +146,6 @@ function Invoke-RdpClientDesktopTask {
     if ($null -ne $CoordinateX -and $null -ne $CoordinateY) {
         $TaskRequest.X = [int]$CoordinateX
         $TaskRequest.Y = [int]$CoordinateY
-    }
-    if ($TaskAction -eq 'script') {
-        $TaskRequest.Steps = @($WorkflowSteps | ForEach-Object {
-            $RemoteStep = [ordered]@{ Action = [string]$_.Action }
-            if ($_.Action -in @('pixel', 'click')) {
-                $RemoteStep.X = [int]$_.X
-                $RemoteStep.Y = [int]$_.Y
-            } elseif ($_.Action -eq 'wait') {
-                $RemoteStep.Milliseconds = [int]$_.Milliseconds
-            }
-            [pscustomobject]$RemoteStep
-        })
     }
     $TaskRequestJson = ConvertTo-Json `
         -InputObject $TaskRequest `
@@ -368,7 +352,6 @@ try {
     $TimeoutBudget = New-RdpClientTimeoutBudget -TimeoutSeconds $TimeoutSeconds
     $CoordinateX = $null
     $CoordinateY = $null
-    $Workflow = $null
     if ($Action -in @('pixel', 'click')) {
         $CoordinateX = [Nullable[int]](
             Resolve-RdpClientDesktopCoordinate -Value $X -Name 'X'
@@ -383,21 +366,6 @@ try {
     if ($Action -ne 'screenshot' -and
         -not [string]::IsNullOrWhiteSpace($OutputPath)) {
         throw '--output is only valid with screenshot.'
-    }
-    if ($Action -eq 'script') {
-        if ([string]::IsNullOrWhiteSpace($ScriptPath)) {
-            throw 'Desktop script requires a workflow .ps1 path.'
-        }
-        $Workflow = Read-RdpClientDesktopScript -Path $ScriptPath
-        foreach ($Step in $Workflow.Steps) {
-            if ($Step.Action -eq 'screenshot') {
-                [IO.Directory]::CreateDirectory(
-                    [IO.Path]::GetDirectoryName([string]$Step.OutputPath)
-                ) | Out-Null
-            }
-        }
-    } elseif (-not [string]::IsNullOrWhiteSpace($ScriptPath)) {
-        throw 'A workflow script path is only valid with the script action.'
     }
     $ResolvedScreenshotOutput = $null
     if ($Action -eq 'screenshot') {
@@ -474,11 +442,6 @@ try {
     )
     Write-Host "[RDP] Display:   $DisplaySource"
 
-    $TaskWorkflowSteps = if ($null -eq $Workflow) {
-        @()
-    } else {
-        @($Workflow.Steps)
-    }
     $TaskResult = Invoke-RdpClientDesktopTask `
         -SshEntryPath $ResolvedSshEntry `
         -RdpEntryPath $ResolvedEntry `
@@ -488,7 +451,6 @@ try {
         -ExpectedDomainName ([string]$SelectedSession.DomainName) `
         -CoordinateX $CoordinateX `
         -CoordinateY $CoordinateY `
-        -WorkflowSteps $TaskWorkflowSteps `
         -TimeoutBudget $TimeoutBudget
 
     $PublicResult = [ordered]@{
@@ -526,110 +488,6 @@ try {
         $PublicResult.X = [int]$TaskResult.X
         $PublicResult.Y = [int]$TaskResult.Y
         Write-Host "[RDP] Clicked:   ($($TaskResult.X), $($TaskResult.Y))"
-    } else {
-        $ReturnedSteps = @($TaskResult.Steps)
-        if ($ReturnedSteps.Count -ne $Workflow.Steps.Count) {
-            throw (
-                'The peer returned an unexpected workflow step count: ' +
-                "$($ReturnedSteps.Count), expected $($Workflow.Steps.Count)."
-            )
-        }
-        $PublicSteps = New-Object 'Collections.Generic.List[object]'
-        $CreatedWorkflowOutputs = New-Object 'Collections.Generic.List[string]'
-        try {
-            for ($Index = 0; $Index -lt $Workflow.Steps.Count; $Index++) {
-                $ExpectedStep = $Workflow.Steps[$Index]
-                $ReturnedStep = $ReturnedSteps[$Index]
-                if ([int]$ReturnedStep.Index -ne ($Index + 1) -or
-                    -not [string]::Equals(
-                        [string]$ReturnedStep.Action,
-                        [string]$ExpectedStep.Action,
-                        [StringComparison]::Ordinal
-                    )) {
-                    throw "The peer returned mismatched workflow step $($Index + 1)."
-                }
-                $PublicStep = [ordered]@{
-                    Index      = $Index + 1
-                    Action     = [string]$ExpectedStep.Action
-                    LineNumber = [int]$ExpectedStep.LineNumber
-                }
-                switch ([string]$ExpectedStep.Action) {
-                    'screenshot' {
-                        $ImageBytes = ConvertFrom-RdpClientDesktopPngData `
-                            -ImageBase64 ([string]$ReturnedStep.ImageBase64)
-                        Write-RdpClientDesktopPngFile `
-                            -Path ([string]$ExpectedStep.OutputPath) `
-                            -ImageBytes $ImageBytes
-                        $CreatedWorkflowOutputs.Add(
-                            [string]$ExpectedStep.OutputPath
-                        )
-                        $PublicStep.OutputPath = [string]$ExpectedStep.OutputPath
-                        Write-Host (
-                            '[RDP] Step {0}: screenshot {1}' -f `
-                                ($Index + 1),
-                                $ExpectedStep.OutputPath
-                        )
-                    }
-                    'pixel' {
-                        if ([int]$ReturnedStep.X -ne [int]$ExpectedStep.X -or
-                            [int]$ReturnedStep.Y -ne [int]$ExpectedStep.Y -or
-                            [string]$ReturnedStep.Color -notmatch
-                                '^#[0-9A-Fa-f]{6}$') {
-                            throw "The peer returned invalid pixel step $($Index + 1)."
-                        }
-                        $PublicStep.X = [int]$ExpectedStep.X
-                        $PublicStep.Y = [int]$ExpectedStep.Y
-                        $PublicStep.Color = [string]$ReturnedStep.Color
-                        Write-Host (
-                            '[RDP] Step {0}: pixel ({1}, {2}) {3}' -f `
-                                ($Index + 1),
-                                $ExpectedStep.X,
-                                $ExpectedStep.Y,
-                                $ReturnedStep.Color
-                        )
-                    }
-                    'click' {
-                        if ([int]$ReturnedStep.X -ne [int]$ExpectedStep.X -or
-                            [int]$ReturnedStep.Y -ne [int]$ExpectedStep.Y) {
-                            throw "The peer returned invalid click step $($Index + 1)."
-                        }
-                        $PublicStep.X = [int]$ExpectedStep.X
-                        $PublicStep.Y = [int]$ExpectedStep.Y
-                        Write-Host (
-                            '[RDP] Step {0}: click ({1}, {2})' -f `
-                                ($Index + 1),
-                                $ExpectedStep.X,
-                                $ExpectedStep.Y
-                        )
-                    }
-                    'wait' {
-                        if ([int]$ReturnedStep.Milliseconds -ne
-                            [int]$ExpectedStep.Milliseconds) {
-                            throw "The peer returned invalid wait step $($Index + 1)."
-                        }
-                        $PublicStep.Milliseconds = [int]$ExpectedStep.Milliseconds
-                        Write-Host (
-                            '[RDP] Step {0}: wait {1}ms' -f `
-                                ($Index + 1),
-                                $ExpectedStep.Milliseconds
-                        )
-                    }
-                    default {
-                        throw "Unsupported local workflow step: $($ExpectedStep.Action)"
-                    }
-                }
-                $PublicSteps.Add([pscustomobject]$PublicStep)
-            }
-        } catch {
-            foreach ($CreatedPath in $CreatedWorkflowOutputs) {
-                if ([IO.File]::Exists($CreatedPath)) {
-                    try { [IO.File]::Delete($CreatedPath) } catch { }
-                }
-            }
-            throw
-        }
-        $PublicResult.ScriptPath = [string]$Workflow.Path
-        $PublicResult.Steps = $PublicSteps.ToArray()
     }
 
     Write-RdpClientDesktopOutputMarker -Result $PublicResult

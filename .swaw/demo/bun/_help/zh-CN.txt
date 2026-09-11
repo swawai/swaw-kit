@@ -1,4 +1,4 @@
-使用当前 Entry 管理的 Bun 执行一个真实的 run.ts Action。
+使用当前 Entry 管理的 Bun 执行一个真实的 run.ts Module 命令。
 
 用法:
   {{INVOCATION}} [value ...]
@@ -6,5 +6,6 @@
 示例:
   {{INVOCATION}} hello "A B"
 
-该模块用于演示 .swaw/demo/bun 目录如何映射为 demo.bun 命令。解释器版本来自
-Entry Profile，并由 .dev.setup 发布到该 Entry 的环境 Export；不依赖系统 PATH。
+该模块用于演示 .swaw/demo/bun 目录如何映射为 demo.bun 命令。解释器来自当前
+Runtime 固定的 Framework Command Runtime；它不读取 `.dev/setup` 的目标开发环境，
+也不依赖系统 PATH 中碰巧存在的 Bun。

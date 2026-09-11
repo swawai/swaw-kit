@@ -1,0 +1,16 @@
+{
+  "schema": "swaw.github-cli-runtime.v1",
+  "version": "2.98.0",
+  "assets": {
+    "amd64": {
+      "name": "gh_2.98.0_windows_amd64.zip",
+      "url": "https://github.com/cli/cli/releases/download/v2.98.0/gh_2.98.0_windows_amd64.zip",
+      "sha256": "c28c7b3b584967a05b74d9eaf7481bff24ddc34930bf2d6e442c148236561eb1"
+    },
+    "arm64": {
+      "name": "gh_2.98.0_windows_arm64.zip",
+      "url": "https://github.com/cli/cli/releases/download/v2.98.0/gh_2.98.0_windows_arm64.zip",
+      "sha256": "79e53db4e50b5c9594890a1c4d9dc941f6d19f7c3ca6d1f50982eda624607b9b"
+    }
+  }
+}

@@ -1,9 +1,9 @@
-演示真实 .swaw 目录 Action 的自动发现、分层帮助和模块前提协议。
+演示 `project` namespace 下真实 Module 命令的自动发现、分层帮助和模块前提协议。
 
 用法:
   {{INVOCATION}} .help
 
-该目录本身是命令组；可执行 Action 位于它的子目录中。
+该目录本身是命令组；可执行 Module 命令位于它的子目录中。
 
 开发规范示例:
   demo.echo          无开发工具前提

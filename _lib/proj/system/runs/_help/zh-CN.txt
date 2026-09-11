@@ -1,0 +1,17 @@
+查询命令的持久运行记录，或在资源管理器中打开一次运行的日志目录。
+
+用法：
+  {{INVOCATION}}
+  {{INVOCATION}} --json [<command-address>]
+  {{INVOCATION}} --run <run-id> [--after <cursor>]
+  {{INVOCATION}} --open <run-id>
+  {{INVOCATION}} <command-address>
+  {{INVOCATION}} <command-address> --latest <n|n..m>
+  {{INVOCATION}} <command-address> --run <run-id> [--after <cursor>]
+  {{INVOCATION}} <command-address> --open <run-id>
+
+命令地址必须使用唯一的规范 CLI 地址，例如 System 命令 `.dev/status`，或 Module 命令 `project/proj/build/app`。不再接受 `kernel/...`、`action/...` 等来源前缀 locator；结构化 Command Identity 已足以消歧。
+
+不带参数时，列出所有命令最近的持久运行。无地址的 `--json` 解析 `.runs` 的全局 `all` Subject 集合；带地址时解析指定命令的“运行记录” Facet。两种形式都返回相同的 `::run/<run-id>` 身份。
+
+`latest: 1` 表示最近一次运行；`--latest 1..3` 在同一次读取中输出最近三次运行，适合人工查询。Agent 应优先保存稳定的 run ID，再通过 `--run` 和 `--after` 增量读取。

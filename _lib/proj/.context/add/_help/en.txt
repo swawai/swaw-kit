@@ -1,5 +1,0 @@
-Add one or more Catalog commands to a Context.
-
-Usage: {{INVOCATION}} <context-id> <command-address>...
-
-Each address must exist in the current Catalog. Repeated additions do not create duplicates.

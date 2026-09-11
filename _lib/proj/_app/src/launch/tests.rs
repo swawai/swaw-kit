@@ -78,21 +78,6 @@ fn explicit_cli_mode_is_accepted() {
 }
 
 #[test]
-fn worker_mode_is_explicit_launcher_transport() {
-    let result = request(
-        &[".demo"],
-        &[
-            (ENTRY_FILE_ENV, r"C:\swaw\project.exe"),
-            (LAUNCH_MODE_ENV, "worker"),
-        ],
-    )
-    .unwrap();
-
-    assert_eq!(result.mode, LaunchMode::Worker);
-    assert_eq!(result.argv, [".demo"].map(OsString::from));
-}
-
-#[test]
 fn current_native_launcher_protocol_is_required() {
     let missing = LaunchRequest::from_sources([], PathBuf::from(r"C:\work\project"), |_name| None)
         .unwrap_err();
@@ -101,12 +86,12 @@ fn current_native_launcher_protocol_is_required() {
     let outdated = request(
         &[],
         &[
-            (LAUNCH_PROTOCOL_ENV, "2"),
+            (LAUNCH_PROTOCOL_ENV, "5"),
             (ENTRY_FILE_ENV, r"C:\swaw\project.exe"),
         ],
     )
     .unwrap_err();
-    assert!(outdated.to_string().contains("expected '3'"));
+    assert!(outdated.to_string().contains("expected '6'"));
 }
 
 #[test]
@@ -132,36 +117,24 @@ fn launch_mode_is_required_by_the_current_protocol() {
 }
 
 #[test]
-fn native_launcher_must_consume_worker_declarations() {
-    let error = request(
-        &[],
-        &[
-            (ENTRY_FILE_ENV, r"C:\swaw\project.exe"),
-            (WORKER_PROTOCOL_ENV, WORKER_PROTOCOL_VERSION),
-        ],
-    )
-    .unwrap_err();
-
-    assert!(error.to_string().contains(WORKER_PROTOCOL_ENV));
-    assert!(error.to_string().contains("did not consume"));
-}
-
-#[test]
 fn unknown_launch_mode_fails_closed() {
-    let error = request(
-        &[],
-        &[
-            (ENTRY_FILE_ENV, r"C:\swaw\project.exe"),
-            (LAUNCH_MODE_ENV, "daemon"),
-        ],
-    )
-    .unwrap_err();
+    for mode in ["worker", "daemon"] {
+        let error = request(
+            &[],
+            &[
+                (ENTRY_FILE_ENV, r"C:\swaw\project.exe"),
+                (LAUNCH_MODE_ENV, mode),
+            ],
+        )
+        .unwrap_err();
 
-    assert!(
-        error
-            .to_string()
-            .contains("expected 'cli', 'worker', or 'internal-host'")
-    );
+        assert!(
+            error
+                .to_string()
+                .contains("expected 'cli' or 'internal-host'"),
+            "{mode}: {error}"
+        );
+    }
 }
 
 #[test]

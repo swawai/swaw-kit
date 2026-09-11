@@ -27,8 +27,8 @@ export function createCommandRunOperations(elements, options) {
     elements.commandRunConfirmDismiss.disabled = state.blocked;
   }
 
-  function select(command) {
-    operations = Array.isArray(command?.runOperations) ? command.runOperations : [];
+  function select(nextOperations = []) {
+    operations = [...nextOperations];
     pending = null;
     const operationButtons = operations.map((operation) => {
       const button = documentObject.createElement("button");
@@ -65,7 +65,7 @@ export function createCommandRunOperations(elements, options) {
     render();
   });
 
-  select(null);
+  select();
   return {
     render,
     select,

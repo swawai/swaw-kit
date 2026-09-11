@@ -1,0 +1,6 @@
+列出和检查由 swawkit manager 管理的普通 Entry 实例。
+
+用法：.entry/instances [--json]
+
+该命令只能由 swawkit manager 执行。规范 data/proj.<name> 就是实例地址，
+每个实例独立发布 Runtime。该命令只检查状态，不自动迁移或修复实例。

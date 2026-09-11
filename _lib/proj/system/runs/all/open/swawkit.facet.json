@@ -1,0 +1,12 @@
+{
+  "schema": "swawkit.facet/v1",
+  "kind": "operation",
+  "presentation": {
+    "icon": "↗",
+    "label": { "zh-CN": "打开目录", "en": "Open directory" },
+    "summary": {
+      "zh-CN": "在资源管理器中打开这次运行的目录",
+      "en": "Open this run directory in File Explorer"
+    }
+  }
+}

@@ -1,3 +1,0 @@
-Manage persistent Agent contexts.
-
-A Context stores module commands, notes, and a final prompt as typed JSON and renders deterministic Markdown.

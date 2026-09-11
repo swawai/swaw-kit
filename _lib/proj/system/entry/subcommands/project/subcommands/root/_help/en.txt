@@ -1,0 +1,7 @@
+Set the optional project-root binding; the ${SWAWKIT_HOME} placeholder is supported.
+
+Usage:
+  {{INVOCATION}} <value>
+  {{INVOCATION}} --clear
+
+When the project directory is unavailable, Entry Config and System/swaw commands remain valid, but the project namespace is not mounted.

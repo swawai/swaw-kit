@@ -1,4 +1,5 @@
 mod journaled;
+mod materialize;
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -11,6 +12,7 @@ use windows_sys::Win32::System::Threading::CREATE_NO_WINDOW;
 
 use super::{CommandError, CommandProcessMode, CommandResult, ProcessEnvironment};
 pub(crate) use journaled::run_process_journaled;
+pub(super) use materialize::materialize_isolated_command;
 
 #[derive(Debug, Default)]
 pub(crate) enum AdapterLaunch {
@@ -18,10 +20,11 @@ pub(crate) enum AdapterLaunch {
     Direct,
     Bun(PathBuf),
     Pwsh(PathBuf),
-    Toolchain {
+    Runtime {
         executable: PathBuf,
-        handler: String,
+        address: String,
     },
+    Native(PathBuf),
 }
 
 const ADAPTER_ENVIRONMENT_PREFIX: &str = "SWAWKIT_PROJ_CORE_COMMAND_ADAPTER_";
@@ -114,19 +117,47 @@ fn prepare_command(
     environment: &ProcessEnvironment,
     process_mode: CommandProcessMode,
 ) -> CommandResult<Command> {
-    validate_adapter(adapter)?;
-    let mut command = match adapter {
-        CommandAdapter::Exe => executable_command(entry_path, arguments),
-        CommandAdapter::Bun => bun_command(adapter_launch, entry_path, arguments)?,
-        CommandAdapter::Toolchain => toolchain_command(adapter_launch, arguments)?,
-        CommandAdapter::Pwsh => pwsh_command(adapter_launch, entry_path, arguments)?,
-        CommandAdapter::Cmd => cmd_command(entry_path, arguments)?,
-        CommandAdapter::Core | CommandAdapter::Python => unreachable!(),
+    let cmd_executable = if adapter == CommandAdapter::Cmd {
+        Some(ambient_command_processor()?)
+    } else {
+        None
     };
+    let mut command = adapter_command(
+        adapter,
+        entry_path,
+        arguments,
+        adapter_launch,
+        cmd_executable.as_deref(),
+    )?;
     command.current_dir(working_directory);
     command.creation_flags(process_creation_flags(process_mode));
     environment.apply(&mut command);
     Ok(command)
+}
+
+fn adapter_command(
+    adapter: CommandAdapter,
+    entry_path: &Path,
+    arguments: &[OsString],
+    adapter_launch: &AdapterLaunch,
+    cmd_executable: Option<&Path>,
+) -> CommandResult<Command> {
+    validate_adapter(adapter)?;
+    Ok(match adapter {
+        CommandAdapter::Exe => executable_command(entry_path, arguments),
+        CommandAdapter::Native | CommandAdapter::Delegate => {
+            native_command(adapter_launch, arguments)?
+        }
+        CommandAdapter::Bun => bun_command(adapter_launch, entry_path, arguments)?,
+        CommandAdapter::Runtime => runtime_command(adapter_launch, arguments)?,
+        CommandAdapter::Pwsh => pwsh_command(adapter_launch, entry_path, arguments)?,
+        CommandAdapter::Cmd => cmd_command(
+            cmd_executable.expect("Cmd adapter must resolve its command processor"),
+            entry_path,
+            arguments,
+        )?,
+        CommandAdapter::Core | CommandAdapter::Python => unreachable!(),
+    })
 }
 
 pub(super) fn process_creation_flags(process_mode: CommandProcessMode) -> u32 {
@@ -140,8 +171,10 @@ pub(crate) fn validate_adapter(adapter: CommandAdapter) -> CommandResult<()> {
     if matches!(
         adapter,
         CommandAdapter::Exe
+            | CommandAdapter::Native
+            | CommandAdapter::Delegate
             | CommandAdapter::Bun
-            | CommandAdapter::Toolchain
+            | CommandAdapter::Runtime
             | CommandAdapter::Pwsh
             | CommandAdapter::Cmd
     ) {
@@ -151,6 +184,18 @@ pub(crate) fn validate_adapter(adapter: CommandAdapter) -> CommandResult<()> {
         "the Rust V0 executor does not yet support the '{}' adapter",
         adapter.as_str()
     )))
+}
+
+fn native_command(
+    adapter_launch: &AdapterLaunch,
+    arguments: &[OsString],
+) -> CommandResult<Command> {
+    let AdapterLaunch::Native(executable) = adapter_launch else {
+        return Err(CommandError::new(
+            "native execution requires an instantiated native command executable",
+        ));
+    };
+    Ok(executable_command(executable, arguments))
 }
 
 fn bun_command(
@@ -169,22 +214,22 @@ fn bun_command(
     Ok(command)
 }
 
-fn toolchain_command(
+fn runtime_command(
     adapter_launch: &AdapterLaunch,
     arguments: &[OsString],
 ) -> CommandResult<Command> {
-    let AdapterLaunch::Toolchain {
+    let AdapterLaunch::Runtime {
         executable,
-        handler,
+        address,
     } = adapter_launch
     else {
         return Err(CommandError::new(
-            "the run.toolchain.json adapter requires a resolved Toolchain handler",
+            "Runtime Component execution requires a resolved product and command address",
         ));
     };
     let mut command = Command::new(executable);
     remove_inherited_adapter_environment(&mut command);
-    command.arg("command-v1").arg(handler).args(arguments);
+    command.arg("command-v1").arg(address).args(arguments);
     Ok(command)
 }
 
@@ -224,7 +269,11 @@ fn pwsh_command(
     Ok(command)
 }
 
-fn cmd_command(entry_path: &Path, arguments: &[OsString]) -> CommandResult<Command> {
+fn cmd_command(
+    executable: &Path,
+    entry_path: &Path,
+    arguments: &[OsString],
+) -> CommandResult<Command> {
     let marker = match arguments {
         [] => None,
         [marker] if marker.to_str().is_some_and(is_help_marker) => marker.to_str(),
@@ -235,16 +284,6 @@ fn cmd_command(entry_path: &Path, arguments: &[OsString]) -> CommandResult<Comma
             ));
         }
     };
-    let executable = env::var_os("ComSpec")
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| CommandError::new("the Windows command processor is unavailable"))?;
-    if !Path::new(&executable).is_file() {
-        return Err(CommandError::new(format!(
-            "the Windows command processor is unavailable: {}",
-            Path::new(&executable).display()
-        )));
-    }
-
     let command_line = match marker {
         Some(marker) => {
             format!("/d /s /v:off /c \"set \"{CMD_ENTRY_ENV}=\" & \"%{CMD_ENTRY_ENV}%\" {marker}\"")
@@ -256,6 +295,23 @@ fn cmd_command(entry_path: &Path, arguments: &[OsString]) -> CommandResult<Comma
     command.raw_arg(command_line);
     command.env(CMD_ENTRY_ENV, entry_path);
     Ok(command)
+}
+
+fn ambient_command_processor() -> CommandResult<PathBuf> {
+    let executable = env::var_os("ComSpec")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| CommandError::new("the Windows command processor is unavailable"))?;
+    validate_command_processor(Path::new(&executable))
+}
+
+fn validate_command_processor(executable: &Path) -> CommandResult<PathBuf> {
+    if !executable.is_file() {
+        return Err(CommandError::new(format!(
+            "the Windows command processor is unavailable: {}",
+            executable.display()
+        )));
+    }
+    Ok(executable.to_owned())
 }
 
 fn remove_inherited_adapter_environment(command: &mut Command) {
@@ -292,22 +348,44 @@ mod tests {
     }
 
     #[test]
-    fn toolchain_launch_pins_the_protocol_and_manifest_handler_before_user_arguments() {
-        let executable = PathBuf::from(r"C:\runtime\swawkit-proj-toolchain.exe");
-        let launch = AdapterLaunch::Toolchain {
+    fn runtime_dev_launch_pins_the_protocol_and_canonical_address_before_user_arguments() {
+        let executable = PathBuf::from(r"C:\runtime\swawkit-proj-dev.exe");
+        let launch = AdapterLaunch::Runtime {
             executable: executable.clone(),
-            handler: "dev.status".to_owned(),
+            address: ".dev/status".to_owned(),
         };
-        let command = toolchain_command(
+        let command = runtime_command(
             &launch,
             &[OsString::from("first"), OsString::from("two words")],
         )
-        .expect("Toolchain command");
+        .expect("Dev Runtime Component command");
 
         assert_eq!(command.get_program(), executable.as_os_str());
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
-            ["command-v1", "dev.status", "first", "two words"]
+            ["command-v1", ".dev/status", "first", "two words"]
+                .map(OsStr::new)
+                .to_vec()
+        );
+    }
+
+    #[test]
+    fn runtime_launch_pins_the_protocol_and_canonical_address_before_user_arguments() {
+        let executable = PathBuf::from(r"C:\runtime\swawkit-proj-module.exe");
+        let launch = AdapterLaunch::Runtime {
+            executable: executable.clone(),
+            address: ".module/status".to_owned(),
+        };
+        let command = runtime_command(
+            &launch,
+            &[OsString::from("swaw/context"), OsString::from("--json")],
+        )
+        .expect("Runtime Component command");
+
+        assert_eq!(command.get_program(), executable.as_os_str());
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            ["command-v1", ".module/status", "swaw/context", "--json",]
                 .map(OsStr::new)
                 .to_vec()
         );

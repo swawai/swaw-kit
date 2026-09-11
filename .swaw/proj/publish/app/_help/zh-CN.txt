@@ -1,16 +1,19 @@
-把 proj.build.app 发布的已验证 Release Set 原子切换为当前产品版本。
+把 project/proj/build/app 发布的已验证 Release Set 原子切换为当前产品版本。
 
 用法:
   {{INVOCATION}}
 
 前置:
-  {{ENTRY}} proj.build.app
+  {{ENTRY}} project/proj/build/app
 
 发布先完整写入不可变目录：
-  _lib/proj/_bin/releases/<release-id>/
+  <SWAWKIT_PROJ_DATA_ROOT>/runtime/releases/<release-id>/
 
-确认 Core、Host、Toolchain、Manifest 的长度与 SHA-256 后，只原子更新：
-  _lib/proj/_bin/current
+其中 SWAWKIT_PROJ_DATA_ROOT 是当前 Entry 独享的规范 data/proj.<entry>；不同 Entry
+不共享 Runtime selector，也不读取额外身份文件。
 
-正在运行的旧 Host 会继续使用旧 Release Set；新调用读取 current。_bin 根目录不再保留
-可执行文件副本。新建 Entry 的 Launcher 模板由 proj.publish.launcher 单独发布。
+确认 Core、Host、Module、Dev、Manifest 的长度与 SHA-256 后，只原子更新：
+  <SWAWKIT_PROJ_DATA_ROOT>/runtime/current
+
+正在运行的旧 Host 会继续使用旧 Release Set；新调用读取 current。runtime 根目录不再保留
+可执行文件副本。该命令不发布或替换任何 Entry Launcher。

@@ -1,8 +1,5 @@
-mod check;
-mod claim;
-mod context_commands;
 mod control;
-mod runs;
+mod entry_manager;
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -10,21 +7,16 @@ use std::fmt;
 use std::io::{self, Write};
 
 use swawkit_proj::{
-    catalog::{CatalogSnapshot, is_help_marker},
+    catalog::CatalogSnapshot,
     command::{CommandExecutionContext, CommandExecutor, CommandProcessMode, ConsoleCancellation},
     context::EntryContext,
-    data_root::{DataRootClaimApprover, ResolveDataRootRequest, resolve_data_root},
-    help::render_help,
-    profile::{EntryProfileState, EntryProfileStore},
+    core_command::{
+        CoreCommandOutcome, check as core_check, facet_route as core_facet_route,
+        help as core_help, runs as core_runs, view as core_view,
+    },
+    data_root::{ResolveDataRootRequest, ResolvedDataRoot, resolve_data_root},
+    entry_config::EntryConfigStore,
 };
-
-pub fn run(
-    context: &EntryContext,
-    argv: &[OsString],
-    process_mode: CommandProcessMode,
-) -> Result<i32, CliError> {
-    run_with_cancellation(context, argv, process_mode, None)
-}
 
 pub fn run_cancelable(
     context: &EntryContext,
@@ -41,24 +33,7 @@ fn run_with_cancellation(
     process_mode: CommandProcessMode,
     cancellation: Option<&ConsoleCancellation>,
 ) -> Result<i32, CliError> {
-    let mut approver =
-        |pending: &swawkit_proj::data_root::DataRootClaim| Err(claim::rejection(context, pending));
-    run_with_dependencies(context, argv, process_mode, cancellation, &mut approver)
-}
-
-#[cfg(test)]
-fn run_with_approver(
-    context: &EntryContext,
-    argv: &[OsString],
-    approver: &mut impl DataRootClaimApprover,
-) -> Result<i32, CliError> {
-    run_with_dependencies(
-        context,
-        argv,
-        CommandProcessMode::InheritConsole,
-        None,
-        approver,
-    )
+    run_with_dependencies(context, argv, process_mode, cancellation)
 }
 
 fn run_with_dependencies(
@@ -66,72 +41,82 @@ fn run_with_dependencies(
     argv: &[OsString],
     process_mode: CommandProcessMode,
     cancellation: Option<&ConsoleCancellation>,
-    approver: &mut impl DataRootClaimApprover,
 ) -> Result<i32, CliError> {
-    match control::dispatch_before_data_root(context, argv)? {
-        Some(control::PreDataRootControl::Claim { snapshot, address }) => {
-            return claim::run(context, argv, &snapshot, &address);
-        }
-        Some(control::PreDataRootControl::Complete(exit_code)) => return Ok(exit_code),
-        None => {}
+    if let Some(exit_code) = control::dispatch_help_before_data_root(context, argv)? {
+        return Ok(exit_code);
     }
 
-    let resolved = resolve_data_root(
-        ResolveDataRootRequest {
-            swawkit_home: &context.swawkit_home,
-            entry_file: &context.entry_file,
-        },
-        approver,
-    )
-    .map_err(|error| CliError::new(format!("DataRoot resolution failed: {error}")))?;
+    if core_check::is_invocation(argv) {
+        return run_read_only_check(context, argv);
+    }
 
-    let profile_store = EntryProfileStore::new(&context.swawkit_home, resolved.path());
-    let profile_state = profile_store.read();
-    let snapshot = CatalogSnapshot::discover(context, profile_state.ready())
+    let resolved = resolve_owned_data_root(context)?;
+
+    if let Some(exit_code) = control::dispatch_runtime(context, argv, &resolved)? {
+        return Ok(exit_code);
+    }
+    if let Some(exit_code) = entry_manager::dispatch(context, argv)? {
+        return Ok(exit_code);
+    }
+
+    let config_store = EntryConfigStore::new(&context.swawkit_home, resolved.path());
+    let config_state = config_store.read();
+    let snapshot = CatalogSnapshot::discover(context, config_state.ready())
         .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
-    if let Some(output) = protocol_help(&snapshot, argv)? {
-        write_output(&output)
-            .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
-        return Ok(0);
-    }
-    if let Some(exit_code) =
-        check::dispatch(&snapshot, argv, context, resolved.path(), &profile_state)?
+    let routed_argv = match core_facet_route::resolve(&snapshot, argv, context, resolved.path())
+        .map_err(|error| CliError::new(error.to_string()))?
     {
-        return Ok(exit_code);
-    }
-    if let Some(exit_code) =
-        runs::dispatch(&snapshot, argv, context, resolved.path(), &profile_state)?
-    {
-        return Ok(exit_code);
-    }
-    if let Some(exit_code) = context_commands::dispatch(&snapshot, argv, context, resolved.path())?
-    {
-        return Ok(exit_code);
-    }
-    if let Some(exit_code) = control::dispatch(&snapshot, argv, context, &profile_store)? {
-        return Ok(exit_code);
-    }
-    CommandExecutor::preflight(&context.kernel_root(), &snapshot, argv)
-        .map_err(|error| CliError::new(error.to_string()))?;
-    let profile = match profile_state {
-        EntryProfileState::Ready(profile) => profile,
-        EntryProfileState::Missing { path } => {
-            return Err(CliError::new(format!(
-                "this entry has no profile: {}. Run '{} ..entry' or launch '{}' without arguments to complete initial setup",
-                path.display(),
-                context.entry_name,
-                context.entry_name,
-            )));
+        None => None,
+        Some(core_facet_route::CliFacetRouteResolution::Document(outcome)) => {
+            return complete_core_command(outcome);
         }
-        EntryProfileState::Invalid { path, error, .. } => {
-            return Err(CliError::new(format!(
-                "invalid entry profile '{}': {error}",
-                path.display()
-            )));
-        }
+        Some(core_facet_route::CliFacetRouteResolution::Invocation(argv)) => Some(argv),
     };
-    let execution_context =
-        CommandExecutionContext::new(context, &profile, resolved.path(), process_mode);
+    let argv = routed_argv.as_deref().unwrap_or(argv);
+    if routed_argv.is_some() {
+        if let Some(exit_code) = control::dispatch_runtime(context, argv, &resolved)? {
+            return Ok(exit_code);
+        }
+        if let Some(exit_code) = entry_manager::dispatch(context, argv)? {
+            return Ok(exit_code);
+        }
+        if core_check::is_invocation(argv) {
+            let outcome = core_check::execute(&snapshot, argv, context, resolved.path())
+                .map_err(|error| CliError::new(error.to_string()))?
+                .ok_or_else(|| {
+                    CliError::new("Catalog invariant failed: routed .check was not dispatched")
+                })?;
+            return complete_core_command(outcome);
+        }
+    }
+    if let Some(outcome) =
+        core_help::execute(&snapshot, argv).map_err(|error| CliError::new(error.to_string()))?
+    {
+        return complete_core_command(outcome);
+    }
+    if let Some(outcome) = core_runs::execute(&snapshot, argv, resolved.path())
+        .map_err(|error| CliError::new(error.to_string()))?
+    {
+        return complete_core_command(outcome);
+    }
+    if let Some(outcome) = core_view::execute(&snapshot, argv, context, resolved.path())
+        .map_err(|error| CliError::new(error.to_string()))?
+    {
+        return complete_core_command(outcome);
+    }
+    if let Some(exit_code) = control::dispatch(&snapshot, argv, context, &config_store)? {
+        return Ok(exit_code);
+    }
+    CommandExecutor::validate_invocation(&snapshot, argv)
+        .map_err(|error| CliError::new(error.to_string()))?;
+    let execution_context = CommandExecutionContext::for_cli(
+        context,
+        config_state.ready(),
+        &snapshot,
+        resolved.path(),
+        process_mode,
+    )
+    .map_err(|error| CliError::new(error.to_string()))?;
     let executor = CommandExecutor::new(&execution_context, &snapshot);
     match process_mode {
         CommandProcessMode::InheritConsole => match cancellation {
@@ -143,36 +128,48 @@ fn run_with_dependencies(
     .map_err(|error| CliError::new(error.to_string()))
 }
 
-fn protocol_help(
-    snapshot: &CatalogSnapshot,
-    argv: &[OsString],
-) -> Result<Option<String>, CliError> {
-    let Some(target) = help_target(argv)? else {
-        return Ok(None);
-    };
-    render_help(snapshot, &target)
-        .map(Some)
-        .map_err(|error| CliError::new(error.to_string()))
+fn run_read_only_check(context: &EntryContext, argv: &[OsString]) -> Result<i32, CliError> {
+    let resolved = resolve_owned_data_root(context)?;
+
+    let config_state = EntryConfigStore::new(&context.swawkit_home, resolved.path()).read();
+    let snapshot = CatalogSnapshot::discover(context, config_state.ready())
+        .map_err(|error| CliError::new(format!("catalog discovery failed: {error}")))?;
+    let outcome = core_check::execute(&snapshot, argv, context, resolved.path())
+        .map_err(|error| CliError::new(error.to_string()))?
+        .ok_or_else(|| CliError::new("Catalog invariant failed: .check was not dispatched"))?;
+    complete_core_command(outcome)
 }
 
-fn help_target(argv: &[OsString]) -> Result<Option<String>, CliError> {
-    match argv {
-        [marker] if marker.to_str().is_some_and(is_help_marker) => Ok(Some(String::new())),
-        [marker, target] if marker.to_str().is_some_and(is_help_marker) => {
-            let target = target
-                .to_str()
-                .ok_or_else(|| CliError::new("help target address is not valid Unicode"))?;
-            Ok(Some(target.to_owned()))
-        }
-        _ => Ok(None),
+fn resolve_owned_data_root(context: &EntryContext) -> Result<ResolvedDataRoot, CliError> {
+    let resolved = resolve_data_root(ResolveDataRootRequest {
+        swawkit_home: &context.swawkit_home,
+        entry_file: &context.entry_file,
+    })
+    .map_err(|error| CliError::new(format!("DataRoot resolution failed: {error}")))?;
+    if resolved.path() != context.data_root {
+        return Err(CliError::new(format!(
+            "resolved DataRoot does not match the running Runtime: expected '{}', received '{}'",
+            context.data_root.display(),
+            resolved.path().display()
+        )));
     }
+    Ok(resolved)
+}
+
+fn complete_core_command(outcome: CoreCommandOutcome) -> Result<i32, CliError> {
+    write_raw_output(&outcome.stdout)
+        .map_err(|error| CliError::new(format!("cannot write CLI output: {error}")))?;
+    Ok(outcome.exit_code)
 }
 
 fn write_output(output: &str) -> io::Result<()> {
+    write_raw_output(&format!("{output}\n"))
+}
+
+fn write_raw_output(output: &str) -> io::Result<()> {
     let stdout = io::stdout();
     let mut handle = stdout.lock();
     handle.write_all(output.as_bytes())?;
-    handle.write_all(b"\n")?;
     handle.flush()
 }
 

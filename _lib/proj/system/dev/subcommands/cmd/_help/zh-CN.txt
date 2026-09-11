@@ -1,0 +1,14 @@
+在当前项目环境中执行一条 Windows CMD 命令。
+
+用法:
+  {{INVOCATION}} <command...>
+
+run.ps1 adapter 由当前产品 Runtime 固定的 Framework Pwsh 执行；随后本命令显式验证并
+导入当前 Entry 的 .dev/setup Ready environment，再以项目根目录为当前目录启动目标命令。
+Core 不会把目标 Dev PATH 注入普通命令。
+
+固定使用导入环境后可解析的 cmd.exe /d /s /v:off /c；环境导入只作用于本次命令进程
+及其子进程，不会修改用户或系统 PATH，也不依赖旧的 Proj _bin 布局。
+
+命令地址后的参数会以空格重组为 CMD 命令文本；包含 Shell 元字符时，
+应按当前终端的规则引用。该命令不提供交互模式。

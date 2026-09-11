@@ -3,7 +3,8 @@ param(
     [string]$LauncherPath = '',
     [string]$CorePath = '',
     [string]$HostPath = '',
-    [string]$ToolchainPath = ''
+    [string]$ModulePath = '',
+    [string]$DevPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -192,11 +193,12 @@ $Artifacts = Resolve-ProjCandidateRuntimeArtifacts `
     -LauncherPath $LauncherPath `
     -CorePath $CorePath `
     -HostPath $HostPath `
-    -ToolchainPath $ToolchainPath
+    -ModulePath $ModulePath `
+    -DevPath $DevPath
 $TemporaryRoot = Join-Path $RepoRoot (
-    "data\_test\swawkit-proj-journal-abandon-$([Guid]::NewGuid().ToString('N'))"
+    "data\_test\swawkit-proj-journal-$([Guid]::NewGuid().ToString('N'))"
 )
-$EntryName = "journal-abandon-$([Guid]::NewGuid().ToString('N'))"
+$EntryName = "journal-$([Guid]::NewGuid().ToString('N'))"
 $Tree = $null
 $DescendantIdentity = $null
 
@@ -206,18 +208,22 @@ try {
         -LauncherPath $Artifacts.LauncherPath `
         -CorePath $Artifacts.CorePath `
         -HostPath $Artifacts.HostPath `
-        -ToolchainPath $Artifacts.ToolchainPath
+        -ModulePath $Artifacts.ModulePath `
+        -DevPath $Artifacts.DevPath
     $EntryPath = Add-ProjCandidateRuntimeEntry `
         -Runtime $Runtime `
         -RelativePath "$EntryName.exe"
     $ActionAddress = 'abandon-journal'
-    $ActionPath = Join-Path $Runtime.Home ".swaw\$ActionAddress\run.exe"
+    $CommandAddress = "project/$ActionAddress"
+    $ActionRoot = Join-Path $Runtime.Home ".swaw\$ActionAddress"
+    $ActionExecute = Add-ProjFixtureCommandResource -CommandRoot $ActionRoot
+    $ActionPath = Join-Path $ActionExecute 'run.exe'
     New-ProjJournalAbandonmentAction -OutputAssembly $ActionPath
 
     $Bound = Invoke-ProjJournalEntry `
         -EntryPath $EntryPath `
         -Arguments @(
-            '..entry.project.root',
+            '.entry/project/root',
             '${SWAWKIT_HOME}'
         )
     Assert-ProjJournalAbandonment `
@@ -226,19 +232,19 @@ try {
     foreach ($Tool in @('bun', 'pwsh', 'msvc', 'rust')) {
         $Disabled = Invoke-ProjJournalEntry `
             -EntryPath $EntryPath `
-            -Arguments @(".dev.$Tool.mode", 'disabled')
+            -Arguments @(".dev/$Tool/mode", 'disabled')
         Assert-ProjJournalAbandonment `
             -Condition ($Disabled.ExitCode -eq 0) `
             -Message "cannot disable ${Tool}: $($Disabled.Text)"
     }
 
-    $DataRoot = Join-Path $Runtime.Home "data\proj.$EntryName"
-    $ActionDataRoot = Join-Path $DataRoot "modules\action\$ActionAddress"
+    $DataRoot = [string]$Runtime.DataRoot
+    $ActionDataRoot = Join-Path $DataRoot "modules\project\$ActionAddress"
     $RunsRoot = Join-Path $ActionDataRoot '_runs'
     $DescendantIdentity = Join-Path $ActionDataRoot 'descendant.identity'
     $Tree = Start-ProjOwnedProcessTree `
         -FilePath $EntryPath `
-        -Arguments $ActionAddress `
+        -Arguments $CommandAddress `
         -WorkingDirectory $Runtime.Home
 
     $Deadline = [DateTime]::UtcNow.AddSeconds(15)
@@ -303,7 +309,7 @@ try {
     Assert-ProjJournalAbandonment `
         -Condition $Ready `
         -Message (
-            'the real Action did not publish a running journal and output event; ' +
+            'the real Module command did not publish a running journal and output event; ' +
             "launcher=$RootStatus; processes=$($Tree.TotalProcesses); " +
             "state=$ObservedState; descendant=$DescendantAlive; " +
             "events=$ObservedEvents; files=$ObservedFiles"
@@ -317,7 +323,7 @@ try {
             [IO.File]::Exists($OwnerPath) -and
             $Tree.TotalProcesses -ge 4
         ) `
-        -Message 'the active Action was not fully owned by its journal and test Job'
+        -Message 'the active Module command was not fully owned by its journal and test Job'
 
     $Tree.Dispose()
     $Tree = $null
@@ -329,7 +335,7 @@ try {
     Assert-ProjJournalAbandonment `
         -Condition (-not (Test-ProjJournalDescendantAlive `
             -IdentityPath $DescendantIdentity)) `
-        -Message 'closing the owned Job left the Action descendant alive'
+        -Message 'closing the owned Job left the Module command descendant alive'
     $InterruptedState = [IO.File]::ReadAllText($StatePath) | ConvertFrom-Json
     Assert-ProjJournalAbandonment `
         -Condition (
@@ -340,7 +346,7 @@ try {
 
     $Runs = Invoke-ProjJournalEntry `
         -EntryPath $EntryPath `
-        -Arguments @('.runs', $ActionAddress, '--run', $RunId, '--after', '0')
+        -Arguments @('.runs', $CommandAddress, '--run', $RunId, '--after', '0')
     Assert-ProjJournalAbandonment `
         -Condition ($Runs.ExitCode -eq 0) `
         -Message "the public .runs command could not reconcile the run: $($Runs.Text)"
@@ -352,7 +358,7 @@ try {
     )
     Assert-ProjJournalAbandonment `
         -Condition (
-            $Document.protocol -ceq 'swawkit.command-run-journal/v1' -and
+            $Document.protocol -ceq 'swawkit.command-run-journal/v3' -and
             $Document.id -ceq $RunId -and
             $Document.state -ceq 'failed' -and
             $Document.error -ceq (

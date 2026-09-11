@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   cancelCommandRun,
   CommandRunError,
+  RUNTIME_UPDATE_REQUIRED_CODE,
   normalizeCommandRunSnapshot,
   readCommandRun,
   startCommandRun,
@@ -10,9 +11,9 @@ import {
 
 function snapshot(overrides = {}) {
   return {
-    protocol: "swawkit.command-run/v1",
+    protocol: "swawkit.command-run/v2",
     id: "run-17",
-    address: ".dev.status",
+    address: ".dev/status",
     state: "running",
     exitCode: null,
     error: null,
@@ -49,6 +50,12 @@ function response(status, document = null, location = null) {
 }
 
 describe("command run protocol client", () => {
+  test("rejects the pre-hard-cut live protocol", () => {
+    expect(() => normalizeCommandRunSnapshot(snapshot({
+      protocol: "swawkit.command-run/v1",
+    }))).toThrow("swawkit.command-run/v2");
+  });
+
   test("normalizes ordered stdout and stderr events", () => {
     const document = snapshot({
       state: "exited",
@@ -122,41 +129,55 @@ describe("command run protocol client", () => {
     })).error).toBe("worker failed");
   });
 
-  test("starts one exact argv invocation and requires Location", async () => {
+  test("starts one Facet invocation with user tail and requires Location", async () => {
     let request;
     const created = snapshot();
     const result = await startCommandRun(
-      ".dev.pwsh",
+      "$/system::dev/subcommands::pwsh/execute",
       ["-Command", "Write-Host 'A B'", ""],
       async (url, options) => {
         request = { url, options };
-        return response(201, created, "/api/v2/command-runs/run-17");
+        return response(201, created, "/api/v3/command-runs/run-17");
       },
     );
 
-    expect(request.url).toBe("/api/v2/command-runs");
+    expect(request.url).toBe("/api/v3/command-runs");
     expect(request.options.method).toBe("POST");
     expect(JSON.parse(request.options.body)).toEqual({
-      address: ".dev.pwsh",
+      route: "$/system::dev/subcommands::pwsh/execute",
       arguments: ["-Command", "Write-Host 'A B'", ""],
     });
     expect(result).toEqual(created);
 
-    await expect(startCommandRun(".dev.status", [], async () => (
+    await expect(startCommandRun("$/system::dev/subcommands::status/execute", [], async () => (
       response(201, created)
     ))).rejects.toThrow("缺少 Location");
 
-    await expect(startCommandRun(".dev.status", [], async () => (
-      response(201, created, "/api/v2/command-runs/run-other")
+    await expect(startCommandRun("$/system::dev/subcommands::status/execute", [], async () => (
+      response(201, created, "/api/v3/command-runs/run-other")
     ))).rejects.toThrow("Location 与 run id 不一致");
   });
 
-  test("rejects an empty address before making a request", async () => {
+  test("rejects a non-canonical Facet Route before making a request", async () => {
     let requested = false;
     await expect(startCommandRun("", [], async () => {
       requested = true;
-    })).rejects.toThrow("命令地址不能为空");
+    })).rejects.toThrow("Facet Route");
     expect(requested).toBe(false);
+  });
+
+  test("preserves the machine-readable Runtime update code", async () => {
+    const error = await startCommandRun("$/system::dev/subcommands::status/execute", [], async () => (
+      response(409, {
+        code: RUNTIME_UPDATE_REQUIRED_CODE,
+        error: "server detail",
+      })
+    )).catch((caught) => caught);
+
+    expect(error).toBeInstanceOf(CommandRunError);
+    expect(error.status).toBe(409);
+    expect(error.code).toBe(RUNTIME_UPDATE_REQUIRED_CODE);
+    expect(error.message).toContain("Runtime 已更新");
   });
 
   test("polls from the declared cursor and URL-encodes the run id", async () => {
@@ -172,7 +193,7 @@ describe("command run protocol client", () => {
       return response(200, exited);
     });
 
-    expect(request.url).toBe("/api/v2/command-runs/run%2F17?after=8");
+    expect(request.url).toBe("/api/v3/command-runs/run%2F17?after=8");
     expect(request.options.cache).toBe("no-store");
     expect(result.state).toBe("exited");
   });
@@ -194,7 +215,7 @@ describe("command run protocol client", () => {
       return response(204);
     });
     expect(request).toEqual({
-      url: "/api/v2/command-runs/run-17",
+      url: "/api/v3/command-runs/run-17",
       options: {
         method: "DELETE",
         headers: { Accept: "application/json" },

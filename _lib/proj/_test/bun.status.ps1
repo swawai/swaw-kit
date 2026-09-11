@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$ToolchainPath
+    [Parameter(Mandatory = $true)][string]$DevPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -11,7 +11,7 @@ function Invoke-ProjStatusToolchainFixture {
 
     $Info = [Diagnostics.ProcessStartInfo]::new()
     $Info.FileName = $Executable
-    $Info.Arguments = 'command-v1 dev.status'
+    $Info.Arguments = 'command-v1 .dev/status'
     $Info.UseShellExecute = $false
     $Info.CreateNoWindow = $true
     $Info.RedirectStandardOutput = $true
@@ -30,23 +30,51 @@ function Invoke-ProjStatusToolchainFixture {
     }
 }
 
+function Write-ProjProductDevSettingsFixture {
+    param(
+        [Parameter(Mandatory = $true)][string]$DataRoot,
+        [Parameter(Mandatory = $true)][string]$BunVersion,
+        [AllowEmptyString()][string]$BunSha256 = ''
+    )
+
+    $SetupRoot = Join-Path $DataRoot 'modules\system\dev\setup'
+    [void][IO.Directory]::CreateDirectory($SetupRoot)
+    [IO.File]::WriteAllText(
+        (Join-Path $SetupRoot '_settings.json'),
+        (@{
+            schema = 'swawkit.proj-dev-settings/v1'
+            bun = @{
+                mode = 'managed'
+                version = $BunVersion
+                sha256 = $BunSha256
+            }
+            pwsh = @{ mode = 'disabled'; version = ''; sha256 = '' }
+            msvc = @{ mode = 'disabled'; channel = '' }
+            rust = @{
+                mode = 'disabled'
+                toolchain = ''
+                profile = 'minimal'
+                host = 'x86_64-pc-windows-msvc'
+            }
+        } | ConvertTo-Json -Depth 4),
+        [Text.UTF8Encoding]::new($false)
+    )
+}
+
 $ProjRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
-. (Join-Path $ProjRoot '_toolchain\setup.ps1')
+. (Join-Path $PSScriptRoot '_lib\stage0-toolchain.ps1')
 . (Join-Path $PSScriptRoot '_lib\bun-fixture.ps1')
 
 $EnvironmentNames = @(
     'SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL',
-    'SWAWKIT_PROJ_CORE_COMMAND_PHASE',
     'SWAWKIT_PROJ_CORE_COMMAND_ADDRESS',
     'SWAWKIT_HOME',
     'SWAWKIT_PROJ_TARGET_PROJECT_ROOT',
-    'SWAWKIT_PROJ_ACTION_ROOT',
+    'SWAWKIT_PROJ_PROJECT_MODULE_ROOT',
+    'SWAWKIT_PROJ_MODULE_ROOTS',
     'SWAWKIT_PROJ_DATA_ROOT',
     'SWAWKIT_PROJ_ENTRY_COMMAND',
     'SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR',
-    'SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION',
-    'SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION',
-    'SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE',
     'SWAWKIT_PROJ_BUN_MODE',
     'SWAWKIT_PROJ_BUN_VERSION',
     'SWAWKIT_PROJ_BUN_SHA256'
@@ -67,9 +95,9 @@ $DataRoot = Join-Path $ControlHome "data\proj.$EntryName"
 $PinnedDataRoot = Join-Path $ControlHome "data\proj.$PinnedEntryName"
 $ReparseDataRoot = Join-Path $ControlHome "data\proj.$EntryName-reparse"
 $ModulesJunction = ''
-$ResolvedToolchainPath = [IO.Path]::GetFullPath($ToolchainPath)
-if (-not [IO.File]::Exists($ResolvedToolchainPath)) {
-    throw "Toolchain test candidate is missing: $ResolvedToolchainPath"
+$ResolvedDevPath = [IO.Path]::GetFullPath($DevPath)
+if (-not [IO.File]::Exists($ResolvedDevPath)) {
+    throw "Toolchain test candidate is missing: $ResolvedDevPath"
 }
 
 try {
@@ -77,35 +105,36 @@ try {
     $ActionRoot = Join-Path $ProjectRoot '.swaw'
     [void][IO.Directory]::CreateDirectory($ActionRoot)
     [void][IO.Directory]::CreateDirectory($DataRoot)
-    $ProfilePath = Join-Path $DataRoot '_profile.json'
-    [IO.File]::WriteAllText($ProfilePath, '{}')
-    $ProfileRevision = 'sha256-' + (
-        Get-ProjDevFileSha256 -Path $ProfilePath
-    )
     Set-ProjBunProcessEnvironment -Values @{
-        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '1'
-        SWAWKIT_PROJ_CORE_COMMAND_PHASE = 'run'
-        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.status'
+        SWAWKIT_PROJ_CORE_COMMAND_PROTOCOL = '3'
+        SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/status'
         SWAWKIT_HOME = $ControlHome
-        SWAWKIT_PROJ_TARGET_PROJECT_ROOT = $ProjectRoot
-        SWAWKIT_PROJ_ACTION_ROOT = $ActionRoot
+        SWAWKIT_PROJ_MODULE_ROOTS = (@{
+            project = $ActionRoot
+        } | ConvertTo-Json -Compress)
         SWAWKIT_PROJ_DATA_ROOT = $DataRoot
         SWAWKIT_PROJ_ENTRY_COMMAND = 'swawkit'
         SWAWKIT_PROJ_CORE_COMMAND_INVOCATION_DIR = $ProjectRoot
-        SWAWKIT_PROJ_CORE_COMMAND_ENVIRONMENT_INPUT_REVISION = ('sha256-' + ('a' * 64))
-        SWAWKIT_PROJ_CORE_COMMAND_PROFILE_REVISION = $ProfileRevision
-        SWAWKIT_PROJ_CORE_TOOLCHAIN_EXECUTABLE = $ResolvedToolchainPath
         SWAWKIT_PROJ_BUN_MODE = 'managed'
         SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
         SWAWKIT_PROJ_BUN_SHA256 = ''
     }
-    $Context = New-ProjDevContextFromEnvironment
+    $Context = New-ProjStage0TestContext `
+        -ProjectRoot $ProjectRoot `
+        -DataRoot $DataRoot `
+        -CacheDataRoot (Join-Path $ControlHome 'data\proj_cache') `
+        -EnvironmentRoot (Join-Path $DataRoot (
+            'modules\system\dev\setup\export'
+        ))
     Assert-ProjBunTest `
         -Condition ($Context.CacheDataRoot.Equals(
             (Join-Path $ControlHome 'data\proj_cache'),
             [StringComparison]::OrdinalIgnoreCase
         )) `
-        -Message 'the production context did not derive the shared cache from the entry root'
+        -Message 'the Stage-0 fixture did not use the shared cache root'
+    Write-ProjProductDevSettingsFixture `
+        -DataRoot $DataRoot `
+        -BunVersion '1.2.15'
     $Definition = Get-ProjDevBunDefinition
     $Definition.Sha256 = 'f' * 64
     $Definition.Verification = 'github'
@@ -124,17 +153,28 @@ try {
     Write-ProjDevInstallMetadata `
         -Definition $Definition `
         -InstallRoot $InstallRoot
+    foreach ($RetiredName in @(
+        'SWAWKIT_PROJ_BUN_MODE',
+        'SWAWKIT_PROJ_BUN_VERSION',
+        'SWAWKIT_PROJ_BUN_SHA256'
+    )) {
+        [Environment]::SetEnvironmentVariable(
+            $RetiredName,
+            $null,
+            [EnvironmentVariableTarget]::Process
+        )
+    }
 
     $StatusResult = Invoke-ProjStatusToolchainFixture `
-        -Executable $ResolvedToolchainPath
+        -Executable $ResolvedDevPath
     Assert-ProjBunTest `
         -Condition (
             $StatusResult.ExitCode -eq 0 -and
             $StatusResult.Output -like '*[[]READY[]]*bun 1.2.15*upstream*' -and
             $StatusResult.Output -like '*GitHub Release digest*' -and
-            $StatusResult.Output -like '*SWAWKIT_PROJ_BUN_SHA256*'
+            $StatusResult.Output -like '*.dev/bun/sha256*'
         ) `
-        -Message ".dev.status did not report upstream trust: $($StatusResult.Output)"
+        -Message ".dev/status did not report upstream trust: $($StatusResult.Output)"
 
     $MetadataPath = Get-ProjDevInstallMetadataPath -InstallRoot $InstallRoot
     [byte[]]$OriginalMetadata = [IO.File]::ReadAllBytes($MetadataPath)
@@ -149,7 +189,7 @@ try {
             [Text.UTF8Encoding]::new($false)
         )
         $MissingSourceUrlStatus = Invoke-ProjStatusToolchainFixture `
-            -Executable $ResolvedToolchainPath
+            -Executable $ResolvedDevPath
         Assert-ProjBunTest `
             -Condition (
                 $MissingSourceUrlStatus.ExitCode -eq 0 -and
@@ -161,7 +201,7 @@ try {
                     '(?m)^\[MISSING\] bun 1\.2\.15\s+upstream\s+'
             ) `
             -Message (
-                '.dev.status trusted metadata without sourceUrl: ' +
+                '.dev/status trusted metadata without sourceUrl: ' +
                 $MissingSourceUrlStatus.Output
             )
     } finally {
@@ -175,7 +215,7 @@ try {
     try {
         [IO.File]::WriteAllBytes($BunxPath, $TamperedBunx)
         $TamperedStatus = Invoke-ProjStatusToolchainFixture `
-            -Executable $ResolvedToolchainPath
+            -Executable $ResolvedDevPath
         Assert-ProjBunTest `
             -Condition (
                 $TamperedStatus.ExitCode -eq 0 -and
@@ -185,18 +225,18 @@ try {
                     '(?m)^\[READY\] bun 1\.2\.15 '
             ) `
             -Message (
-                '.dev.status accepted same-length Bun tampering or lost ' +
+                '.dev/status accepted same-length Bun tampering or lost ' +
                 'the validated source trust: ' + $TamperedStatus.Output
             )
     } finally {
         [IO.File]::WriteAllBytes($BunxPath, $OriginalBunx)
     }
 
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.setup'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/setup'
     $SetupResult = Invoke-ProjToolchainCommandFixture `
-        -Executable $ResolvedToolchainPath `
-        -Handler 'dev.setup'
-    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev.status'
+        -Executable $ResolvedDevPath `
+        -Handler '.dev/setup'
+    $env:SWAWKIT_PROJ_CORE_COMMAND_ADDRESS = '.dev/status'
     Assert-ProjBunTest `
         -Condition (
             $SetupResult.ExitCode -eq 0 -and
@@ -205,14 +245,14 @@ try {
             [IO.File]::Exists($Context.EnvCmdPath) -and
             [IO.File]::Exists($Context.EnvPs1Path)
         ) `
-        -Message ".dev.setup did not preserve non-blocking trust: $($SetupResult.Output)"
+        -Message ".dev/setup did not preserve non-blocking trust: $($SetupResult.Output)"
     $ReadyStatus = Invoke-ProjStatusToolchainFixture `
-        -Executable $ResolvedToolchainPath
+        -Executable $ResolvedDevPath
     Assert-ProjBunTest `
         -Condition ($ReadyStatus.Output -cmatch
-            '\[READY\] \.dev\.setup publication [a-f0-9]{8}') `
+            '\[READY\] \.dev/setup publication [a-f0-9]{8}') `
         -Message (
-            '.dev.status did not report the provider publication token: ' +
+            '.dev/status did not report the provider publication token: ' +
             $ReadyStatus.Output
         )
 
@@ -227,9 +267,11 @@ try {
         })),
         [Text.UTF8Encoding]::new($false)
     )
-    $env:SWAWKIT_PROJ_BUN_VERSION = 'latest'
+    Write-ProjProductDevSettingsFixture `
+        -DataRoot $DataRoot `
+        -BunVersion 'latest'
     $MismatchedSelection = Invoke-ProjStatusToolchainFixture `
-        -Executable $ResolvedToolchainPath
+        -Executable $ResolvedDevPath
     Assert-ProjBunTest `
         -Condition (
             $MismatchedSelection.ExitCode -eq 0 -and
@@ -239,13 +281,13 @@ try {
                 '(?m)^\[READY\] bun latest -> 1\.2\.15 '
         ) `
         -Message (
-            '.dev.status accepted an install whose digest disagreed with the ' +
+            '.dev/status accepted an install whose digest disagreed with the ' +
             'latest selection: ' + $MismatchedSelection.Output
         )
 
     $ExternalModules = Join-Path $TemporaryRoot 'external-modules'
     $UnsafeSetupRoot = Join-Path $ExternalModules (
-        'kernel\.dev\setup'
+        'system\dev\setup'
     )
     [void][IO.Directory]::CreateDirectory($UnsafeSetupRoot)
     [void][IO.Directory]::CreateDirectory((Join-Path $UnsafeSetupRoot 'export\bun'))
@@ -267,35 +309,38 @@ try {
         -Path $ModulesJunction `
         -Target $ExternalModules)
     $env:SWAWKIT_PROJ_DATA_ROOT = $ReparseDataRoot
-    $env:SWAWKIT_PROJ_BUN_VERSION = 'latest'
     $UnsafeStatus = Invoke-ProjStatusToolchainFixture `
-        -Executable $ResolvedToolchainPath
+        -Executable $ResolvedDevPath
     Assert-ProjBunTest `
         -Condition (
             $UnsafeStatus.ExitCode -ne 0 -and
-            $UnsafeStatus.Output -like '*must be a regular directory*' -and
+            $UnsafeStatus.Output -like (
+                '*Dev Settings directory must be a regular filesystem entry*'
+            ) -and
             $UnsafeStatus.Output -notlike '*latest -> 9.9.9*'
         ) `
         -Message (
-            '.dev.status followed a reparse-point Export outside DataRoot: ' +
+            '.dev/status followed a reparse-point Export outside DataRoot: ' +
             $UnsafeStatus.Output
         )
 
     $env:SWAWKIT_PROJ_DATA_ROOT = $PinnedDataRoot
-    $env:SWAWKIT_PROJ_BUN_VERSION = '1.2.15'
-    $env:SWAWKIT_PROJ_BUN_SHA256 = 'e' * 64
+    Write-ProjProductDevSettingsFixture `
+        -DataRoot $PinnedDataRoot `
+        -BunVersion '1.2.15' `
+        -BunSha256 ('e' * 64)
     $PinnedStatus = Invoke-ProjStatusToolchainFixture `
-        -Executable $ResolvedToolchainPath
+        -Executable $ResolvedDevPath
     Assert-ProjBunTest `
         -Condition (
             $PinnedStatus.ExitCode -eq 0 -and
             $PinnedStatus.Output -like '*[[]MISSING[]]*bun 1.2.15*pinned*' -and
             $PinnedStatus.Output -notlike '*WARNING*' -and
             -not [IO.Directory]::Exists(
-                (Join-Path $PinnedDataRoot 'modules\kernel\.dev\setup\export')
+                (Join-Path $PinnedDataRoot 'modules\system\dev\setup\export')
             )
         ) `
-        -Message ".dev.status was not read-only for pinned state: $($PinnedStatus.Output)"
+        -Message ".dev/status was not read-only for pinned state: $($PinnedStatus.Output)"
 
     Write-Host '[PASS] Proj Bun development status test' `
         -ForegroundColor Green

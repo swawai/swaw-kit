@@ -10,6 +10,15 @@
   min-height: 350px;
   display: flex;
   align-items: stretch;
+  overflow: hidden;
+}
+
+.explorer-workspace {
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  align-items: stretch;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -82,6 +91,7 @@
 
 .command-item {
   min-width: 0;
+  position: relative;
 }
 
 .finder-choice:hover {
@@ -102,38 +112,6 @@
 .command-row[data-selected="true"] {
   color: var(--ui-selection-text);
   background: var(--ui-selection-bg);
-}
-
-.command-facet-group {
-  margin: 5px 4px 8px 31px;
-}
-
-.command-facet-menu {
-  display: grid;
-  gap: 1px;
-  margin: 0;
-  padding: 2px 0 2px 8px;
-  border-left: 1px solid var(--ui-border-strong);
-  list-style: none;
-}
-
-.command-facet-row {
-  min-height: 31px;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 6px;
-  padding: 3px 6px;
-  color: var(--ui-text-muted);
-  background: transparent;
-}
-
-.command-facet-row:hover {
-  color: var(--ui-text);
-  background: var(--ui-surface-hover);
-}
-
-.command-facet-row[aria-pressed="true"] {
-  color: var(--ui-text);
-  background: var(--ui-surface-pressed);
 }
 
 .command-row[data-selected="true"]:focus-visible {
@@ -174,34 +152,21 @@
   background: var(--ui-selection-text);
 }
 
-.command-facet-row .facet-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--ui-text);
-  background: transparent;
-  font-size: 10px;
-}
-
-.command-facet-row[aria-pressed="true"] .facet-icon {
-  color: var(--ui-text);
-  background: var(--ui-surface);
-}
-
-.subject-row {
+.resource-row {
   grid-template-columns: 24px minmax(0, 1fr);
 }
 
-.subject-row[data-selected="true"] {
+.resource-row[data-selected="true"] {
   color: var(--ui-selection-text);
   background: var(--ui-selection-bg);
 }
 
-.subject-row[data-selected="true"] .row-icon {
+.resource-row[data-selected="true"] .row-icon {
   color: var(--ui-selection-bg);
   background: var(--ui-selection-text);
 }
 
-.subject-row[data-selected="true"] .row-summary {
+.resource-row[data-selected="true"] .row-summary {
   color: var(--ui-selection-text);
 }
 
@@ -312,18 +277,5 @@
     width: min(92vw, 380px);
     flex-basis: min(92vw, 380px);
   }
-}
-.module-contract-grid {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-}
 
-.module-contract-grid h4 {
-  margin: 0 0 0.35rem;
-}
-
-.module-contract-grid ul {
-  margin: 0;
-  padding-left: 1.2rem;
 }
